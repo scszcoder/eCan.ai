@@ -81,7 +81,16 @@ class Login:
         }
 
         logger.info("Login controller initialized end")
-    
+
+    @property
+    def access_token(self) -> str:
+        """Get the current access token from auth_manager tokens."""
+        if self.auth_manager and self.auth_manager.tokens:
+            return (self.auth_manager.tokens.get('AccessToken')
+                    or self.auth_manager.tokens.get('access_token')
+                    or '')
+        return ''
+
     def set_ui_references(self, login_window=None, login_progress_dialog=None):
         """Set references to UI components (called by WebGUI)"""
         self.login_window = login_window

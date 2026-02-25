@@ -164,20 +164,200 @@ def get_ollama_api_key(provider_type: str, provider_identifier: str = 'ollama') 
         return provider_identifier.lower()
 
 
-def save_general_settings_if_needed(base_url_updated: bool, auto_set_as_default: bool) -> bool:
+def update_ollama_model(
+    provider_identifier: str,
+    model_name: str,
+    provider_type: str  # 'llm', 'embedding', or 'rerank'
+) -> Tuple[bool, Optional[str]]:
+    """
+    Update Ollama/RyoAIS model selection in settings.json.
+    
+    Args:
+        provider_identifier: Provider identifier (e.g., 'ollama', 'ryoais')
+        model_name: Model name to save
+        provider_type: Type of provider ('llm', 'embedding', or 'rerank')
+    
+    Returns:
+        Tuple of (success: bool, error_message: Optional[str])
+    """
+    try:
+        if provider_identifier.lower() not in ['ollama', 'ryoais']:
+            return False, f"update_ollama_model only supports 'ollama' or 'ryoais', got '{provider_identifier}'"
+        
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        
+        if not main_window:
+            error_msg = "Cannot update model: main_window not available"
+            logger.error(f"[ProviderUtils] {error_msg}")
+            return False, error_msg
+        
+        # Update model in memory (don't save yet, will be saved by caller)
+        general_settings = main_window.config_manager.general_settings
+        provider_lower = provider_identifier.lower()
+        
+        if provider_type == 'llm':
+            if provider_lower == 'ollama':
+                general_settings.ollama_llm_model = model_name
+            elif provider_lower == 'ryoais':
+                general_settings.ryoais_llm_model = model_name
+        elif provider_type == 'embedding':
+            if provider_lower == 'ollama':
+                general_settings.ollama_embedding_model = model_name
+            elif provider_lower == 'ryoais':
+                general_settings.ryoais_embedding_model = model_name
+        elif provider_type == 'rerank':
+            if provider_lower == 'ollama':
+                general_settings.ollama_rerank_model = model_name
+            elif provider_lower == 'ryoais':
+                general_settings.ryoais_rerank_model = model_name
+        else:
+            error_msg = f"Unknown provider_type: {provider_type}"
+            logger.error(f"[ProviderUtils] {error_msg}")
+            return False, error_msg
+        
+        logger.info(f"[ProviderUtils] Updated {provider_identifier} {provider_type} model: {model_name}")
+        return True, None
+        
+    except Exception as e:
+        error_msg = f"Failed to update model: {e}"
+        logger.error(f"[ProviderUtils] {error_msg}")
+        return False, error_msg
+
+
+def handle_provider_model_update(
+    ctx,
+    provider_identifier: str,
+    model_name: str,
+    provider_type: str,  # 'llm', 'embedding', or 'rerank'
+    manager,
+    updated_provider: dict
+) -> Tuple[bool, Optional[str]]:
+    """
+    Unified handler for provider model updates across LLM, Embedding, and Rerank.
+    
+    Handles:
+    1. Local provider (Ollama/RyoAIS) model persistence to settings.json
+    2. Default provider model update
+    3. Hot-update of active instances (LLMs, embeddings, reranks)
+    
+    Args:
+        ctx: Handler context with config_manager and main_window
+        provider_identifier: Provider name (e.g., 'ollama', 'openai')
+        model_name: Model name to set
+        provider_type: Type of provider ('llm', 'embedding', or 'rerank')
+        manager: Provider manager instance (llm_manager, embedding_manager, or rerank_manager)
+        updated_provider: Updated provider info dict
+    
+    Returns:
+        Tuple of (success: bool, error_message: Optional[str])
+    """
+    try:
+        # Step 1: For local providers (Ollama, RyoAIS), save model selection to settings.json
+        model_updated = False
+        if provider_identifier.lower() in ['ollama', 'ryoais']:
+            success_model, error_msg_model = update_ollama_model(provider_identifier, model_name, provider_type)
+            if success_model:
+                model_updated = True
+                # Save immediately for local providers
+                save_general_settings_if_needed(False, False, model_updated)
+            elif error_msg_model:
+                logger.warning(f"[{provider_type.upper()}] Failed to update model in settings: {error_msg_model}")
+        
+        # Step 2: If this is the current default provider, also update default_xxx_model
+        general_settings = ctx.get_config_manager().general_settings
+        
+        # Get current default provider based on type
+        if provider_type == 'llm':
+            current_default = (general_settings.default_llm or "").lower()
+            default_model_attr = 'default_llm_model'
+        elif provider_type == 'embedding':
+            current_default = (general_settings.default_embedding or "").lower()
+            default_model_attr = 'default_embedding_model'
+        elif provider_type == 'rerank':
+            current_default = (general_settings.default_rerank or "").lower()
+            default_model_attr = 'default_rerank_model'
+        else:
+            return False, f"Unknown provider_type: {provider_type}"
+        
+        # Update default model if this is the default provider
+        default_updated = False
+        if current_default == (provider_identifier or "").lower():
+            setattr(general_settings, default_model_attr, model_name)
+            general_settings.save()
+            default_updated = True
+            logger.info(f"[{provider_type.upper()}] Updated {default_model_attr} to {model_name} for current provider {provider_identifier}")
+            
+            # Step 3: Hot-update active instances
+            _perform_hot_update(ctx, provider_type, provider_identifier, model_name, updated_provider)
+        
+        return True, None
+        
+    except Exception as e:
+        error_msg = f"Failed to handle provider model update: {e}"
+        logger.error(f"[ProviderUtils] {error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False, error_msg
+
+
+def _perform_hot_update(ctx, provider_type: str, provider_identifier: str, model_name: str, updated_provider: dict):
+    """
+    Perform hot-update of active instances based on provider type.
+    
+    Args:
+        ctx: Handler context
+        provider_type: 'llm', 'embedding', or 'rerank'
+        provider_identifier: Provider name
+        model_name: New model name
+        updated_provider: Updated provider info
+    """
+    try:
+        if provider_type == 'llm':
+            # Hot-update: Use unified method to update all LLMs (including browser_use)
+            provider_info = f"{updated_provider.get('display_name', provider_identifier)}, Model: {model_name}"
+            update_success = ctx.main_window.update_all_llms(reason=f"Model changed to {provider_info}")
+            
+            if not update_success:
+                logger.warning(f"[LLM] Failed to update LLM instances after model change, but settings were saved")
+        
+        elif provider_type in ['embedding', 'rerank']:
+            # Hot-update: Update all agents' memoryManager embeddings/reranks
+            if ctx.get_agents():
+                updated_agents = 0
+                update_method = 'update_embeddings' if provider_type == 'embedding' else 'update_reranks'
+                
+                for agent in ctx.get_agents():
+                    if hasattr(agent, 'mem_manager') and agent.mem_manager:
+                        try:
+                            getattr(agent.mem_manager, update_method)(provider_name=provider_identifier, model_name=model_name)
+                            updated_agents += 1
+                            logger.debug(f"[{provider_type.upper()}] Updated {provider_type} for agent: {agent.card.name}")
+                        except Exception as e:
+                            logger.warning(f"[{provider_type.upper()}] Failed to update {provider_type} for agent {agent.card.name}: {e}")
+                
+                logger.info(f"[{provider_type.upper()}] ✅ Updated {provider_type} for {updated_agents} agents (model change)")
+    
+    except Exception as e:
+        logger.error(f"[{provider_type.upper()}] ❌ Error during hot-update: {e}")
+        logger.warning(f"Model settings updated but hot-update failed. Restart may be required for full effect.")
+
+
+def save_general_settings_if_needed(base_url_updated: bool, auto_set_as_default: bool, model_updated: bool = False) -> bool:
     """
     Save general_settings if any updates were made.
     
     Args:
         base_url_updated: Whether base_url was updated
         auto_set_as_default: Whether default provider was auto-set
+        model_updated: Whether model selection was updated
     
     Returns:
         True if saved successfully or no save needed, False otherwise
     """
-    logger.debug(f"[ProviderUtils] save_general_settings_if_needed called: base_url_updated={base_url_updated}, auto_set_as_default={auto_set_as_default}")
+    logger.debug(f"[ProviderUtils] save_general_settings_if_needed called: base_url_updated={base_url_updated}, auto_set_as_default={auto_set_as_default}, model_updated={model_updated}")
     
-    if not (base_url_updated or auto_set_as_default):
+    if not (base_url_updated or auto_set_as_default or model_updated):
         logger.debug("[ProviderUtils] No save needed (no updates)")
         return True  # No save needed
     
@@ -194,7 +374,7 @@ def save_general_settings_if_needed(base_url_updated: bool, auto_set_as_default:
         success = general_settings.save()
         
         if success:
-            logger.info("[ProviderUtils] ✅ Saved general_settings to disk (base_url and/or default provider)")
+            logger.info("[ProviderUtils] ✅ Saved general_settings to disk (base_url and/or default provider and/or model)")
         else:
             logger.error("[ProviderUtils] ❌ Failed to save general_settings")
         

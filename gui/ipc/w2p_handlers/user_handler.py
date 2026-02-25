@@ -482,6 +482,69 @@ def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]
         return create_error_response(request, 'GET_ACCOUNT_INFO_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('req_api_key')
+def handle_req_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Request a new API key from cloud."""
+    try:
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+
+        from agent.cloud_api.cloud_api import req_api_key
+
+        customer = (params or {}).get('customer', 'guest')
+        response = req_api_key(
+            mainwin.session,
+            mainwin.get_auth_token(),
+            mainwin.getWanApiEndpoint(),
+            customer=customer,
+        )
+        if response and 'errorType' not in response:
+            logger.info(f"[ReqApiKey] API key generated successfully")
+            return create_success_response(request, response)
+        else:
+            logger.warning(f"[ReqApiKey] Failed: {response}")
+            return create_error_response(request, 'API_KEY_ERROR', response.get('message', str(response)))
+
+    except Exception as e:
+        logger.error(f"[ReqApiKey] Error: {e}")
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'REQ_API_KEY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('remove_api_key')
+def handle_remove_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Remove an API key via cloud."""
+    try:
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+
+        from agent.cloud_api.cloud_api import remove_api_key
+
+        masked_keys = (params or {}).get('masked_keys', [])
+        if not masked_keys:
+            return create_error_response(request, 'INVALID_PARAMS', 'masked_keys is required')
+
+        response = remove_api_key(
+            mainwin.session,
+            mainwin.get_auth_token(),
+            mainwin.getWanApiEndpoint(),
+            masked_keys=masked_keys,
+        )
+        if response and 'errorType' not in response:
+            logger.info(f"[RemoveApiKey] API key removed successfully")
+            return create_success_response(request, response)
+        else:
+            logger.warning(f"[RemoveApiKey] Failed: {response}")
+            return create_error_response(request, 'API_KEY_ERROR', response.get('message', str(response)))
+
+    except Exception as e:
+        logger.error(f"[RemoveApiKey] Error: {e}")
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'REMOVE_API_KEY_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('get_auth_token')
 def handle_get_auth_token(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
     """Get the Cognito JWT auth token from MainWindow."""

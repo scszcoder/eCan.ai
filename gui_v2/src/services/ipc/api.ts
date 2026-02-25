@@ -1284,7 +1284,7 @@ export class IPCAPI {
           resultPath: 'removeAgents'
         }
       },
-      { username, input: agent_id }
+      { username, agent_id }
     );
     }
 
@@ -1425,6 +1425,272 @@ export class IPCAPI {
     );
     }
 
+    // ==================== Relation Tables (RDS) - Web GraphQL Only ====================
+    private toAwsJson(value: any) {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      return typeof value === 'string' ? value : JSON.stringify(value);
+    }
+
+    private parseAwsJsonMaybe<T = any>(value: any): T {
+      if (value === null || value === undefined) return value as T;
+      if (typeof value !== 'string') return value as T;
+      const s = value.trim();
+      if (!s) return value as T;
+      try {
+        return JSON.parse(s) as T;
+      } catch {
+        return value as T;
+      }
+    }
+
+    public async queryAgentOrgRels(input?: Record<string, any>): Promise<APIResponse<any[]>> {
+      const resp = await apiRouter.execute(
+        {
+          method: 'query_agent_org_rels',
+          graphql: {
+            query: GRAPHQL_QUERIES.QUERY_AGENT_ORG_RELS,
+            resultPath: 'queryAgentOrgRels'
+          }
+        },
+        { input: this.toAwsJson(input || {}) }
+      );
+      if (!resp.success) return resp as any;
+      return { success: true, data: this.parseAwsJsonMaybe<any[]>(resp.data) };
+    }
+
+    public async addAgentOrgRels(input: any[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'add_agent_org_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.ADD_AGENT_ORG_RELS,
+            resultPath: 'addAgentOrgRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async removeAgentOrgRels(input: { id: string }[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'remove_agent_org_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_AGENT_ORG_RELS,
+            resultPath: 'removeAgentOrgRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async queryAgentSkillRels(input?: Record<string, any>): Promise<APIResponse<any[]>> {
+      const resp = await apiRouter.execute(
+        {
+          method: 'query_agent_skill_rels',
+          graphql: {
+            query: GRAPHQL_QUERIES.QUERY_AGENT_SKILL_RELS,
+            resultPath: 'queryAgentSkillRels'
+          }
+        },
+        { input: this.toAwsJson(input || {}) }
+      );
+      if (!resp.success) return resp as any;
+      return { success: true, data: this.parseAwsJsonMaybe<any[]>(resp.data) };
+    }
+
+    public async addAgentSkillRels(input: any[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'add_agent_skill_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.ADD_AGENT_SKILL_RELS,
+            resultPath: 'addAgentSkillRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async removeAgentSkillRels(input: { id: string }[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'remove_agent_skill_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_AGENT_SKILL_RELS,
+            resultPath: 'removeAgentSkillRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async queryAgentTaskRels(input?: Record<string, any>): Promise<APIResponse<any[]>> {
+      const resp = await apiRouter.execute(
+        {
+          method: 'query_agent_task_rels',
+          graphql: {
+            query: GRAPHQL_QUERIES.QUERY_AGENT_TASK_RELS,
+            resultPath: 'queryAgentTaskRels'
+          }
+        },
+        { input: this.toAwsJson(input || {}) }
+      );
+      if (!resp.success) return resp as any;
+      return { success: true, data: this.parseAwsJsonMaybe<any[]>(resp.data) };
+    }
+
+    public async addAgentTaskRels(input: any[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'add_agent_task_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.ADD_AGENT_TASK_RELS,
+            resultPath: 'addAgentTaskRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async removeAgentTaskRels(input: { id: string }[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'remove_agent_task_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_AGENT_TASK_RELS,
+            resultPath: 'removeAgentTaskRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async queryAgentTaskSkillRels(input?: Record<string, any>): Promise<APIResponse<any[]>> {
+      const resp = await apiRouter.execute(
+        {
+          method: 'query_agent_task_skill_rels',
+          graphql: {
+            query: GRAPHQL_QUERIES.QUERY_AGENT_TASK_SKILL_RELS,
+            resultPath: 'queryAgentTaskSkillRels'
+          }
+        },
+        { input: this.toAwsJson(input || {}) }
+      );
+      if (!resp.success) return resp as any;
+      return { success: true, data: this.parseAwsJsonMaybe<any[]>(resp.data) };
+    }
+
+    public async addAgentTaskSkillRels(input: any[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'add_agent_task_skill_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.ADD_AGENT_TASK_SKILL_RELS,
+            resultPath: 'addAgentTaskSkillRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async removeAgentTaskSkillRels(input: { id: string }[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'remove_agent_task_skill_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_AGENT_TASK_SKILL_RELS,
+            resultPath: 'removeAgentTaskSkillRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    // Placeholders (not currently used by web UI)
+    public async queryAgentSkillToolRels(input?: Record<string, any>): Promise<APIResponse<any[]>> {
+      const resp = await apiRouter.execute(
+        {
+          method: 'query_agent_skill_tool_rels',
+          graphql: {
+            query: GRAPHQL_QUERIES.QUERY_AGENT_SKILL_TOOL_RELS,
+            resultPath: 'queryAgentSkillToolRels'
+          }
+        },
+        { input: this.toAwsJson(input || {}) }
+      );
+      if (!resp.success) return resp as any;
+      return { success: true, data: this.parseAwsJsonMaybe<any[]>(resp.data) };
+    }
+
+    public async addAgentSkillToolRels(input: any[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'add_agent_skill_tool_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.ADD_AGENT_SKILL_TOOL_RELS,
+            resultPath: 'addAgentSkillToolRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async removeAgentSkillToolRels(input: { id: string }[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'remove_agent_skill_tool_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_AGENT_SKILL_TOOL_RELS,
+            resultPath: 'removeAgentSkillToolRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async queryAgentSkillKnowledgeRels(input?: Record<string, any>): Promise<APIResponse<any[]>> {
+      const resp = await apiRouter.execute(
+        {
+          method: 'query_agent_skill_knowledge_rels',
+          graphql: {
+            query: GRAPHQL_QUERIES.QUERY_AGENT_SKILL_KNOWLEDGE_RELS,
+            resultPath: 'queryAgentSkillKnowledgeRels'
+          }
+        },
+        { input: this.toAwsJson(input || {}) }
+      );
+      if (!resp.success) return resp as any;
+      return { success: true, data: this.parseAwsJsonMaybe<any[]>(resp.data) };
+    }
+
+    public async addAgentSkillKnowledgeRels(input: any[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'add_agent_skill_knowledge_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.ADD_AGENT_SKILL_KNOWLEDGE_RELS,
+            resultPath: 'addAgentSkillKnowledgeRels'
+          }
+        },
+        { input }
+      );
+    }
+
+    public async removeAgentSkillKnowledgeRels(input: { id: string }[]): Promise<APIResponse<any>> {
+      return apiRouter.execute(
+        {
+          method: 'remove_agent_skill_knowledge_rels',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_AGENT_SKILL_KNOWLEDGE_RELS,
+            resultPath: 'removeAgentSkillKnowledgeRels'
+          }
+        },
+        { input }
+      );
+    }
+
     public async queryCloudTaskRunId(taskId: string, hostName?: string, metaData: Record<string, any> = {}): Promise<APIResponse<{ id: string; runID: string; runner: string; status: string; success: boolean; error: string; timestamp: string }>> {
         const toAwsJson = (value: any) => {
           if (value === undefined) return undefined;
@@ -1445,6 +1711,60 @@ export class IPCAPI {
 
     public async saveAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
         // GraphQL mutation expects input: [SkillUpdateInput!]!
+        // NOTE: AWSJSON fields must be JSON strings for AppSync.
+        const toAwsJson = (value: any) => {
+          if (value === undefined) return undefined;
+          if (value === null) return null;
+          return typeof value === 'string' ? value : JSON.stringify(value);
+        };
+        const normalizeSkillUpdateInput = (skill: any) => {
+          if (!skill || typeof skill !== 'object') return skill;
+          const out: Record<string, any> = {};
+          const allowed = [
+            'id',
+            'name',
+            'description',
+            'version',
+            'path',
+            'level',
+            'source',
+            'public',
+            'rentable',
+            'price',
+            'price_model',
+            'askid',
+            // AWSJSON
+            'config',
+            'diagram',
+            'tags',
+            'apps',
+            'examples',
+            'inputModes',
+            'outputModes',
+            'limitations',
+          ];
+          const awsJsonFields = new Set([
+            'config',
+            'diagram',
+            'tags',
+            'apps',
+            'examples',
+            'inputModes',
+            'outputModes',
+            'limitations',
+          ]);
+
+          for (const key of allowed) {
+            if (!(key in skill)) continue;
+            const v = (skill as any)[key];
+            if (v === undefined) continue;
+            out[key] = awsJsonFields.has(key) ? toAwsJson(v) : v;
+          }
+          return out;
+        };
+
+        const normalizedSkill = normalizeSkillUpdateInput(skill_info as any);
+
         // Note: owner is NOT in SkillUpdateInput schema - backend gets it from identity claims
         return apiRouter.execute(
       {
@@ -1454,12 +1774,66 @@ export class IPCAPI {
           resultPath: 'updateAgentSkills'
         }
       },
-      { username, skill_info, input: [skill_info] }
+      { username, skill_info: normalizedSkill, input: [normalizedSkill] }
     );
     }
 
     public async newAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
         // GraphQL mutation expects input: [SkillInput!]!
+        // NOTE: AWSJSON fields must be JSON strings for AppSync.
+        const toAwsJson = (value: any) => {
+          if (value === undefined) return undefined;
+          if (value === null) return null;
+          return typeof value === 'string' ? value : JSON.stringify(value);
+        };
+        const normalizeSkillInput = (skill: any) => {
+          if (!skill || typeof skill !== 'object') return skill;
+          const out: Record<string, any> = {};
+          const allowed = [
+            'id',
+            'name',
+            'description',
+            'version',
+            'path',
+            'level',
+            'source',
+            'public',
+            'rentable',
+            'price',
+            'price_model',
+            'askid',
+            // AWSJSON
+            'config',
+            'diagram',
+            'tags',
+            'apps',
+            'examples',
+            'inputModes',
+            'outputModes',
+            'limitations',
+          ];
+          const awsJsonFields = new Set([
+            'config',
+            'diagram',
+            'tags',
+            'apps',
+            'examples',
+            'inputModes',
+            'outputModes',
+            'limitations',
+          ]);
+
+          for (const key of allowed) {
+            if (!(key in skill)) continue;
+            const v = (skill as any)[key];
+            if (v === undefined) continue;
+            out[key] = awsJsonFields.has(key) ? toAwsJson(v) : v;
+          }
+          return out;
+        };
+
+        const normalizedSkill = normalizeSkillInput(skill_info as any);
+
         // Note: owner is NOT in SkillInput schema - backend gets it from identity claims
         return apiRouter.execute(
       {
@@ -1469,7 +1843,7 @@ export class IPCAPI {
           resultPath: 'addAgentSkills'
         }
       },
-      { username, skill_info, input: [skill_info] }
+      { username, skill_info: normalizedSkill, input: [normalizedSkill] }
     );
     }
 

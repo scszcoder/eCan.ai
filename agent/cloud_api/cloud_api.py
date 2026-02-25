@@ -918,6 +918,70 @@ def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
     return jresponse
 
 
+def req_api_key(session, token, endpoint, customer='guest'):
+    """Request a new API key from cloud via reqApiKey mutation.
+
+    Args:
+        session: requests.Session
+        token: Cognito auth token
+        endpoint: AppSync endpoint URL
+        customer: customer identifier (default 'guest')
+
+    Returns:
+        dict with apiKey, apiKeyId, message on success, or error dict
+    """
+    query = f'''mutation {{
+        reqApiKey(input: {{customer: "{customer}"}}) {{
+            apiKey
+            apiKeyId
+            message
+        }}
+    }}'''
+    jresp = appsync_http_request(query, session, token, endpoint)
+    logger_helper.debug(f"reqApiKey response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[reqApiKey] ERROR Type: {error_type} Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    data = jresp.get("data", {}).get("reqApiKey", {})
+    return data
+
+
+def remove_api_key(session, token, endpoint, masked_keys):
+    """Remove API key(s) via removeApiKey mutation.
+
+    Args:
+        session: requests.Session
+        token: Cognito auth token
+        endpoint: AppSync endpoint URL
+        masked_keys: list of masked key strings (first6 + '*' + last6)
+
+    Returns:
+        parsed response dict or error dict
+    """
+    keys_str = ', '.join(f'"{k}"' for k in masked_keys)
+    query = f'''mutation {{
+        removeApiKey(input: [{keys_str}])
+    }}'''
+    jresp = appsync_http_request(query, session, token, endpoint)
+    logger_helper.debug(f"removeApiKey response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[removeApiKey] ERROR Type: {error_type} Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    raw = jresp.get("data", {}).get("removeApiKey", "{}")
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"result": raw}
+    return raw
+
+
 def send_reg_steps_to_cloud(session, localSteps, token, endpoint):
     queryInfo = gen_query_reg_steps_string(localSteps)
 
@@ -1113,7 +1177,7 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
-def appsync_http_request(query_string, session, token, endpoint=None, timeout=180):
+def appsync_http_request(query_string, session, token, endpoint=None, timeout=180, variables=None):
     """
     Send AppSync GraphQL request with authentication.
     Supports both Cognito User Pool tokens and Google ID tokens.
@@ -1124,6 +1188,7 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
         token: Authentication token
         endpoint: API endpoint URL (optional, will use get_appsync_endpoint() if not provided)
         timeout: Request timeout in seconds (default: 180)
+        variables: Optional dict of GraphQL variables
     """
     # 如果没有提供 endpoint，使用通用方法获取
     if not endpoint:
@@ -1145,12 +1210,15 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
 
     try:
         # Send the request with configurable timeout
+        payload = {'query': query_string}
+        if variables:
+            payload['variables'] = variables
         response = session.request(
             url=endpoint,
             method='POST',
             timeout=timeout,
             headers=headers,
-            json={'query': query_string}
+            json=payload
         )
         print("raw response: ", response)
         jresp = response.json()
@@ -1528,9 +1596,9 @@ def gen_remove_agent_skills_string(removeOrders):
 
 def gen_query_agent_skills_string(q_setting):
     if q_setting["byowneruser"]:
-        query_string = "query MySkQuery { queryAgentSkillRelations(qs: \"{ \\\"byowneruser\\\": true}\") } "
+        query_string = "query MySkQuery { queryAgentSkillRels(input: \"{ \\\"byowneruser\\\": true}\") } "
     else:
-        query_string = "query MySkQuery { queryAgentSkillRelations(qs: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\"" +q_setting["qphrase"]+"\\\"}\") } "
+        query_string = "query MySkQuery { queryAgentSkillRels(input: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\"" +q_setting["qphrase"]+"\\\"}\") } "
 
     rec_string = ""
     tail_string = ""
@@ -1724,7 +1792,7 @@ def gen_query_agent_tools_by_time_string(query):
 
     query_string = """
         query MyQuery {
-      queryAgentToolRelations (qm:[
+      queryAgentToolRels (qm:[
     """
     rec_string = ""
     for i in range(len(query)):
@@ -1754,7 +1822,7 @@ def gen_query_agent_tools_by_time_string(query):
 def gen_query_agent_tools_string(query):
     query_string = """
         query MyQuery {
-      queryAgentToolRelations (qt:[
+      queryAgentToolRels (qt:[
     """
     rec_string = ""
     for i in range(len(query)):
@@ -2371,35 +2439,30 @@ def send_add_agent_skill_relations_request_to_cloud(session, relations, token, e
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_SKILL, Operation.ADD, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentSkillRelations", "addAgentSkillRelations")
+    return safe_parse_response(jresp, "addAgentSkillRels", "addAgentSkillRels")
 
 
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_SKILL, Operation.UPDATE)
 def send_update_agent_skill_relations_request_to_cloud(session, relations, token, endpoint, timeout=180):
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_SKILL, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "updateAgentSkillRelations", "updateAgentSkillRelations")
+    return safe_parse_response(jresp, "updateAgentSkillRels", "updateAgentSkillRels")
 
 
-
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_SKILL, Operation.DELETE)
 def send_remove_agent_skill_relations_request_to_cloud(session, removes, token, endpoint, timeout=180):
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_SKILL, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "removeAgentSkillRelations", "removeAgentSkillRelations")
+    return safe_parse_response(jresp, "removeAgentSkillRels", "removeAgentSkillRels")
 
 
 @cloud_api(DataType.AGENT_SKILL, Operation.QUERY)
 def send_query_agent_skill_relations_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_agent_skills_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryAgentSkillRelations", "queryAgentSkillRelations")
+    return safe_parse_response(jresp, "queryAgentSkillRels", "queryAgentSkillRels")
 
 
 # ============================================================================
@@ -3131,36 +3194,30 @@ def send_add_agent_task_relations_request_to_cloud(session, relations, token, en
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.ADD, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentTaskRelations", "addAgentTaskRelations")
+    return safe_parse_response(jresp, "addAgentTaskRels", "addAgentTaskRels")
 
 
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_TASK, Operation.UPDATE)
 def send_update_agent_task_relations_request_to_cloud(session, relations, token, endpoint):
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "updateAgentTaskRelations", "updateAgentTaskRelations")
+    return safe_parse_response(jresp, "updateAgentTaskRels", "updateAgentTaskRels")
 
 
-
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_TASK, Operation.DELETE)
 def send_remove_agent_task_relations_request_to_cloud(session, removes, token, endpoint):
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "removeAgentTaskRelations", "removeAgentTaskRelations")
-
+    return safe_parse_response(jresp, "removeAgentTaskRels", "removeAgentTaskRels")
 
 
 @cloud_api(DataType.AGENT_TASK, Operation.QUERY)
 def send_query_agent_task_relations_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_agent_tasks_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryAgentTaskRelations", "queryAgentTaskRelations")
+    return safe_parse_response(jresp, "queryAgentTaskRels", "queryAgentTaskRels")
 
 
 # ============================================================================
@@ -3212,7 +3269,7 @@ def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, 
             logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             jresponse = error
         else:
-            jresponse = json.loads(jresp["data"]["queryAgentTaskRelations"])
+            jresponse = json.loads(jresp["data"]["queryAgentTaskRels"])
 
     except Exception as e:
         # Get the traceback information
@@ -3266,39 +3323,143 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
 
 @cloud_api(DataType.AGENT_TOOL, Operation.ADD)
 def send_add_agent_tool_relations_request_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Legacy: Agent-Tool direct relationship is not in new AppSync schema. Kept for backward compat."""
     from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_TOOL, Operation.ADD, relations)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentToolRelations", "addAgentToolRelations")
+    logger.warning("[AGENT_TOOL] Agent-Tool direct relationship is deprecated in new schema. Tools link via Skill-Tool.")
+    return {"success": False, "error": "Agent-Tool direct relationship not supported in new schema"}
 
 
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_TOOL, Operation.UPDATE)
 def send_update_agent_tool_relations_request_to_cloud(session, relations, token, endpoint):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_TOOL, Operation.UPDATE, relations)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "updateAgentToolRelations", "updateAgentToolRelations")
+    """Legacy: Agent-Tool direct relationship is not in new AppSync schema."""
+    logger.warning("[AGENT_TOOL] Agent-Tool direct relationship is deprecated in new schema.")
+    return {"success": False, "error": "Agent-Tool direct relationship not supported in new schema"}
 
 
-
-# interface appsync, directly use HTTP request.
-# Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_TOOL, Operation.DELETE)
 def send_remove_agent_tool_relations_request_to_cloud(session, removes, token, endpoint):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_TOOL, Operation.DELETE, removes)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "removeAgentToolRelations", "removeAgentToolRelations")
-
+    """Legacy: Agent-Tool direct relationship is not in new AppSync schema."""
+    logger.warning("[AGENT_TOOL] Agent-Tool direct relationship is deprecated in new schema.")
+    return {"success": False, "error": "Agent-Tool direct relationship not supported in new schema"}
 
 
 @cloud_api(DataType.AGENT_TOOL, Operation.QUERY)
 def send_query_agent_tool_relations_request_to_cloud(session, token, q_settings, endpoint):
-    queryInfo = gen_query_agent_tools_string(q_settings)
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryAgentToolRelations", "queryAgentToolRelations")
+    """Legacy: Agent-Tool direct relationship is not in new AppSync schema."""
+    logger.warning("[AGENT_TOOL] Agent-Tool direct relationship is deprecated in new schema.")
+    return []
+
+
+# ============================================================================
+# Agent-Org Relationship Operations
+# ============================================================================
+
+@cloud_api(DataType.AGENT_ORG, Operation.ADD)
+def send_add_agent_org_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentOrgRels", "addAgentOrgRels")
+
+
+@cloud_api(DataType.AGENT_ORG, Operation.UPDATE)
+def send_update_agent_org_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "updateAgentOrgRels", "updateAgentOrgRels")
+
+
+@cloud_api(DataType.AGENT_ORG, Operation.DELETE)
+def send_remove_agent_org_rels_to_cloud(session, removes, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "removeAgentOrgRels", "removeAgentOrgRels")
+
+
+# ============================================================================
+# Skill-Tool Relationship Operations
+# ============================================================================
+
+@cloud_api(DataType.SKILL_TOOL, Operation.ADD)
+def send_add_skill_tool_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentSkillToolRels", "addAgentSkillToolRels")
+
+
+@cloud_api(DataType.SKILL_TOOL, Operation.UPDATE)
+def send_update_skill_tool_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "updateAgentSkillToolRels", "updateAgentSkillToolRels")
+
+
+@cloud_api(DataType.SKILL_TOOL, Operation.DELETE)
+def send_remove_skill_tool_rels_to_cloud(session, removes, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "removeAgentSkillToolRels", "removeAgentSkillToolRels")
+
+
+# ============================================================================
+# Skill-Knowledge Relationship Operations
+# ============================================================================
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.ADD)
+def send_add_skill_knowledge_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentSkillKnowledgeRels", "addAgentSkillKnowledgeRels")
+
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.UPDATE)
+def send_update_skill_knowledge_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "updateAgentSkillKnowledgeRels", "updateAgentSkillKnowledgeRels")
+
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.DELETE)
+def send_remove_skill_knowledge_rels_to_cloud(session, removes, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "removeAgentSkillKnowledgeRels", "removeAgentSkillKnowledgeRels")
+
+
+# ============================================================================
+# Task-Skill Relationship Operations
+# ============================================================================
+
+@cloud_api(DataType.TASK_SKILL, Operation.ADD)
+def send_add_task_skill_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "addAgentTaskSkillRels", "addAgentTaskSkillRels")
+
+
+@cloud_api(DataType.TASK_SKILL, Operation.UPDATE)
+def send_update_task_skill_rels_to_cloud(session, relations, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "updateAgentTaskSkillRels", "updateAgentTaskSkillRels")
+
+
+@cloud_api(DataType.TASK_SKILL, Operation.DELETE)
+def send_remove_task_skill_rels_to_cloud(session, removes, token, endpoint, timeout=180):
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "removeAgentTaskSkillRels", "removeAgentTaskSkillRels")
 
 
 # ============================================================================
@@ -3350,7 +3511,7 @@ def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, 
             logger.error(f"Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             jresponse = error
         else:
-            jresponse = json.loads(jresp["data"]["queryAgentToolRelations"])
+            jresponse = json.loads(jresp["data"]["queryAgentToolRels"])
 
     except Exception as e:
         # Get the traceback information
@@ -6360,7 +6521,7 @@ def gen_query_skill_tool_relations_string(q_settings):
     qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
     query_string = f'''
         query MyQuery {{
-            querySkillToolRelations(qb: "{qb}")
+            queryAgentSkillToolRels(input: "{qb}")
         }}
     '''
     return query_string
@@ -6372,7 +6533,7 @@ def send_add_skill_tool_relations_to_cloud(session, relations, token, endpoint, 
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.ADD, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "addSkillToolRelations", "addSkillToolRelations")
+    return safe_parse_response(jresp, "addAgentSkillToolRels", "addAgentSkillToolRels")
 
 
 @cloud_api(DataType.SKILL_TOOL, Operation.UPDATE)
@@ -6381,7 +6542,7 @@ def send_update_skill_tool_relations_to_cloud(session, relations, token, endpoin
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "updateSkillToolRelations", "updateSkillToolRelations")
+    return safe_parse_response(jresp, "updateAgentSkillToolRels", "updateAgentSkillToolRels")
 
 
 @cloud_api(DataType.SKILL_TOOL, Operation.DELETE)
@@ -6390,7 +6551,7 @@ def send_remove_skill_tool_relations_to_cloud(session, removes, token, endpoint,
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "removeSkillToolRelations", "removeSkillToolRelations")
+    return safe_parse_response(jresp, "removeAgentSkillToolRels", "removeAgentSkillToolRels")
 
 
 @cloud_api(DataType.SKILL_TOOL, Operation.QUERY)
@@ -6398,7 +6559,7 @@ def send_query_skill_tool_relations_to_cloud(session, token, q_settings, endpoin
     """Query Skill-Tool relations from cloud"""
     queryInfo = gen_query_skill_tool_relations_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "querySkillToolRelations", "querySkillToolRelations")
+    return safe_parse_response(jresp, "queryAgentSkillToolRels", "queryAgentSkillToolRels")
 
 
 # ============================================================================
@@ -6410,7 +6571,7 @@ def gen_query_skill_knowledge_relations_string(q_settings):
     qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
     query_string = f'''
         query MyQuery {{
-            querySkillKnowledgeRelations(qb: "{qb}")
+            queryAgentSkillKnowledgeRels(input: "{qb}")
         }}
     '''
     return query_string
@@ -6422,7 +6583,7 @@ def send_add_skill_knowledge_relations_to_cloud(session, relations, token, endpo
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.ADD, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "addSkillKnowledgeRelations", "addSkillKnowledgeRelations")
+    return safe_parse_response(jresp, "addAgentSkillKnowledgeRels", "addAgentSkillKnowledgeRels")
 
 
 @cloud_api(DataType.SKILL_KNOWLEDGE, Operation.UPDATE)
@@ -6431,7 +6592,7 @@ def send_update_skill_knowledge_relations_to_cloud(session, relations, token, en
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "updateSkillKnowledgeRelations", "updateSkillKnowledgeRelations")
+    return safe_parse_response(jresp, "updateAgentSkillKnowledgeRels", "updateAgentSkillKnowledgeRels")
 
 
 @cloud_api(DataType.SKILL_KNOWLEDGE, Operation.DELETE)
@@ -6440,7 +6601,7 @@ def send_remove_skill_knowledge_relations_to_cloud(session, removes, token, endp
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "removeSkillKnowledgeRelations", "removeSkillKnowledgeRelations")
+    return safe_parse_response(jresp, "removeAgentSkillKnowledgeRels", "removeAgentSkillKnowledgeRels")
 
 
 @cloud_api(DataType.SKILL_KNOWLEDGE, Operation.QUERY)
@@ -6448,7 +6609,7 @@ def send_query_skill_knowledge_relations_to_cloud(session, token, q_settings, en
     """Query Skill-Knowledge relations from cloud"""
     queryInfo = gen_query_skill_knowledge_relations_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "querySkillKnowledgeRelations", "querySkillKnowledgeRelations")
+    return safe_parse_response(jresp, "queryAgentSkillKnowledgeRels", "queryAgentSkillKnowledgeRels")
 
 
 # ============================================================================
@@ -6460,7 +6621,7 @@ def gen_query_task_skill_relations_string(q_settings):
     qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
     query_string = f'''
         query MyQuery {{
-            queryTaskSkillRelations(qb: "{qb}")
+            queryAgentTaskSkillRels(input: "{qb}")
         }}
     '''
     return query_string
@@ -6472,7 +6633,7 @@ def send_add_task_skill_relations_to_cloud(session, relations, token, endpoint, 
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.ADD, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "addTaskSkillRelations", "addTaskSkillRelations")
+    return safe_parse_response(jresp, "addAgentTaskSkillRels", "addAgentTaskSkillRels")
 
 
 @cloud_api(DataType.TASK_SKILL, Operation.UPDATE)
@@ -6481,7 +6642,7 @@ def send_update_task_skill_relations_to_cloud(session, relations, token, endpoin
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "updateTaskSkillRelations", "updateTaskSkillRelations")
+    return safe_parse_response(jresp, "updateAgentTaskSkillRels", "updateAgentTaskSkillRels")
 
 
 @cloud_api(DataType.TASK_SKILL, Operation.DELETE)
@@ -6490,7 +6651,7 @@ def send_remove_task_skill_relations_to_cloud(session, removes, token, endpoint,
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "removeTaskSkillRelations", "removeTaskSkillRelations")
+    return safe_parse_response(jresp, "removeAgentTaskSkillRels", "removeAgentTaskSkillRels")
 
 
 @cloud_api(DataType.TASK_SKILL, Operation.QUERY)
@@ -6498,7 +6659,7 @@ def send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoin
     """Query Task-Skill relations from cloud"""
     queryInfo = gen_query_task_skill_relations_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryTaskSkillRelations", "queryTaskSkillRelations")
+    return safe_parse_response(jresp, "queryAgentTaskSkillRels", "queryAgentTaskSkillRels")
 
 
 # ============================================================================
@@ -7120,22 +7281,17 @@ def query_cloud_task_run_id(session, token, task_id: str, host_name: str = None,
     Returns:
         dict with {success, data: {id, runID, runner, status, error}}
     """
-    meta_json = json.dumps(meta_data or {})
+    meta_json = json.dumps(meta_data or {}).replace('"', '\\"')
+    host = (host_name or '').replace('"', '\\"')
+    tid = (task_id or '').replace('"', '\\"')
 
-    query_string = json.dumps({
-        "query": """query QueryCloudTaskRunId($input: TaskRunQueryInput!) {
-            queryCloudTaskRunId(input: $input) {
-                id runID runner status success error timestamp
-            }
-        }""",
-        "variables": {
-            "input": {
-                "task_id": task_id,
-                "host_name": host_name,
-                "meta_data": meta_json
-            }
-        }
-    })
+    query_string = (
+        'query { queryCloudTaskRunId(input: {'
+        f'task_id: "{tid}", '
+        f'host_name: "{host}", '
+        f'meta_data: "{meta_json}"'
+        '}) { id runID runner status success error timestamp } }'
+    )
 
     logger.info(f"[CloudAPI] queryCloudTaskRunId: task_id={task_id}, host_name={host_name}")
 
@@ -7204,7 +7360,8 @@ def query_cloud_task_run_id_with_retry(session, token, task_id: str, host_name: 
     return {"success": False, "error": f"Timed out after {max_wait_seconds}s: {last_error}"}
 
 
-def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60):
+def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
+                    agent_id: str = None, task_name: str = None, options: dict = None):
     """
     Launch cloud tasks via the runCloudTasks GraphQL mutation and return
     a mapping of task_id → run_id.
@@ -7213,12 +7370,19 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60):
     where the cloud task is launched immediately and the runID is returned
     in the response (no polling needed).
 
+    Schema:
+        input CloudTaskInput { options: AWSJSON!, task_id: String, task_name: String }
+        runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
+
     Args:
         session: requests.Session object
         token: Authentication token
         task_ids: List of cloud task IDs to launch
         endpoint: API endpoint URL (optional)
         timeout: Request timeout in seconds
+        agent_id: Optional agent ID to include in each CloudTaskInput
+        task_name: Optional task name to include in each CloudTaskInput
+        options: Optional dict of extra options (serialized as AWSJSON)
 
     Returns:
         dict with {success, run_ids: {task_id: run_id, ...}} or {success: False, error}
@@ -7226,32 +7390,69 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60):
     if not task_ids:
         return {"success": False, "error": "No task IDs provided"}
 
-    query_string = json.dumps({
-        "query": """mutation RunCloudTasks($taskIDs: [String]!) {
-            runCloudTasks(taskIDs: $taskIDs)
-        }""",
-        "variables": {
-            "taskIDs": task_ids
-        }
-    })
+    # New schema (2026-02):
+    #   input CloudTaskInput { agent_id, task_id, task_name, options: AWSJSON! }
+    #   runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
 
-    logger.info(f"[CloudAPI] runCloudTasks: task_ids={task_ids}")
+    logger.info(f"[CloudAPI] runCloudTasks: task_ids={task_ids}, agent_id={agent_id}, task_name={task_name}")
 
-    jresp = appsync_http_request(query_string, session, token, endpoint, timeout=timeout)
+    if not endpoint:
+        endpoint = get_appsync_endpoint()
 
+    # Build CloudTaskInput items — options is AWSJSON so must be a JSON string
+    opts_json = json.dumps(options or {})
+    input_items = []
+    for tid in task_ids:
+        item = {"task_id": str(tid), "options": opts_json}
+        if agent_id:
+            item["agent_id"] = agent_id
+        if task_name:
+            item["task_name"] = task_name
+        input_items.append(item)
+
+    query = """mutation RunCloudTasks($input: [CloudTaskInput]!) {
+        runCloudTasks(input: $input)
+    }"""
+    variables = {"input": input_items}
+
+    headers = {
+        'Content-Type': "application/json",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+
+    jresp = None
+    last_errors = None
+    try:
+        logger.debug(f"[CloudAPI] runCloudTasks request: variables={json.dumps(variables)[:500]}")
+        response = session.request(
+            url=endpoint, method='POST', timeout=timeout,
+            headers=headers,
+            json={"query": query, "variables": variables},
+        )
+        jresp = response.json()
+    except Exception as e:
+        logger.error(f"[CloudAPI] runCloudTasks HTTP error: {e}")
+        jresp = {"errors": [{"errorType": "RequestError", "message": str(e)}]}
+
+    if not jresp:
+        return {"success": False, "error": "Empty response"}
     if "errors" in jresp:
         logger.error(f"[CloudAPI] runCloudTasks error: {jresp['errors']}")
-        return {"success": False, "errors": jresp["errors"]}
+        return {"success": False, "errors": jresp["errors"], "last_errors": last_errors}
 
     try:
         raw = jresp.get("data", {}).get("runCloudTasks")
 
-        # runCloudTasks returns AWSJSON — may be a JSON string
+        # runCloudTasks returns AWSJSON — may be a JSON string (sometimes double-encoded)
+        if isinstance(raw, str):
+            raw = json.loads(raw)
         if isinstance(raw, str):
             raw = json.loads(raw)
 
         # Normalize various response shapes into {task_id: run_id}
         mapping = {}
+        extras = {}  # per-task extra fields (e.g. local_helper_skill_name)
         if isinstance(raw, dict) and "items" in raw:
             raw = raw["items"]
 
@@ -7263,14 +7464,25 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60):
                 rid = item.get("runId") or item.get("runID") or item.get("run_id")
                 if tid and rid:
                     mapping[str(tid)] = str(rid)
+                # Extract optional fields from response
+                helper_name = item.get("local_helper_skill_name") or item.get("localHelperSkillName")
+                if tid and helper_name:
+                    extras.setdefault(str(tid), {})["local_helper_skill_name"] = helper_name
         elif isinstance(raw, dict):
+            # Check for top-level local_helper_skill_name
+            top_helper = raw.pop("local_helper_skill_name", None) or raw.pop("localHelperSkillName", None)
             for k, v in raw.items():
                 if k and v:
                     mapping[str(k)] = str(v)
+            if top_helper:
+                extras["_default"] = {"local_helper_skill_name": top_helper}
 
         if mapping:
             logger.info(f"[CloudAPI] runCloudTasks success: {mapping}")
-            return {"success": True, "run_ids": mapping}
+            result = {"success": True, "run_ids": mapping}
+            if extras:
+                result["extras"] = extras
+            return result
 
         logger.warning(f"[CloudAPI] runCloudTasks: no run_id mapping in response: {raw}")
         return {"success": False, "error": f"Unexpected response: {raw}"}

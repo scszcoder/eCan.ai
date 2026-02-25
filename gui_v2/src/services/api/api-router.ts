@@ -12,6 +12,7 @@ import { ipcClient } from '../ipc/ipcClient';
 import { appSyncRequest } from '../web/appSyncClient';
 import { logger } from '../../utils/logger';
 import type { APIResponse } from '../ipc/api';
+import { detectPlatform } from '@/config/platform';
 
 const getEnv = () => {
   try {
@@ -169,10 +170,7 @@ export class APIRouter {
       const response = await ipcClient.invoke(method, params, { timeout });
 
       if (this.config.enableLogging) {
-        logger.debug(`[APIRouter] IPC response for ${method}`, { 
-          response, 
-          durationMs: Date.now() - startTs 
-        });
+        console.log(`[APIRouter] IPC response for ${method} (${Date.now() - startTs}ms):`, response);
       }
 
       if (response.status === 'success') {

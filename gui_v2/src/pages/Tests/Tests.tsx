@@ -656,6 +656,27 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleTestHybridCloud = async () => {
+        setTestOutput('');
+        appendTestOutput('Hybrid Cloud Test: Calling launch_agent_task for test_hybrid_worker...');
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/test-hybrid-cloud`;
+        try {
+            const response = await fetch(testUrl, { method: 'GET' });
+            const result = await response.json();
+            appendTestOutput(`Hybrid Cloud Test: Response ${response.status}`);
+            appendTestOutput(JSON.stringify(result, null, 2));
+            if (result.status === 'ok' && result.result?.success) {
+                message.success(`Hybrid cloud task launched: ${result.result.message}`);
+            } else {
+                message.error(`Failed: ${result.result?.error || result.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Hybrid Cloud Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            message.error('Failed to call test-hybrid-cloud endpoint');
+        }
+    };
+
     const handleLocalWebsocketTest = async () => {
         setTestOutput('');
         appendTestOutput('Local WS Test: Starting...');
@@ -1167,6 +1188,200 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleRunCloudTask = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
+
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+
+        setTestOutput('');
+        appendTestOutput('Run Cloud Task: Starting...');
+
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+
+        const { ipcClient } = await import('../../services/ipc/ipcClient');
+        let cognitoToken = '';
+        try {
+            const tokenResp = await ipcClient.invoke('get_auth_token', {});
+            if (tokenResp.status === 'success' && tokenResp.result) {
+                cognitoToken = tokenResp.result as string;
+                appendTestOutput(`Run Cloud Task: Got auth token (length: ${cognitoToken.length})`);
+            }
+        } catch (e) {
+            appendTestOutput(`Run Cloud Task: IPC get_auth_token error: ${e}`);
+        }
+
+        if (!cognitoToken) {
+            appendTestOutput('Run Cloud Task: ERROR - No Cognito JWT token. Please log in first.');
+            return;
+        }
+
+        // Build CloudTaskInput list from test arguments
+        // Use task_id for actual IDs, task_name for human-readable names
+        const taskIds = parsedArgs.taskIds || parsedArgs.task_ids || null;
+        const taskId = parsedArgs.taskId || parsedArgs.task_id || null;
+        const agentId = parsedArgs.agentId || parsedArgs.agent_id || null;
+        const taskName = parsedArgs.taskName || parsedArgs.task_name || 'test_hybrid_worker';
+        const options = parsedArgs.options || {};
+
+        const cloudTaskInputs: any[] = [];
+        if (taskIds) {
+            // Explicit list of task IDs
+            for (const tid of taskIds) {
+                const entry: any = { task_id: tid, options: JSON.stringify(options) };
+                if (agentId) entry.agent_id = agentId;
+                if (taskName && taskName !== 'test_hybrid_worker') entry.task_name = taskName;
+                cloudTaskInputs.push(entry);
+            }
+        } else {
+            // Single task: use task_id if provided, otherwise use task_name
+            const entry: any = { options: JSON.stringify(options) };
+            if (taskId) entry.task_id = taskId;
+            if (taskName) entry.task_name = taskName;
+            if (agentId) entry.agent_id = agentId;
+            cloudTaskInputs.push(entry);
+        }
+
+        appendTestOutput(`Run Cloud Task: input=${JSON.stringify(cloudTaskInputs)}`);
+        appendTestOutput(`Run Cloud Task: endpoint=${wanEndpoint}`);
+
+        const runCloudTasksMutation = `
+            mutation RunCloudTasks($input: [CloudTaskInput]!) {
+                runCloudTasks(input: $input)
+            }
+        `;
+
+        appendTestOutput('Run Cloud Task: Sending runCloudTasks mutation...');
+
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': cognitoToken,
+                },
+                body: JSON.stringify({
+                    query: runCloudTasksMutation,
+                    variables: { input: cloudTaskInputs },
+                }),
+            });
+            const result = await response.json();
+
+            if (result.errors) {
+                appendTestOutput(`Run Cloud Task: GraphQL Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            }
+
+            if (result.data?.runCloudTasks) {
+                const raw = result.data.runCloudTasks;
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                appendTestOutput(`Run Cloud Task: SUCCESS`);
+                appendTestOutput(`Run Cloud Task: Response: ${JSON.stringify(parsed, null, 2)}`);
+            } else {
+                appendTestOutput(`Run Cloud Task: No data returned`);
+                appendTestOutput(`Run Cloud Task: Full response: ${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Run Cloud Task: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    const handleGetRunId = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
+
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+
+        setTestOutput('');
+        appendTestOutput('Get Run ID: Starting...');
+
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+
+        const { ipcClient } = await import('../../services/ipc/ipcClient');
+        let cognitoToken = '';
+        try {
+            const tokenResp = await ipcClient.invoke('get_auth_token', {});
+            if (tokenResp.status === 'success' && tokenResp.result) {
+                cognitoToken = tokenResp.result as string;
+                appendTestOutput(`Get Run ID: Got auth token (length: ${cognitoToken.length})`);
+            }
+        } catch (e) {
+            appendTestOutput(`Get Run ID: IPC get_auth_token error: ${e}`);
+        }
+
+        if (!cognitoToken) {
+            appendTestOutput('Get Run ID: ERROR - No Cognito JWT token. Please log in first.');
+            return;
+        }
+
+        const taskId = parsedArgs.taskId || parsedArgs.task_id || 'test_hybrid_worker';
+        const hostName = parsedArgs.hostName || parsedArgs.host_name || null;
+        const metaData = parsedArgs.metaData || parsedArgs.meta_data || {};
+
+        appendTestOutput(`Get Run ID: task_id=${taskId}`);
+        appendTestOutput(`Get Run ID: host_name=${hostName}`);
+        appendTestOutput(`Get Run ID: endpoint=${wanEndpoint}`);
+
+        const queryCloudTaskRunIdQuery = `
+            query QueryCloudTaskRunId($input: TaskRunQueryInput!) {
+                queryCloudTaskRunId(input: $input) {
+                    id runID runner status success error timestamp
+                }
+            }
+        `;
+
+        const toAwsJson = (value: any) => {
+            if (value === undefined || value === null) return null;
+            return typeof value === 'string' ? value : JSON.stringify(value);
+        };
+
+        const input = {
+            task_id: taskId,
+            host_name: hostName,
+            meta_data: toAwsJson(metaData),
+        };
+
+        appendTestOutput('Get Run ID: Sending queryCloudTaskRunId query...');
+
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': cognitoToken,
+                },
+                body: JSON.stringify({
+                    query: queryCloudTaskRunIdQuery,
+                    variables: { input },
+                }),
+            });
+            const result = await response.json();
+
+            if (result.errors) {
+                appendTestOutput(`Get Run ID: GraphQL Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            }
+
+            const data = result.data?.queryCloudTaskRunId;
+            if (data) {
+                appendTestOutput(`Get Run ID: SUCCESS`);
+                appendTestOutput(`Get Run ID: runID=${data.runID}`);
+                appendTestOutput(`Get Run ID: runner=${data.runner}`);
+                appendTestOutput(`Get Run ID: status=${data.status}`);
+                appendTestOutput(`Get Run ID: success=${data.success}`);
+                appendTestOutput(`Get Run ID: error=${data.error}`);
+                appendTestOutput(`Get Run ID: Full response: ${JSON.stringify(data, null, 2)}`);
+            } else {
+                appendTestOutput(`Get Run ID: No data returned`);
+                appendTestOutput(`Get Run ID: Full response: ${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Get Run ID: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
         const target = e.target as HTMLElement;
         console.log('[Tests] Page click:', {
@@ -1288,6 +1503,23 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button onClick={handleL2CWebsocketTest} style={{ marginLeft: 8 }}>
                             L2C WS Test
+                        </Button>
+                        <Button onClick={handleRunCloudTask} style={{ marginLeft: 8 }} type="primary">
+                            Run Cloud Task
+                        </Button>
+                        <Button
+                            type="primary"
+                            onClick={handleTestHybridCloud}
+                            style={{
+                                marginLeft: 8,
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                            }}
+                        >
+                            Test Hybrid Cloud
+                        </Button>
+                        <Button onClick={handleGetRunId} style={{ marginLeft: 8 }}>
+                            Get Run ID
                         </Button>
                     </Space>
                     {/* Test Selection */}

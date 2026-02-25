@@ -1,22 +1,23 @@
 {
   "data_type": "agent_tool",
   "version": "1.0.0",
-  "description": "Agent-Tool relationship field mapping",
-  "last_updated": "2025-10-14",
+  "description": "Agent-Tool relationship field mapping (legacy - no longer in AppSync schema)",
+  "last_updated": "2026-02-23",
   
-  "field_mapping": {},
+  "field_mapping": {
+    "agid": "agent_id"
+  },
   
   "cloud_required_fields": {
-    "agid": "",
-    "tool_id": "",
-    "owner": ""
+    "agent_id": "",
+    "tool_id": ""
   },
   
   "json_serialize_fields": [],
   
   "notes": [
-    "✨ This is for AgentToolRelation (relationship table), not AgentTool (entity)",
-    "Only contains relationship metadata: agid, tool_id, owner, permission, granted_at",
-    "Do NOT include entity fields like name, description, protocol, metadata, link, status, price"
+    "NOTE: Agent-Tool direct relationship is NOT in the new AppSync schema.",
+    "Tools are linked to agents indirectly via Skill-Tool relationships.",
+    "This mapping is kept for backward compatibility but may not be used."
   ]
 }

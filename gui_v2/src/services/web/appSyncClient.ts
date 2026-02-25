@@ -24,6 +24,8 @@ export interface AppSyncRequestOptions {
   operationName?: string;
   /** 自定义扩展字段 */
   extensions?: Record<string, any>;
+  /** Override endpoint URL — bypass local proxy and hit cloud AppSync directly. */
+  endpoint?: string;
 }
 
 const getEnv = () => {
@@ -132,7 +134,8 @@ export const appSyncRequest = async <T>(
   method?: string
 ): Promise<T> => {
   // Get GraphQL endpoint (AWS AppSync or local server)
-  const endpoint = getGraphQLEndpoint();
+  // Allow callers to override endpoint (e.g., cloud-only mutations like reqApiKey)
+  const endpoint = options?.endpoint || getGraphQLEndpoint();
   
   if (!endpoint) {
     console.error('[AppSyncClient] No GraphQL endpoint available');

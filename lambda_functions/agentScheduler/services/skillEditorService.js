@@ -223,6 +223,16 @@ async function queryCloudTaskRunId(taskId, hostName, metaData) {
   const AWS = require("aws-sdk");
   const dynamodb = new AWS.DynamoDB.DocumentClient();
 
+  const RUNS_TABLE = process.env.CLOUD_TASK_RUNS_TABLE || process.env.AGENT_TASKS_DDB_TABLE || "agent_tasks";
+  const HISTORY_TABLE = process.env.CLOUD_TASK_RUNS_HISTORY_TABLE || "agent_tasks_history";
+
+  const ecsTaskIdFromArn = (taskArn) => {
+    if (!taskArn || typeof taskArn !== "string") return null;
+    const parts = taskArn.split("/");
+    const last = parts.length ? parts[parts.length - 1] : "";
+    return last || null;
+  };
+
   try {
     // Parse metaData if it's a string (AWSJSON comes as string)
     let meta = metaData;
@@ -231,19 +241,71 @@ async function queryCloudTaskRunId(taskId, hostName, metaData) {
     }
     meta = meta || {};
 
-    const owner = meta.owner || meta.username || null;
-    console.log(`[queryCloudTaskRunId] taskId=${taskId}, hostName=${hostName}, owner=${owner}`);
+    const ownerId = meta.owner_id || meta.ownerId || meta.sub || meta.userSub || meta.cognito_sub || null;
+    const owner = meta.owner || meta.username || meta.email || null;
+    const requestedRunId = meta.run_id || meta.runID || meta.runId || null;
+    console.log(`[queryCloudTaskRunId] taskId=${taskId}, hostName=${hostName}, owner_id=${ownerId}, owner=${owner}, requestedRunId=${requestedRunId}`);
 
-    if (!taskId && !owner) {
+    if (!taskId && !ownerId && !owner) {
       return {
         id: null,
         runID: null,
         runner: null,
         status: JSON.stringify({ state: "error" }),
         success: false,
-        error: "task_id or owner is required",
+        error: "task_id or owner_id is required",
         timestamp: nowIso()
       };
+    }
+
+    // 1) If caller provided a run_id (short id), search history table under this owner_id.
+    if (requestedRunId && ownerId) {
+      const q = await dynamodb.query({
+        TableName: HISTORY_TABLE,
+        KeyConditionExpression: "owner_id = :oid",
+        FilterExpression: "contains(run_sk, :rid)",
+        ExpressionAttributeValues: {
+          ":oid": ownerId,
+          ":rid": String(requestedRunId),
+        },
+        ScanIndexForward: false,
+        Limit: 5,
+      }).promise();
+
+      const item = (q.Items && q.Items.length) ? q.Items[0] : null;
+      if (item) {
+        return {
+          id: item.task_id || taskId || null,
+          runID: item.run_id || String(requestedRunId),
+          runner: String(ownerId),
+          status: JSON.stringify({ state: "ok", taskArn: item.task_arn || null, run_sk: item.run_sk || null }),
+          success: true,
+          error: null,
+          timestamp: nowIso(),
+        };
+      }
+    }
+
+    // 2) Default path: return the latest pointer from agent_tasks (full taskArn is stored there).
+    if (taskId && ownerId) {
+      const res = await dynamodb.get({
+        TableName: RUNS_TABLE,
+        Key: { owner_id: String(ownerId), task_id: String(taskId) },
+      }).promise();
+
+      if (res && res.Item) {
+        const taskArn = res.Item.run_id || null;
+        const shortRunId = ecsTaskIdFromArn(taskArn) || taskArn;
+        return {
+          id: String(taskId),
+          runID: shortRunId,
+          runner: String(ownerId),
+          status: JSON.stringify({ state: "ok", taskArn, updated_at: res.Item.updated_at || null }),
+          success: true,
+          error: null,
+          timestamp: nowIso(),
+        };
+      }
     }
 
     // Try RDS lookup first (AGENT_TASKS table via the existing agentScheduler DB)

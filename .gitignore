@@ -53,3 +53,4 @@ debug/workflows/
 
 # Local-only lambda download
 /lambda_functions/ecbAccountManager/
+/lambda_functions/myAPIKeygen/
