@@ -440,7 +440,6 @@ export class IPCWCClient {
             
             // Check这是否是 Python 主动发起的Request
             if (message_obj.type === 'request') {
-                console.log('[IPCWCClient] Routing request to handler:', message_obj.method);
                 this.handleRequest(message_obj);
             } else {
                 console.warn('[IPCWCClient] unhandled message', message_obj);

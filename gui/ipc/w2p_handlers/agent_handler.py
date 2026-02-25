@@ -503,15 +503,24 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
         str: JSON formatted response message
     """
     try:
+        # 🔍 DEBUG: Log received parameters
+        logger.info(f"[agent_handler] delete_agent called with params: {params}")
+        logger.info(f"[agent_handler] params type: {type(params)}")
+        
         # Get username
-        username = params.get('username')
+        username = params.get('username') if params else None
+        logger.info(f"[agent_handler] Extracted username: {username}")
+        
         if not username:
+            logger.error(f"[agent_handler] Missing username parameter, params={params}")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
         
         # Get agent_id parameter (can be a single string or array)
         agent_id_param = params.get('agent_id')
+        logger.info(f"[agent_handler] Extracted agent_id_param: {agent_id_param}")
         
         if not agent_id_param:
+            logger.error(f"[agent_handler] Missing agent_id parameter, params={params}")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing agent_id parameter')
         
         # Normalize to array
