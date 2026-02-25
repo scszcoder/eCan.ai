@@ -75,23 +75,32 @@ async function persistExecModeToDB(
 
     // Merge into existing config
     const existingConfig = (skillInfo as any).config || {};
+    const localHelperSkillId = useSkillInfoStore.getState().localHelperSkillId;
+    const localHelperMachine = useSkillInfoStore.getState().localHelperMachine;
+    const helperNameFromStore = (() => {
+      try {
+        if (!localHelperSkillId || typeof localHelperSkillId !== 'string') return null;
+        if (!localHelperSkillId.startsWith('skill_')) return String(localHelperSkillId);
+        const store = useSkillStore.getState();
+        const found = store.items.find((s: any) => String(s.id) === String(localHelperSkillId));
+        return found?.name || null;
+      } catch {
+        return null;
+      }
+    })();
     const updatedConfig = {
       ...existingConfig,
       run_in_cloud: nextRunInCloud,
       hybrid_cloud_mode: nextHybridCloud,
+      local_helper_skill_id: localHelperSkillId ?? (existingConfig as any)?.local_helper_skill_id ?? null,
+      local_helper_skill_name: (existingConfig as any)?.local_helper_skill_name ?? helperNameFromStore ?? null,
+      local_helper_machine: localHelperMachine ?? (existingConfig as any)?.local_helper_machine ?? null,
     };
 
+    // IMPORTANT: only send fields that exist on SkillUpdateInput.
     const payload: Record<string, any> = {
       id: skillId,
-      name: (skillInfo as any).skillName || (skillInfo as any).name || 'Unnamed Skill',
-      skillName: (skillInfo as any).skillName,
-      description: (skillInfo as any).description || '',
-      version: (skillInfo as any).version || '1.0.0',
-      path: useSkillInfoStore.getState().currentFilePath || (skillInfo as any).path || '',
       config: updatedConfig,
-      source: 'ui',
-      run_in_cloud: nextRunInCloud,
-      hybrid_cloud_mode: nextHybridCloud,
     };
 
     console.log('[CLOUD_TOGGLE] Persisting exec mode to DB:', { skillId, runInCloud: nextRunInCloud, hybrid: nextHybridCloud });

@@ -25,6 +25,7 @@ import styles from './index.module.less';
 
 export function TestRunButton(props: { disabled: boolean }) {
   const [errorCount, setErrorCount] = useState(0);
+  const [isLaunching, setIsLaunching] = useState(false);
   const clientContext = useClientContext();
   const ipcApi = IPCAPI.getInstance();
   const username = useUserStore((state) => state.username);
@@ -53,10 +54,13 @@ export function TestRunButton(props: { disabled: boolean }) {
    * Validate all node and Save
    */
   const onTestRun = useCallback(async () => {
+    if (isLaunching) return;
+    setIsLaunching(true);
     const allNodes = clientContext.document.getAllNodes();
     const allForms = allNodes.map((node) => getNodeForm(node));
-    if (!isValidationDisabled()) {
-      await Promise.all(allForms.map(async (form) => form?.validate()));
+    try {
+      if (!isValidationDisabled()) {
+        await Promise.all(allForms.map(async (form) => form?.validate()));
 
       const errorMessages: string[] = [];
       allNodes.forEach((node) => {
@@ -68,21 +72,21 @@ export function TestRunButton(props: { disabled: boolean }) {
         }
       });
 
-      if (errorMessages.length > 0) {
-        Notification.error({
-          title: 'Validation Failed',
-          content: (
-            <ul style={{ listStyle: 'none', padding: 0 }}>
-              {errorMessages.map((msg, i) => <li key={i}>{msg}</li>)}
-            </ul>
-          ),
-          duration: 5,
-        });
-        return;
+        if (errorMessages.length > 0) {
+          Notification.error({
+            title: 'Validation Failed',
+            content: (
+              <ul style={{ listStyle: 'none', padding: 0 }}>
+                {errorMessages.map((msg, i) => <li key={i}>{msg}</li>)}
+              </ul>
+            ),
+            duration: 5,
+          });
+          return;
+        }
       }
-    }
-    // Mirror original popup start behavior: set indicator, compose diagram+bundle+breakpoints, call IPC
-    try {
+
+      // Mirror original popup start behavior: set indicator, compose diagram+bundle+breakpoints, call IPC
       if (!username || !skillInfo) {
         Notification.error({ title: 'Cannot run test', content: 'User or skill info is missing.' });
         return;
@@ -188,8 +192,10 @@ export function TestRunButton(props: { disabled: boolean }) {
       } catch {}
     } catch (e: any) {
       Notification.error({ title: 'Run Error', content: e?.message || String(e) });
+    } finally {
+      setIsLaunching(false);
     }
-  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine]);
+  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine, isLaunching]);
 
   /**
    * Listen single node validate
@@ -212,7 +218,7 @@ export function TestRunButton(props: { disabled: boolean }) {
   const button =
     errorCount === 0 ? (
       <Button
-        disabled={props.disabled}
+        disabled={props.disabled || isLaunching}
         onClick={onTestRun}
         icon={<IconPlay size="small" />}
         className={styles.testrunSuccessButton}

@@ -149,6 +149,9 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
     ) -> PassiveBrowserStepResult:
         """Wait for a result using threading.Event (event-loop agnostic)."""
         key = (run_id, step_id)
+        grace_s = float(os.environ.get("ECAN_PASSIVE_RESULT_GRACE_SECONDS", "30.0") or 30.0)
+        if grace_s < 0:
+            grace_s = 0.0
         with self._step_lock:
             if key in self._step_results:
                 self._step_events.pop(key, None)
@@ -163,6 +166,10 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
         got_it = await loop.run_in_executor(
             None, evt.wait, max(1.0, float(timeout_s))
         )
+
+        # Late-arrival grace: tolerate small publish delays near the timeout edge.
+        if not got_it and grace_s > 0:
+            got_it = await loop.run_in_executor(None, evt.wait, grace_s)
 
         with self._step_lock:
             self._step_events.pop(key, None)

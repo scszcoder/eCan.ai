@@ -416,23 +416,46 @@ async function syncSkillToDBAndStore(
     const api = IPCAPI.getInstance();
     const owner = username || '';
 
+    const localHelperSkillId = (skillInfo as any).local_helper_skill_id ?? null;
+    const localHelperMachine = (skillInfo as any).local_helper_machine ?? null;
+    const hybridCloudMode = (skillInfo as any).hybrid_cloud_mode ?? false;
+    const runInCloud = (skillInfo as any).run_in_cloud ?? false;
+    const existingConfig = (skillInfo as any).config || {};
+    const helperNameFromStore = (() => {
+      try {
+        if (!localHelperSkillId || typeof localHelperSkillId !== 'string') return null;
+        if (!localHelperSkillId.startsWith('skill_')) return String(localHelperSkillId);
+        const store = useSkillStore.getState();
+        const found = store.items.find((s: any) => String(s.id) === String(localHelperSkillId));
+        return found?.name || null;
+      } catch {
+        return null;
+      }
+    })();
+
+    const updatedConfig = {
+      ...existingConfig,
+      run_in_cloud: runInCloud,
+      hybrid_cloud_mode: hybridCloudMode,
+      local_helper_skill_id: localHelperSkillId,
+      local_helper_skill_name: (existingConfig as any)?.local_helper_skill_name ?? helperNameFromStore ?? null,
+      local_helper_machine: localHelperMachine,
+    };
+
     // Build the payload that save_agent_skill IPC handler expects
+    // IMPORTANT: Only send fields that exist on GraphQL SkillUpdateInput.
+    // Persist hybrid-cloud settings inside `config`.
     const skillPayload: Record<string, any> = {
       id: skillInfo.skillId || skillInfo.id,
       name: skillInfo.skillName || skillInfo.name || 'Unnamed Skill',
-      skillName: skillInfo.skillName,
       description: skillInfo.description || '',
       version: skillInfo.version || '1.0.0',
       path: filePath || skillInfo.path || '',
       level: skillInfo.level || 'entry',
-      config: skillInfo.config || {},
+      config: updatedConfig,
       diagram: skillInfo.workFlow || {},
       tags: skillInfo.tags || [],
       source: 'ui',
-      run_in_cloud: skillInfo.run_in_cloud ?? false,
-      hybrid_cloud_mode: skillInfo.hybrid_cloud_mode ?? false,
-      local_helper_skill_id: skillInfo.local_helper_skill_id ?? null,
-      local_helper_machine: skillInfo.local_helper_machine ?? null,
     };
 
     console.log('[SKILL_IO][DB_SYNC] Syncing skill to DB:', skillPayload.name, 'id:', skillPayload.id);
@@ -497,6 +520,17 @@ export const Save = ({ disabled }: SaveProps) => {
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
+  const localHelperSkillName = (() => {
+    try {
+      if (!localHelperSkillId || typeof localHelperSkillId !== 'string') return null;
+      if (!localHelperSkillId.startsWith('skill_')) return String(localHelperSkillId);
+      const store = useSkillStore.getState();
+      const found = store.items.find((s: any) => String(s.id) === String(localHelperSkillId));
+      return found?.name || null;
+    } catch {
+      return null;
+    }
+  })();
 
   const handleSave = useCallback(async () => {
     if (!skillInfo) return;
@@ -522,9 +556,15 @@ export const Save = ({ disabled }: SaveProps) => {
         run_in_cloud: runInCloud,
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
+        local_helper_skill_name: localHelperSkillName,
         local_helper_machine: localHelperMachine,
         config: {
           ...(skillInfo as any)?.config,
+          run_in_cloud: runInCloud,
+          hybrid_cloud_mode: hybridCloudMode,
+          local_helper_skill_id: localHelperSkillId,
+          local_helper_skill_name: (skillInfo as any)?.config?.local_helper_skill_name ?? localHelperSkillName,
+          local_helper_machine: localHelperMachine,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
         },
       } as any;

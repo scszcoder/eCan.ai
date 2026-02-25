@@ -394,16 +394,34 @@ class MainWindow:
             logger.warning(f"[MainWindow] Failed to register proxy change callback: {e}")
 
     def _schedule_delayed_metrics_update(self, vehicle, retry_count=0, max_retries=5):
-        """Schedule delayed performance monitoring update, waiting for event loop availability"""
+        """Schedule delayed performance monitoring update using thread-safe approach"""
         try:
             logger.debug(f"[MainWindow] 🔄 Attempting delayed metrics update for vehicle: {vehicle.getName()} (retry {retry_count}/{max_retries})")
 
-            # Try to get event loop again
+            # Get the event loop from the application (thread-safe)
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._update_vehicle_metrics_async(vehicle))
-                logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
-            except RuntimeError as e:
+                # Try to get event loop from QApplication if available
+                loop = None
+                if hasattr(self, '_event_loop') and self._event_loop:
+                    loop = self._event_loop
+                else:
+                    # Try to get the default event loop
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = None
+                
+                if loop and not loop.is_closed():
+                    # Use run_coroutine_threadsafe for thread-safe task submission
+                    asyncio.run_coroutine_threadsafe(
+                        self._update_vehicle_metrics_async(vehicle),
+                        loop
+                    )
+                    logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
+                else:
+                    raise RuntimeError("Event loop not available or closed")
+                    
+            except Exception as e:
                 # If event loop is still not available, retry with exponential backoff
                 if retry_count < max_retries:
                     delay = 2.0 * (1.5 ** retry_count)  # Exponential backoff: 2s, 3s, 4.5s, 6.75s, 10.125s
@@ -1981,10 +1999,10 @@ class MainWindow:
             # Debug: enumerate ALL tasks across ALL agents upfront
             for idx, agent in enumerate(agents):
                 agent_name = getattr(agent, 'name', None) or getattr(getattr(agent, 'card', None), 'name', None) or f'agent_{idx}'
-                has_runner = hasattr(agent, 'task_runner')
+                has_runner = hasattr(agent, 'runner') and agent.runner is not None
                 agent_tasks = getattr(agent, 'tasks', []) or []
-                runner_tasks = dict(agent.task_runner.tasks) if has_runner and hasattr(agent.task_runner, 'tasks') else {}
-                logger.info(f"[PassiveCommand] Agent[{idx}] name={agent_name}, has_task_runner={has_runner}, agent.tasks={len(agent_tasks)}, runner.tasks={len(runner_tasks)}")
+                runner_tasks = dict(agent.runner.tasks) if has_runner and hasattr(agent.runner, 'tasks') else {}
+                logger.info(f"[PassiveCommand] Agent[{idx}] name={agent_name}, has_runner={has_runner}, agent.tasks={len(agent_tasks)}, runner.tasks={len(runner_tasks)}")
                 for t in agent_tasks:
                     t_id = getattr(t, 'id', 'NO_ID')
                     t_run_id = getattr(t, 'run_id', 'NO_RUN_ID')
@@ -1999,11 +2017,11 @@ class MainWindow:
             
             # Try data_mapping.json routing first
             for agent in agents:
-                if not hasattr(agent, 'task_runner'):
+                if not hasattr(agent, 'runner') or agent.runner is None:
                     continue
                 
                 # Use TaskRunner's event routing (reads from skill.mapping_rules)
-                routing_result = agent.task_runner._resolve_event_routing(
+                routing_result = agent.runner._resolve_event_routing(
                     "passive_command", event_data, source="appsync"
                 )
                 
@@ -2051,9 +2069,10 @@ class MainWindow:
                     task_run_id = getattr(task, 'run_id', None)
                     task_id = getattr(task, 'id', None)
                     task_name = getattr(task, 'name', 'NO_NAME')
+                    cloud_run_id = (getattr(task, 'state', None) or {}).get('cloud_run_id')
                     # Debug: log each task being checked
-                    logger.debug(f"[PassiveCommand] Checking task: name={task_name}, run_id={task_run_id}, id={task_id}, looking_for={run_id}")
-                    if task_run_id == run_id or task_id == run_id:
+                    logger.debug(f"[PassiveCommand] Checking task: name={task_name}, run_id={task_run_id}, id={task_id}, cloud_run_id={cloud_run_id}, looking_for={run_id}")
+                    if task_run_id == run_id or task_id == run_id or (cloud_run_id and cloud_run_id == run_id):
                         if hasattr(task, 'queue') and task.queue:
                             # Convert to async_callback for pending event resolution
                             correlation_id = f"{run_id}:{step_id}" if step_id else run_id

@@ -378,15 +378,35 @@ def convert_agent_dict_to_ec_agent(
             task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
             is_chat_task = 'chat' in task_name_lower
             
-            # Attach chat skill if task has no skill
-            if not getattr(task_obj, 'skill', None) and skill_objects and is_chat_task:
-                chat_skill = next(
-                    (sk for sk in skill_objects if 'chat' in (getattr(sk, 'name', '') or '').lower()),
-                    None,
-                )
-                if chat_skill:
-                    task_obj.skill = chat_skill
-                    logger.debug(f"[AgentConverter] Attached skill '{chat_skill.name}' to task '{task_obj.name}'")
+            # Resolve skill for any task that has no compiled skill object
+            task_skill = getattr(task_obj, 'skill', None)
+            has_compiled_skill = task_skill is not None and hasattr(task_skill, 'runnable')
+            
+            if not has_compiled_skill and skill_objects:
+                # Try to match by skill name on the task (string or object with name)
+                skill_name_on_task = ''
+                if isinstance(task_skill, str):
+                    skill_name_on_task = task_skill.lower().strip()
+                elif task_skill and hasattr(task_skill, 'name'):
+                    skill_name_on_task = (getattr(task_skill, 'name', '') or '').lower().strip()
+                
+                matched_skill = None
+                if skill_name_on_task:
+                    matched_skill = next(
+                        (sk for sk in skill_objects if (getattr(sk, 'name', '') or '').lower().strip() == skill_name_on_task),
+                        None,
+                    )
+                
+                # For chat tasks, fall back to any skill with 'chat' in name
+                if not matched_skill and is_chat_task:
+                    matched_skill = next(
+                        (sk for sk in skill_objects if 'chat' in (getattr(sk, 'name', '') or '').lower()),
+                        None,
+                    )
+                
+                if matched_skill:
+                    task_obj.skill = matched_skill
+                    logger.info(f"[AgentConverter] Attached skill '{matched_skill.name}' to task '{task_obj.name}'")
             
             # Ensure chat tasks have 'message' trigger so the execution loop polls the queue
             if is_chat_task:

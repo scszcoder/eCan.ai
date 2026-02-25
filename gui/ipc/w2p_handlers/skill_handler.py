@@ -432,13 +432,17 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             # Sync Skill entity
             _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
             
-            # Sync Skill-Tool relationships (if changed)
-            if 'tools' in skill_data:
-                _sync_skill_tool_relations(actual_skill_id, skill_data.get('tools', []), Operation.UPDATE)
+            # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
+            # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
+            # auto-generated relation row 'id' which the local client doesn't have.
+            tool_ids = skill_info.get('tool_ids', skill_info.get('tools', []))
+            if tool_ids:
+                _sync_skill_tool_relations(actual_skill_id, tool_ids, Operation.ADD)
             
-            # Sync Skill-Knowledge relationships (if changed)
-            if 'knowledges' in skill_data:
-                _sync_skill_knowledge_relations(actual_skill_id, skill_data.get('knowledges', []), Operation.UPDATE)
+            # Sync Skill-Knowledge relationships
+            knowledge_ids = skill_info.get('knowledge_ids', skill_info.get('knowledges', []))
+            if knowledge_ids:
+                _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
 
             # Create clean response
             clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
@@ -1008,11 +1012,10 @@ def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operat
     
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType
-    from app_context import AppContext
     from gui.ipc.context_bridge import get_handler_context
     
     manager = get_sync_manager()
-    ctx = get_handler_context(request, params)
+    ctx = get_handler_context()
     owner = ctx.get_username() if ctx else 'unknown'
     
     logger.info(f"[skill_handler] Syncing {len(tool_ids)} tool relationships for skill: {skill_id}")
@@ -1053,11 +1056,10 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
     
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType
-    from app_context import AppContext
     from gui.ipc.context_bridge import get_handler_context
     
     manager = get_sync_manager()
-    ctx = get_handler_context(request, params)
+    ctx = get_handler_context()
     owner = ctx.get_username() if ctx else 'unknown'
     
     logger.info(f"[skill_handler] Syncing {len(knowledge_ids)} knowledge relationships for skill: {skill_id}")

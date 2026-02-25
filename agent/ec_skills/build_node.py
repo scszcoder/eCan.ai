@@ -521,6 +521,24 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
             if joined:
                 _add_section(sys_parts, label, joined)
 
+    # When tools are provided, append structured output format instructions so the LLM
+    # returns JSON with tool_name instead of hallucinating tool calls as free-form text.
+    if tools_to_use_added:
+        _tool_output_format = (
+            "[Output Format]\n"
+            "You MUST always respond with valid JSON (no markdown fences, no extra text outside the JSON).\n"
+            "When you want to call a tool, return:\n"
+            '{"message": "<brief explanation to the user>", "tool_name": "<exact tool name from the list above>", '
+            '"tool_input": {"input": {<tool parameters>}}}\n'
+            "When you are just chatting (no tool call), return:\n"
+            '{"message": "<your response to the user>"}\n'
+            "CRITICAL RULES:\n"
+            "- NEVER fabricate or imagine tool results. You MUST return the tool_name and tool_input and WAIT for the system to execute the tool.\n"
+            "- NEVER include fake tool output in your message. The system will run the tool and provide the real result.\n"
+            "- If the user confirms an action (e.g. says 'proceed', 'yes', 'go ahead'), call the tool immediately — do NOT describe what you would do."
+        )
+        sys_parts.append(_tool_output_format)
+
     system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
 
     user_parts: list[str] = []
@@ -1346,9 +1364,25 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             logger.debug(log_msg)
                             send_skill_editor_log("log", log_msg)
                         except Exception as e:
-                            err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
-                            logger.error(err_msg)
-                            send_skill_editor_log("error", err_msg)
+                            # Log detailed error context at ERROR level for quick problem identification
+                            error_type = type(e).__name__
+                            error_msg = str(e)
+                            
+                            logger.error(
+                                f"❌ LLM Invocation Failed in Thread\n"
+                                f"   Provider: {llm_provider}\n"
+                                f"   Model: {model_name}\n"
+                                f"   Base URL: {api_host or 'default'}\n"
+                                f"   Error Type: {error_type}\n"
+                                f"   Error Message: {error_msg}"
+                            )
+                            
+                            # Technical details in debug
+                            import traceback
+                            logger.debug(f"LLM invocation traceback: {traceback.format_exc()}")
+                            
+                            # Send concise message to skill editor
+                            send_skill_editor_log("error", f"LLM error: {error_type}: {error_msg}")
                             exception_queue.put(e)
 
                     start_time = time.time()
@@ -1358,10 +1392,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     elapsed = time.time() - start_time
 
                     if th.is_alive():
-                        err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
-                        raise TimeoutError(err_msg)
+                        # Get LLM info for detailed error message
+                        llm_info = f"{llm_provider}/{model_name}"
+                        base_url_info = f" (base_url: {api_host})" if api_host else ""
+                        timeout_msg = f"⏱️ LLM request timed out after {timeout_sec}s: {llm_info}{base_url_info} - thread still running"
+                        logger.error(timeout_msg)
+                        send_skill_editor_log("error", timeout_msg)
+                        raise TimeoutError(timeout_msg)
                     if not exception_queue.empty():
                         raise exception_queue.get()
                     if result_queue.empty():
@@ -1393,10 +1430,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         return result
                         
                     except asyncio.TimeoutError:
-                        err_msg = f"⏱️ LLM async request timed out after {timeout_sec}s"
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
-                        raise TimeoutError(err_msg)
+                        # Get LLM info for detailed error message
+                        llm_info = f"{llm_provider}/{model_name}"
+                        base_url_info = f" (base_url: {api_host})" if api_host else ""
+                        timeout_msg = f"⏱️ LLM async request timed out after {timeout_sec}s: {llm_info}{base_url_info}"
+                        logger.error(timeout_msg)
+                        send_skill_editor_log("error", timeout_msg)
+                        raise TimeoutError(timeout_msg)
 
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
                     """
@@ -1568,60 +1608,112 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             except Exception as e:
                 error_type = type(e).__name__
-                error_str = get_traceback(e, "ErrorLLMNodeCallable")
+                error_msg = str(e)
+
+                # Log complete error context at ERROR level for quick problem identification
+                import traceback
+                logger.error(
+                    f"❌ LLM Node Callable Failed\n"
+                    f"   Provider: {llm_provider}\n"
+                    f"   Model: {model_name}\n"
+                    f"   Base URL: {api_host or 'default'}\n"
+                    f"   Error Type: {error_type}\n"
+                    f"   Error Message: {error_msg}"
+                )
+                logger.debug(f"Traceback: {traceback.format_exc()}")
 
                 # Detect specific error types and provide helpful messages
-                if "AuthenticationError" in error_type or "authentication" in error_str.lower():
-                    err_msg = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
-                                     "Please check your API key configuration.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "Error code: 402" in error_str or "Insufficient Balance" in error_str or "insufficient balance" in error_str.lower():
-                    err_msg = (f"💰 {llm_provider} 余额不足 (Insufficient Balance): "
-                                     f"您的 {llm_provider} API 账户余额已用尽，无法继续调用。"
-                                     f"请前往 {llm_provider} 平台充值后再试。")
-                    logger.error(f"{err_msg}")
-                    logger.error(f"[BALANCE_ERROR] Provider: {llm_provider}, Model: {model_name}")
-                    logger.error(f"[BALANCE_ERROR] API Host: {api_host or 'default'}")
-                    send_skill_editor_log("error", err_msg)
-                elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
-                    err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
-                                     "Please check your usage limits.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-                    err_msg = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
-                                     "This may be due to network issues or API endpoint unreachable.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "connection" in error_str.lower() or "network" in error_str.lower():
-                    err_msg = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
-                                     "Please check your network connection and API endpoint configuration.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
-                    err_msg = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
-                                     f"Model: '{model_name}'. Error: {error_str}")
-                    logger.error(f"{err_msg}")
-                    send_skill_editor_log("error", err_msg)
+                if "AuthenticationError" in error_type or "authentication" in error_msg.lower():
+                    user_msg = (
+                        f"🔑 LLM Authentication Failed: Invalid API key for {llm_provider}\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 Action: Check your API key configuration in settings"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "Error code: 402" in error_msg or "Insufficient Balance" in error_msg or "insufficient balance" in error_msg.lower():
+                    user_msg = (
+                        f"💰 {llm_provider} 余额不足 (Insufficient Balance)\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 说明: 您的 {llm_provider} API 账户余额已用尽，无法继续调用\n"
+                        f"   💡 Action: 请前往 {llm_provider} 平台充值后再试"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "RateLimitError" in error_type or "rate limit" in error_msg.lower() or "quota" in error_msg.lower():
+                    user_msg = (
+                        f"🚫 LLM Rate Limit: {llm_provider} quota exceeded\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 Action: Wait a few minutes and retry, or upgrade your API plan"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                    user_msg = (
+                        f"⏱️ LLM Request Timeout: {llm_provider} connection timed out\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 Troubleshooting:\n"
+                        f"      - Check your network connection\n"
+                        f"      - Verify the service is responding\n"
+                        f"      - Try increasing the timeout setting"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "connection" in error_msg.lower() or "network" in error_msg.lower():
                     # Check if it's a model not found error
-                    if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
-                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-5.2, gpt-5-mini, gpt-4o, gpt-4o-mini"
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
+                    if "model" in error_msg.lower() and ("not found" in error_msg.lower() or "does not exist" in error_msg.lower()):
+                        user_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-5.2, gpt-5-mini, gpt-4o, gpt-4o-mini"
+                    else:
+                        # Detailed connection error with all diagnostic information
+                        base_url_info = f" at {api_host}" if api_host else " (using default URL)"
+                        user_msg = (
+                            f"🔌 Connection Error: Cannot connect to {llm_provider}{base_url_info}\n"
+                            f"   Provider: {llm_provider}\n"
+                            f"   Model: {model_name}\n"
+                            f"   Base URL: {api_host or 'default'}\n"
+                            f"   Error Type: {error_type}\n"
+                            f"   Error Message: {error_msg}\n"
+                            f"   💡 Troubleshooting:\n"
+                            f"      - Check if {llm_provider} service is running\n"
+                            f"      - Verify the base URL is correct\n"
+                            f"      - Ensure network connectivity"
+                        )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
                 else:
                     # Generic error with full details
-                    err_msg = f"❌ LLM Invocation Failed  for {llm_provider}/{model_name}: ({error_type}): {error_str}"
-                    logger.error(err_msg)
-                    send_skill_editor_log("error", err_msg)
-                state['error'] = err_msg
+                    user_msg = (
+                        f"❌ LLM Invocation Failed\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error Type: {error_type}\n"
+                        f"   Error Message: {error_msg}\n"
+                        f"   💡 Check the error message above for specific details"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                
+                state['error'] = user_msg
 
                 # Add detailed error info for debugging
                 state['error_details'] = {
                     'error_type': error_type,
                     'provider': llm_provider,
                     'model': model_name,
-                    'original_error': error_str
+                    'error_message': error_msg
                 }
         else:
             logger.error("ERROR LLM NODE: messages empty ")
@@ -2738,9 +2830,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     else:
                         idx = start_idx + 1
                 
-                # Find the object with next_tool_name
+                # Find the object with next_tool_name or tool_name
                 for obj in parsed_objects:
-                    if isinstance(obj, dict) and 'next_tool_name' in obj:
+                    if isinstance(obj, dict) and ('next_tool_name' in obj or 'tool_name' in obj):
                         llm_result = obj
                         logger.debug(f"[MCP Auto-Select] Found target JSON with next_tool_name: {obj}")
                         # Update state so loop condition can properly check work_done
@@ -2750,8 +2842,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         break
             
             work_done = llm_result.get('work_done', False)
-            next_tool_name = llm_result.get('next_tool_name', '')
-            next_tool_input = llm_result.get('next_tool_input', {})
+            next_tool_name = (llm_result.get('next_tool_name', '')
+                              or llm_result.get('tool_name', ''))
+            next_tool_input = (llm_result.get('next_tool_input')
+                               or llm_result.get('tool_input')
+                               or {})
             
             log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
             logger.debug(log_msg)
@@ -2916,6 +3011,32 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     
                     # Store initial result and correlation_id
                     state["tool_result"] = tool_result
+                    
+                    # Check if MCP tool execution failed using MCP standard isError field
+                    tool_failed = False
+                    error_message = None
+                    
+                    # MCP standard: Check CallToolResult.isError
+                    if hasattr(tool_result, 'isError') and tool_result.isError:
+                        tool_failed = True
+                        # Extract error message from content
+                        if hasattr(tool_result, 'content') and isinstance(tool_result.content, list) and len(tool_result.content) > 0:
+                            first_content = tool_result.content[0]
+                            error_message = str(getattr(first_content, 'text', 'MCP tool execution failed'))
+                        else:
+                            error_message = 'MCP tool execution failed'
+                    
+                    if tool_failed:
+                        err_msg = f"[ASYNC_MODE] MCP tool '{_actual_tool_name}' execution failed: {error_message}"
+                        logger.error(err_msg)
+                        send_skill_editor_log("error", err_msg)
+                        state['error'] = err_msg
+                        
+                        tool_call_summary = ActionMessage(content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; status: FAILED; error: {error_message}")
+                        add_to_history(state, tool_call_summary)
+                        
+                        return state
+                    
                     _safe_inc_steps(state)
                     
                     # Track pending operation in state
@@ -3000,19 +3121,28 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         "run_local requires running from cloud worker with passive transport configured."
                     )
                 
-                # Get run_id from state (same pattern as browser_use cloud agent)
+                # Get canonical run_id from state/runtime context
                 run_id = None
                 try:
                     if isinstance(state, dict):
                         run_id = state.get("browser_use_run_id")
                         if not run_id:
                             attrs = state.get("attributes", {})
-                            run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("thread_id")
+                            run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("passive_run_id")
                         if not run_id:
                             meta = state.get("metadata", {})
-                            run_id = meta.get("run_id") if isinstance(meta, dict) else None
+                            run_id = (
+                                (meta.get("run_id") or meta.get("passive_run_id"))
+                                if isinstance(meta, dict)
+                                else None
+                            )
                 except Exception:
                     pass
+                if not isinstance(run_id, str) or not run_id.strip():
+                    run_id = (
+                        (os.environ.get("ECAN_RUN_ID") or "").strip()
+                        or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+                    )
                 if not isinstance(run_id, str) or not run_id.strip():
                     run_id = _uuid.uuid4().hex
                 logger.debug(f"[RUN_LOCAL] resolved run_id={run_id}")
@@ -3134,12 +3264,33 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 send_skill_editor_log("log", log_msg)
                 
                 state["tool_result"] = tool_result
-                _safe_inc_steps(state)
                 
-                tool_call_summary = ActionMessage(
-                    content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}"
-                )
-                add_to_history(state, tool_call_summary)
+                # Check if MCP tool execution failed using MCP standard isError field
+                tool_failed = False
+                error_message = None
+                
+                # MCP standard: Check CallToolResult.isError
+                if hasattr(tool_result, 'isError') and tool_result.isError:
+                    tool_failed = True
+                    # Extract error message from content
+                    if hasattr(tool_result, 'content') and isinstance(tool_result.content, list) and len(tool_result.content) > 0:
+                        first_content = tool_result.content[0]
+                        error_message = str(getattr(first_content, 'text', 'MCP tool execution failed'))
+                    else:
+                        error_message = 'MCP tool execution failed'
+                
+                if tool_failed:
+                    err_msg = f"[RUN_LOCAL] MCP tool '{_actual_tool_name}' execution failed: {error_message}"
+                    logger.error(err_msg)
+                    send_skill_editor_log("error", err_msg)
+                    state['error'] = err_msg
+                    
+                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; status: FAILED; error: {error_message}")
+                    add_to_history(state, tool_call_summary)
+                else:
+                    _safe_inc_steps(state)
+                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}")
+                    add_to_history(state, tool_call_summary)
                 
                 return state
                 
@@ -3164,15 +3315,38 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             # Add the result to the state (result is a dict, not a list)
             state["tool_result"] = tool_result
-            _safe_inc_steps(state)
+            
+            # Check if MCP tool execution failed using MCP standard isError field
+            tool_failed = False
+            error_message = None
+            
+            # MCP standard: Check CallToolResult.isError
+            if hasattr(tool_result, 'isError') and tool_result.isError:
+                tool_failed = True
+                # Extract error message from content
+                if hasattr(tool_result, 'content') and isinstance(tool_result.content, list) and len(tool_result.content) > 0:
+                    first_content = tool_result.content[0]
+                    error_message = str(getattr(first_content, 'text', 'MCP tool execution failed'))
+                else:
+                    error_message = 'MCP tool execution failed'
+            
+            if tool_failed:
+                err_msg = f"MCP tool '{_actual_tool_name}' execution failed: {error_message}"
+                logger.error(err_msg)
+                send_skill_editor_log("error", err_msg)
+                state['error'] = err_msg
+                
+                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; status: FAILED; error: {error_message}")
+                add_to_history(state, tool_call_summary)
+            else:
+                _safe_inc_steps(state)
+                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
+                add_to_history(state, tool_call_summary)
 
-            tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
-            add_to_history(state, tool_call_summary)
-
-            # Also update attributes for easier access by subsequent nodes
-            log_msg = f"state tool_result: {state['tool_result']}"
-            logger.debug(log_msg)
-            send_skill_editor_log("log", log_msg)
+                # Also update attributes for easier access by subsequent nodes
+                log_msg = f"state tool_result: {state['tool_result']}"
+                logger.debug(log_msg)
+                send_skill_editor_log("log", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorMCPToolCallable({_actual_tool_name})")
@@ -4340,7 +4514,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             if not run_id:
                                 # Third priority: other run_id fields
                                 attrs = state.get("attributes", {})
-                                run_id = attrs.get("run_id") or attrs.get("thread_id")
+                                run_id = attrs.get("run_id") or attrs.get("passive_run_id")
                             if not run_id:
                                 # Fourth priority: metadata.run_id (used by some runners)
                                 md = state.get("metadata", {})
@@ -4360,6 +4534,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if dev_mode and not browser_use_run_id_explicit:
                         dev_run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
                         run_id = dev_run_id or "0123456789"
+
+                    if not isinstance(run_id, str) or not run_id.strip():
+                        run_id = (
+                            (os.environ.get("ECAN_RUN_ID") or "").strip()
+                            or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+                        )
                     
                     if not isinstance(run_id, str) or not run_id.strip():
                         run_id = uuid.uuid4().hex

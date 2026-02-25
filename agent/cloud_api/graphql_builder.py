@@ -40,7 +40,7 @@ class GraphQLBuilder:
     # GraphQL mutation name mapping
     # Standard naming convention:
     # - Entity operations: addAgents, addAgentSkills, addAgentTasks, addAgentTools
-    # - Relationship operations: addAgentSkillRelations, addAgentTaskRelations, etc.
+    # - Relationship operations: addAgentSkillRels, addAgentTaskRels, addAgentOrgRels, etc.
     MUTATION_NAMES = {
         # ============================================================================
         # Entity Operations
@@ -75,32 +75,38 @@ class GraphQLBuilder:
         # ============================================================================
         # First-Level Relationship Operations
         # ============================================================================
-        (DataType.AGENT_SKILL, Operation.ADD): "addAgentSkillRelations",
-        (DataType.AGENT_SKILL, Operation.UPDATE): "addAgentSkillRelations",  # Cloud has no updateAgentSkillRelations - use add (upsert)
-        (DataType.AGENT_SKILL, Operation.DELETE): "removeAgentSkillRelations",
+        (DataType.AGENT_ORG, Operation.ADD): "addAgentOrgRels",
+        (DataType.AGENT_ORG, Operation.UPDATE): "updateAgentOrgRels",
+        (DataType.AGENT_ORG, Operation.DELETE): "removeAgentOrgRels",
         
-        (DataType.AGENT_TASK, Operation.ADD): "addAgentTaskRelations",
-        (DataType.AGENT_TASK, Operation.UPDATE): "addAgentTaskRelations",  # Cloud may not have update - use add (upsert)
-        (DataType.AGENT_TASK, Operation.DELETE): "removeAgentTaskRelations",
+        (DataType.AGENT_SKILL, Operation.ADD): "addAgentSkillRels",
+        (DataType.AGENT_SKILL, Operation.UPDATE): "updateAgentSkillRels",
+        (DataType.AGENT_SKILL, Operation.DELETE): "removeAgentSkillRels",
         
-        (DataType.AGENT_TOOL, Operation.ADD): "addAgentToolRelations",
-        (DataType.AGENT_TOOL, Operation.UPDATE): "addAgentToolRelations",  # Cloud may not have update - use add (upsert)
-        (DataType.AGENT_TOOL, Operation.DELETE): "removeAgentToolRelations",
+        (DataType.AGENT_TASK, Operation.ADD): "addAgentTaskRels",
+        (DataType.AGENT_TASK, Operation.UPDATE): "updateAgentTaskRels",
+        (DataType.AGENT_TASK, Operation.DELETE): "removeAgentTaskRels",
         
         # ============================================================================
         # Second-Level Relationship Operations
         # ============================================================================
-        (DataType.SKILL_TOOL, Operation.ADD): "addSkillToolRelations",
-        (DataType.SKILL_TOOL, Operation.UPDATE): "updateSkillToolRelations",
-        (DataType.SKILL_TOOL, Operation.DELETE): "removeSkillToolRelations",
+        (DataType.SKILL_TOOL, Operation.ADD): "addAgentSkillToolRels",
+        (DataType.SKILL_TOOL, Operation.UPDATE): "updateAgentSkillToolRels",
+        (DataType.SKILL_TOOL, Operation.DELETE): "removeAgentSkillToolRels",
         
-        (DataType.SKILL_KNOWLEDGE, Operation.ADD): "addSkillKnowledgeRelations",
-        (DataType.SKILL_KNOWLEDGE, Operation.UPDATE): "updateSkillKnowledgeRelations",
-        (DataType.SKILL_KNOWLEDGE, Operation.DELETE): "removeSkillKnowledgeRelations",
+        (DataType.SKILL_KNOWLEDGE, Operation.ADD): "addAgentSkillKnowledgeRels",
+        (DataType.SKILL_KNOWLEDGE, Operation.UPDATE): "updateAgentSkillKnowledgeRels",
+        (DataType.SKILL_KNOWLEDGE, Operation.DELETE): "removeAgentSkillKnowledgeRels",
         
-        (DataType.TASK_SKILL, Operation.ADD): "addTaskSkillRelations",
-        (DataType.TASK_SKILL, Operation.UPDATE): "updateTaskSkillRelations",
-        (DataType.TASK_SKILL, Operation.DELETE): "removeTaskSkillRelations",
+        (DataType.TASK_SKILL, Operation.ADD): "addAgentTaskSkillRels",
+        (DataType.TASK_SKILL, Operation.UPDATE): "updateAgentTaskSkillRels",
+        (DataType.TASK_SKILL, Operation.DELETE): "removeAgentTaskSkillRels",
+    }
+    
+    # Relationship remove mutations use [RelationIdInput!]! ({id: String!}) not plain [ID!]!
+    RELATION_REMOVE_MUTATIONS = {
+        "removeAgentOrgRels", "removeAgentSkillRels", "removeAgentTaskRels",
+        "removeAgentSkillToolRels", "removeAgentSkillKnowledgeRels", "removeAgentTaskSkillRels",
     }
     
     # Return field selection for mutations that return result types
@@ -236,28 +242,38 @@ class GraphQLBuilder:
     ) -> str:
         """Build REMOVE mutation
         
-        New schema: remove mutations take [ID!]! - just an array of ID strings
+        Entity remove mutations take [ID!]! - just an array of ID strings.
+        Relationship remove mutations take [RelationIdInput!]! - array of {id: String!} objects.
         """
+        is_relation_remove = mutation_name in self.RELATION_REMOVE_MUTATIONS
+        
         mutation_str = f"mutation MyMutation {{ {mutation_name}(input: ["
         
-        # Build array of IDs
-        id_strings = []
-        for item in items:
-            # Get ID from various possible field names
-            oid = (item.get("id") or  # Generic ID
-                   item.get("oid") or  # Order ID
-                   item.get("agid") or  # Agent ID (legacy)
-                   item.get("skid") or  # Skill ID (legacy)
-                   item.get("task_id") or  # Task ID (legacy)
-                   item.get("tool_id"))  # Tool ID (legacy)
-            
-            if not oid:
-                logger.warning(f"[GraphQLBuilder] Remove item missing ID: {item}")
-                continue
-            
-            id_strings.append(f'"{oid}"')
+        if is_relation_remove:
+            # Relationship removes: [{id: "xxx"}, {id: "yyy"}]
+            obj_strings = []
+            for item in items:
+                oid = (item.get("id") or item.get("oid") or
+                       item.get("agid") or item.get("skid") or
+                       item.get("task_id") or item.get("tool_id"))
+                if not oid:
+                    logger.warning(f"[GraphQLBuilder] Remove item missing ID: {item}")
+                    continue
+                obj_strings.append(f'{{ id: "{oid}" }}')
+            mutation_str += ", ".join(obj_strings)
+        else:
+            # Entity removes: ["id1", "id2"]
+            id_strings = []
+            for item in items:
+                oid = (item.get("id") or item.get("oid") or
+                       item.get("agid") or item.get("skid") or
+                       item.get("task_id") or item.get("tool_id"))
+                if not oid:
+                    logger.warning(f"[GraphQLBuilder] Remove item missing ID: {item}")
+                    continue
+                id_strings.append(f'"{oid}"')
+            mutation_str += ", ".join(id_strings)
         
-        mutation_str += ", ".join(id_strings)
         mutation_str += "]"
         
         # Close mutation with return field selection if needed

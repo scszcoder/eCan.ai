@@ -33,6 +33,7 @@ class DataType(str, Enum):
     # ============================================================================
     # First-Level Relationships (Agent relationships with other entities)
     # ============================================================================
+    AGENT_ORG = 'agent_org'      # Agent-Organization relationship
     AGENT_SKILL = 'agent_skill'  # Agent-Skill relationship
     AGENT_TASK = 'agent_task'    # Agent-Task relationship
     AGENT_TOOL = 'agent_tool'    # Agent-Tool relationship
