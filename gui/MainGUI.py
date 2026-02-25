@@ -1981,10 +1981,10 @@ class MainWindow:
             # Debug: enumerate ALL tasks across ALL agents upfront
             for idx, agent in enumerate(agents):
                 agent_name = getattr(agent, 'name', None) or getattr(getattr(agent, 'card', None), 'name', None) or f'agent_{idx}'
-                has_runner = hasattr(agent, 'task_runner')
+                has_runner = hasattr(agent, 'runner') and agent.runner is not None
                 agent_tasks = getattr(agent, 'tasks', []) or []
-                runner_tasks = dict(agent.task_runner.tasks) if has_runner and hasattr(agent.task_runner, 'tasks') else {}
-                logger.info(f"[PassiveCommand] Agent[{idx}] name={agent_name}, has_task_runner={has_runner}, agent.tasks={len(agent_tasks)}, runner.tasks={len(runner_tasks)}")
+                runner_tasks = dict(agent.runner.tasks) if has_runner and hasattr(agent.runner, 'tasks') else {}
+                logger.info(f"[PassiveCommand] Agent[{idx}] name={agent_name}, has_runner={has_runner}, agent.tasks={len(agent_tasks)}, runner.tasks={len(runner_tasks)}")
                 for t in agent_tasks:
                     t_id = getattr(t, 'id', 'NO_ID')
                     t_run_id = getattr(t, 'run_id', 'NO_RUN_ID')
@@ -1999,11 +1999,11 @@ class MainWindow:
             
             # Try data_mapping.json routing first
             for agent in agents:
-                if not hasattr(agent, 'task_runner'):
+                if not hasattr(agent, 'runner') or agent.runner is None:
                     continue
                 
                 # Use TaskRunner's event routing (reads from skill.mapping_rules)
-                routing_result = agent.task_runner._resolve_event_routing(
+                routing_result = agent.runner._resolve_event_routing(
                     "passive_command", event_data, source="appsync"
                 )
                 
@@ -2051,9 +2051,10 @@ class MainWindow:
                     task_run_id = getattr(task, 'run_id', None)
                     task_id = getattr(task, 'id', None)
                     task_name = getattr(task, 'name', 'NO_NAME')
+                    cloud_run_id = (getattr(task, 'state', None) or {}).get('cloud_run_id')
                     # Debug: log each task being checked
-                    logger.debug(f"[PassiveCommand] Checking task: name={task_name}, run_id={task_run_id}, id={task_id}, looking_for={run_id}")
-                    if task_run_id == run_id or task_id == run_id:
+                    logger.debug(f"[PassiveCommand] Checking task: name={task_name}, run_id={task_run_id}, id={task_id}, cloud_run_id={cloud_run_id}, looking_for={run_id}")
+                    if task_run_id == run_id or task_id == run_id or (cloud_run_id and cloud_run_id == run_id):
                         if hasattr(task, 'queue') and task.queue:
                             # Convert to async_callback for pending event resolution
                             correlation_id = f"{run_id}:{step_id}" if step_id else run_id

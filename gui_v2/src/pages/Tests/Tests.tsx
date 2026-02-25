@@ -1507,6 +1507,17 @@ const Tests: React.FC = () => {
                         <Button onClick={handleRunCloudTask} style={{ marginLeft: 8 }} type="primary">
                             Run Cloud Task
                         </Button>
+                        <Button
+                            type="primary"
+                            onClick={handleTestHybridCloud}
+                            style={{
+                                marginLeft: 8,
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                            }}
+                        >
+                            Test Hybrid Cloud
+                        </Button>
                         <Button onClick={handleGetRunId} style={{ marginLeft: 8 }}>
                             Get Run ID
                         </Button>
@@ -1605,20 +1616,6 @@ const Tests: React.FC = () => {
                             }}
                         >
                             {t('pages.tests.flowTest')}
-                        </Button>
-                    </Space>
-
-                    {/* Hybrid Cloud Test */}
-                    <Space style={{ marginBottom: '16px' }}>
-                        <Button
-                            type="primary"
-                            onClick={handleTestHybridCloud}
-                            style={{
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
-                            }}
-                        >
-                            Test Hybrid Cloud
                         </Button>
                     </Space>
 
