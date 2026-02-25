@@ -461,13 +461,24 @@ async function deleteEcsSchedule(taskId) {
   }
 }
 
-async function syncTaskSchedule({ taskId, ownerValue, triggerType, scheduleValue, metadataValue }) {
+async function syncTaskSchedule({ taskId, ownerValue, triggerType, scheduleValue, metadataValue, taskType }) {
   const trigger = (triggerType || "").toString().trim().toLowerCase();
   const decoded = _decodeAwsJson(scheduleValue);
   const scheduleDecoded = _decodeAwsJson(decoded);
 
+  // Only cloud-only tasks get EventBridge schedules.
+  // "local" and "hybrid cloud" tasks run on-demand via the local agent, not via EventBridge.
+  const normalizedTaskType = (taskType || "").toString().trim().toLowerCase();
+  const isCloudOnly = normalizedTaskType === "cloud";
+  if (!isCloudOnly) {
+    // Best-effort remove any stale schedule (e.g. if task_type was just changed away from cloud).
+    console.log(`[syncTaskSchedule] task_type='${taskType}' is not cloud-only; removing any EventBridge schedule for taskId=${taskId}`);
+    await deleteEcsSchedule(taskId);
+    return;
+  }
+
   if (trigger !== "schedule" || scheduleDecoded == null || scheduleDecoded === "") {
-    // Not a scheduled task: best-effort delete any existing schedule.
+    // Cloud task but not scheduled: best-effort delete any existing schedule.
     await deleteEcsSchedule(taskId);
     return;
   }
@@ -4653,6 +4664,7 @@ async function processEvent(event, context, callback, test_stub) {
                         triggerType: task?.trigger_type,
                         scheduleValue: task?.schedule,
                         metadataValue: task?.metadata,
+                        taskType: task?.task_type,
                       });
                     } catch (e) {
                       scheduleErr = e;
@@ -4714,6 +4726,7 @@ async function processEvent(event, context, callback, test_stub) {
                         triggerType: effective?.trigger_type,
                         scheduleValue: ("schedule" in fields) ? fields.schedule : effective?.schedule,
                         metadataValue: ("metadata" in fields) ? fields.metadata : effective?.metadata,
+                        taskType: ("task_type" in fields) ? fields.task_type : effective?.task_type,
                       });
                     } catch (e) {
                       scheduleErr = e;
