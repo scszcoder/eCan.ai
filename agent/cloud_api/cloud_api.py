@@ -1177,7 +1177,7 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
-def appsync_http_request(query_string, session, token, endpoint=None, timeout=180):
+def appsync_http_request(query_string, session, token, endpoint=None, timeout=180, variables=None):
     """
     Send AppSync GraphQL request with authentication.
     Supports both Cognito User Pool tokens and Google ID tokens.
@@ -1188,6 +1188,7 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
         token: Authentication token
         endpoint: API endpoint URL (optional, will use get_appsync_endpoint() if not provided)
         timeout: Request timeout in seconds (default: 180)
+        variables: Optional dict of GraphQL variables
     """
     # 如果没有提供 endpoint，使用通用方法获取
     if not endpoint:
@@ -1209,12 +1210,15 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
 
     try:
         # Send the request with configurable timeout
+        payload = {'query': query_string}
+        if variables:
+            payload['variables'] = variables
         response = session.request(
             url=endpoint,
             method='POST',
             timeout=timeout,
             headers=headers,
-            json={'query': query_string}
+            json=payload
         )
         print("raw response: ", response)
         jresp = response.json()
