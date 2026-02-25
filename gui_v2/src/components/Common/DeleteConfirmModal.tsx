@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { Modal, theme } from 'antd';
+import { App, Modal, theme } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
@@ -29,8 +29,87 @@ interface DeleteConfirmModalOptions {
 }
 
 /**
- * Show a theme-aware delete confirmation modal
- * Display主题适配的DeleteConfirmDialog
+ * Hook version for use in functional components (recommended)
+ * Hook Version，推荐在FunctionComponent中使用
+ */
+export const useDeleteConfirm = () => {
+  const { modal } = App.useApp();
+  const { token } = theme.useToken();
+  const { t } = useTranslation();
+
+  return React.useCallback((options: DeleteConfirmModalOptions) => {
+    const {
+      title = t('common.confirm_delete', 'ConfirmDelete'),
+      message,
+      warningText = t('pages.tasks.deleteWarning', '此Operation无法撤销'),
+      okText = t('common.delete', 'Delete'),
+      cancelText = t('common.cancel', 'Cancel'),
+      onOk,
+      onCancel,
+    } = options;
+
+    modal.confirm({
+      title: (
+        <span style={{ fontSize: '16px', fontWeight: 600, color: token.colorText }}>
+          {title}
+        </span>
+      ),
+      icon: <ExclamationCircleOutlined style={{ color: token.colorError, fontSize: '22px' }} />,
+      content: (
+        <div style={{ marginTop: '12px' }}>
+          <p style={{ 
+            fontSize: '14px', 
+            lineHeight: '1.6', 
+            marginBottom: '12px',
+            color: token.colorText
+          }}>
+            {message}
+          </p>
+          {warningText && (
+            <div style={{ 
+              padding: '12px', 
+              background: token.colorErrorBg,
+              borderRadius: '8px',
+              border: `1px solid ${token.colorErrorBorder}`
+            }}>
+              <span style={{ fontSize: '13px', color: token.colorError }}>
+                ⚠️ {t('common.warning', 'Warning')}：{warningText}
+              </span>
+            </div>
+          )}
+        </div>
+      ),
+      okText,
+      okType: 'danger',
+      cancelText,
+      width: 480,
+      centered: true,
+      maskClosable: true,
+      okButtonProps: {
+        style: { 
+          borderRadius: '6px',
+          height: '36px',
+          fontSize: '14px',
+          fontWeight: 500
+        }
+      },
+      cancelButtonProps: {
+        style: { 
+          borderRadius: '6px',
+          height: '36px',
+          fontSize: '14px'
+        }
+      },
+      onOk,
+      onCancel,
+    });
+  }, [modal, token, t]);
+};
+
+/**
+ * Legacy function - deprecated, use useDeleteConfirm hook instead
+ * 已废弃，请使用 useDeleteConfirm hook
+ * @deprecated
  */
 export const showDeleteConfirm = (options: DeleteConfirmModalOptions) => {
   const { token } = theme.useToken();
@@ -101,83 +180,6 @@ export const showDeleteConfirm = (options: DeleteConfirmModalOptions) => {
     onOk,
     onCancel,
   });
-};
-
-/**
- * Hook version for use in functional components
- * Hook Version，Used forFunctionComponent中
- */
-export const useDeleteConfirm = () => {
-  const { token } = theme.useToken();
-  const { t } = useTranslation();
-
-  return React.useCallback((options: Omit<DeleteConfirmModalOptions, 'onOk'> & { onOk: () => void | Promise<void> }) => {
-    const {
-      title = t('common.confirm_delete', 'ConfirmDelete'),
-      message,
-      warningText = t('pages.tasks.deleteWarning', '此Operation无法撤销'),
-      okText = t('common.delete', 'Delete'),
-      cancelText = t('common.cancel', 'Cancel'),
-      onOk,
-      onCancel,
-    } = options;
-
-    Modal.confirm({
-      title: (
-        <span style={{ fontSize: '16px', fontWeight: 600, color: token.colorText }}>
-          {title}
-        </span>
-      ),
-      icon: <ExclamationCircleOutlined style={{ color: token.colorError, fontSize: '22px' }} />,
-      content: (
-        <div style={{ marginTop: '12px' }}>
-          <p style={{ 
-            fontSize: '14px', 
-            lineHeight: '1.6', 
-            marginBottom: '12px',
-            color: token.colorText
-          }}>
-            {message}
-          </p>
-          {warningText && (
-            <div style={{ 
-              padding: '12px', 
-              background: token.colorErrorBg,
-              borderRadius: '8px',
-              border: `1px solid ${token.colorErrorBorder}`
-            }}>
-              <span style={{ fontSize: '13px', color: token.colorError }}>
-                ⚠️ {t('common.warning', 'Warning')}：{warningText}
-              </span>
-            </div>
-          )}
-        </div>
-      ),
-      okText,
-      okType: 'danger',
-      cancelText,
-      width: 480,
-      centered: true,
-      maskClosable: true,
-      okButtonProps: {
-        style: { 
-          borderRadius: '6px',
-          height: '36px',
-          fontSize: '14px',
-          fontWeight: 500
-        }
-      },
-      cancelButtonProps: {
-        style: { 
-          borderRadius: '6px',
-          height: '36px',
-          fontSize: '14px'
-        }
-      },
-      onOk,
-      onCancel,
-    });
-  }, [token, t]);
 };
 
 export default useDeleteConfirm;
