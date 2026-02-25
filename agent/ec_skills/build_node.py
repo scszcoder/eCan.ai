@@ -2990,6 +2990,32 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     
                     # Store initial result and correlation_id
                     state["tool_result"] = tool_result
+                    
+                    # Check if MCP tool execution failed using MCP standard isError field
+                    tool_failed = False
+                    error_message = None
+                    
+                    # MCP standard: Check CallToolResult.isError
+                    if hasattr(tool_result, 'isError') and tool_result.isError:
+                        tool_failed = True
+                        # Extract error message from content
+                        if hasattr(tool_result, 'content') and isinstance(tool_result.content, list) and len(tool_result.content) > 0:
+                            first_content = tool_result.content[0]
+                            error_message = str(getattr(first_content, 'text', 'MCP tool execution failed'))
+                        else:
+                            error_message = 'MCP tool execution failed'
+                    
+                    if tool_failed:
+                        err_msg = f"[ASYNC_MODE] MCP tool '{_actual_tool_name}' execution failed: {error_message}"
+                        logger.error(err_msg)
+                        send_skill_editor_log("error", err_msg)
+                        state['error'] = err_msg
+                        
+                        tool_call_summary = ActionMessage(content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; status: FAILED; error: {error_message}")
+                        add_to_history(state, tool_call_summary)
+                        
+                        return state
+                    
                     _safe_inc_steps(state)
                     
                     # Track pending operation in state
@@ -3208,12 +3234,33 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 send_skill_editor_log("log", log_msg)
                 
                 state["tool_result"] = tool_result
-                _safe_inc_steps(state)
                 
-                tool_call_summary = ActionMessage(
-                    content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}"
-                )
-                add_to_history(state, tool_call_summary)
+                # Check if MCP tool execution failed using MCP standard isError field
+                tool_failed = False
+                error_message = None
+                
+                # MCP standard: Check CallToolResult.isError
+                if hasattr(tool_result, 'isError') and tool_result.isError:
+                    tool_failed = True
+                    # Extract error message from content
+                    if hasattr(tool_result, 'content') and isinstance(tool_result.content, list) and len(tool_result.content) > 0:
+                        first_content = tool_result.content[0]
+                        error_message = str(getattr(first_content, 'text', 'MCP tool execution failed'))
+                    else:
+                        error_message = 'MCP tool execution failed'
+                
+                if tool_failed:
+                    err_msg = f"[RUN_LOCAL] MCP tool '{_actual_tool_name}' execution failed: {error_message}"
+                    logger.error(err_msg)
+                    send_skill_editor_log("error", err_msg)
+                    state['error'] = err_msg
+                    
+                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; status: FAILED; error: {error_message}")
+                    add_to_history(state, tool_call_summary)
+                else:
+                    _safe_inc_steps(state)
+                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}")
+                    add_to_history(state, tool_call_summary)
                 
                 return state
                 
@@ -3238,15 +3285,38 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             # Add the result to the state (result is a dict, not a list)
             state["tool_result"] = tool_result
-            _safe_inc_steps(state)
+            
+            # Check if MCP tool execution failed using MCP standard isError field
+            tool_failed = False
+            error_message = None
+            
+            # MCP standard: Check CallToolResult.isError
+            if hasattr(tool_result, 'isError') and tool_result.isError:
+                tool_failed = True
+                # Extract error message from content
+                if hasattr(tool_result, 'content') and isinstance(tool_result.content, list) and len(tool_result.content) > 0:
+                    first_content = tool_result.content[0]
+                    error_message = str(getattr(first_content, 'text', 'MCP tool execution failed'))
+                else:
+                    error_message = 'MCP tool execution failed'
+            
+            if tool_failed:
+                err_msg = f"MCP tool '{_actual_tool_name}' execution failed: {error_message}"
+                logger.error(err_msg)
+                send_skill_editor_log("error", err_msg)
+                state['error'] = err_msg
+                
+                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; status: FAILED; error: {error_message}")
+                add_to_history(state, tool_call_summary)
+            else:
+                _safe_inc_steps(state)
+                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
+                add_to_history(state, tool_call_summary)
 
-            tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
-            add_to_history(state, tool_call_summary)
-
-            # Also update attributes for easier access by subsequent nodes
-            log_msg = f"state tool_result: {state['tool_result']}"
-            logger.debug(log_msg)
-            send_skill_editor_log("log", log_msg)
+                # Also update attributes for easier access by subsequent nodes
+                log_msg = f"state tool_result: {state['tool_result']}"
+                logger.debug(log_msg)
+                send_skill_editor_log("log", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorMCPToolCallable({_actual_tool_name})")

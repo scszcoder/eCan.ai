@@ -757,12 +757,6 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
     result = await req_read_screen8(session, request, token, api_key, local_info, imgs, network_api_engine,
                                     img_endpoint)
 
-    # Check if result contains an error from network failure
-    if isinstance(result, dict) and 'error' in result:
-        logger.error(f"Network error in OCR request: {result.get('message', 'Unknown error')}")
-        logger.error(f"Error details: {result.get('details', 'No details available')}")
-        return []
-
     if network_api_engine == "wan":
         jresult = json.loads(result['body'])
     else:
