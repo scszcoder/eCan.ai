@@ -7389,39 +7389,47 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
     # New schema (2026-02):
     #   input CloudTaskInput { agent_id, task_id, task_name, options: AWSJSON! }
     #   runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
-    # Keep best-effort fallback for legacy schemas.
-    queries = [
-        (
-            """mutation RunCloudTasks($input: [CloudTaskInput]!) {
-            runCloudTasks(input: $input)
-        }""",
-            {"input": [{"task_id": str(tid), "options": {}} for tid in task_ids]},
-        ),
-        (
-            """mutation RunCloudTasks($taskIDs: [String]!) {
-            runCloudTasks(taskIDs: $taskIDs)
-        }""",
-            {"taskIDs": task_ids},
-        ),
-        (
-            """mutation RunCloudTasks($taskIds: [ID!]!) {
-            runCloudTasks(taskIds: $taskIds)
-        }""",
-            {"taskIds": task_ids},
-        ),
-    ]
 
-    logger.info(f"[CloudAPI] runCloudTasks: task_ids={task_ids}, agent_id={agent_id}")
+    logger.info(f"[CloudAPI] runCloudTasks: task_ids={task_ids}, agent_id={agent_id}, task_name={task_name}")
+
+    if not endpoint:
+        endpoint = get_appsync_endpoint()
+
+    # Build CloudTaskInput items — options is AWSJSON so must be a JSON string
+    opts_json = json.dumps(options or {})
+    input_items = []
+    for tid in task_ids:
+        item = {"task_id": str(tid), "options": opts_json}
+        if agent_id:
+            item["agent_id"] = agent_id
+        if task_name:
+            item["task_name"] = task_name
+        input_items.append(item)
+
+    query = """mutation RunCloudTasks($input: [CloudTaskInput]!) {
+        runCloudTasks(input: $input)
+    }"""
+    variables = {"input": input_items}
+
+    headers = {
+        'Content-Type': "application/json",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
 
     jresp = None
     last_errors = None
-    for q, vars_ in queries:
-        query_string = json.dumps({"query": q, "variables": vars_})
-        jresp = appsync_http_request(query_string, session, token, endpoint, timeout=timeout)
-        if "errors" in (jresp or {}):
-            last_errors = jresp.get("errors")
-            continue
-        break
+    try:
+        logger.debug(f"[CloudAPI] runCloudTasks request: variables={json.dumps(variables)[:500]}")
+        response = session.request(
+            url=endpoint, method='POST', timeout=timeout,
+            headers=headers,
+            json={"query": query, "variables": variables},
+        )
+        jresp = response.json()
+    except Exception as e:
+        logger.error(f"[CloudAPI] runCloudTasks HTTP error: {e}")
+        jresp = {"errors": [{"errorType": "RequestError", "message": str(e)}]}
 
     if not jresp:
         return {"success": False, "error": "Empty response"}
