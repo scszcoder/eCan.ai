@@ -24,7 +24,7 @@ EC_APPSYNC_WS_ENDPOINT = "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.
 os.environ["EC_APPSYNC_WS_ENDPOINT"] = EC_APPSYNC_WS_ENDPOINT
 
 # Revision marker for tracking deployments
-WORKER_REVISION = "20260203a"
+WORKER_REVISION = "20260225a"
 
 # =============================================================================
 # L2C Test Mode - Wait for first passive step result before running skill

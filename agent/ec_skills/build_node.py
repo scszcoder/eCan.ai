@@ -1716,7 +1716,113 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     'error_message': error_msg
                 }
         else:
-            logger.error("ERROR LLM NODE: messages empty ")
+            # Cloud worker / no-agent mode: state["messages"] is empty (no GUI agent_id).
+            # Still invoke the LLM with the already-formatted base prompts so the graph
+            # can progress and conditionals like all_done can become True.
+            logger.warning(
+                f"LLM NODE [{node_name}]: messages empty - running in cloud worker mode without agent context"
+            )
+            try:
+                import os as _os
+
+                # Resolve API key – prefer node config, fall back to env vars
+                _raw_key = (api_key or "").strip()
+
+                def _looks_masked_simple(v: str) -> bool:
+                    v = (v or "").strip()
+                    return not v or any(c in v for c in ("*", "•", "·")) or v.lower().startswith("sk-xxxxx")
+
+                if _looks_masked_simple(_raw_key):
+                    _key_env_map = {
+                        "openai": "OPENAI_API_KEY",
+                        "anthropic": "ANTHROPIC_API_KEY",
+                        "claude": "ANTHROPIC_API_KEY",
+                        "google": "GEMINI_API_KEY",
+                        "gemini": "GEMINI_API_KEY",
+                        "deepseek": "DEEPSEEK_API_KEY",
+                        "dashscope": "DASHSCOPE_API_KEY",
+                        "qwen": "DASHSCOPE_API_KEY",
+                        "qwq": "DASHSCOPE_API_KEY",
+                        "bytedance": "ARK_API_KEY",
+                        "doubao": "ARK_API_KEY",
+                        "baidu": "BAIDU_API_KEY",
+                        "qianfan": "BAIDU_API_KEY",
+                        "zhipuai": "ZHIPUAI_API_KEY",
+                        "chatglm": "ZHIPUAI_API_KEY",
+                        "azure": "AZURE_OPENAI_API_KEY",
+                        "azure_openai": "AZURE_OPENAI_API_KEY",
+                    }
+                    _env_var = _key_env_map.get(llm_provider, "OPENAI_API_KEY")
+                    _key = (_os.getenv(_env_var) or "").strip() or _raw_key
+                else:
+                    _key = _raw_key
+
+                _host = (api_host or "").strip()
+                _prov = llm_provider
+
+                # Build a minimal LLM using already-closed-over config variables
+                if _prov in ("openai",):
+                    _kw = {"model": model_name, "api_key": _key, "temperature": temperature}
+                    if _host:
+                        _kw["base_url"] = _host
+                    _llm = ChatOpenAI(**_kw)
+                elif _prov in ("anthropic", "claude"):
+                    _llm = ChatAnthropic(model=model_name, api_key=_key, temperature=temperature)
+                elif _prov in ("deepseek",):
+                    _base_url = _host or "https://api.deepseek.com"
+                    _llm = ChatDeepSeek(
+                        model=model_name or "deepseek-chat",
+                        api_key=_key,
+                        base_url=_base_url,
+                        temperature=temperature,
+                    )
+                elif _prov in ("dashscope", "qwen", "qwq"):
+                    if ChatQwQ is None:
+                        raise ImportError("langchain-qwq not installed")
+                    _base_url = _host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    _llm = ChatQwQ(
+                        model=model_name or "qwq-plus",
+                        api_key=_key,
+                        base_url=_base_url,
+                        temperature=temperature,
+                    )
+                elif _prov in ("ollama",):
+                    _llm = ChatOllama(
+                        model=model_name or "llama3.2",
+                        base_url=_host or "http://localhost:11434",
+                        temperature=temperature,
+                    )
+                else:
+                    # Default to OpenAI-compatible
+                    _kw = {"model": model_name, "api_key": _key, "temperature": temperature}
+                    if _host:
+                        _kw["base_url"] = _host
+                    _llm = ChatOpenAI(**_kw)
+
+                log_msg = f"[LLM_NO_AGENT] Invoking {_prov}/{model_name} with {len(messages)} base messages"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+
+                _t_stage = _time.perf_counter()
+                _response = _llm.invoke(messages)
+                _perf_llm("invoke_no_agent", _t_stage)
+
+                log_msg = f"✅ LLM (no-agent) response from {_prov}: {_response}"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+
+                # Parse the response and update state["result"] so loop conditions can evaluate
+                from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
+                _parsed = standard_post_llm_func("skid0", full_node_name, state, _response)
+                state["result"] = _parsed
+                _perf_llm("total", _t0)
+
+            except Exception as _no_agent_err:
+                _err_msg = f"LLM error (no-agent mode, provider={llm_provider}, model={model_name}): {type(_no_agent_err).__name__}: {_no_agent_err}"
+                logger.error(f"[LLM_NODE] {_err_msg}")
+                send_skill_editor_log("error", _err_msg)
+                state["error"] = _err_msg
+
         return state
 
     full_node_callable = node_builder(llm_node_callable, node_name, skill_name, owner, bp_manager)
@@ -1749,7 +1855,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
         logger.error(err_msg)
         send_skill_editor_log("error", err_msg)
         # Return a no-op function that just passes the state through
-        return lambda state: state
+        return lambda state, runtime=None, store=None, **kwargs: state
 
     node_callable = None
     node_name = node_id
@@ -1803,7 +1909,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
     # If callable creation failed, return a no-op function
     if node_callable is None:
-        return lambda state: state
+        return lambda state, runtime=None, store=None, **kwargs: state
 
     log_msg = f"done building basic node {node_name}"
     logger.debug(log_msg)
