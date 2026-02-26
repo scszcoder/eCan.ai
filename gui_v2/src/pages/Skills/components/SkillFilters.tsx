@@ -137,50 +137,50 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
     });
   };
 
-  // StatusMenu项
+  // Status menu items
   const statusMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.skills.filter.allStatus', '全部Status'),
+      label: t('pages.skills.filter.allStatus'),
     },
     { type: 'divider' },
     {
       key: 'active',
-      label: t('pages.skills.status.active', 'Active'),
+      label: t('pages.skills.status.active'),
     },
     {
       key: 'learning',
-      label: t('pages.skills.status.learning', 'Learning'),
+      label: t('pages.skills.status.learning'),
     },
     {
       key: 'planned',
-      label: t('pages.skills.status.planned', 'Planned'),
+      label: t('pages.skills.status.planned'),
     },
   ];
 
-  // ProcessMenuClick
+  // Process menu click
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     handleFilterChange('status', key);
   };
 
-  // GetWhen前StatusDisplay文本（Used for Tooltip）
+  // Get current status display text (used for tooltip)
   const getStatusTooltip = () => {
     const statusMap: Record<string, string> = {
-      active: t('pages.skills.status.active', 'Active'),
-      learning: t('pages.skills.status.learning', 'Learning'),
-      planned: t('pages.skills.status.planned', 'Planned'),
+      active: t('pages.skills.status.active'),
+      learning: t('pages.skills.status.learning'),
+      planned: t('pages.skills.status.planned'),
     };
     return filters.status
-      ? `${t('pages.skills.filter.status', 'Status')}: ${statusMap[filters.status]}`
-      : t('pages.skills.filter.filterByStatus', '筛选Status');
+      ? `${t('pages.skills.filter.status')}: ${statusMap[filters.status]}`
+      : t('pages.skills.filter.filterByStatus');
   };
 
   return (
     <FilterContainer>
       <FilterRow>
-        {/* Search框 */}
+        {/* Search box */}
         <StyledInput
-          placeholder={t('pages.skills.filter.searchPlaceholder', 'Search技能...')}
+          placeholder={t('pages.skills.filter.searchPlaceholder')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -188,7 +188,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
           allowClear
         />
 
-        {/* Status筛选Button - 只Display图标 */}
+        {/* Status filter button - only display icon */}
         <Dropdown
           menu={{ items: statusMenuItems, onClick: handleMenuClick }}
           trigger={['click']}
