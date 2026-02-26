@@ -1210,6 +1210,7 @@
     },
     "skills": {
       "title": "技能列表",
+      "newSkill": "新建技能",
       "fetchError": "获取技能失败",
       "addSkill": "添加技能",
       "category": "分类",
@@ -1221,12 +1222,18 @@
       "codeSkillCannotEdit": "代码技能无法编辑，请直接修改源代码文件。",
       "exportSkills": "导出技能",
       "importSkills": "导入技能",
+      "refresh": "刷新",
+      "viewList": "列表视图",
+      "viewGrid": "网格视图",
+      "noSkills": "暂无技能",
+      "clickAddToCreate": "点击 + 按钮创建您的第一个技能",
+      "noMatchingSkills": "未找到匹配的技能",
+      "free": "免费",
+      "subscribers": "订阅",
       "lastUsed": "最后使用",
       "levelUp": "升级",
       "loadingEditor": "加载编辑器",
       "mastered": "已掌握",
-      "newSkill": "新技能",
-      "refresh": "刷新",
       "refreshSkills": "刷新技能",
       "selectSkill": "选择技能",
       "skillLevel": "技能等级",
@@ -1322,13 +1329,39 @@
         "network": "网络",
         "unknown": "未知"
       },
+      "filter": {
+        "searchPlaceholder": "搜索技能...",
+        "allStatus": "全部状态",
+        "status": "状态",
+        "filterByStatus": "筛选状态"
+      },
+      "sections": {
+        "mySkills": "我的技能",
+        "skillStore": "技能商店"
+      },
       "time": {
         "justNow": "刚刚"
       },
       "usageCount": "使用次数",
       "viewHistory": "查看历史",
       "neverUsed": "从未使用",
-      "uses": "次"
+      "uses": "次",
+      "noDescription": "暂无描述",
+      "previewFile": "预览",
+      "publishInfo": "发布信息",
+      "publishStatus": "状态",
+      "published": "已发布",
+      "notPublished": "未发布",
+      "publishToStore": "发布到商店",
+      "removeFromStore": "从商店移除",
+      "publishedToStore": "已发布到商店",
+      "removedFromStore": "已从商店移除",
+      "failedToUpdatePublishStatus": "更新发布状态失败",
+      "subscribe": "订阅",
+      "unsubscribe": "取消订阅",
+      "subscribed": "已订阅",
+      "unsubscribed": "已取消订阅",
+      "readOnlyPublic": "这是一个公开技能，您可以订阅但无法编辑。"
     },
     "tasks": {
       "readOnlyCodeGenerated": "只读",
@@ -2298,20 +2331,6 @@
   },
   "agents": {
     "addAgent": "添加代理"
-  },
-  "skills": {
-    "addSkill": "添加技能",
-    "componentSearch": {
-      "formTitle": "搜索组件",
-      "formPrompt": "以下是参数搜索筛选表单，可帮助您查找所需的零件。请尽量填写表单并发送给我。如果您不确定某些参数，可以留空。如有任何关于参数含义的问题，请随时询问。",
-      "noResultTitle": "未找到组件",
-      "noResultMessage": "抱歉，未能在数据库中找到与 '{{componentName}}' 匹配的组件。",
-      "noResultReasons": "可能的原因：",
-      "noResultReason1": "组件名称过于笼统或不是标准电子元器件",
-      "noResultReason2": "请尝试使用英文关键词（如 capacitor, resistor, microcontroller）",
-      "noResultReason3": "如果有具体型号，请提供型号信息",
-      "noResultSuggestion": "请提供更具体的组件信息或尝试其他搜索词。"
-    }
   },
   "tasks": {
     "addTask": "添加任务"

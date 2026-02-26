@@ -96,16 +96,13 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # ── Step 3: Merge local + cloud, local wins on conflict ─────────
         # Build lookup sets for dedup: by id, askid, and normalized name
-        local_ids = set()
-        local_askids = set()
-        local_names_norm = set()
-        for sk in skills_dicts:
-            if sk.get('id'):
-                local_ids.add(str(sk['id']))
-            if sk.get('askid'):
-                local_askids.add(str(sk['askid']))
-            if sk.get('name'):
-                local_names_norm.add(sk['name'].strip().lower())
+        # Optimization: Use set comprehension for batch processing (faster than loop)
+        local_ids = {str(sk['id']) for sk in skills_dicts if sk.get('id')}
+        local_askids = {str(sk['askid']) for sk in skills_dicts if sk.get('askid')}
+        local_names_norm = {sk['name'].strip().lower() for sk in skills_dicts if sk.get('name')}
+        
+        # Combine all local identifiers for efficient lookup
+        all_local_identifiers = local_ids | local_askids
 
         cloud_added = 0
         cloud_skipped_deleted = 0
@@ -113,26 +110,20 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
             c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
             cname = cloud_sk.get('name', '').strip().lower() if cloud_sk.get('name') else None
-            # Skip if already present locally (by id, askid, or normalized name)
-            if cid and cid in local_ids:
-                continue
-            if c_askid and c_askid in local_askids:
-                continue
-            if cid and cid in local_askids:
-                continue
-            if c_askid and c_askid in local_ids:
+            
+            # Optimization: Reduced from 6 checks to 3 by combining ID lookups
+            # Skip if already present locally (by any identifier)
+            if (cid and cid in all_local_identifiers) or (c_askid and c_askid in all_local_identifiers):
                 continue
             if cname and cname in local_names_norm:
                 continue
+            
             # Skip cloud skills that were deleted locally in this session
-            if cid and cid in _DELETED_SKILL_IDS:
+            if (cid and cid in _DELETED_SKILL_IDS) or (c_askid and c_askid in _DELETED_SKILL_IDS):
                 cloud_skipped_deleted += 1
-                logger.debug(f"[skill_handler] Skipping cloud skill '{cloud_sk.get('name')}' (id={cid}) - deleted locally")
+                logger.debug(f"[skill_handler] Skipping cloud skill '{cloud_sk.get('name')}' (id={cid or c_askid}) - deleted locally")
                 continue
-            if c_askid and c_askid in _DELETED_SKILL_IDS:
-                cloud_skipped_deleted += 1
-                logger.debug(f"[skill_handler] Skipping cloud skill '{cloud_sk.get('name')}' (askid={c_askid}) - deleted locally")
-                continue
+            
             cloud_sk['_source'] = 'cloud'
             skills_dicts.append(cloud_sk)
             cloud_added += 1
