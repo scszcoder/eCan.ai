@@ -39,6 +39,7 @@ from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor, _create_message
 from .timer_service import get_timer_service, TimerService
+from utils.sleep_inhibitor import get_sleep_inhibitor
 
 if TYPE_CHECKING:
     from agent.ec_agent import EC_Agent
@@ -1708,7 +1709,19 @@ class TaskRunner(Generic[Context]):
         
         # Local tasks require a runnable
         if not hasattr(task.skill, 'runnable') or task.skill.runnable is None:
-            logger.error(f"[SKILL_MISSING] Task '{task.name}' skill has runnable=None!")
+            skill = task.skill
+            logger.error(
+                f"[SKILL_MISSING] Task '{task.name}' (id={task.id}) skill has runnable=None!\n"
+                f"  skill type: {type(skill).__name__}\n"
+                f"  skill name: {getattr(skill, 'name', 'N/A')}\n"
+                f"  skill id: {getattr(skill, 'id', 'N/A')}\n"
+                f"  skill source: {getattr(skill, 'source', 'N/A')}\n"
+                f"  skill is str: {isinstance(skill, str)}\n"
+                f"  agent: {self.agent.card.name if self.agent and self.agent.card else 'N/A'}\n"
+                f"  agent tasks count: {len(self.agent.tasks) if self.agent and self.agent.tasks else 0}\n"
+                f"  agent skills count: {len(self.agent.skills) if self.agent and self.agent.skills else 0}\n"
+                f"  mainwin.agent_skills count: {len(getattr(self.agent.mainwin, 'agent_skills', []) or []) if self.agent and self.agent.mainwin else 'N/A'}"
+            )
             return False
         
         return True
@@ -1762,6 +1775,12 @@ class TaskRunner(Generic[Context]):
         # Create callback
         def _on_complete(future):
             self._on_skill_complete(future, task, waiter_task_id, trigger_type)
+        
+        # Prevent idle sleep while task is running
+        try:
+            get_sleep_inhibitor().acquire()
+        except Exception:
+            pass
         
         # Submit
         task_state = self._task_states.setdefault(task.id, {})
@@ -2701,9 +2720,15 @@ class TaskRunner(Generic[Context]):
                 
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
-                    # Note: send_response_back removed here — chat_node now sends
-                    # the LLM response directly to GUI via ChatMessageSender.
-                    # Keeping the interrupt detection for task state management.
+                    # Send the LLM response back to the GUI/opposite agent
+                    if current_state and hasattr(current_state, 'values'):
+                        try:
+                            from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                            chatId = current_state.values.get("messages", [None, None])[1]
+                            if chatId:
+                                send_response_back(current_state.values)
+                        except Exception as srb_err:
+                            logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})
@@ -2742,6 +2767,12 @@ class TaskRunner(Generic[Context]):
                 task.last_run_datetime = datetime.now()
                 task.already_run_flag = True
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
+        finally:
+            # Allow idle sleep once this task execution completes
+            try:
+                get_sleep_inhibitor().release()
+            except Exception:
+                pass
     
     # ==================== Deprecated Methods ====================
     

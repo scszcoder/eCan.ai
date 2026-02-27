@@ -333,6 +333,14 @@ def agents_remove(agent_id, force):
 @click.option("--task", "-t", required=True, help="Task description")
 def agents_run(agent_id, task):
     """Run an agent with a task."""
+    # TODO(cli-task-execution): When implementing this, integrate:
+    #   1. SleepInhibitor — acquire() on task start, release() on completion
+    #      (already works headless, import from utils.sleep_inhibitor)
+    #   2. PowerMonitor — needs a NativePowerBackend (no Qt available in CLI)
+    #      See TODO in utils/power_monitor.py for backend design
+    #   3. WakeRecoveryManager — needs a lightweight CLIContext instead of MainWindow
+    #      See TODO in utils/wake_recovery.py for CLIContext design
+    #   4. For scheduled tasks, also wire up the scheduler nudge on wake
     require_auth()
     console.print(f"[cyan]Starting agent {agent_id}...[/cyan]")
     console.print(f"[dim]Task: {task}[/dim]")

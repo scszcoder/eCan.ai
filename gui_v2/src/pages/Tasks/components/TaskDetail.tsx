@@ -9,7 +9,7 @@ import {
   ReloadOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox, Tag } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Tag, Checkbox } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -18,6 +18,7 @@ import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useSkillStore } from '@/stores/domain/skillStore';
+import { useTaskStore } from '@/stores/domain/taskStore';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import {
   StyledFormItem,
@@ -37,7 +38,7 @@ const DEFAULT_TASK = {
   id: '',
   name: '',
   description: '',
-  cloud_based: false,
+  task_type: 'local',
   priority: 'none',
   trigger: ['schedule'] as string[],
   skills: [] as string[],  // Support multiple skills
@@ -48,9 +49,42 @@ const DEFAULT_TASK = {
     start_date_time: dayjs(),
     end_date_time: undefined as any,
     time_out: 3600,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   },
   metadata: {},
 };
+
+const TASK_TYPE_OPTIONS = ['local', 'cloud', 'hybrid_cloud'];
+
+const TIMEZONE_OPTIONS = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'America/Toronto',
+  'America/Vancouver',
+  'America/Mexico_City',
+  'America/Sao_Paulo',
+  'America/Argentina/Buenos_Aires',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Moscow',
+  'Europe/Istanbul',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Bangkok',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+  'Australia/Sydney',
+  'Australia/Melbourne',
+  'Pacific/Auckland',
+];
 
 const PRIORITY_OPTIONS = ['none', 'low', 'medium', 'high', 'urgent'];
 const TRIGGER_OPTIONS = [
@@ -134,9 +168,22 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [launching, setLaunching] = React.useState(false);
   const [latestStatus, setLatestStatus] = React.useState<string>('');
   const [currentTrigger, setCurrentTrigger] = React.useState<string[]>(['schedule']);
+  const [currentTaskType, setCurrentTaskType] = React.useState<string>('local');
   // skills store and fetch-on-mount if needed
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
+  // all tasks from store (for companion local task picker)
+  const allTasks = useTaskStore((s) => s.items);
+  // Compute local task options for companion picker (exclude current task)
+  const localTaskOptions = React.useMemo(() => {
+    const currentId = task ? (task as any).id : '';
+    return (allTasks || [])
+      .filter((t: any) => {
+        const tt = t.task_type || t.metadata?.task_type || 'local';
+        return tt === 'local' && t.id !== currentId;
+      })
+      .map((t: any) => ({ value: t.id, label: t.name || t.id }));
+  }, [allTasks, task]);
 
   // Extract only id and name to avoid circular reference in deep comparison
   const skillsSimplified = React.useMemo(() => {
@@ -241,13 +288,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         owner: taskOwner,
         name: taskName,
         description: taskDescription,
-        cloud_based: !!(metadata?.cloud_run),
+        task_type: (task as any).task_type || metadata?.task_type || 'local',
+        companion_local_task: metadata?.companion_local_task || undefined,
+        light_weight: !!metadata?.light_weight,
         skills: taskSkills,  // Multiple skills support
         metadata_text: metaStr,
         agent_id: taskAgentId,
       };
 
       form.setFieldsValue(formValues);
+
+      // Set current task type for conditional companion picker
+      const taskType = (task as any).task_type || metadata?.task_type || 'local';
+      setCurrentTaskType(taskType);
       
       // Set current trigger for validation
       // Backend stores trigger as a comma-separated string (e.g. "schedule,message")
@@ -330,7 +383,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
         owner: (values as any).owner || username,
         description: (values as any).description || '',
-        cloud_based: !!(values as any).cloud_based,
+        task_type: (values as any).task_type || 'local',
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: ((values as any).trigger || ['auto']).join(','),
@@ -347,10 +400,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             (values as any).schedule.end_date_time.toISOString() :
             null,
           time_out: (values as any).schedule?.time_out || 3600,
+          timezone: (values as any).schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         metadata: {
           ...((values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {}),
-          cloud_run: !!(values as any).cloud_based,
+          task_type: (values as any).task_type || 'local',
+          ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
+            ? { companion_local_task: (values as any).companion_local_task }
+            : {}),
+          ...((values as any).task_type === 'cloud'
+            ? { light_weight: !!(values as any).light_weight }
+            : {}),
         },
       };
 
@@ -499,7 +559,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       const api = get_ipc_api();
       const response = await api.runAgentTask<any>(username, {
         task_id: taskId,
-        cloud_based: !!(task as any).cloud_based,
+        task_type: (task as any).task_type || 'local',
+        cloud_based: ((task as any).task_type || 'local') !== 'local',
         skill_id: (task as any).skill_id,
         skill: (task as any).skill,
       });
@@ -725,13 +786,52 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
                 <Col span={12}>
                   <StyledFormItem
-                    label={t('pages.tasks.cloudRun', 'Cloud Run')}
-                    name="cloud_based"
-                    valuePropName="checked"
+                    label={t('pages.tasks.taskTypeLabel', 'Task Type')}
+                    name="task_type"
+                    htmlFor="task-type"
                   >
-                    <Checkbox>{t('pages.tasks.cloudRun', 'Cloud Run')}</Checkbox>
+                    <Select
+                      id="task-type"
+                      size="large"
+                      onChange={(value) => setCurrentTaskType(value)}
+                      options={TASK_TYPE_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.taskType.${v}`, v) }))}
+                      aria-label={t('pages.tasks.taskTypeLabel', 'Task Type')}
+                    />
                   </StyledFormItem>
                 </Col>
+                {currentTaskType === 'hybrid_cloud' && (
+                  <Col span={12}>
+                    <StyledFormItem
+                      label={t('pages.tasks.companionLocalTask', 'Companion Local Task')}
+                      name="companion_local_task"
+                      htmlFor="task-companion"
+                    >
+                      <Select
+                        id="task-companion"
+                        size="large"
+                        allowClear
+                        showSearch
+                        placeholder={t('pages.tasks.selectCompanionTask', 'Select a local helper task')}
+                        options={localTaskOptions}
+                        filterOption={(input, option) =>
+                          (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                        }
+                        aria-label={t('pages.tasks.companionLocalTask', 'Companion Local Task')}
+                      />
+                    </StyledFormItem>
+                  </Col>
+                )}
+                {currentTaskType === 'cloud' && (
+                  <Col span={12}>
+                    <StyledFormItem
+                      label={t('pages.tasks.lightWeightLabel', 'Light Weight')}
+                      name="light_weight"
+                      valuePropName="checked"
+                    >
+                      <Checkbox>{t('pages.tasks.lightWeightDesc', 'Run as light-weight cloud task')}</Checkbox>
+                    </StyledFormItem>
+                  </Col>
+                )}
                 <Col span={24}>
                   <StyledFormItem label={t('common.description', 'Description')} name="description" htmlFor="task-description">
                     <Input.TextArea
@@ -924,6 +1024,20 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   min={60}
                                   step={60}
                                   aria-label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                            <Col span={12}>
+                              <StyledFormItem label={t('pages.tasks.scheduleTimezoneLabel', 'Time Zone')} name={["schedule", "timezone"]} htmlFor="task-timezone">
+                                <Select
+                                  id="task-timezone"
+                                  size="large"
+                                  showSearch
+                                  options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))}
+                                  filterOption={(input, option) =>
+                                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                  }
+                                  aria-label={t('pages.tasks.scheduleTimezoneLabel', 'Time Zone')}
                                 />
                               </StyledFormItem>
                             </Col>

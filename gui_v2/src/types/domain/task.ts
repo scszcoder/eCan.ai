@@ -25,6 +25,15 @@ export enum TaskPriority {
 }
 
 /**
+ * Task execution type - where the task runs
+ */
+export enum TaskType {
+  LOCAL = 'local',
+  CLOUD = 'cloud',
+  HYBRID_CLOUD = 'hybrid_cloud',
+}
+
+/**
  * Task type
  */
 export interface Task {
@@ -32,7 +41,8 @@ export interface Task {
   sessionId?: string;
   name?: string;
   description?: string;
-  cloud_based?: boolean;
+  task_type?: TaskType | string;
+  cloud_based?: boolean; // @deprecated Use task_type instead
   status?: TaskStatus | string;
   priority?: TaskPriority | string;
   source?: 'code' | 'ui'; // Task source: code-generated or UI-created
@@ -78,6 +88,7 @@ export interface Task {
 export interface CreateTaskInput {
   name: string;
   description?: string;
+  task_type?: TaskType | string;
   priority?: TaskPriority;
   agentId?: string;
   skillId?: string;
@@ -90,6 +101,7 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   name?: string;
   description?: string;
+  task_type?: TaskType | string;
   status?: TaskStatus;
   priority?: TaskPriority;
   agentId?: string;
