@@ -1371,8 +1371,11 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             # This is just a local cache to prevent data loss
             # Real sync happens only when user explicitly clicks "Save"
             try:
-                os.makedirs(skill_file.parent, exist_ok=True)
-                with open(skill_file, 'w', encoding='utf-8') as sf:
+                # Ensure parent directory exists with proper encoding for Chinese characters
+                skill_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Write file with UTF-8 encoding
+                with open(str(skill_file), 'w', encoding='utf-8') as sf:
                     json.dump(skill_info, sf, indent=2, ensure_ascii=False)
                 logger.info(f"[AutoSave] Cached to local file: {skill_file} (no cloud sync)")
             except Exception as write_error:
@@ -1386,7 +1389,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             if sheets_data:
                 try:
                     bundle_data = _build_bundle_data(sheets_data)
-                    with open(bundle_file, 'w', encoding='utf-8') as bf:
+                    # Write bundle file with UTF-8 encoding for Chinese characters
+                    with open(str(bundle_file), 'w', encoding='utf-8') as bf:
                         json.dump(bundle_data, bf, indent=2, ensure_ascii=False)
                     logger.info(f"[AutoSave] Saved to bundle file: {bundle_file} ({len(bundle_data.get('sheets', []))} sheets)")
                     bundle_file_saved = True
