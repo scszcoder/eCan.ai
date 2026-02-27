@@ -1220,9 +1220,29 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
             headers=headers,
             json=payload
         )
-        print("raw response: ", response)
+        
+        # Enhanced response logging
+        logger_helper.info(f"[AppSync] Response status: {response.status_code} {response.reason}")
+        logger_helper.debug(f"[AppSync] Response headers: {dict(response.headers)}")
+        logger_helper.debug(f"[AppSync] Response size: {len(response.content)} bytes")
+        
         jresp = response.json()
-        print("json respose: ", response)
+        
+        # Log response structure
+        if isinstance(jresp, dict):
+            logger_helper.debug(f"[AppSync] Response keys: {list(jresp.keys())}")
+            if 'data' in jresp:
+                data_keys = list(jresp['data'].keys()) if isinstance(jresp['data'], dict) else 'N/A'
+                logger_helper.debug(f"[AppSync] Response data keys: {data_keys}")
+            if 'errors' in jresp:
+                logger_helper.warning(f"[AppSync] Response contains {len(jresp['errors'])} error(s)")
+        elif isinstance(jresp, list):
+            logger_helper.debug(f"[AppSync] Response is a list with {len(jresp)} item(s)")
+        
+        # Log response preview (first 500 chars)
+        response_preview = json.dumps(jresp, ensure_ascii=False, default=str)[:500]
+        logger_helper.debug(f"[AppSync] Response preview: {response_preview}...")
+        
         # Check for authentication errors
         if "errors" in jresp:
             for error in jresp["errors"]:

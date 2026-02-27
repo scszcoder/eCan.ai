@@ -1006,8 +1006,7 @@ def _sync_agent_skill_relations(agent_data: Dict[str, Any], skill_ids: list, ope
     for skill_id in skill_ids:
         skill_relation_data = {
             'agid': agent_id,
-            'skid': skill_id,
-            'owner': owner
+            'skid': skill_id
         }
         
         def _log_result(result: Dict[str, Any]):
@@ -1050,7 +1049,6 @@ def _sync_agent_task_relations(agent_data: Dict[str, Any], task_ids: list, opera
         task_relation_data = {
             'agid': agent_id,
             'task_id': task_id,
-            'owner': owner,
             'status': 'assigned'  # Default status
         }
         
@@ -1094,7 +1092,6 @@ def _sync_agent_tool_relations(agent_data: Dict[str, Any], tool_ids: list, opera
         tool_relation_data = {
             'agid': agent_id,
             'tool_id': tool_id,
-            'owner': owner,
             'permission': 'use'  # Default permission
         }
         
