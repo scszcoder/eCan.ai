@@ -1183,6 +1183,7 @@
     },
     "skills": {
       "title": "Skills List",
+      "newSkill": "New Skill",
       "fetchError": "Failed to fetch skills",
       "addSkill": "Add Skill",
       "category": "Category",
@@ -1194,12 +1195,18 @@
       "codeSkillCannotEdit": "Code-based skills cannot be edited. Please modify the source code file instead.",
       "exportSkills": "Export Skills",
       "importSkills": "Import Skills",
+      "refresh": "Refresh",
+      "viewList": "List view",
+      "viewGrid": "Grid view",
+      "noSkills": "No skills yet",
+      "clickAddToCreate": "Click the + button to create your first skill",
+      "noMatchingSkills": "No matching skills found",
+      "free": "FREE",
+      "subscribers": "subs",
       "lastUsed": "Last Used",
       "levelUp": "Level Up",
       "loadingEditor": "Loading Editor",
       "mastered": "Mastered",
-      "newSkill": "New Skill",
-      "refresh": "Refresh",
       "refreshSkills": "Refresh Skills",
       "selectSkill": "Select Skill",
       "skillLevel": "Skill Level",
@@ -1295,13 +1302,39 @@
         "network": "Network",
         "unknown": "Unknown"
       },
+      "filter": {
+        "searchPlaceholder": "Search skills...",
+        "allStatus": "All Status",
+        "status": "Status",
+        "filterByStatus": "Filter by Status"
+      },
+      "sections": {
+        "mySkills": "My Skills",
+        "skillStore": "Skill Store"
+      },
       "time": {
         "justNow": "Just Now"
       },
       "usageCount": "Usage Count",
       "viewHistory": "View History",
       "neverUsed": "Never used",
-      "uses": "uses"
+      "uses": "uses",
+      "noDescription": "No description available",
+      "previewFile": "Preview",
+      "publishInfo": "Publish Info",
+      "publishStatus": "Status",
+      "published": "Published",
+      "notPublished": "Not published",
+      "publishToStore": "Publish to Store",
+      "removeFromStore": "Remove from Store",
+      "publishedToStore": "Published to Store",
+      "removedFromStore": "Removed from Store",
+      "failedToUpdatePublishStatus": "Failed to update publish status",
+      "subscribe": "Subscribe",
+      "unsubscribe": "Unsubscribe",
+      "subscribed": "Subscribed",
+      "unsubscribed": "Unsubscribed",
+      "readOnlyPublic": "This is a public skill. You can subscribe but not edit."
     },
     "tasks": {
       "readOnlyCodeGenerated": "Read-only",
