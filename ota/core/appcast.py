@@ -13,6 +13,7 @@ Features:
 from __future__ import annotations
 
 import re
+from functools import cmp_to_key
 import platform as _platform
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -131,14 +132,114 @@ def normalize_arch_tag(arch: Optional[str]) -> str:
     return a or ''
 
 
-def version_tuple(v: str) -> Tuple[int, int, int]:
-    parts = re.split(r'[.+-]', v)
+def _normalize_version_text(v: str) -> str:
+    """Normalize version text for comparison.
+
+    - strip spaces
+    - remove optional leading 'v' prefix (v1.2.3 -> 1.2.3)
+    - drop build metadata (+...)
+    """
+    s = (v or '').strip()
+    if s.lower().startswith('v'):
+        s = s[1:].strip()
+    if '+' in s:
+        s = s.split('+', 1)[0]
+    return s
+
+
+def _parse_main_version_parts(v: str) -> List[int]:
+    """Parse main numeric version parts, supporting multi-segment versions."""
+    main = _normalize_version_text(v).split('-', 1)[0]
+    parts = main.split('.') if main else []
     nums: List[int] = []
     for p in parts:
-        if p.isdigit():
-            nums.append(int(p))
+        token = p.strip()
+        if not token:
+            continue
+        if token.isdigit():
+            nums.append(int(token))
+            continue
+        # Fallback: keep leading numeric prefix (e.g. "1rc1" -> 1)
+        m = re.match(r'^(\d+)', token)
+        if m:
+            nums.append(int(m.group(1)))
+            continue
+        break
+    return nums or [0]
+
+
+def _parse_prerelease_parts(v: str) -> List[str]:
+    """Parse prerelease identifiers after '-' (e.g. beta.1 -> ['beta', '1'])."""
+    s = _normalize_version_text(v)
+    if '-' not in s:
+        return []
+    suffix = s.split('-', 1)[1].strip()
+    if not suffix:
+        return []
+    return [p.strip() for p in suffix.split('.') if p.strip()]
+
+
+def compare_versions(v1: str, v2: str) -> int:
+    """Compare two semver-like version strings.
+
+    Supports:
+    - leading 'v' prefix
+    - multi-segment numeric versions (e.g. 0.7.0.1)
+    - prerelease tags (e.g. -beta, -rc.1)
+
+    Returns:
+      >0 if v1 > v2
+       0 if equal
+      <0 if v1 < v2
+    """
+    n1 = _parse_main_version_parts(v1)
+    n2 = _parse_main_version_parts(v2)
+    max_len = max(len(n1), len(n2))
+    for i in range(max_len):
+        a = n1[i] if i < len(n1) else 0
+        b = n2[i] if i < len(n2) else 0
+        if a != b:
+            return 1 if a > b else -1
+
+    p1 = _parse_prerelease_parts(v1)
+    p2 = _parse_prerelease_parts(v2)
+
+    # Release > prerelease when main parts are equal
+    if not p1 and not p2:
+        return 0
+    if not p1:
+        return 1
+    if not p2:
+        return -1
+
+    # Compare prerelease identifiers using semver-like precedence
+    min_len = min(len(p1), len(p2))
+    for i in range(min_len):
+        a = p1[i]
+        b = p2[i]
+        a_num = a.isdigit()
+        b_num = b.isdigit()
+        if a_num and b_num:
+            ai = int(a)
+            bi = int(b)
+            if ai != bi:
+                return 1 if ai > bi else -1
+        elif a_num and not b_num:
+            return -1
+        elif not a_num and b_num:
+            return 1
         else:
-            break
+            if a != b:
+                return 1 if a > b else -1
+
+    if len(p1) == len(p2):
+        return 0
+    return 1 if len(p1) > len(p2) else -1
+
+
+def version_tuple(v: str) -> Tuple[int, int, int]:
+    # Backward-compatible helper kept for callers that only need X.Y.Z display/sorting.
+    nums = _parse_main_version_parts(v)
     while len(nums) < 3:
         nums.append(0)
     return tuple(nums[:3])  # type: ignore[return-value]
@@ -152,7 +253,6 @@ def select_latest_for_platform(items: List[AppcastItem], platform_tag: Optional[
         return None
     tag = platform_tag or current_os_tag()
     arch = normalize_arch_tag(arch_tag)
-    cur = version_tuple(current_version or '0.0.0')
     # First pass: exact arch match or universal
     candidates = [it for it in items if (it.os is None or it.os.lower() == tag)]
     if arch:
@@ -161,9 +261,12 @@ def select_latest_for_platform(items: List[AppcastItem], platform_tag: Optional[
         arch_candidates = candidates
     if not arch_candidates:
         return None
-    arch_candidates.sort(key=lambda it: version_tuple(it.version), reverse=True)
+    arch_candidates.sort(
+        key=cmp_to_key(lambda a, b: compare_versions(a.version, b.version)),
+        reverse=True,
+    )
     for it in arch_candidates:
-        if version_tuple(it.version) > cur:
+        if compare_versions(it.version, current_version) > 0:
             return it
     return None
 

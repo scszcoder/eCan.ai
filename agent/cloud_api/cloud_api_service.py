@@ -216,7 +216,11 @@ class CloudAPIService:
                     'errors': [error_msg]
                 }
             
-            if not isinstance(result, dict):
+            # List responses are valid for batch operations (e.g., removeAgentSkills returns list of results)
+            if isinstance(result, list):
+                logger.debug(f"[CloudAPIService] Cloud API returned list response with {len(result)} item(s)")
+            elif not isinstance(result, dict):
+                # Only warn for truly unexpected types (not list or dict)
                 logger.warning(f"[CloudAPIService] Unexpected response type: {type(result)}, treating as success")
             
             # Success response

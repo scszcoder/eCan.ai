@@ -4770,29 +4770,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             disable_extensions = app_settings.is_dev_mode
             
             # Create browser profile with extensions control.
-            # IMPORTANT: for "new chromium" mode, avoid forcing a persistent user_data_dir.
-            # Reusing the same profile dir can keep lock files and cause Chrome launch failure,
-            # leading to BrowserStart timeout / connect refused on ephemeral CDP port.
+            # Use persistent user_data_dir for all browser modes to preserve login state (cookies, sessions).
+            # This ensures users don't need to re-login every time they run a skill.
             profile_settings = _get_browser_profile_settings(node_profile)
+            
+            # Auto-assign persistent user_data_dir if not explicitly configured
+            _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
+            if not _bp_user_data_dir:
+                from utils.user_path_helper import ensure_user_data_dir
+                import re as _re
+                _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
+                _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
+                _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
+                logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            
+            # Create browser profile with persistent storage for all modes
+            browser_profile = BrowserProfile(
+                enable_default_extensions=not disable_extensions,
+                user_data_dir=_bp_user_data_dir,
+            )
+            
             if browser_type_setting == 'new chromium':
-                browser_profile = BrowserProfile(
-                    enable_default_extensions=not disable_extensions,
-                )
-                logger.info("[BrowserAutomation] Using ephemeral Chromium profile for new chromium mode")
+                logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
             else:
-                # Existing-browser/CDP mode can keep persistent profile data.
-                _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
-                if not _bp_user_data_dir:
-                    from utils.user_path_helper import ensure_user_data_dir
-                    import re as _re
-                    _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
-                    _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
-                    _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
-                    logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
-                browser_profile = BrowserProfile(
-                    enable_default_extensions=not disable_extensions,
-                    user_data_dir=_bp_user_data_dir,
-                )
+                logger.info("[BrowserAutomation] Using persistent profile for existing-browser/CDP mode")
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
            
             if browser_profile:
