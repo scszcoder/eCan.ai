@@ -77,6 +77,13 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                             pass
                     if 'id' not in sk_dict:
                         sk_dict['id'] = f"skill_{i}"
+                    
+                    # Remove circular references from config to prevent frontend warnings
+                    if 'config' in sk_dict and isinstance(sk_dict['config'], dict):
+                        # Remove known circular reference fields
+                        config_clean = {k: v for k, v in sk_dict['config'].items() 
+                                       if k not in ['graph', 'mcp_client', 'store', 'checkpointer', 'runtime']}
+                        sk_dict['config'] = config_clean
 
                     skills_dicts.append(sk_dict)
                     logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')} (id: {sk_dict.get('id', 'NO ID')})")
@@ -172,8 +179,13 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
     jresp = send_get_agent_skills_request_to_cloud(session, token, endpoint)
 
     if not isinstance(jresp, list):
-        # Error dict or unexpected format
-        logger.warning(f"[_fetch_cloud_skills] Unexpected response type: {type(jresp)}")
+        # Dict response indicates an error from the cloud API
+        if isinstance(jresp, dict):
+            error_msg = jresp.get('message', 'Unknown error')
+            logger.warning(f"[_fetch_cloud_skills] Cloud API error: {error_msg}")
+        else:
+            # Truly unexpected type (not list or dict)
+            logger.warning(f"[_fetch_cloud_skills] Unexpected response type: {type(jresp)}")
         return []
 
     # Convert cloud format to local dict format using schema registry,
@@ -1019,8 +1031,7 @@ def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operat
     for tool_id in tool_ids:
         relation_data = {
             'skill_id': skill_id,
-            'tool_id': tool_id,
-            'owner': owner
+            'tool_id': tool_id
         }
         
         def _log_result(result: Dict[str, Any]):
@@ -1063,8 +1074,7 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
     for knowledge_id in knowledge_ids:
         relation_data = {
             'skill_id': skill_id,
-            'knowledge_id': knowledge_id,
-            'owner': owner
+            'knowledge_id': knowledge_id
         }
         
         def _log_result(result: Dict[str, Any]):
