@@ -458,26 +458,22 @@ const getStatusConfig = (status: Skill['status']) => {
         case 'active':
             return {
                 color: 'success',
-                icon: <CheckCircleOutlined />,
-                text: 'Active'
+                icon: <CheckCircleOutlined />
             };
         case 'learning':
             return {
                 color: 'processing',
-                icon: <SyncOutlined spin />,
-                text: 'Learning'
+                icon: <SyncOutlined spin />
             };
         case 'planned':
             return {
                 color: 'default',
-                icon: <ExperimentOutlined />,
-                text: 'Planned'
+                icon: <ExperimentOutlined />
             };
         default:
             return {
                 color: 'default',
-                icon: <RobotOutlined />,
-                text: 'Unknown'
+                icon: <RobotOutlined />
             };
     }
 };
@@ -606,10 +602,10 @@ const SkillList: React.FC<SkillListProps> = ({
                     description={
                         <Space direction="vertical" size={4}>
                             <Text style={{ color: 'var(--text-secondary)' }}>
-                                {t('pages.skills.noSkills', 'No skills yet')}
+                                {t('pages.skills.noSkills')}
                             </Text>
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                                {t('pages.skills.clickAddToCreate', 'Click the + button to create your first skill')}
+                                {t('pages.skills.clickAddToCreate')}
                             </Text>
                         </Space>
                     }
@@ -650,7 +646,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                     <DollarCircleFilled />
                                 </MiniBadge>
                             ) : (
-                                <MiniBadge $variant="free">FREE</MiniBadge>
+                                <MiniBadge $variant="free">{t('pages.skills.free')}</MiniBadge>
                             )}
                             {getCategoryIcon(skill, skill.status)}
                         </SkillIcon>
@@ -658,7 +654,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             <SkillName>{skill.name}</SkillName>
                             <Space size={6} wrap>
                                 <Tag color={statusConfig.color} icon={statusConfig.icon}>
-                                    {t(`pages.skills.status.${skill.status || 'unknown'}`, statusConfig.text)}
+                                    {t(`pages.skills.status.${skill.status || 'unknown'}`)}
                                 </Tag>
                                 {(() => {
                                     const displayCategory = skill.category || inferCategory(skill);
@@ -667,7 +663,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                     );
                                 })()}
                                 {isSubscribedSkill && (
-                                    <Tag color="green">{t('pages.skills.subscribed', 'Subscribed')}</Tag>
+                                    <Tag color="green">{t('pages.skills.subscribed')}</Tag>
                                 )}
                             </Space>
                         </SkillMeta>
@@ -685,7 +681,7 @@ const SkillList: React.FC<SkillListProps> = ({
                     </StarRating>
                     <SubsLabel>
                         <TeamOutlined />
-                        ({(skill as any).subscribers ?? 0}) subs
+                        {(skill as any).subscribers ?? 0} {t('pages.skills.subscribers')}
                     </SubsLabel>
                 </SkillRatingRow>
 
@@ -695,7 +691,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             <StatItem>
                                 <StarOutlined />
                                 <span>
-                                    {t('pages.skills.usageCount', 'Used')}: {(skill as any).usageCount}
+                                    {t('pages.skills.usageCount')}: {(skill as any).usageCount}
                                 </span>
                             </StatItem>
                         )}
@@ -703,7 +699,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             <StatItem>
                                 <ClockCircleOutlined />
                                 <span>
-                                    {t('pages.skills.lastUsed', 'Last')}: {(skill as any).lastUsed}
+                                    {t('pages.skills.lastUsed')}: {(skill as any).lastUsed}
                                 </span>
                             </StatItem>
                         )}
@@ -717,7 +713,7 @@ const SkillList: React.FC<SkillListProps> = ({
         if (rows.length === 0) {
             return (
                 <EmptyContainer>
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('pages.skills.noMatchingSkills', '未找到匹配的技能')} />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('pages.skills.noMatchingSkills')} />
                 </EmptyContainer>
             );
         }
@@ -738,12 +734,12 @@ const SkillList: React.FC<SkillListProps> = ({
     const collapseItems = [
         {
             key: 'my',
-            label: t('pages.skills.sections.mySkills', 'My Skills'),
+            label: t('pages.skills.sections.mySkills'),
             children: renderSection(mySkills, { grid: viewMode === 'grid' }),
         },
         {
             key: 'store',
-            label: t('pages.skills.sections.skillStore', 'Skill Store'),
+            label: t('pages.skills.sections.skillStore'),
             children: renderSection(storeSkills, { grid: viewMode === 'grid' }),
         },
     ];
