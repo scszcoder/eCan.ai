@@ -638,6 +638,10 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
         file_path = data['filePath']
         content = data['content']
         
+        # Normalize file path to handle Chinese characters correctly
+        # This ensures consistent path format for database queries
+        file_path = os.path.abspath(os.path.normpath(file_path))
+        
         # Extract skill name from file path
         # IMPORTANT: Preserve the original file path - do not redirect to my_skills directory
         # This allows users to open and save skill files from any directory

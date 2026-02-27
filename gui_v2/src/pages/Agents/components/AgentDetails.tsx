@@ -1647,6 +1647,16 @@ const AgentDetails: React.FC = () => {
           flex-direction: column;
           align-items: center;
         }
+        /* 必填字段红色星号标识 */
+        .ant-form-item-required::before {
+          display: inline-block;
+          margin-inline-end: 4px;
+          color: #ff4d4f;
+          font-size: 14px;
+          font-family: SimSun, sans-serif;
+          line-height: 1;
+          content: '*';
+        }
       `}</style>
       <div style={{ padding: '70px 16px 16px 16px', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
@@ -1859,6 +1869,7 @@ const AgentDetails: React.FC = () => {
                   name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
                   htmlFor="agent-skills"
+                  rules={[{ required: true, message: t('common.please_select_skill') || 'Please select at least one skill' }]}
                 >
                   <TagsEditor
                     id="agent-skills"
@@ -1876,6 +1887,7 @@ const AgentDetails: React.FC = () => {
                   name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
                   htmlFor="agent-tasks"
+                  rules={[{ required: true, message: t('common.please_select_task') || 'Please select at least one task' }]}
                 >
                   <TagsEditor
                     id="agent-tasks"
