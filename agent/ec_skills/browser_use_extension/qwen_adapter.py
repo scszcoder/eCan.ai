@@ -600,27 +600,94 @@ def wrap_qwen_llm(llm_instance: Any, enable_guided_json: bool = False) -> Any:
             
             @wraps(original_create)
             async def create_with_guided_json_and_cleaning(*args, **kwargs):
-                """Intercept request to add guided_json, then clean response."""
+                """Intercept request to add guided_json, filter messages, then clean response."""
+                
+                # Step 0: Filter and convert unsupported message roles for RyoAIS
+                # RyoAIS's Jinja2 template only supports: system, user, assistant
+                # Browser Use may send: action, tool, function, etc.
+                if 'messages' in kwargs:
+                    original_messages = kwargs['messages']
+                    filtered_messages = []
+                    
+                    for msg in original_messages:
+                        # Get message role
+                        msg_role = None
+                        if isinstance(msg, dict):
+                            msg_role = msg.get('role')
+                        elif hasattr(msg, 'role'):
+                            msg_role = msg.role
+                        
+                        # Convert unsupported roles to 'user'
+                        if msg_role in ['system', 'user', 'assistant']:
+                            # Supported role - keep as is
+                            filtered_messages.append(msg)
+                        else:
+                            # Unsupported role (action, tool, function, etc.) - convert to user
+                            logger.debug(f"[QwenAdapter] Converting unsupported role '{msg_role}' to 'user'")
+                            
+                            if isinstance(msg, dict):
+                                # Dict message - modify role
+                                converted_msg = msg.copy()
+                                converted_msg['role'] = 'user'
+                                # Wrap content to indicate it's a tool result
+                                if msg_role in ['action', 'tool', 'function']:
+                                    original_content = converted_msg.get('content', '')
+                                    converted_msg['content'] = f"[Tool Result]\n{original_content}"
+                                filtered_messages.append(converted_msg)
+                            elif hasattr(msg, 'role'):
+                                # Object message - create new user message
+                                try:
+                                    from browser_use.llm.messages import UserMessage
+                                    content = msg.content if hasattr(msg, 'content') else str(msg)
+                                    # Wrap content to indicate it's a tool result
+                                    if msg_role in ['action', 'tool', 'function']:
+                                        content = f"[Tool Result]\n{content}"
+                                    filtered_messages.append(UserMessage(content=content))
+                                except Exception as e:
+                                    logger.warning(f"[QwenAdapter] Failed to convert message: {e}")
+                                    # Fallback: keep original message
+                                    filtered_messages.append(msg)
+                            else:
+                                # Unknown format - keep original
+                                filtered_messages.append(msg)
+                    
+                    # Replace messages with filtered version
+                    if len(filtered_messages) != len(original_messages):
+                        logger.info(f"[QwenAdapter] Filtered messages: {len(original_messages)} → {len(filtered_messages)}")
+                    
+                    # Debug: Log actual messages being sent to RyoAIS
+                    logger.debug(f"[QwenAdapter] Sending {len(filtered_messages)} messages to RyoAIS:")
+                    for i, msg in enumerate(filtered_messages):
+                        if isinstance(msg, dict):
+                            role = msg.get('role', 'unknown')
+                            content_type = type(msg.get('content', '')).__name__
+                            has_tool_calls = 'tool_calls' in msg
+                            has_function_call = 'function_call' in msg
+                            logger.debug(f"[QwenAdapter]   [{i}] role={role}, content_type={content_type}, tool_calls={has_tool_calls}, function_call={has_function_call}")
+                        elif hasattr(msg, 'role'):
+                            role = msg.role
+                            content_type = type(msg.content).__name__ if hasattr(msg, 'content') else 'unknown'
+                            logger.debug(f"[QwenAdapter]   [{i}] role={role}, content_type={content_type}, type={type(msg).__name__}")
+                        else:
+                            logger.debug(f"[QwenAdapter]   [{i}] unknown message type: {type(msg)}")
+                    
+                    kwargs['messages'] = filtered_messages
                 
                 # Step 1: Force JSON output for vLLM/RyoAIS
                 if enable_guided_json:
-                    # Try multiple approaches to force JSON output
+                    # IMPORTANT: Do NOT use response_format with vLLM/RyoAIS
+                    # It conflicts with the chat template and causes "Unexpected message role" error
+                    # Only use guided_json in extra_body
                     
-                    # Approach 1: OpenAI standard response_format (may work with newer vLLM)
-                    try:
-                        kwargs['response_format'] = {"type": "json_object"}
-                        logger.info("[QwenAdapter] ✅ Set response_format=json_object (OpenAI standard)")
-                    except Exception as e:
-                        logger.debug(f"[QwenAdapter] response_format not supported: {e}")
-                    
-                    # Approach 2: vLLM guided_json (if supported)
+                    # vLLM guided_json (primary approach for RyoAIS)
                     if 'extra_body' not in kwargs:
                         kwargs['extra_body'] = {}
                     kwargs['extra_body']['guided_json'] = AGENT_OUTPUT_SCHEMA
                     kwargs['extra_body']['guided_decoding_backend'] = 'outlines'
                     
-                    logger.info("[QwenAdapter] ✅ Injected guided_json to extra_body (vLLM fallback)")
+                    logger.info("[QwenAdapter] ✅ Injected guided_json to extra_body (vLLM)")
                     logger.debug(f"[QwenAdapter] Request kwargs: {list(kwargs.keys())}")
+                    logger.debug(f"[QwenAdapter] Note: response_format NOT used to avoid chat template conflicts")
                 
                 # Step 2: Call LLM with guided_json
                 response = await original_create(*args, **kwargs)

@@ -284,10 +284,20 @@ def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br",
         except Exception as e:
             logger.warning(f"[BrowserManager] Failed to load profile settings: {e}")
     
-    # Build BrowserProfile with settings
+    # Build BrowserProfile with settings.
+    # IMPORTANT: runtime cdp_url (from BrowserManager/create_browser) must take precedence.
+    # Profile-level cdp_url can be stale (e.g. previous ephemeral debug port) and cause
+    # connection refused / BrowserStart timeout.
+    configured_cdp_url = profile_settings.get('cdp_url')
+    effective_cdp_url = cdp_url or configured_cdp_url
+    if configured_cdp_url and cdp_url and configured_cdp_url != cdp_url:
+        logger.warning(
+            f"[BrowserManager] Ignoring stale profile cdp_url={configured_cdp_url}; using runtime cdp_url={cdp_url}"
+        )
+
     profile_kwargs = {
         'headless': profile_settings.get('headless', False),
-        'cdp_url': profile_settings.get('cdp_url') or cdp_url,
+        'cdp_url': effective_cdp_url,
     }
     
     # Apply profile settings if available
