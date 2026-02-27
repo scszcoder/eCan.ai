@@ -384,7 +384,7 @@ jobs:
           exit 1
         fi
 
-        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
+        if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=false" >> $GITHUB_OUTPUT
           echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
@@ -425,7 +425,7 @@ jobs:
         
         # Determine if this is a tag (version tag)
         IS_TAG=false
-        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+        if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+.*$ ]]; then
           IS_TAG=true
         fi
         
@@ -493,16 +493,16 @@ jobs:
           echo "Using manual environment: $ENV"
         else
           # Auto-detect environment based on ref and version
-          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            # Production: Clean version tag (e.g., v1.0.0)
+          if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            # Production: Clean version tag (e.g., v1.0.0, v0.8.9.2)
             ENV="production"
-          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
+          elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-rc\. ]]; then
             # Production: Release candidate (e.g., v1.0.0-rc.1)
             ENV="production"
-          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
+          elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-beta ]]; then
             # Staging: Beta version (e.g., v1.0.0-beta.1)
             ENV="staging"
-          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+          elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-alpha ]]; then
             # Test: Alpha version (e.g., v1.0.0-alpha.1)
             ENV="test"
           elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
@@ -527,16 +527,16 @@ jobs:
           echo "Using manual channel: $CHANNEL"
         else
           # Auto-detect channel based on ref type and environment
-          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
             # Clean version tag → stable channel
             CHANNEL="stable"
-          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
+          elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-rc\. ]]; then
             # RC tag → beta channel
             CHANNEL="beta"
-          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
+          elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-beta ]]; then
             # Beta tag → beta channel
             CHANNEL="beta"
-          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+          elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-alpha ]]; then
             # Alpha tag → dev channel
             CHANNEL="dev"
           elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
