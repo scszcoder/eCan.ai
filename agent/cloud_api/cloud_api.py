@@ -2410,8 +2410,9 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.warning("AppSync queryAgents: no data for user - returning empty list")
-            jresponse = []
+            err_msg = "AppSync queryAgents schema error: resolver returned null for non-nullable field"
+            logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
+            raise Exception(err_msg)
         else:
             logger.error("AppSync queryAgents error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
@@ -3169,8 +3170,9 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.warning("AppSync queryAgentSkills: no data for user - returning empty list")
-            jresponse = []
+            err_msg = "AppSync queryAgentSkills schema error: resolver returned null for non-nullable field"
+            logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
+            raise Exception(err_msg)
         else:
             logger.error("AppSync queryAgentSkills error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
