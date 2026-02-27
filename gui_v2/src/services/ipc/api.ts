@@ -1298,7 +1298,7 @@ export class IPCAPI {
           resultPath: 'addAgents'
         }
       },
-      { username, input: agent }
+      { username, agent }
     );
     }
 
@@ -1774,7 +1774,7 @@ export class IPCAPI {
           resultPath: 'updateAgentSkills'
         }
       },
-      { username, skill_info: normalizedSkill, input: [normalizedSkill] }
+      { username, skill_info: normalizedSkill }
     );
     }
 
@@ -1843,7 +1843,7 @@ export class IPCAPI {
           resultPath: 'addAgentSkills'
         }
       },
-      { username, skill_info: normalizedSkill, input: [normalizedSkill] }
+      { username, skill_info: normalizedSkill }
     );
     }
 
