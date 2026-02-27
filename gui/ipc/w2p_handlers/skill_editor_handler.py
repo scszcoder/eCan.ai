@@ -77,13 +77,24 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         
         if skill:
             logger.debug(f"[IPC][run_skill] skill source: params.input.skill or params.skill")
+            logger.debug(f"[IPC][run_skill] skill payload type: {type(skill).__name__}")
             logger.debug(f"[IPC][run_skill] run_in_cloud: {run_in_cloud}, meta_data: {meta_data}")
         else:
             logger.warning(f"[IPC][run_skill] No skill found in params: {params}")
             raise ValueError("No skill data provided in request")
         
         try:
-            diagram = (skill or {}).get("diagram") or {}
+            # Debug logging supports both dict payloads and JSON-string payloads.
+            skill_for_log = skill
+            if isinstance(skill_for_log, str):
+                try:
+                    skill_for_log = json.loads(skill_for_log)
+                except Exception as parse_err:
+                    logger.debug(f"[IPC][run_skill] skill JSON parse failed for debug logging: {parse_err}")
+                    skill_for_log = {}
+
+            diagram = (skill_for_log or {}).get("diagram") if isinstance(skill_for_log, dict) else {}
+            diagram = diagram or {}
             wf = diagram.get("workFlow") or {}
             bundle = (diagram.get("bundle") or {}).get("sheets") or []
             logger.debug(f"[IPC][run_skill] incoming diagram.workFlow: nodes={len(wf.get('nodes', []))} edges={len(wf.get('edges', []))}")
