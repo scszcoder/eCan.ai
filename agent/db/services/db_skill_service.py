@@ -168,10 +168,35 @@ class DBSkillService(BaseService):
             return {"success": False, "data": None, "error": str(e)}
     
     def get_skill_by_path(self, path):
-        """Get a skill by file path"""
+        """Get a skill by file path
+        
+        Handles Chinese characters in file paths by normalizing paths before comparison.
+        This ensures that skills with Chinese filenames can be correctly queried.
+        """
         try:
+            import os
+            # Normalize the input path to handle Chinese characters correctly
+            # Convert to absolute path and normalize separators
+            normalized_path = os.path.abspath(os.path.normpath(path))
+            
             with self.session_scope() as s:
-                skill = s.query(DBAgentSkill).filter(DBAgentSkill.path == path).first()
+                # Try exact match first
+                skill = s.query(DBAgentSkill).filter(DBAgentSkill.path == normalized_path).first()
+                
+                # If not found, try to match by normalizing all stored paths
+                # This handles cases where paths were stored with different encodings
+                if not skill:
+                    all_skills = s.query(DBAgentSkill).all()
+                    for sk in all_skills:
+                        if sk.path:
+                            try:
+                                stored_normalized = os.path.abspath(os.path.normpath(sk.path))
+                                if stored_normalized == normalized_path:
+                                    skill = sk
+                                    break
+                            except Exception:
+                                continue
+                
                 if skill:
                     return {"success": True, "data": skill.to_dict(), "error": None}
                 else:

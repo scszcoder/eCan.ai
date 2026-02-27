@@ -77,13 +77,24 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         
         if skill:
             logger.debug(f"[IPC][run_skill] skill source: params.input.skill or params.skill")
+            logger.debug(f"[IPC][run_skill] skill payload type: {type(skill).__name__}")
             logger.debug(f"[IPC][run_skill] run_in_cloud: {run_in_cloud}, meta_data: {meta_data}")
         else:
             logger.warning(f"[IPC][run_skill] No skill found in params: {params}")
             raise ValueError("No skill data provided in request")
         
         try:
-            diagram = (skill or {}).get("diagram") or {}
+            # Debug logging supports both dict payloads and JSON-string payloads.
+            skill_for_log = skill
+            if isinstance(skill_for_log, str):
+                try:
+                    skill_for_log = json.loads(skill_for_log)
+                except Exception as parse_err:
+                    logger.debug(f"[IPC][run_skill] skill JSON parse failed for debug logging: {parse_err}")
+                    skill_for_log = {}
+
+            diagram = (skill_for_log or {}).get("diagram") if isinstance(skill_for_log, dict) else {}
+            diagram = diagram or {}
             wf = diagram.get("workFlow") or {}
             bundle = (diagram.get("bundle") or {}).get("sheets") or []
             logger.debug(f"[IPC][run_skill] incoming diagram.workFlow: nodes={len(wf.get('nodes', []))} edges={len(wf.get('edges', []))}")
@@ -1360,8 +1371,11 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             # This is just a local cache to prevent data loss
             # Real sync happens only when user explicitly clicks "Save"
             try:
-                os.makedirs(skill_file.parent, exist_ok=True)
-                with open(skill_file, 'w', encoding='utf-8') as sf:
+                # Ensure parent directory exists with proper encoding for Chinese characters
+                skill_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Write file with UTF-8 encoding
+                with open(str(skill_file), 'w', encoding='utf-8') as sf:
                     json.dump(skill_info, sf, indent=2, ensure_ascii=False)
                 logger.info(f"[AutoSave] Cached to local file: {skill_file} (no cloud sync)")
             except Exception as write_error:
@@ -1375,7 +1389,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             if sheets_data:
                 try:
                     bundle_data = _build_bundle_data(sheets_data)
-                    with open(bundle_file, 'w', encoding='utf-8') as bf:
+                    # Write bundle file with UTF-8 encoding for Chinese characters
+                    with open(str(bundle_file), 'w', encoding='utf-8') as bf:
                         json.dump(bundle_data, bf, indent=2, ensure_ascii=False)
                     logger.info(f"[AutoSave] Saved to bundle file: {bundle_file} ({len(bundle_data.get('sheets', []))} sheets)")
                     bundle_file_saved = True

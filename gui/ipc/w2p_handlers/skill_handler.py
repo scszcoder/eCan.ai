@@ -809,6 +809,11 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     # Store cloud execution settings in config dict (not separate columns)
     # Top-level fields in skill_info take priority, then fall back to values already in config
     config = skill_data.get('config', {}) or {}
+    # Ensure config is a dict (handle case where it might be a string or other type)
+    if not isinstance(config, dict):
+        logger.warning(f"[skill_handler] config is not a dict (type: {type(config)}), resetting to empty dict")
+        config = {}
+    
     config['run_in_cloud'] = skill_info.get('run_in_cloud', config.get('run_in_cloud', False))
     config['hybrid_cloud_mode'] = skill_info.get('hybrid_cloud_mode', config.get('hybrid_cloud_mode', False))
     config['local_helper_skill_id'] = skill_info.get('local_helper_skill_id', config.get('local_helper_skill_id', None))
@@ -1096,6 +1101,11 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
     """
     
     try:
+        import os
+        # Normalize file path to handle Chinese characters correctly
+        # This ensures consistent path format in database for proper querying
+        file_path = os.path.abspath(os.path.normpath(file_path))
+        
         # Check if this is a code-based skill from resource/my_skills
         code_skill = is_code_skill(file_path)
         
