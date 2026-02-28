@@ -2143,12 +2143,14 @@ def build_agent_mcp_tools_schemas():
         add_schedule_agent_task_tool_schema,
         add_delete_agent_task_tool_schema,
         add_stop_agent_task_tool_schema,
+        add_get_task_progress_tool_schema,
     )
     add_launch_agent_task_tool_schema(tool_schemas)
     add_create_agent_task_with_skill_tool_schema(tool_schemas)
     add_schedule_agent_task_tool_schema(tool_schemas)
     add_delete_agent_task_tool_schema(tool_schemas)
     add_stop_agent_task_tool_schema(tool_schemas)
+    add_get_task_progress_tool_schema(tool_schemas)
 
     # Code execution tools
     from agent.mcp.server.code_utils.code_tools import (

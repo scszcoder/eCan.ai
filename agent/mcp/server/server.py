@@ -123,6 +123,7 @@ from agent.ec_tasks.task_mcp_tools import (
     async_schedule_agent_task,
     async_delete_agent_task,
     async_stop_agent_task,
+    async_get_task_progress,
 )
 from agent.mcp.server.code_utils.code_tools import (
     async_run_code,
@@ -2977,6 +2978,7 @@ tool_function_mapping = {
         "schedule_agent_task": async_schedule_agent_task,
         "delete_agent_task": async_delete_agent_task,
         "stop_agent_task": async_stop_agent_task,
+        "get_task_progress": async_get_task_progress,
         # Code execution tools
         "run_code": async_run_code,
         "run_shell_script": async_run_shell_script,
