@@ -108,7 +108,7 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         'source': agent_task_info.get('source', 'ui'),
         'priority': agent_task_info.get('priority', 'medium'),
         'status': agent_task_info.get('status', 'pending'),
-        'task_type': agent_task_info.get('task_type', ''),
+        'task_type': agent_task_info.get('task_type', 'local'),
         'objectives': _safe_parse_json(agent_task_info.get('objectives'), []),
         'schedule': _safe_parse_json(agent_task_info.get('schedule'), {}),
         'trigger': agent_task_info.get('trigger') or agent_task_info.get('trigger_type') or 'manual',
@@ -283,6 +283,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
             name=agent_task_data['name'],
             description=agent_task_data.get('description', ''),
             owner=agent_task_data['owner'],
+            task_type=agent_task_data.get('task_type', 'local'),
             status=TaskStatus(
                 state=TaskState(task_status)
             ),
@@ -1468,8 +1469,7 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
     for skill_id in skill_ids:
         relation_data = {
             'task_id': task_id,
-            'skill_id': skill_id,
-            'owner': owner
+            'skill_id': skill_id
         }
         
         def _log_result(result: Dict[str, Any]):
@@ -1486,3 +1486,75 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
                 logger.error(f"[task_handler] ❌ Failed to sync skill relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.TASK_SKILL, relation_data, operation, callback=_log_result)
+
+
+@IPCHandlerRegistry.handler('query_agent_task_skill_rels')
+def handle_query_agent_task_skill_rels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Query agent task-skill relationships from cloud
+    
+    This handler queries task-skill relationships from the cloud AppSync API.
+    The relationships are used to link tasks with their associated skills.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters, may contain query filters
+        
+    Returns:
+        JSON formatted response with task-skill relationships
+    """
+    try:
+        logger.debug(f"Query agent task-skill relationships handler called with request: {request}")
+        
+        # Get auth token
+        ctx = get_handler_context(request, params)
+        token = ctx.get_auth_token()
+        if not token:
+            logger.debug("[query_agent_task_skill_rels] No auth token — returning empty result")
+            return create_success_response(request, [])
+        
+        # Query cloud API
+        from agent.cloud_api.cloud_api import (
+            send_query_agent_task_skill_relations_request_to_cloud,
+            get_appsync_endpoint
+        )
+        
+        endpoint = get_appsync_endpoint()
+        session = requests.Session()
+        q_settings = params.get('input', {}) if params else {}
+        
+        # Default to query by owner if no specific filter provided
+        if not q_settings:
+            username = resolve_username(request, params)
+            q_settings = {'byowneruser': True}
+        
+        logger.info(f"[query_agent_task_skill_rels] Querying cloud with settings: {q_settings}")
+        
+        result = send_query_agent_task_skill_relations_request_to_cloud(
+            session, token, q_settings, endpoint
+        )
+        
+        # Handle different response formats
+        if isinstance(result, list):
+            relationships = result
+        elif isinstance(result, dict):
+            if 'errorType' in result:
+                error_msg = result.get('message', 'Unknown error')
+                logger.warning(f"[query_agent_task_skill_rels] Cloud API error: {error_msg}")
+                return create_error_response(request, 'CLOUD_API_ERROR', error_msg)
+            relationships = result.get('items', result.get('relationships', []))
+        else:
+            relationships = []
+        
+        logger.info(f"[query_agent_task_skill_rels] Fetched {len(relationships)} task-skill relationships from cloud")
+        
+        return create_success_response(request, relationships)
+        
+    except Exception as e:
+        logger.error(f"Error in query agent task-skill relationships handler: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'QUERY_TASK_SKILL_RELS_ERROR',
+            f"Error querying task-skill relationships: {str(e)}"
+        )
