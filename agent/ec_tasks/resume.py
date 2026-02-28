@@ -375,7 +375,7 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
 
     # Promote common routing fields into context for clean match paths
     # (e.g. context.run_id instead of data.raw.run_id)
-    _PROMOTED_FIELDS = ("client_id", "task_id", "run_id", "timer_id")
+    _PROMOTED_FIELDS = ("client_id", "task_id", "run_id", "timer_id", "timer_name")
     ctx = event["context"]
     for field in _PROMOTED_FIELDS:
         if ctx.get(field):
