@@ -3403,12 +3403,25 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
+    timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
 
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
         log_msg = f"🤖 Executing node pending event node: {node_name}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
+
+        # Safety net: auto-resume any paused timers when we reach a pend_event
+        # node that listens for timer events. This handles the case where the
+        # LLM called pause_timer but forgot to call resume_timer.
+        if main_event == "timer" or "timer" in (additional_events or []):
+            try:
+                agent_id = (state.get("attributes") or {}).get("agent_id", "")
+                if agent_id:
+                    from agent.ec_tasks.timer_service import get_timer_service
+                    get_timer_service().resume_all_paused_for_agent(agent_id)
+            except Exception as _auto_resume_err:
+                logger.debug(f"[pend_event] auto-resume timers skipped: {_auto_resume_err}")
 
         current_node_name = runtime.context["this_node"].get("name")
         # Truncate screenshot data for logging
@@ -3433,6 +3446,8 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "prompt_to_human": prompt,
             "qa_form_to_human": qa_form,
             "notification_to_human": notification,
+            "event_type": main_event,
+            "timer_name": timer_name,
         }
         resume_payload = interrupt(info)
 
