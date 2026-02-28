@@ -373,13 +373,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       setCurrentTaskType(taskType);
 
       // Set current trigger for validation
-      // Backend stores trigger as a comma-separated string (e.g. "schedule,message")
-      const rawTrigger = (task as any).trigger;
-      const taskTrigger: string[] = Array.isArray(rawTrigger)
-        ? rawTrigger
-        : (typeof rawTrigger === 'string' && rawTrigger
-            ? rawTrigger.split(',').map((s: string) => s.trim()).filter(Boolean)
-            : ['schedule']);
       setCurrentTrigger(taskTrigger);
       form.setFieldValue('trigger', taskTrigger);
     } else {

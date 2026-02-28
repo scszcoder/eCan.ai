@@ -3457,8 +3457,30 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         # send_skill_editor_log("log", log_msg)
 
+        # --- Append full event envelope to state["events"] ---
         try:
-            state["events"].append({"event_type": resume_payload["event_type"]})
+            envelope = resume_payload.get("_event_envelope") if isinstance(resume_payload, dict) else None
+            event_record = {
+                "event_type": (resume_payload.get("event_type") if isinstance(resume_payload, dict) else None)
+                             or (envelope.get("type") if isinstance(envelope, dict) else None)
+                             or main_event
+                             or "",
+                "source": (envelope.get("source", "") if isinstance(envelope, dict) else ""),
+                "timestamp": (envelope.get("timestamp", "") if isinstance(envelope, dict) else ""),
+                "context": (envelope.get("context", {}) if isinstance(envelope, dict) else {}),
+                "tag": (envelope.get("tag", "") if isinstance(envelope, dict) else ""),
+                "node": node_name,
+            }
+            # Include event data (human_text, metadata, etc.) if present
+            if isinstance(envelope, dict) and envelope.get("data"):
+                event_record["data"] = envelope["data"]
+            state.setdefault("events", []).append(event_record)
+            logger.debug(f"[pend_event_node] Appended event to state['events']: type={event_record['event_type']}, source={event_record['source']}")
+        except Exception as ev_err:
+            logger.debug(f"[pend_event_node] Failed to append event record: {ev_err}")
+
+        # --- Deep-merge _state_patch into state ---
+        try:
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
                 patch = resume_payload.get("_state_patch")
                 if isinstance(patch, dict):
@@ -3471,14 +3493,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                                 out[k] = v
                         return out
 
-                    # merge patch into state in place
-                    try:
-                        if isinstance(state, dict):
-                            merged = _deep_merge(state, patch)
-                            state.clear()
-                            state.update(merged)
-                    except Exception:
-                        pass
+                    if isinstance(state, dict):
+                        merged = _deep_merge(state, patch)
+                        state.clear()
+                        state.update(merged)
         except Exception:
             pass
 
