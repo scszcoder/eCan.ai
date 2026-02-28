@@ -15,7 +15,7 @@ import './Skills.css';
 const Skills: React.FC = () => {
     const { t } = useTranslation();
 
-    // 使用新的 skillStore
+    // Use new skillStore
     const skills = useSkillStore((state) => state.items);
     const isLoading = useSkillStore((state) => state.loading);
     const fetchItems = useSkillStore((state) => state.fetchItems);
@@ -24,7 +24,7 @@ const Skills: React.FC = () => {
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
 
-    // 直接管理选中Status
+    // Directly manage selected status
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
     const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
     const [subscribedSkillIds, setSubscribedSkillIds] = useState<string[]>([]);
@@ -157,18 +157,18 @@ const Skills: React.FC = () => {
     };
 
     const handleSkillCancel = () => {
-        // Cancel时的Process：
-        // - If是新建模式，CloseDetails面板
-        // - If是Edit模式，不Need额外Process（SkillDetails Internal会Process）
+        // Cancel process:
+        // - If in new mode, close details panel
+        // - If in edit mode, no extra processing needed (SkillDetails handles internally)
         if (isAddingNew) {
             setIsAddingNew(false);
             setSelectedSkill(null);
         }
-        // Edit模式下，SkillDetails 会自动RestoreData并退出Edit模式，不NeedClose面板
+        // In edit mode, SkillDetails will automatically restore data and exit edit mode, no need to close panel
     };
 
     const handleSkillDelete = () => {
-        // Delete后清空选中Status，CloseDetails页
+        // After delete, clear selected status and close details page
         setSelectedSkill(null);
         handleRefresh();
     };

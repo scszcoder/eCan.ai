@@ -3403,12 +3403,25 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
+    timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
 
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
         log_msg = f"🤖 Executing node pending event node: {node_name}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
+
+        # Safety net: auto-resume any paused timers when we reach a pend_event
+        # node that listens for timer events. This handles the case where the
+        # LLM called pause_timer but forgot to call resume_timer.
+        if main_event == "timer" or "timer" in (additional_events or []):
+            try:
+                agent_id = (state.get("attributes") or {}).get("agent_id", "")
+                if agent_id:
+                    from agent.ec_tasks.timer_service import get_timer_service
+                    get_timer_service().resume_all_paused_for_agent(agent_id)
+            except Exception as _auto_resume_err:
+                logger.debug(f"[pend_event] auto-resume timers skipped: {_auto_resume_err}")
 
         current_node_name = runtime.context["this_node"].get("name")
         # Truncate screenshot data for logging
@@ -3433,6 +3446,8 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "prompt_to_human": prompt,
             "qa_form_to_human": qa_form,
             "notification_to_human": notification,
+            "event_type": main_event,
+            "timer_name": timer_name,
         }
         resume_payload = interrupt(info)
 
@@ -3442,8 +3457,30 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         # send_skill_editor_log("log", log_msg)
 
+        # --- Append full event envelope to state["events"] ---
         try:
-            state["events"].append({"event_type": resume_payload["event_type"]})
+            envelope = resume_payload.get("_event_envelope") if isinstance(resume_payload, dict) else None
+            event_record = {
+                "event_type": (resume_payload.get("event_type") if isinstance(resume_payload, dict) else None)
+                             or (envelope.get("type") if isinstance(envelope, dict) else None)
+                             or main_event
+                             or "",
+                "source": (envelope.get("source", "") if isinstance(envelope, dict) else ""),
+                "timestamp": (envelope.get("timestamp", "") if isinstance(envelope, dict) else ""),
+                "context": (envelope.get("context", {}) if isinstance(envelope, dict) else {}),
+                "tag": (envelope.get("tag", "") if isinstance(envelope, dict) else ""),
+                "node": node_name,
+            }
+            # Include event data (human_text, metadata, etc.) if present
+            if isinstance(envelope, dict) and envelope.get("data"):
+                event_record["data"] = envelope["data"]
+            state.setdefault("events", []).append(event_record)
+            logger.debug(f"[pend_event_node] Appended event to state['events']: type={event_record['event_type']}, source={event_record['source']}")
+        except Exception as ev_err:
+            logger.debug(f"[pend_event_node] Failed to append event record: {ev_err}")
+
+        # --- Deep-merge _state_patch into state ---
+        try:
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
                 patch = resume_payload.get("_state_patch")
                 if isinstance(patch, dict):
@@ -3456,14 +3493,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                                 out[k] = v
                         return out
 
-                    # merge patch into state in place
-                    try:
-                        if isinstance(state, dict):
-                            merged = _deep_merge(state, patch)
-                            state.clear()
-                            state.update(merged)
-                    except Exception:
-                        pass
+                    if isinstance(state, dict):
+                        merged = _deep_merge(state, patch)
+                        state.clear()
+                        state.update(merged)
         except Exception:
             pass
 
@@ -3718,6 +3751,8 @@ _passive_steps_processed: set[str] = set()
 # Module-level cache for PassiveAgent - reuse across loop iterations
 # Key: browser_session id, Value: PassiveAgent instance
 _cached_passive_agents: dict[int, "PassiveAgent"] = {}
+# Prevent concurrent start() calls on the same BrowserSession in the same process.
+_browser_session_start_lock = _asyncio_module.Lock()
 
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
@@ -3889,8 +3924,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         return {}
 
     def _is_session_started(session) -> bool:
-        # return session._cdp_client_root is not None
-        return session.session_manager is not None
+        """Check BrowserSession is fully started (CDP root client ready).
+
+        `session_manager is not None` can become true before CDP root client
+        is initialized, which leads to runtime errors like
+        "Root CDP client not initialized" during watchdog events.
+        """
+        if session is None:
+            return False
+
+        # Prefer strong signal: root CDP client initialized.
+        root_client = getattr(session, "_cdp_client_root", None)
+        if root_client is None:
+            root_client = getattr(session, "cdp_client_root", None)
+        if root_client is not None:
+            return True
+
+        # Defensive fallback for older/newer browser_use internals.
+        return getattr(session, "session_manager", None) is not None and getattr(session, "event_bus", None) is not None
 
     def _is_session_alive(session) -> bool:
         """Check session is started AND its event bus is still operational."""
@@ -4009,11 +4060,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 send_skill_editor_log("log", log_msg)
 
                 if not _is_session_started(auto_browser.browser_session):
-                    # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
-                    # Wrap in create_task to ensure proper task context for bubus event handling
-                    import asyncio
-                    task = asyncio.create_task(auto_browser.browser_session.start())
-                    await task
+                    # Avoid concurrent start() on same BrowserSession, which can race
+                    # and leave the internal CDP client in half-initialized state.
+                    async with _browser_session_start_lock:
+                        if not _is_session_started(auto_browser.browser_session):
+                            # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
+                            # Wrap in create_task to ensure proper task context for bubus event handling
+                            import asyncio
+                            task = asyncio.create_task(auto_browser.browser_session.start())
+                            await task
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
@@ -4747,10 +4802,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from config.app_settings import app_settings
             disable_extensions = app_settings.is_dev_mode
             
-            # Create browser profile with extensions control and persistent user_data_dir
-            # Note: BrowserProfile uses enable_default_extensions (not disable_extensions)
-            # Auto-assign persistent user_data_dir so login state survives restarts
+            # Create browser profile with extensions control.
+            # Use persistent user_data_dir for all browser modes to preserve login state (cookies, sessions).
+            # This ensures users don't need to re-login every time they run a skill.
             profile_settings = _get_browser_profile_settings(node_profile)
+            
+            # Auto-assign persistent user_data_dir if not explicitly configured
             _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
             if not _bp_user_data_dir:
                 from utils.user_path_helper import ensure_user_data_dir
@@ -4759,10 +4816,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
                 _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
                 logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            
+            # Create browser profile with persistent storage for all modes
             browser_profile = BrowserProfile(
                 enable_default_extensions=not disable_extensions,
                 user_data_dir=_bp_user_data_dir,
             )
+            
+            if browser_type_setting == 'new chromium':
+                logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
+            else:
+                logger.info("[BrowserAutomation] Using persistent profile for existing-browser/CDP mode")
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
            
             if browser_profile:
@@ -4832,6 +4896,47 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Start the browser session
                     if not _is_session_started(browser_session):
                         await browser_session.start()
+
+                    # Focus/session preflight for CDP mode:
+                    # If agent_focus_target_id is missing/invalid (common after target detach),
+                    # re-bind to a valid page target before running browser-use Agent.
+                    try:
+                        from browser_use.browser.events import SwitchTabEvent
+
+                        sm = getattr(browser_session, 'session_manager', None)
+                        all_targets = sm.get_all_targets() if sm else {}
+                        page_target_ids = [
+                            tid for tid, t in (all_targets or {}).items()
+                            if getattr(t, 'target_type', '') in ('page', 'tab')
+                        ]
+
+                        cur_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                        valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
+                        valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
+
+                        target_focus = None
+                        if valid_cur_focus:
+                            target_focus = cur_focus
+                        elif valid_last_focus:
+                            target_focus = _last_known_focus_target_id
+                        elif page_target_ids:
+                            target_focus = page_target_ids[0]
+
+                        if target_focus:
+                            if cur_focus != target_focus:
+                                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_focus))
+                                logger.info(
+                                    f"[BrowserAutomation] Focus preflight switched target: "
+                                    f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
+                                )
+                            _last_known_focus_target_id = target_focus
+
+                            # Warm browser state to repopulate selector/session mapping before TypeTextEvent.
+                            await browser_session.get_browser_state_summary(include_screenshot=False)
+                        else:
+                            logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
+                    except Exception as _focus_exc:
+                        logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
                     
                     # Create agent with existing browser session
                     agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
@@ -4841,6 +4946,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
             
             history = await agent.run()
+
+            # Persist focus target across node iterations to survive session churn.
+            try:
+                _focus_after_run = getattr(getattr(agent, 'browser_session', None), 'agent_focus_target_id', None)
+                if _focus_after_run:
+                    _last_known_focus_target_id = _focus_after_run
+            except Exception:
+                pass
             
             # Truncate long output for logging
             history_str = str(history)

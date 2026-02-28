@@ -135,6 +135,14 @@ from agent.mcp.server.chat_utils.chat_tools import (
     async_list_chat_agents,
     async_get_chat_history,
 )
+from agent.ec_tasks.timer_mcp_tools import (
+    async_add_timer,
+    async_remove_timer,
+    async_update_timer,
+    async_list_timers,
+    async_pause_timer,
+    async_resume_timer,
+)
 from agent.mcp.server.aws_utils.aws_tools import (
     aws_read_billing,
     aws_shutdown,
@@ -1668,8 +1676,18 @@ async def mouse_click(mainwin, args):
         pyautogui.click(clicks=2, interval=0.3)
         time.sleep(args["input"]["post_click_delay"])
 
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed mouse click"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
 
         return [result]
     except Exception as e:
@@ -1689,8 +1707,18 @@ async def mouse_press_hold(mainwin, args):
         pyautogui.mouseUp()
         time.sleep(args["input"]["post_delay"])
 
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed mouse press and hold"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
 
         return [result]
     except Exception as e:
@@ -1706,8 +1734,18 @@ async def mouse_move(mainwin, args):
         # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
         time.sleep(args["input"]["post_delay"])
 
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed mouse move"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
         return result
 
     except Exception as e:
@@ -1721,8 +1759,19 @@ async def mouse_drag_drop(mainwin, args):
         pyautogui.dragTo(args["input"]["drop_loc"][0], args["input"]["drop_loc"][1], duration=args["input"]["duration"])
 
         logger.debug(f'dragNdrop: {args["input"]["pick_loc"][0]}, {args["input"]["pick_loc"][1]} to {args["input"]["drop_loc"][0]}, {args["input"]["drop_loc"][1]}')
+
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed mouse drag and drop"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseDragDrop")
@@ -1737,8 +1786,18 @@ async def mouse_scroll(mainwin, args):
             scroll_amount = args["input"]["amount"]
         mouse.scroll(0, scroll_amount)
 
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed mouse scroll"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseScroll")
@@ -1780,8 +1839,18 @@ async def keyboard_text_input(mainwin, args):
         if args['input']["post_wait"]:
             time.sleep(args['input']["post_wait"])
 
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed text input"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardTextInput")
@@ -1795,8 +1864,18 @@ async def keyboard_keys_input(mainwin, args):
         if args['input']["post_wait"]:
             time.sleep(args['input']["post_wait"])
 
+        screen_content = {}
+        if True:
+            win_title_kw = args["input"]["win_title_kw"]
+            sub_area = args["input"]["sub_area"]
+            site = args["input"]["site"]
+            engine = args["input"]["engine"]
+            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
+            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+
         msg = "completed keys press"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardKeysInput")
@@ -2908,6 +2987,13 @@ tool_function_mapping = {
         "send_chat": async_send_chat,
         "list_chat_agents": async_list_chat_agents,
         "get_chat_history": async_get_chat_history,
+        # Timer management tools
+        "add_timer": async_add_timer,
+        "remove_timer": async_remove_timer,
+        "update_timer": async_update_timer,
+        "list_timers": async_list_timers,
+        "pause_timer": async_pause_timer,
+        "resume_timer": async_resume_timer,
         # AWS cost monitoring and emergency shutdown tools
         "aws_read_billing": aws_read_billing,
         "aws_shutdown": aws_shutdown,

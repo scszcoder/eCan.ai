@@ -9,12 +9,48 @@
         "OPENAI_API_KEY"
       ],
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-5.2",
-      "description": "OpenAI GPT-5.2 series - Latest models (Jan 2026)",
+      "default_model": "gpt-5.3",
+      "description": "OpenAI GPT-5.3 series - Latest models (Feb 2026)",
       "documentation_url": "https://platform.openai.com/docs/models",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "gpt-5.3",
+          "display_name": "GPT-5.3",
+          "model_id": "gpt-5.3",
+          "default_temperature": 0.7,
+          "max_tokens": 500000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.012,
+          "description": "Most capable model for professional work (Feb 2026, 95.8% GPQA Diamond)"
+        },
+        {
+          "name": "gpt-5.3-pro",
+          "display_name": "GPT-5.3 Pro",
+          "model_id": "gpt-5.3-pro",
+          "default_temperature": 0.7,
+          "max_tokens": 200000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Enhanced reasoning and deep output version"
+        },
+        {
+          "name": "gpt-5.3-turbo",
+          "display_name": "GPT-5.3 Turbo",
+          "model_id": "gpt-5.3-turbo",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.008,
+          "description": "Faster and more cost-effective version"
+        },
         {
           "name": "gpt-5.2",
           "display_name": "GPT-5.2",
@@ -25,7 +61,7 @@
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.01,
-          "description": "Most capable model for professional work (Dec 2025, 93.2% GPQA Diamond)"
+          "description": "Previous generation flagship (Dec 2025, 93.2% GPQA Diamond)"
         },
         {
           "name": "gpt-5.2-pro",
@@ -317,12 +353,72 @@
         "DASHSCOPE_API_KEY"
       ],
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "default_model": "qwen3-max",
-      "description": "Alibaba Cloud Model Studio (DashScope) - Qwen3 + QwQ commercial models",
+      "default_model": "qwen3.5-max",
+      "description": "Alibaba Cloud Model Studio (DashScope) - Qwen3.5 + Qwen3 + QwQ commercial models",
       "documentation_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "qwen3.5-max",
+          "display_name": "Qwen3.5-Max",
+          "model_id": "qwen3.5-max",
+          "default_temperature": 0.7,
+          "max_tokens": 32768,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.025,
+          "description": "Latest Qwen3.5-Max - Most capable model (Feb 2026)"
+        },
+        {
+          "name": "qwen3.5-plus",
+          "display_name": "Qwen3.5-Plus",
+          "model_id": "qwen3.5-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 32768,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Qwen3.5-Plus - Balanced performance and cost"
+        },
+        {
+          "name": "qwen3.5-turbo",
+          "display_name": "Qwen3.5-Turbo",
+          "model_id": "qwen3.5-turbo",
+          "default_temperature": 0.7,
+          "max_tokens": 32768,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.008,
+          "description": "Qwen3.5-Turbo - Fast and economical"
+        },
+        {
+          "name": "qwen3.5-coder-plus",
+          "display_name": "Qwen3.5-Coder-Plus",
+          "model_id": "qwen3.5-coder-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 65536,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.018,
+          "description": "Qwen3.5 code generation model - Enhanced coding capabilities"
+        },
+        {
+          "name": "qwen3.5-vl-plus",
+          "display_name": "Qwen3.5-VL-Plus",
+          "model_id": "qwen3.5-vl-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 32768,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.018,
+          "description": "Qwen3.5 vision-language model - Enhanced multimodal capabilities"
+        },
         {
           "name": "qwen3-max",
           "display_name": "Qwen3-Max",
@@ -783,8 +879,8 @@
   },
   "metadata": {
     "version": "2.0.0",
-    "last_updated": "2025-02-06",
-    "description": "LLM provider configurations for eCan.ai - Latest models: GPT-4.1, o3, o4-mini, Qwen3-Max, DeepSeek V3/R1",
+    "last_updated": "2026-02-27",
+    "description": "LLM provider configurations for eCan.ai - Latest models: GPT-5.3, Qwen3.5-Max, DeepSeek V3/R1, Claude 4.5, Gemini 3",
     "schema_version": "1.0"
   }
 }

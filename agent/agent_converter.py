@@ -255,6 +255,18 @@ def convert_agent_dict_to_ec_agent(
         EC_Agent object or None if conversion fails
     """
     try:
+        agent_name = agent_data.get('name', 'Unknown')
+        agent_id = agent_data.get('id', 'Unknown')
+        skills_data_preview = agent_data.get('skills') or []
+        tasks_data_preview = agent_data.get('tasks') or []
+        compiled_skills_count = len(getattr(main_window, 'agent_skills', None) or [])
+        compiled_tasks_count = len(getattr(main_window, 'agent_tasks', None) or [])
+        logger.info(
+            f"[AgentConverter] Converting agent '{agent_name}' (id={agent_id}): "
+            f"skills_data={len(skills_data_preview)}, tasks_data={len(tasks_data_preview)}, "
+            f"compiled_skills_pool={compiled_skills_count}, compiled_tasks_pool={compiled_tasks_count}"
+        )
+        
         # Create capabilities
         capabilities_data = agent_data.get('capabilities')
         if isinstance(capabilities_data, dict):
@@ -380,9 +392,22 @@ def convert_agent_dict_to_ec_agent(
             
             # Resolve skill for any task that has no compiled skill object
             task_skill = getattr(task_obj, 'skill', None)
-            has_compiled_skill = task_skill is not None and hasattr(task_skill, 'runnable')
+            has_compiled_skill = task_skill is not None and getattr(task_skill, 'runnable', None) is not None
             
-            if not has_compiled_skill and skill_objects:
+            # Build search pools: agent's own skills first, then global compiled pool
+            search_pools = []
+            if skill_objects:
+                search_pools.append(('agent_skills', skill_objects))
+            if compiled_skills:
+                search_pools.append(('global_pool', compiled_skills))
+            
+            if not has_compiled_skill and search_pools:
+                logger.info(
+                    f"[AgentConverter] Task '{task_obj.name}' needs skill re-attachment "
+                    f"(current skill: {type(task_skill).__name__ if task_skill else 'None'}, "
+                    f"runnable: {getattr(task_skill, 'runnable', 'N/A') is not None if task_skill else False}, "
+                    f"agent_skill_objects={len(skill_objects)}, global_compiled={len(compiled_skills)})"
+                )
                 # Try to match by skill name on the task (string or object with name)
                 skill_name_on_task = ''
                 if isinstance(task_skill, str):
@@ -391,22 +416,39 @@ def convert_agent_dict_to_ec_agent(
                     skill_name_on_task = (getattr(task_skill, 'name', '') or '').lower().strip()
                 
                 matched_skill = None
-                if skill_name_on_task:
-                    matched_skill = next(
-                        (sk for sk in skill_objects if (getattr(sk, 'name', '') or '').lower().strip() == skill_name_on_task),
-                        None,
-                    )
-                
-                # For chat tasks, fall back to any skill with 'chat' in name
-                if not matched_skill and is_chat_task:
-                    matched_skill = next(
-                        (sk for sk in skill_objects if 'chat' in (getattr(sk, 'name', '') or '').lower()),
-                        None,
-                    )
+                for pool_name, pool in search_pools:
+                    if matched_skill:
+                        break
+                    # Match by exact skill name (require runnable)
+                    if skill_name_on_task:
+                        matched_skill = next(
+                            (sk for sk in pool
+                             if (getattr(sk, 'name', '') or '').lower().strip() == skill_name_on_task
+                             and getattr(sk, 'runnable', None) is not None),
+                            None,
+                        )
+                        if matched_skill:
+                            logger.info(f"[AgentConverter] Matched skill by name from {pool_name}")
+                    
+                    # For chat tasks, fall back to any skill with 'chat' in name
+                    if not matched_skill and is_chat_task:
+                        matched_skill = next(
+                            (sk for sk in pool
+                             if 'chat' in (getattr(sk, 'name', '') or '').lower()
+                             and getattr(sk, 'runnable', None) is not None),
+                            None,
+                        )
+                        if matched_skill:
+                            logger.info(f"[AgentConverter] Matched chat skill from {pool_name} by 'chat' keyword")
                 
                 if matched_skill:
                     task_obj.skill = matched_skill
                     logger.info(f"[AgentConverter] Attached skill '{matched_skill.name}' to task '{task_obj.name}'")
+                else:
+                    logger.warning(
+                        f"[AgentConverter] No compiled skill found for task '{task_obj.name}' "
+                        f"(skill_name='{skill_name_on_task}', is_chat={is_chat_task})"
+                    )
             
             # Ensure chat tasks have 'message' trigger so the execution loop polls the queue
             if is_chat_task:

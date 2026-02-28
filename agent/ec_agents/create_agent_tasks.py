@@ -405,7 +405,18 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
                     logger.info(f"[create_agent_tasks] ✅ Resolved skill '{skill_name}' to compiled object (runnable: {has_runnable})")
                     break
             if not resolved_skill:
-                logger.warning(f"[create_agent_tasks] ⚠️ Skill '{skill_name}' not found in compiled pool — task will have skill as string")
+                logger.warning(f"[create_agent_tasks] ⚠️ Skill '{skill_name}' not found in compiled pool by exact name")
+                # For chat tasks, try any compiled skill with 'chat' in its name
+                task_name_check = db_agent_task_dict.get('name', '')
+                if 'chat' in task_name_check.lower():
+                    for sk in compiled_skills:
+                        sk_name = (getattr(sk, 'name', '') or '').lower()
+                        if 'chat' in sk_name and getattr(sk, 'runnable', None) is not None:
+                            resolved_skill = sk
+                            logger.info(f"[create_agent_tasks] ✅ Chat fallback: matched task '{task_name_check}' to skill '{getattr(sk, 'name', '')}' (has runnable)")
+                            break
+                if not resolved_skill:
+                    logger.warning(f"[create_agent_tasks] ⚠️ task will have skill as string '{skill_name}'")
         
         # Fallback: if no task-skill relationship in DB, try matching task name to a skill name
         # Strip trailing digits from skill name for fuzzy matching (e.g. passive0 → passive)

@@ -14,7 +14,7 @@ from queue import Queue
 import time
 from typing import Any, Callable, ClassVar, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from a2a.types import Task, TaskState, TaskStatus as A2ATaskStatus, Message, TextPart
 
@@ -215,7 +215,9 @@ class ManagedTask(Task):
     # Skill reference (Any to avoid strict validation)
     skill: Any = None
 
-    # Cloud execution hint
+    # Task execution type: 'local', 'cloud', 'hybrid_cloud'
+    task_type: str = "local"
+    # Cloud execution hint (derived from task_type for backward compatibility)
     cloud_based: bool = False
     
     # State management
@@ -237,6 +239,13 @@ class ManagedTask(Task):
         if isinstance(v, (list, tuple)):
             return [t for t in v if isinstance(t, str) and t]
         return []
+
+    @model_validator(mode="after")
+    def _derive_cloud_based_from_task_type(self):
+        """Auto-derive cloud_based from task_type for backward compatibility."""
+        if self.task_type in ("cloud", "hybrid_cloud"):
+            self.cloud_based = True
+        return self
     
     # Async task reference
     task: Optional[asyncio.Task] = None
