@@ -4784,6 +4784,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
                 logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
             
+            # Clean stale lock files before creating browser profile
+            # This prevents startup failures from previous abnormal exits
+            from agent.ec_skills.browser_use_extension.profile_lock_cleaner import ensure_profile_unlocked
+            ensure_profile_unlocked(_bp_user_data_dir, auto_clean=True)
+            
             # Create browser profile with persistent storage for all modes
             browser_profile = BrowserProfile(
                 enable_default_extensions=not disable_extensions,
