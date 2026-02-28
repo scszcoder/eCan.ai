@@ -625,6 +625,27 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         timestamp=int(time_mod.time() * 1000)
                     )
                 
+                # Emit to TaskProgressBus for nested task visibility
+                try:
+                    lineage = runtime.context.get("lineage") if hasattr(runtime, "context") else None
+                    if isinstance(lineage, dict) and lineage.get("correlation_id"):
+                        from agent.ec_tasks.task_progress_bus import TaskProgressBus, TaskProgressEvent
+                        evt_type = "node_started" if status_label == "running" else f"node_{status_label}"
+                        TaskProgressBus.get_instance().emit(TaskProgressEvent(
+                            correlation_id=lineage["correlation_id"],
+                            run_id=run_id,
+                            parent_run_id=lineage.get("parent_run_id", ""),
+                            task_id=runtime.context.get("task_id", ""),
+                            task_name=runtime.context.get("task_name", ""),
+                            depth=lineage.get("depth", 0),
+                            event_type=evt_type,
+                            node_name=node_name,
+                            node_status=status_label,
+                            timestamp=int(time_mod.time() * 1000),
+                        ))
+                except Exception:
+                    pass
+
                 # For "running" we keep a tiny delay to ensure the frontend
                 # sees the node enter the running state before completion.
                 if status_label == "running":
