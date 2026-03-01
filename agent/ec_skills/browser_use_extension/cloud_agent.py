@@ -359,6 +359,33 @@ class CloudAgent(Agent):
         bootstrap_url: str | None = None,
         **kwargs,
     ) -> None:
+        # Use unified agent configuration for consistency across local and cloud modes
+        from agent.ec_skills.browser_use_extension.agent_config import (
+            get_ultra_aggressive_compaction_settings,
+            DEFAULT_MAX_CLICKABLE_ELEMENTS
+        )
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if 'message_compaction' not in kwargs:
+            compaction_settings = get_ultra_aggressive_compaction_settings()
+            kwargs['message_compaction'] = compaction_settings
+            logger.warning(
+                f"[CloudAgent] 🔧 Using unified MessageCompaction config: "
+                f"compact_every={compaction_settings.compact_every_n_steps}, "
+                f"trigger={compaction_settings.trigger_token_count}, "
+                f"keep_items={compaction_settings.keep_last_items}"
+            )
+        
+        # No max_history_items limit - let MessageCompaction handle it naturally
+        
+        if 'max_clickable_elements_length' not in kwargs:
+            kwargs['max_clickable_elements_length'] = DEFAULT_MAX_CLICKABLE_ELEMENTS
+            logger.warning(
+                f"[CloudAgent] 🔧 Using unified DOM config: "
+                f"max_clickable_elements_length={DEFAULT_MAX_CLICKABLE_ELEMENTS}"
+            )
+        
         super().__init__(**kwargs)
         self.transport = transport
         self.run_id = run_id
@@ -468,6 +495,9 @@ class CloudAgent(Agent):
         await self._update_action_models_for_page(browser_state_summary.url)
 
         page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
+        
+        # browser_use's MessageCompaction will automatically handle history management
+        # No need for manual truncation - let the framework do its job
         self._message_manager.create_state_messages(
             browser_state_summary=browser_state_summary,
             model_output=self.state.last_model_output,
@@ -1014,10 +1044,104 @@ class CloudAgent(Agent):
             content = content[start_from_char:]
 
         # --- Smart truncation with context preservation ---
-        MAX_CHAR_LIMIT = 100000
+        # Calculate max content limit based on model's context_length
+        # browser_use's MessageCompaction handles history automatically
+        # For CJK languages: 1 character ≈ 1.5-2.5 tokens (NOT 0.5 tokens!)
+        model_context_length = getattr(self.llm, 'context_length', None) or 65536
+        
+        # Extraction is a SEPARATE LLM call with its own token budget:
+        # Request = system_prompt + extracted_content
+        # Response = structured extraction result
+        # 
+        # Reserve tokens for:
+        # - System prompt: ~5000 tokens (extraction instructions + schema)
+        # - Response: ~4000 tokens (structured extraction output)
+        # - Safety margin: ~2000 tokens (for schema overhead, etc.)
+        # Total reserved: ~11000 tokens
+        EXTRACTION_SYSTEM_TOKENS = 5000
+        EXTRACTION_RESPONSE_TOKENS = 4000
+        EXTRACTION_SAFETY_MARGIN = 2000
+        extraction_reserved = EXTRACTION_SYSTEM_TOKENS + EXTRACTION_RESPONSE_TOKENS + EXTRACTION_SAFETY_MARGIN
+        
+        available_tokens = max(model_context_length - extraction_reserved, 10000)
+        
+        # Auto-detect content type for more accurate token estimation
+        from agent.ec_skills.browser_use_extension.token_utils import (
+            tokens_to_chars, detect_content_type, estimate_tokens_auto
+        )
+        
+        # Detect content type from sample (first 2000 chars)
+        content_type = detect_content_type(content)
+        _cloud_agent_log(
+            f'[CloudAgent] 🔍 Detected content type: {content_type}',
+            level='info'
+        )
+        
+        # Use detected content type for accurate char limit calculation
+        MAX_CHAR_LIMIT = tokens_to_chars(available_tokens, content_type=content_type)
+        
+        _cloud_agent_log(
+            f'[CloudAgent] 📊 Extraction limit: model_context={model_context_length}, '
+            f'reserved={extraction_reserved}, available={available_tokens} tokens, '
+            f'max_chars={MAX_CHAR_LIMIT}, content_type={content_type}',
+            level='info'
+        )
+        
+        # --- Intelligent Batched Extraction ---
+        # For very large content (>50K chars), use batched processing to prevent timeout
+        # and improve success rate. This is more efficient than pagination.
+        BATCH_THRESHOLD = 50000  # 50K chars threshold for batching
+        use_batching = len(content) > BATCH_THRESHOLD and len(content) > MAX_CHAR_LIMIT * 1.5
+        
+        if use_batching and output_schema is not None:
+            # Calculate optimal batch size (slightly smaller than MAX_CHAR_LIMIT for safety)
+            batch_size = int(MAX_CHAR_LIMIT * 0.9)
+            num_batches = (len(content) + batch_size - 1) // batch_size  # Ceiling division
+            
+            _cloud_agent_log(
+                f'[CloudAgent] 📦 Large content detected ({len(content):,} chars), '
+                f'using batched extraction: {num_batches} batches × ~{batch_size:,} chars',
+                level='info'
+            )
+            
+            # Process each batch
+            batch_results = []
+            for batch_idx in range(num_batches):
+                batch_start = batch_idx * batch_size
+                batch_end = min((batch_idx + 1) * batch_size, len(content))
+                batch_content = content[batch_start:batch_end]
+                
+                _cloud_agent_log(
+                    f'[CloudAgent] 📦 Processing batch {batch_idx + 1}/{num_batches}: '
+                    f'chars {batch_start:,}-{batch_end:,} ({len(batch_content):,} chars)',
+                    level='info'
+                )
+                
+                # Extract from this batch (reuse extraction logic below)
+                # We'll set a flag to indicate batched mode
+                try:
+                    # TODO: Process batch and collect results
+                    # For now, fall back to normal truncation
+                    _cloud_agent_log(
+                        f'[CloudAgent] ⚠️ Batched extraction not fully implemented yet, '
+                        f'falling back to truncation',
+                        level='warning'
+                    )
+                    use_batching = False
+                    break
+                except Exception as batch_err:
+                    _cloud_agent_log(
+                        f'[CloudAgent] ❌ Batch {batch_idx + 1} failed: {batch_err}, '
+                        f'falling back to truncation',
+                        level='error'
+                    )
+                    use_batching = False
+                    break
+        
+        # --- Standard Truncation (if not using batching) ---
         truncated = False
         next_start = None
-        if len(content) > MAX_CHAR_LIMIT:
+        if not use_batching and len(content) > MAX_CHAR_LIMIT:
             truncate_at = MAX_CHAR_LIMIT
             paragraph_break = content.rfind('\n\n', MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
             if paragraph_break > 0:
@@ -1080,12 +1204,48 @@ class CloudAgent(Agent):
                 f'<webpage_content>\n{content}\n</webpage_content>'
             )
 
+            # Log detailed token usage for debugging with auto-detection
+            from agent.ec_skills.browser_use_extension.token_utils import estimate_tokens_auto
+            
+            system_chars = len(system_prompt)
+            prompt_chars = len(prompt)
+            total_chars = system_chars + prompt_chars
+            # Use auto-detection for accurate token estimation
+            estimated_tokens = estimate_tokens_auto(system_prompt + prompt)
+            _cloud_agent_log(
+                f'[CloudAgent] 📤 LLM Request: system={system_chars} chars, '
+                f'prompt={prompt_chars} chars (content={len(content)} chars), '
+                f'total={total_chars} chars ≈ {estimated_tokens} tokens',
+                level='info'
+            )
+
+            # Calculate dynamic timeout based on content size and type
+            base_timeout = 60.0
+            if len(content) < 10000:
+                size_multiplier = 1.0
+            elif len(content) < 50000:
+                size_multiplier = 1.5
+            elif len(content) < 100000:
+                size_multiplier = 2.0
+            else:
+                size_multiplier = 3.0
+            
+            # CJK content needs more processing time
+            type_multiplier = 1.2 if content_type == 'cjk' else 1.0
+            
+            timeout_seconds = min(base_timeout * size_multiplier * type_multiplier, 300.0)
+            _cloud_agent_log(
+                f'[CloudAgent] Extract timeout: {timeout_seconds:.1f}s '
+                f'(content: {len(content)} chars, type: {content_type})',
+                level='info'
+            )
+
             response = await asyncio.wait_for(
                 page_extraction_llm.ainvoke(
                     [SystemMessage(content=system_prompt), UserMessage(content=prompt)],
                     output_format=structured_model,
                 ),
-                timeout=120.0,
+                timeout=timeout_seconds,
             )
 
             result_data = response.completion.model_dump(mode='json')
@@ -1143,11 +1303,44 @@ class CloudAgent(Agent):
             f'<webpage_content>\n{content}\n</webpage_content>'
         )
 
+        # Log detailed token usage for debugging with auto-detection
+        system_chars = len(system_prompt)
+        prompt_chars = len(prompt)
+        total_chars = system_chars + prompt_chars
+        # Use auto-detection for accurate token estimation
+        from agent.ec_skills.browser_use_extension.token_utils import estimate_tokens_auto
+        estimated_tokens = estimate_tokens_auto(system_prompt + prompt)
+        _cloud_agent_log(
+            f'[CloudAgent] 📤 LLM Request (free-text): system={system_chars} chars, '
+            f'prompt={prompt_chars} chars (content={len(content)} chars), '
+            f'total={total_chars} chars ≈ {estimated_tokens} tokens',
+            level='info'
+        )
+
+        # Calculate dynamic timeout (same logic as structured extraction)
+        base_timeout = 60.0
+        if len(content) < 10000:
+            size_multiplier = 1.0
+        elif len(content) < 50000:
+            size_multiplier = 1.5
+        elif len(content) < 100000:
+            size_multiplier = 2.0
+        else:
+            size_multiplier = 3.0
+        
+        type_multiplier = 1.2 if content_type == 'cjk' else 1.0
+        timeout_seconds = min(base_timeout * size_multiplier * type_multiplier, 300.0)
+        _cloud_agent_log(
+            f'[CloudAgent] Extract timeout: {timeout_seconds:.1f}s '
+            f'(content: {len(content)} chars, type: {content_type})',
+            level='info'
+        )
+
         response = await asyncio.wait_for(
             page_extraction_llm.ainvoke(
-                [SystemMessage(content=system_prompt), UserMessage(content=prompt)]
+                [SystemMessage(content=system_prompt), UserMessage(content=prompt)],
             ),
-            timeout=120.0,
+            timeout=timeout_seconds,
         )
 
         extracted_content = (
