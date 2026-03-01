@@ -167,6 +167,83 @@ from .event_store import InMemoryEventStore
 
 server_main_win = None
 
+
+async def _screen_read(mainwin, win_title_kw: str):
+    """Helper: extract mission/log_user/session/token from mainwin and call readRandomWindow8."""
+    log_user = mainwin.user.replace("@", "_").replace(".", "_")
+    session = mainwin.session
+    token = mainwin.get_auth_token()
+    mission = mainwin.getTrialRunMission()
+    return await readRandomWindow8(mission, win_title_kw, log_user, session, token)
+
+# ---- Module-level alias table for well-known apps ----
+_APP_ALIASES: dict = {
+    "wechat":  {"titles": ["WeChat", "微信", "Weixin"], "exe": "WeChat.exe"},
+    "微信":     {"titles": ["WeChat", "微信", "Weixin"], "exe": "WeChat.exe"},
+    "weixin":  {"titles": ["WeChat", "微信", "Weixin"], "exe": "WeChat.exe"},
+    "qq":      {"titles": ["QQ"], "exe": "QQ.exe"},
+    "dingtalk": {"titles": ["DingTalk", "钉钉"], "exe": "DingTalk.exe"},
+    "钉钉":     {"titles": ["DingTalk", "钉钉"], "exe": "DingTalk.exe"},
+    "feishu":  {"titles": ["Feishu", "飞书"], "exe": "Feishu.exe"},
+    "飞书":     {"titles": ["Feishu", "飞书"], "exe": "Feishu.exe"},
+    "chrome":  {"titles": ["Chrome", "Google Chrome"], "exe": "chrome.exe"},
+    "firefox": {"titles": ["Firefox", "Mozilla Firefox"], "exe": "firefox.exe"},
+    "edge":    {"titles": ["Edge", "Microsoft Edge"], "exe": "msedge.exe"},
+    "notepad": {"titles": ["Notepad", "记事本"], "exe": "notepad.exe"},
+    "explorer": {"titles": ["File Explorer", "文件资源管理器"], "exe": "explorer.exe"},
+    "telegram": {"titles": ["Telegram"], "exe": "Telegram.exe"},
+    "slack":   {"titles": ["Slack"], "exe": "slack.exe"},
+}
+
+
+def _find_and_bring_to_front_window(app_name: str):
+    """Search for a window by app_name (using alias table) and bring it to front.
+    Returns the window object if found, None otherwise.
+    Skips tiny windows (e.g. tray icons) and prefers the largest matching window."""
+    app_key = app_name.strip().lower().replace(".exe", "")
+    alias = _APP_ALIASES.get(app_key, None)
+    search_titles = alias["titles"] if alias else [app_name]
+
+    # Collect ALL candidate windows across all alias titles + raw name
+    candidates = []
+    for title_query in search_titles + [app_name]:
+        try:
+            wins = gw.getWindowsWithTitle(title_query)
+            for w in wins:
+                candidates.append(w)
+        except Exception:
+            pass
+
+    if not candidates:
+        return None
+
+    # Sort: prefer larger windows (real app window vs tray icon)
+    # A tray/notification window is typically very small (< 200px wide)
+    MIN_WIDTH = 200
+    real_wins = [w for w in candidates if w.width >= MIN_WIDTH]
+    if real_wins:
+        # Pick the largest by area
+        best = max(real_wins, key=lambda w: w.width * w.height)
+    else:
+        # All tiny — just pick the first
+        best = candidates[0]
+
+    logger.info(f"[_find_and_bring_to_front_window] Found window: title='{best.title}', "
+                f"size={best.width}x{best.height}, minimized={best.isMinimized}")
+    try:
+        if best.isMinimized:
+            best.restore()
+        best.activate()
+    except Exception:
+        try:
+            best.minimize()
+            time.sleep(0.2)
+            best.restore()
+        except Exception:
+            pass
+    return best
+
+
 mouse = Controller()
 
 # meca_mcp_server = FastMCP("E-Commerce Agents Service")
@@ -1679,12 +1756,8 @@ async def mouse_click(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse click"
         result = [TextContent(type="text", text=msg)]
@@ -1710,12 +1783,8 @@ async def mouse_press_hold(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse press and hold"
         result = [TextContent(type="text", text=msg)]
@@ -1737,12 +1806,8 @@ async def mouse_move(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse move"
         result = [TextContent(type="text", text=msg)]
@@ -1763,12 +1828,8 @@ async def mouse_drag_drop(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse drag and drop"
         result = [TextContent(type="text", text=msg)]
@@ -1789,12 +1850,8 @@ async def mouse_scroll(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse scroll"
         result = [TextContent(type="text", text=msg)]
@@ -1842,12 +1899,8 @@ async def keyboard_text_input(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed text input"
         result = [TextContent(type="text", text=msg)]
@@ -1867,12 +1920,8 @@ async def keyboard_keys_input(mainwin, args):
 
         screen_content = {}
         if True:
-            win_title_kw = args["input"]["win_title_kw"]
-            sub_area = args["input"]["sub_area"]
-            site = args["input"]["site"]
-            engine = args["input"]["engine"]
-            # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-            screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+            win_title_kw = args["input"].get("win_title_kw", "")
+            screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed keys press"
         result = [TextContent(type="text", text=msg)]
@@ -2133,21 +2182,209 @@ async def ecan_ai_new_chromiunm(mainwin, args):
 
 
 async def os_open_app(mainwin, args):
+    """Open an application — smart: check windows/processes first, then launch with fallback paths."""
     try:
-        # 将应用名称转换为列表格式以避免 shell=True
-        app_cmd = args["input"]["app_name"]
-        if isinstance(app_cmd, str):
-            app_cmd = [app_cmd]
-        
-        # Use subprocess helper to prevent console window popup in frozen environment
+        import psutil
         from utils.subprocess_helper import popen_no_window
-        popen_no_window(app_cmd, close_fds=True,
-                       stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE)
 
-        msg = "completed opening app"
-        result = [TextContent(type="text", text=msg)]
-        return result
+        app_name = args["input"]["app_name"]
+        logger.info(f"[os_open_app] Request to open: {app_name}")
+
+        # ---- Alias table: well-known apps with alternative window titles & exe names ----
+        _APP_ALIASES: dict = {
+            "wechat":  {"titles": ["WeChat", "微信", "Weixin"], "exe": "WeChat.exe"},
+            "微信":     {"titles": ["WeChat", "微信", "Weixin"], "exe": "WeChat.exe"},
+            "weixin":  {"titles": ["WeChat", "微信", "Weixin"], "exe": "WeChat.exe"},
+            "qq":      {"titles": ["QQ"], "exe": "QQ.exe"},
+            "dingtalk": {"titles": ["DingTalk", "钉钉"], "exe": "DingTalk.exe"},
+            "钉钉":     {"titles": ["DingTalk", "钉钉"], "exe": "DingTalk.exe"},
+            "feishu":  {"titles": ["Feishu", "飞书"], "exe": "Feishu.exe"},
+            "飞书":     {"titles": ["Feishu", "飞书"], "exe": "Feishu.exe"},
+            "chrome":  {"titles": ["Chrome", "Google Chrome"], "exe": "chrome.exe"},
+            "firefox": {"titles": ["Firefox", "Mozilla Firefox"], "exe": "firefox.exe"},
+            "edge":    {"titles": ["Edge", "Microsoft Edge"], "exe": "msedge.exe"},
+            "notepad": {"titles": ["Notepad", "记事本"], "exe": "notepad.exe"},
+            "explorer": {"titles": ["File Explorer", "文件资源管理器"], "exe": "explorer.exe"},
+            "telegram": {"titles": ["Telegram"], "exe": "Telegram.exe"},
+            "slack":   {"titles": ["Slack"], "exe": "slack.exe"},
+        }
+
+        # Common installation directories to search (Windows)
+        _COMMON_DIRS: list = [
+            os.path.expandvars(r"%ProgramFiles%"),
+            os.path.expandvars(r"%ProgramFiles(x86)%"),
+            os.path.expandvars(r"%LOCALAPPDATA%"),
+            os.path.expandvars(r"%APPDATA%"),
+            os.path.join(os.path.expandvars(r"%LOCALAPPDATA%"), "Programs"),
+            os.path.expandvars(r"%ProgramFiles%\\Tencent"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\\Tencent"),
+            os.path.join(os.path.expanduser("~"), "AppData", "Local", "Tencent"),
+            os.path.expandvars(r"%LOCALAPPDATA%\\Tencent"),
+            r"C:\Program Files",
+            r"C:\Program Files (x86)",
+            r"D:\Program Files",
+            r"D:\Program Files (x86)",
+        ]
+
+        # Resolve alias info
+        app_key = app_name.strip().lower().replace(".exe", "")
+        alias = _APP_ALIASES.get(app_key, None)
+        search_titles = alias["titles"] if alias else [app_name]
+        target_exe = alias["exe"] if alias else None  # e.g. "WeChat.exe"
+
+        # ---- Step 1: Check if a matching window is already open ----
+        def _find_window():
+            """Return the first matching window or None."""
+            for title_query in search_titles:
+                try:
+                    wins = gw.getWindowsWithTitle(title_query)
+                    if wins:
+                        return wins[0], title_query
+                except Exception:
+                    pass
+            # Also try the raw app_name as-is
+            try:
+                wins = gw.getWindowsWithTitle(app_name)
+                if wins:
+                    return wins[0], app_name
+            except Exception:
+                pass
+            return None, None
+
+        win, matched_title = _find_window()
+        if win:
+            try:
+                win.activate()
+            except Exception:
+                try:
+                    win.minimize()
+                    win.restore()
+                except Exception:
+                    pass
+            msg = f"App already open (window '{matched_title}' found). Brought to front."
+            logger.info(f"[os_open_app] {msg}")
+            return [TextContent(type="text", text=msg)]
+
+        # ---- Step 2: Check running processes ----
+        def _find_process():
+            """Return True if a matching process is running."""
+            names_to_check = set()
+            if target_exe:
+                names_to_check.add(target_exe.lower())
+            # Also derive from app_name: "WeChat" -> "wechat.exe"
+            base = os.path.basename(app_name).lower()
+            if not base.endswith(".exe"):
+                base += ".exe"
+            names_to_check.add(base)
+            try:
+                for proc in psutil.process_iter(["name"]):
+                    pname = (proc.info.get("name") or "").lower()
+                    if pname in names_to_check:
+                        return True
+            except Exception:
+                pass
+            return False
+
+        if _find_process():
+            # Process is running but no matching window (might be minimised to tray)
+            logger.info(f"[os_open_app] Process found running but no window matched. Waiting briefly...")
+            await asyncio.sleep(1)
+            win, matched_title = _find_window()
+            if win:
+                try:
+                    win.activate()
+                except Exception:
+                    try:
+                        win.minimize()
+                        win.restore()
+                    except Exception:
+                        pass
+                msg = f"App process was running. Window '{matched_title}' brought to front."
+                logger.info(f"[os_open_app] {msg}")
+                return [TextContent(type="text", text=msg)]
+            # Process exists but can't find a window — still report it
+            msg = (f"App process is running but no visible window found. "
+                   f"The app might be minimised to system tray. "
+                   f"Try clicking its tray icon or use os_switch_to_app.")
+            logger.info(f"[os_open_app] {msg}")
+            return [TextContent(type="text", text=msg)]
+
+        # ---- Step 3: Try to launch the app ----
+        def _try_launch(cmd_path: str) -> bool:
+            """Attempt to launch an executable. Return True on success."""
+            try:
+                cmd = [cmd_path] if isinstance(cmd_path, str) else cmd_path
+                popen_no_window(cmd, close_fds=True,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+                return True
+            except Exception as ex:
+                logger.debug(f"[os_open_app] Launch failed for '{cmd_path}': {ex}")
+                return False
+
+        # 3a: Try the provided app_name directly (could be a full path or in PATH)
+        if _try_launch(app_name):
+            msg = f"Launched '{app_name}' successfully."
+            logger.info(f"[os_open_app] {msg}")
+            return [TextContent(type="text", text=msg)]
+
+        # 3b: Try with shutil.which (searches PATH)
+        which_path = shutil.which(app_name) or (shutil.which(target_exe) if target_exe else None)
+        if which_path and _try_launch(which_path):
+            msg = f"Launched '{which_path}' (found in PATH) successfully."
+            logger.info(f"[os_open_app] {msg}")
+            return [TextContent(type="text", text=msg)]
+
+        # ---- Step 4: Fallback — search common installation directories ----
+        exe_names_to_find = set()
+        if target_exe:
+            exe_names_to_find.add(target_exe.lower())
+        base = os.path.basename(app_name).lower()
+        if not base.endswith(".exe"):
+            exe_names_to_find.add(base + ".exe")
+        else:
+            exe_names_to_find.add(base)
+
+        logger.info(f"[os_open_app] Searching common directories for: {exe_names_to_find}")
+        found_paths = []
+        for search_dir in _COMMON_DIRS:
+            if not os.path.isdir(search_dir):
+                continue
+            try:
+                for root, dirs, files in os.walk(search_dir):
+                    # Limit depth to 4 levels to avoid very deep traversal
+                    depth = root[len(search_dir):].count(os.sep)
+                    if depth > 4:
+                        dirs.clear()
+                        continue
+                    for fname in files:
+                        if fname.lower() in exe_names_to_find:
+                            found_paths.append(os.path.join(root, fname))
+                            if len(found_paths) >= 5:
+                                break
+                    if len(found_paths) >= 5:
+                        break
+            except (PermissionError, OSError):
+                continue
+            if len(found_paths) >= 5:
+                break
+
+        # Try each found path
+        for fpath in found_paths:
+            logger.info(f"[os_open_app] Trying discovered path: {fpath}")
+            if _try_launch(fpath):
+                msg = f"Launched '{fpath}' (discovered in common directories) successfully."
+                logger.info(f"[os_open_app] {msg}")
+                return [TextContent(type="text", text=msg)]
+
+        # ---- All attempts failed ----
+        searched_summary = ", ".join(exe_names_to_find)
+        msg = (f"Could not open '{app_name}'. "
+               f"No matching window or process found. "
+               f"Searched PATH and common directories for: {searched_summary}. "
+               f"Please provide the full executable path (e.g. C:\\Program Files\\Tencent\\WeChat\\WeChat.exe).")
+        logger.warning(f"[os_open_app] {msg}")
+        return [TextContent(type="text", text=msg)]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSOpenApp")
@@ -2175,17 +2412,16 @@ async def os_close_app(mainwin, args):
 async def os_switch_to_app(mainwin, args):
     try:
         win_title = args["input"]["win_title"]
-        windows = gw.getWindowsWithTitle(win_title)
-        if not windows:
-            return [TextContent(type="text", text=f"Window '{win_title}' not found. Is the app running?")]
-        target_window = windows[0]
-
-        # Activate the window (bring it to front)
-        target_window.activate()
-
-        msg = "completed switching to app"
-        result = [TextContent(type="text", text=msg)]
-        return result
+        # Use the alias-aware helper (same logic as os_open_app step 1)
+        found = _find_and_bring_to_front_window(win_title)
+        if found:
+            msg = f"completed switching to app (window '{found.title}' found)"
+            logger.info(f"[os_switch_to_app] {msg}")
+            return [TextContent(type="text", text=msg)]
+        else:
+            msg = f"Window '{win_title}' not found. Is the app running?"
+            logger.warning(f"[os_switch_to_app] {msg}")
+            return [TextContent(type="text", text=msg)]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSSwitchToApp")
         logger.error(err_trace)
@@ -2331,12 +2567,8 @@ async def os_copy_file_dir(mainwin, args):
 
 async def os_screen_analyze(mainwin, args):
     try:
-        win_title_kw = args["input"]["win_title_kw"]
-        sub_area = args["input"]["sub_area"]
-        site = args["input"]["site"]
-        engine = args["input"]["engine"]
-        # Use readRandomWindow8 instead of read_screen8 (which doesn't exist)
-        screen_content = await readRandomWindow8(mainwin, win_title_kw, sub_area, site, engine)
+        win_title_kw = args["input"].get("win_title_kw", "")
+        screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed screen analysis"
         result = TextContent(type="text", text=msg)

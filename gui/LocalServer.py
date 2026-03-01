@@ -608,6 +608,60 @@ async def local_ws_test(request):
         }, status_code=500)
 
 
+async def test_ocr(request):
+    """Test endpoint: captures current screen and runs OCR via readScreen8 / readRandomWindow8.
+    Accepts optional JSON body: {"win_title_kw": "Weixin"} to target a specific window."""
+    import traceback as tb
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            return JSONResponse({"status": "error", "error": "MainWindow not available"}, status_code=500)
+
+        # Parse optional request body
+        win_title_kw = ""
+        try:
+            body = await request.json()
+            win_title_kw = body.get("win_title_kw", "")
+        except Exception:
+            pass
+
+        logger.info(f"[TestOCR] Starting OCR test, win_title_kw='{win_title_kw}'")
+
+        # Reuse the same logic as MCP _screen_read helper
+        from agent.ec_skills.ocr.image_prep import readRandomWindow8
+        log_user = mainwin.user.replace("@", "_").replace(".", "_")
+        session = mainwin.session
+        token = mainwin.get_auth_token()
+        mission = mainwin.getTrialRunMission()
+
+        logger.info(f"[TestOCR] log_user={log_user}, session={type(session).__name__}, "
+                     f"token_len={len(token) if isinstance(token, str) and token else 0}, mission={type(mission).__name__}")
+
+        result = await readRandomWindow8(mission, win_title_kw, log_user, session, token)
+
+        logger.info(f"[TestOCR] OCR completed. Result type={type(result).__name__}, "
+                     f"items={len(result) if isinstance(result, list) else 'N/A'}")
+
+        # Truncate result for JSON response (OCR data can be large)
+        import json as _json
+        result_str = _json.dumps(result, ensure_ascii=False, default=str)
+        if len(result_str) > 5000:
+            result_preview = result_str[:5000] + "... (truncated)"
+        else:
+            result_preview = result_str
+
+        return JSONResponse({
+            "status": "success",
+            "win_title_kw": win_title_kw,
+            "result_count": len(result) if isinstance(result, list) else 1,
+            "result": result if isinstance(result, (list, dict)) else str(result),
+        })
+    except Exception as e:
+        logger.error(f"[TestOCR] Error: {e}\n{tb.format_exc()}")
+        return JSONResponse({"status": "error", "error": str(e), "traceback": tb.format_exc()}, status_code=500)
+
+
 async def test_hybrid_cloud(request):
     """Test endpoint: directly calls launch_agent_task for test_hybrid_worker.
     Bypasses the LLM to test the hybrid cloud task plumbing end-to-end."""
@@ -853,6 +907,7 @@ class RouteBuilder:
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
             Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
+            Route("/api/test-ocr", test_ocr, methods=['GET', 'POST']),
             Route("/api/test-hybrid-cloud", test_hybrid_cloud, methods=['GET', 'POST']),
             Route("/api/c2l-ws-test", c2l_ws_test, methods=['GET', 'POST']),
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),

@@ -13,6 +13,17 @@ from uuid import uuid4
 from gui.ipc.types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from gui.ipc.registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
+# Cloud sync import - guarded to prevent import failures from breaking IPC
+try:
+    from gui.ipc.w2p_handlers.prompt_cloud_sync import sync_prompt_to_cloud, delete_prompt_from_cloud, sync_all_prompts_to_cloud
+    _CLOUD_SYNC_AVAILABLE = True
+except Exception as _sync_import_err:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(f"[prompts] Cloud sync not available: {_sync_import_err}")
+    _CLOUD_SYNC_AVAILABLE = False
+    def sync_prompt_to_cloud(*a, **kw): pass
+    def delete_prompt_from_cloud(*a, **kw): pass
+    def sync_all_prompts_to_cloud(*a, **kw): pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SYSTEMS_DIR = PROJECT_ROOT / "systems"
@@ -446,6 +457,12 @@ def _delete_prompt_file(prompt_id: str) -> bool:
 def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     try:
         prompts = _bootstrap_prompts()
+        # Kick off background bulk sync to cloud (non-blocking, fire-and-forget)
+        if _CLOUD_SYNC_AVAILABLE:
+            try:
+                sync_all_prompts_to_cloud(prompts)
+            except Exception as sync_exc:
+                logger.debug(f"[prompts] bulk cloud sync skipped: {sync_exc}")
         return create_success_response(request, {"prompts": prompts})
     except Exception as e:
         logger.error(f"[prompts] get_prompts error: {e}")
@@ -496,6 +513,8 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
             return create_error_response(request, 'READ_ONLY', 'Cannot modify read-only prompt')
         normalized = _write_prompt_to_file(prompt)
         logger.debug(f"[prompts] saved prompt {normalized.get('id')} to my_prompts")
+        # Sync to cloud in background
+        sync_prompt_to_cloud(normalized)
         return create_success_response(request, {"prompt": normalized})
     except Exception as e:
         logger.error(f"[prompts] save_prompt error: {e}")
@@ -531,6 +550,9 @@ def handle_delete_prompt(request: IPCRequest, params: Optional[dict]) -> IPCResp
             return create_error_response(request, 'READ_ONLY', 'Cannot delete read-only prompt')
 
         deleted = _delete_prompt_file(str(pid))
+        # Remove from cloud in background
+        if deleted:
+            delete_prompt_from_cloud(str(pid))
         return create_success_response(request, {"deleted": deleted})
     except Exception as e:
         logger.error(f"[prompts] delete_prompt error: {e}")

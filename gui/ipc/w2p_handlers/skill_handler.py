@@ -15,6 +15,19 @@ from pathlib import Path
 # Track locally-deleted skill IDs to prevent cloud re-sync from re-adding them
 _DELETED_SKILL_IDS: set = set()
 
+# Guarded import of skill file sync (S3 upload/download)
+_SKILL_FILE_SYNC_AVAILABLE = False
+try:
+    from gui.ipc.w2p_handlers.skill_file_sync import (
+        upload_skill_files_to_cloud,
+        download_skill_files_from_cloud,
+        delete_skill_files_from_cloud,
+        sync_all_skill_files_to_cloud,
+    )
+    _SKILL_FILE_SYNC_AVAILABLE = True
+except ImportError as _imp_err:
+    logger.debug(f"[skill_handler] skill_file_sync not available: {_imp_err}")
+
 # --- Simple in-memory simulation state for step-sim debug ---
 _SIM_BUNDLE: Optional[Dict[str, Any]] = None
 _SIM_CURRENT_SHEET_ID: Optional[str] = None
@@ -140,6 +153,25 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
         logger.info(f"Returning {len(skills_dicts)} skills to frontend "
                      f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
+
+        # Kick off background bulk upload of local skill files to S3
+        if _SKILL_FILE_SYNC_AVAILABLE:
+            try:
+                local_skills = [sk for sk in skills_dicts if sk.get('_source') != 'cloud']
+                sync_all_skill_files_to_cloud(local_skills)
+            except Exception as fs_exc:
+                logger.debug(f"[skill_handler] bulk skill file sync skipped: {fs_exc}")
+
+            # For cloud-only skills that lack local files, download from S3
+            try:
+                for sk in skills_dicts:
+                    if sk.get('_source') == 'cloud':
+                        from gui.ipc.w2p_handlers.skill_file_sync import _resolve_skill_dir
+                        local_dir = _resolve_skill_dir(sk)
+                        if local_dir is None or not local_dir.is_dir():
+                            download_skill_files_from_cloud(sk)
+            except Exception as fs_exc:
+                logger.debug(f"[skill_handler] cloud skill file download skipped: {fs_exc}")
 
         resultJS = {
             'skills': skills_dicts,
@@ -447,6 +479,13 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             if knowledge_ids:
                 _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
 
+            # Step 5: Sync skill source files to S3 (async, fire and forget)
+            if _SKILL_FILE_SYNC_AVAILABLE:
+                try:
+                    upload_skill_files_to_cloud(skill_data_with_id)
+                except Exception as fs_exc:
+                    logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+
             # Create clean response
             clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
 
@@ -542,6 +581,13 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Sync Skill-Knowledge relationships
             if 'knowledges' in skill_data:
                 _sync_skill_knowledge_relations(skill_id, skill_data.get('knowledges', []), Operation.ADD)
+
+            # Step 4: Sync skill source files to S3 (async, fire and forget)
+            if _SKILL_FILE_SYNC_AVAILABLE:
+                try:
+                    upload_skill_files_to_cloud(skill_data_with_id)
+                except Exception as fs_exc:
+                    logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
 
             # Create clean response
             clean_skill_data = _create_clean_skill_response(skill_id, skill_data)
@@ -732,6 +778,13 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                 logger.warning(f"[skill_handler] ⚠️ Cloud deletion failed: {cloud_result.get('error', cloud_result)}")
         except Exception as e:
             logger.warning(f"[skill_handler] Cloud deletion failed (non-fatal): {e}")
+
+        # Step 5: Delete skill files from S3 (async, fire and forget)
+        if _SKILL_FILE_SYNC_AVAILABLE:
+            try:
+                delete_skill_files_from_cloud(skill_id)
+            except Exception as fs_exc:
+                logger.debug(f"[skill_handler] skill file S3 delete skipped: {fs_exc}")
 
         # Return success if any deletion succeeded (local DB, memory, file, or cloud)
         if db_deleted or mem_deleted or file_deleted or cloud_deleted:
@@ -1199,6 +1252,13 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id['id'] = skill_id
                 _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
                 
+                # Sync skill source files to S3
+                if _SKILL_FILE_SYNC_AVAILABLE:
+                    try:
+                        upload_skill_files_to_cloud(skill_data_with_id)
+                    except Exception as fs_exc:
+                        logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+                
                 logger.info(f"[skill_handler] ✅ Skill updated successfully: {skill_name}")
                 return {'success': True, 'skill_id': skill_id, 'operation': 'update'}
             else:
@@ -1222,6 +1282,13 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+                
+                # Sync skill source files to S3
+                if _SKILL_FILE_SYNC_AVAILABLE:
+                    try:
+                        upload_skill_files_to_cloud(skill_data_with_id)
+                    except Exception as fs_exc:
+                        logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
                 
                 logger.info(f"[skill_handler] ✅ Skill created successfully: {skill_name} (ID: {skill_id})")
                 return {'success': True, 'skill_id': skill_id, 'operation': 'create'}

@@ -1,0 +1,478 @@
+"""Cloud file sync for skill source directories via S3 presigned URLs.
+
+Each skill lives in a local directory under ``resource/my_skills/<skill_name>_skill/``.
+To sync to cloud we:
+  1. Zip the entire skill directory into a temp file.
+  2. Request a presigned **upload** URL from the cloud (GraphQL mutation).
+  3. PUT the zip to S3 via the presigned URL.
+
+To download from cloud:
+  1. Request a presigned **download** URL from the cloud (GraphQL query).
+  2. GET the zip from S3.
+  3. Unzip into the local skill directory.
+
+Cloud-side contract (to be implemented in Lambda + AppSync schema):
+  Mutation: requestSkillFileUploadUrl(input: SkillFileUploadInput!) → SkillFileUploadResult
+    input  { skillId: ID!, owner: String!, fileName: String! }
+    result { uploadUrl: String!, s3Key: String!, expiresIn: Int }
+
+  Query:   requestSkillFileDownloadUrl(skillId: ID!, owner: String!) → SkillFileDownloadResult
+    result { downloadUrl: String!, s3Key: String!, expiresIn: Int }
+"""
+
+from __future__ import annotations
+
+import io
+import os
+import threading
+import traceback
+import zipfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests as http_requests
+
+from utils.logger_helper import logger_helper as logger
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+MY_SKILLS_DIR = Path("resource/my_skills")
+
+# ---------------------------------------------------------------------------
+# Auth helpers (reuse prompt_cloud_sync pattern)
+# ---------------------------------------------------------------------------
+
+def _get_cloud_context() -> Optional[Dict[str, Any]]:
+    """Return {session, token, endpoint, owner} from the running MainWindow, or None."""
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            logger.debug("[skill_file_sync] MainWindow not available – skipping")
+            return None
+
+        token = mainwin.get_auth_token()
+        if not token:
+            logger.debug("[skill_file_sync] No auth token – skipping")
+            return None
+
+        session = mainwin.session
+        endpoint = mainwin.getWanApiEndpoint() if hasattr(mainwin, 'getWanApiEndpoint') else None
+        owner = getattr(mainwin, 'user', None) or ""
+
+        if not owner:
+            logger.debug("[skill_file_sync] No owner/user – skipping")
+            return None
+
+        return {
+            "session": session,
+            "token": token,
+            "endpoint": endpoint,
+            "owner": owner,
+        }
+    except Exception as exc:
+        logger.debug(f"[skill_file_sync] Failed to get cloud context: {exc}")
+        return None
+
+
+def _appsync_request(query_string: str, ctx: Dict[str, Any], variables: Optional[Dict] = None) -> Dict:
+    """Send a GraphQL request to AppSync with application/json Content-Type."""
+    from agent.cloud_api.cloud_api import get_appsync_endpoint
+
+    endpoint = ctx.get("endpoint") or get_appsync_endpoint()
+    token = ctx["token"]
+    session = ctx["session"]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": token,
+        "cache-control": "no-cache",
+    }
+
+    payload: Dict[str, Any] = {"query": query_string}
+    if variables:
+        payload["variables"] = variables
+
+    try:
+        resp = session.request(
+            url=endpoint, method="POST", timeout=30,
+            headers=headers, json=payload,
+        )
+        jresp = resp.json()
+        logger.debug(f"[skill_file_sync] AppSync response status={resp.status_code}")
+        return jresp
+    except Exception as exc:
+        logger.warning(f"[skill_file_sync] AppSync request failed: {exc}")
+        return {"errors": [{"errorType": "RequestError", "message": str(exc)}]}
+
+
+# ---------------------------------------------------------------------------
+# Zip helpers
+# ---------------------------------------------------------------------------
+
+def _zip_skill_dir(skill_dir: Path) -> Optional[bytes]:
+    """Zip the contents of *skill_dir* into an in-memory bytes buffer.
+
+    Returns the raw zip bytes, or None on failure.
+    """
+    if not skill_dir.is_dir():
+        logger.warning(f"[skill_file_sync] Skill dir does not exist: {skill_dir}")
+        return None
+
+    buf = io.BytesIO()
+    try:
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _dirs, files in os.walk(skill_dir):
+                for fname in files:
+                    abs_path = os.path.join(root, fname)
+                    arc_name = os.path.relpath(abs_path, skill_dir)
+                    zf.write(abs_path, arc_name)
+        buf.seek(0)
+        zip_bytes = buf.read()
+        logger.info(f"[skill_file_sync] Zipped {skill_dir.name}: {len(zip_bytes)} bytes")
+        return zip_bytes
+    except Exception as exc:
+        logger.error(f"[skill_file_sync] Failed to zip {skill_dir}: {exc}")
+        return None
+
+
+def _unzip_to_skill_dir(zip_bytes: bytes, skill_dir: Path) -> bool:
+    """Unzip *zip_bytes* into *skill_dir* (creates or overwrites)."""
+    try:
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        buf = io.BytesIO(zip_bytes)
+        with zipfile.ZipFile(buf, "r") as zf:
+            zf.extractall(skill_dir)
+        logger.info(f"[skill_file_sync] Unzipped into {skill_dir}")
+        return True
+    except Exception as exc:
+        logger.error(f"[skill_file_sync] Failed to unzip into {skill_dir}: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# S3 presigned URL operations
+# ---------------------------------------------------------------------------
+
+def _request_upload_url(skill_id: str, owner: str, file_name: str, ctx: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Request a presigned upload URL from the cloud.
+
+    Returns dict with {uploadUrl, s3Key, expiresIn} or None.
+    """
+    mutation = """
+        mutation RequestSkillFileUploadUrl($input: SkillFileUploadInput!) {
+            requestSkillFileUploadUrl(input: $input) {
+                uploadUrl s3Key expiresIn
+            }
+        }
+    """
+    variables = {
+        "input": {
+            "skillId": skill_id,
+            "owner": owner,
+            "fileName": file_name,
+        }
+    }
+    resp = _appsync_request(mutation, ctx, variables=variables)
+    errors = resp.get("errors")
+    if errors:
+        logger.warning(f"[skill_file_sync] requestSkillFileUploadUrl error: {errors}")
+        return None
+    data = resp.get("data", {}).get("requestSkillFileUploadUrl")
+    if not data or not data.get("uploadUrl"):
+        logger.warning(f"[skill_file_sync] No uploadUrl in response: {resp}")
+        return None
+    return data
+
+
+def _request_download_url(skill_id: str, owner: str, ctx: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Request a presigned download URL from the cloud.
+
+    Returns dict with {downloadUrl, s3Key, expiresIn} or None.
+    """
+    query = """
+        query RequestSkillFileDownloadUrl($skillId: ID!, $owner: String!) {
+            requestSkillFileDownloadUrl(skillId: $skillId, owner: $owner) {
+                downloadUrl s3Key expiresIn
+            }
+        }
+    """
+    variables = {"skillId": skill_id, "owner": owner}
+    resp = _appsync_request(query, ctx, variables=variables)
+    errors = resp.get("errors")
+    if errors:
+        logger.warning(f"[skill_file_sync] requestSkillFileDownloadUrl error: {errors}")
+        return None
+    data = resp.get("data", {}).get("requestSkillFileDownloadUrl")
+    if not data or not data.get("downloadUrl"):
+        logger.warning(f"[skill_file_sync] No downloadUrl in response: {resp}")
+        return None
+    return data
+
+
+def _upload_to_s3(upload_url: str, zip_bytes: bytes) -> bool:
+    """PUT zip bytes to S3 via presigned URL."""
+    try:
+        resp = http_requests.put(
+            upload_url,
+            data=zip_bytes,
+            headers={"Content-Type": "application/zip"},
+            timeout=120,
+        )
+        if resp.status_code in (200, 204):
+            logger.info(f"[skill_file_sync] S3 upload success ({len(zip_bytes)} bytes)")
+            return True
+        else:
+            logger.warning(f"[skill_file_sync] S3 upload failed: {resp.status_code} {resp.text[:200]}")
+            return False
+    except Exception as exc:
+        logger.error(f"[skill_file_sync] S3 upload error: {exc}")
+        return False
+
+
+def _download_from_s3(download_url: str) -> Optional[bytes]:
+    """GET zip bytes from S3 via presigned URL."""
+    try:
+        resp = http_requests.get(download_url, timeout=120)
+        if resp.status_code == 200:
+            logger.info(f"[skill_file_sync] S3 download success ({len(resp.content)} bytes)")
+            return resp.content
+        else:
+            logger.warning(f"[skill_file_sync] S3 download failed: {resp.status_code} {resp.text[:200]}")
+            return None
+    except Exception as exc:
+        logger.error(f"[skill_file_sync] S3 download error: {exc}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Resolve local skill directory from skill metadata
+# ---------------------------------------------------------------------------
+
+def _resolve_skill_dir(skill_data: Dict[str, Any]) -> Optional[Path]:
+    """Determine the local directory for a skill.
+
+    Looks at skill_data['path'] first, then falls back to
+    ``resource/my_skills/<name>_skill/``.
+    """
+    # Try explicit path from skill metadata
+    path_str = skill_data.get("path", "")
+    if path_str:
+        p = Path(path_str)
+        # path may point to a file (e.g. diagram_dir/skill.json) — go up to skill root
+        if p.suffix:
+            p = p.parent
+        # Ensure we're at the *_skill level (not inside diagram_dir etc.)
+        while p.name and not p.name.endswith("_skill") and p != MY_SKILLS_DIR:
+            p = p.parent
+        if p.is_dir():
+            return p
+
+    # Fallback: derive from skill name
+    name = skill_data.get("name", "")
+    if name:
+        dir_name = name.strip().lower().replace(" ", "_")
+        if not dir_name.endswith("_skill"):
+            dir_name += "_skill"
+        candidate = MY_SKILLS_DIR / dir_name
+        if candidate.is_dir():
+            return candidate
+
+    # Fallback: derive from skill ID
+    skill_id = skill_data.get("id", "")
+    if skill_id:
+        for child in MY_SKILLS_DIR.iterdir():
+            if child.is_dir() and skill_id in child.name:
+                return child
+
+    logger.debug(f"[skill_file_sync] Could not resolve skill dir for: {skill_data.get('name', skill_data.get('id', '?'))}")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Public API — fire-and-forget (background threads)
+# ---------------------------------------------------------------------------
+
+def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
+    """Zip and upload a single skill's files to S3. Runs in background thread."""
+    def _do():
+        try:
+            ctx = _get_cloud_context()
+            if ctx is None:
+                return
+
+            skill_id = skill_data.get("id", "")
+            if not skill_id:
+                logger.warning("[skill_file_sync] No skill ID — cannot upload")
+                return
+
+            skill_dir = _resolve_skill_dir(skill_data)
+            if skill_dir is None:
+                logger.debug(f"[skill_file_sync] No local dir for skill '{skill_data.get('name')}' — skip upload")
+                return
+
+            # Zip
+            zip_bytes = _zip_skill_dir(skill_dir)
+            if not zip_bytes:
+                return
+
+            # Request presigned upload URL
+            file_name = f"{skill_dir.name}.zip"
+            url_info = _request_upload_url(skill_id, ctx["owner"], file_name, ctx)
+            if not url_info:
+                return
+
+            # Upload
+            ok = _upload_to_s3(url_info["uploadUrl"], zip_bytes)
+            if ok:
+                logger.info(f"[skill_file_sync] ✅ Uploaded skill files '{skill_dir.name}' to S3 (key={url_info.get('s3Key')})")
+            else:
+                logger.warning(f"[skill_file_sync] ❌ Failed to upload skill files '{skill_dir.name}'")
+        except Exception as exc:
+            logger.warning(f"[skill_file_sync] Upload failed for skill '{skill_data.get('id', '?')}': {exc}\n{traceback.format_exc()}")
+
+    t = threading.Thread(target=_do, daemon=True, name="skill-file-upload")
+    t.start()
+
+
+def download_skill_files_from_cloud(skill_data: Dict[str, Any], target_dir: Optional[Path] = None) -> None:
+    """Download a skill's zip from S3 and extract locally. Runs in background thread."""
+    def _do():
+        try:
+            ctx = _get_cloud_context()
+            if ctx is None:
+                return
+
+            skill_id = skill_data.get("id", "")
+            if not skill_id:
+                logger.warning("[skill_file_sync] No skill ID — cannot download")
+                return
+
+            # Request presigned download URL
+            url_info = _request_download_url(skill_id, ctx["owner"], ctx)
+            if not url_info:
+                return
+
+            # Download
+            zip_bytes = _download_from_s3(url_info["downloadUrl"])
+            if not zip_bytes:
+                return
+
+            # Determine target directory
+            dest = target_dir
+            if dest is None:
+                dest = _resolve_skill_dir(skill_data)
+            if dest is None:
+                # Create new dir based on skill name
+                name = skill_data.get("name", skill_id)
+                dir_name = name.strip().lower().replace(" ", "_")
+                if not dir_name.endswith("_skill"):
+                    dir_name += "_skill"
+                dest = MY_SKILLS_DIR / dir_name
+
+            ok = _unzip_to_skill_dir(zip_bytes, dest)
+            if ok:
+                logger.info(f"[skill_file_sync] ✅ Downloaded skill files to '{dest}'")
+            else:
+                logger.warning(f"[skill_file_sync] ❌ Failed to extract skill files to '{dest}'")
+        except Exception as exc:
+            logger.warning(f"[skill_file_sync] Download failed for skill '{skill_data.get('id', '?')}': {exc}\n{traceback.format_exc()}")
+
+    t = threading.Thread(target=_do, daemon=True, name="skill-file-download")
+    t.start()
+
+
+def delete_skill_files_from_cloud(skill_id: str) -> None:
+    """Request deletion of a skill's files from S3. Runs in background thread.
+
+    Uses a mutation to tell the Lambda to remove the S3 object.
+    """
+    def _do():
+        try:
+            ctx = _get_cloud_context()
+            if ctx is None:
+                return
+
+            mutation = """
+                mutation DeleteSkillFiles($skillId: ID!, $owner: String!) {
+                    deleteSkillFiles(skillId: $skillId, owner: $owner) {
+                        success error
+                    }
+                }
+            """
+            variables = {"skillId": skill_id, "owner": ctx["owner"]}
+            resp = _appsync_request(mutation, ctx, variables=variables)
+            errors = resp.get("errors")
+            if errors:
+                logger.warning(f"[skill_file_sync] deleteSkillFiles error: {errors}")
+            else:
+                data = resp.get("data", {}).get("deleteSkillFiles", {})
+                if data.get("success"):
+                    logger.info(f"[skill_file_sync] ✅ Deleted skill files from S3: {skill_id}")
+                else:
+                    logger.warning(f"[skill_file_sync] deleteSkillFiles returned: {data}")
+        except Exception as exc:
+            logger.warning(f"[skill_file_sync] Delete failed for skill '{skill_id}': {exc}")
+
+    t = threading.Thread(target=_do, daemon=True, name="skill-file-delete")
+    t.start()
+
+
+def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
+    """Bulk upload all local user skills to S3. Runs in background thread.
+
+    Skips code-sourced skills (source='code') and skills without local dirs.
+    """
+    def _do():
+        try:
+            ctx = _get_cloud_context()
+            if ctx is None:
+                return
+
+            # Filter to user-owned, non-code skills that have local dirs
+            to_sync = []
+            for sk in skills:
+                if sk.get("source") == "code":
+                    continue
+                if not sk.get("id"):
+                    continue
+                skill_dir = _resolve_skill_dir(sk)
+                if skill_dir and skill_dir.is_dir():
+                    to_sync.append((sk, skill_dir))
+
+            if not to_sync:
+                logger.debug("[skill_file_sync] No skill dirs to sync")
+                return
+
+            logger.info(f"[skill_file_sync] Bulk uploading {len(to_sync)} skill dirs to S3...")
+
+            ok_count = 0
+            err_count = 0
+            for sk, skill_dir in to_sync:
+                try:
+                    zip_bytes = _zip_skill_dir(skill_dir)
+                    if not zip_bytes:
+                        err_count += 1
+                        continue
+
+                    file_name = f"{skill_dir.name}.zip"
+                    url_info = _request_upload_url(sk["id"], ctx["owner"], file_name, ctx)
+                    if not url_info:
+                        err_count += 1
+                        continue
+
+                    if _upload_to_s3(url_info["uploadUrl"], zip_bytes):
+                        ok_count += 1
+                    else:
+                        err_count += 1
+                except Exception as exc:
+                    logger.warning(f"[skill_file_sync] Bulk upload error for '{sk.get('name')}': {exc}")
+                    err_count += 1
+
+            logger.info(f"[skill_file_sync] Bulk upload complete: {ok_count} ok, {err_count} errors")
+        except Exception as exc:
+            logger.warning(f"[skill_file_sync] Bulk upload failed: {exc}\n{traceback.format_exc()}")
+
+    t = threading.Thread(target=_do, daemon=True, name="skill-file-bulk-upload")
+    t.start()
