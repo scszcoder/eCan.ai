@@ -859,7 +859,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             </Button>
           </Space>
         </div>
-      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 150, overflow: 'auto', overflowY: 'scroll', padding: '16px 20px', paddingBottom: '40px' }}>
+      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 150 }}>
         {/* Top editable area */}
         <SectionContainer
           title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
