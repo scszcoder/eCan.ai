@@ -227,7 +227,7 @@ lxml~=5.3                   # XML/HTML processing, compatible with crawl4ai
 # ============================================================================
 # UTILITIES & HELPERS
 # ============================================================================
-click==8.3.0
+click==8.3.1  # Required by browser-use 0.12.0, compatible with flask and uvicorn
 typer==0.15.2
 rich==14.2.0
 tqdm==4.67.1
