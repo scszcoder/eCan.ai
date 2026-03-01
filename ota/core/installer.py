@@ -77,6 +77,56 @@ class InstallationManager:
             return Path(userprofile) / 'AppData' / 'Local' / 'eCan'
 
         return Path.home() / 'AppData' / 'Local' / 'eCan'
+    
+    def _get_current_windows_install_dir(self) -> Optional[Path]:
+        """Read current installation directory from Windows Registry.
+        
+        This is critical for OTA upgrades to preserve custom installation paths.
+        If the user installed to D:\MyApps\eCan, we must upgrade to the same location,
+        not default to C:\Users\...\AppData\Local\eCan.
+        
+        Returns:
+            Path to current installation directory, or None if not found in registry
+        """
+        if sys.platform != 'win32':
+            return None
+        
+        try:
+            import winreg
+            
+            # Try to read from Inno Setup's uninstall registry key
+            # AppId from build_config.json: 6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1
+            app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
+            uninstall_key = f"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id}}}_is1"
+            
+            # Try HKEY_CURRENT_USER first (per-user install)
+            for root_key in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
+                try:
+                    with winreg.OpenKey(root_key, uninstall_key, 0, winreg.KEY_READ) as key:
+                        # Read InstallLocation value
+                        install_location, _ = winreg.QueryValueEx(key, "InstallLocation")
+                        if install_location:
+                            install_path = Path(install_location)
+                            if install_path.exists():
+                                logger.info(f"[OTA] Found current installation directory from registry: {install_path}")
+                                return install_path
+                            else:
+                                logger.warning(f"[OTA] Registry install path exists but directory not found: {install_path}")
+                except FileNotFoundError:
+                    continue
+                except Exception as e:
+                    logger.debug(f"[OTA] Failed to read from {root_key}: {e}")
+                    continue
+            
+            logger.info("[OTA] No previous installation found in registry, will use default location")
+            return None
+            
+        except ImportError:
+            logger.warning("[OTA] winreg module not available, cannot read registry")
+            return None
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to read installation directory from registry: {e}")
+            return None
 
     def _terminate_processes_in_dir(
         self,
@@ -279,11 +329,21 @@ class InstallationManager:
             # For OTA updates, use truly silent installation
             if install_options.get('silent', True):
                 if getattr(sys, 'frozen', False):
+                    # Priority 1: Explicit install_dir from install_options (rarely set)
                     configured_install_dir = install_options.get('install_dir')
                     if configured_install_dir:
                         install_dir = Path(str(configured_install_dir)).expanduser()
                     else:
-                        install_dir = self._get_windows_standard_install_dir()
+                        # Priority 2: Read current installation directory from registry (OTA upgrade)
+                        # This preserves custom installation paths like D:\MyApps\eCan
+                        current_install_dir = self._get_current_windows_install_dir()
+                        if current_install_dir:
+                            install_dir = current_install_dir
+                            logger.info(f"[OTA] Preserving custom installation directory: {install_dir}")
+                        else:
+                            # Priority 3: Fallback to standard location
+                            install_dir = self._get_windows_standard_install_dir()
+                            logger.info(f"[OTA] Using standard installation directory: {install_dir}")
 
                     if not install_dir.exists():
                         try:

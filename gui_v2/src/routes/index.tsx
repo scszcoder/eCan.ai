@@ -28,7 +28,7 @@ const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDe
 const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
-const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
+const Prompts = React.lazy(() => import('../pages/Prompts/PromptsEnhanced'));
 const Avatars = React.lazy(() => import('../pages/Avatars/Avatars'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
 const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
