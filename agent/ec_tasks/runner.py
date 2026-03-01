@@ -2766,12 +2766,48 @@ class TaskRunner(Generic[Context]):
                     self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
                 elif trigger_type == "message" and waiter_task_id:
                     self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+
+                # Emit task_failed to TaskProgressBus
+                try:
+                    lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
+                    if isinstance(lineage, dict) and lineage.get("correlation_id"):
+                        from .task_progress_bus import TaskProgressBus, TaskProgressEvent
+                        TaskProgressBus.get_instance().emit(TaskProgressEvent(
+                            correlation_id=lineage["correlation_id"],
+                            run_id=getattr(task, "run_id", ""),
+                            parent_run_id=lineage.get("parent_run_id", ""),
+                            task_id=getattr(task, "id", ""),
+                            task_name=getattr(task, "name", ""),
+                            depth=lineage.get("depth", 0),
+                            event_type="task_failed",
+                            error=err_text,
+                        ))
+                except Exception:
+                    pass
                 return
 
             # Reset failure counter on success
             if hasattr(task, 'reset_failures'):
                 task.reset_failures()
             logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
+
+            # Emit task_completed to TaskProgressBus
+            try:
+                lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
+                if isinstance(lineage, dict) and lineage.get("correlation_id"):
+                    from .task_progress_bus import TaskProgressBus, TaskProgressEvent
+                    TaskProgressBus.get_instance().emit(TaskProgressEvent(
+                        correlation_id=lineage["correlation_id"],
+                        run_id=getattr(task, "run_id", ""),
+                        parent_run_id=lineage.get("parent_run_id", ""),
+                        task_id=getattr(task, "id", ""),
+                        task_name=getattr(task, "name", ""),
+                        depth=lineage.get("depth", 0),
+                        event_type="task_completed",
+                        result=response,
+                    ))
+            except Exception:
+                pass
 
             self._log_task_node_timings(task, waiter_task_id, response)
             

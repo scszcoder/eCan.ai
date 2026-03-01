@@ -109,6 +109,14 @@ class TaskExecutor:
         # Align config thread_id with context id
         effective_config["configurable"].setdefault("thread_id", context.get("id"))
         
+        # Inject task lineage into context for nested task progress tracking
+        lineage = self.task.metadata.get("lineage") if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict) else None
+        if isinstance(lineage, dict) and lineage.get("correlation_id"):
+            context["lineage"] = lineage
+            context.setdefault("run_id", getattr(self.task, "run_id", "") or "")
+            context.setdefault("task_id", getattr(self.task, "id", "") or "")
+            context.setdefault("task_name", getattr(self.task, "name", "") or "")
+        
         return effective_config, context
     
     def sync_state_identifiers(self, effective_config: dict, context: Optional[dict] = None):

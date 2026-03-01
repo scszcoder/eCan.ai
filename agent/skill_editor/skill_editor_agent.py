@@ -104,6 +104,7 @@ Allowed intents:
 - debug_flowgram
 - test_skill
 - deploy_skill
+- analyze_log
 - explain
 - casual_chat
 - general_chat
@@ -114,6 +115,7 @@ Guidelines:
 - If the user is asking how to do something or wants an explanation, that is explain.
 - If the user message is short social chatter (e.g. acknowledgements like "awesome", "thanks", "cool") and not a workflow request, that is casual_chat.
 - If the user is asking for a direct factual answer unrelated to building/editing a workflow (e.g. "who is the president of russia"), that is explain.
+- If the user mentions a log file path and asks to analyze, diagnose, or review logs/errors/failures, that is analyze_log.
 """
 
 
@@ -372,6 +374,7 @@ class SkillEditorAgent:
         self._selected_node: Optional[Dict[str, Any]] = None  # Currently selected node for configuration
         self._casual_chat_rounds_by_session: Dict[str, int] = {}
         self._loaded_context_key: Optional[str] = None
+        self._log_analysis_context: Optional[Dict[str, str]] = None  # {file_path, log_content, last_analysis}
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -542,6 +545,10 @@ class SkillEditorAgent:
         if self._is_casual_chat_message(message):
             return IntentType.CASUAL_CHAT
 
+        # Log analysis: user wants to analyze a log file
+        if self._is_log_analysis_request(message):
+            return IntentType.ANALYZE_LOG
+
         # Robust edit marker detection (handles typos like "modifycation" / "modifcation")
         has_modif_stem = bool(re.search(r"\bmodif\w*", msg_lower))
 
@@ -637,6 +644,73 @@ class SkillEditorAgent:
             return IntentType.EXPLAIN
         
         return IntentType.GENERAL_CHAT
+
+    def _is_log_analysis_request(self, message: str) -> bool:
+        """Detect if the user wants to analyze a log file.
+        Also matches follow-up questions when a prior log analysis is active.
+        """
+        msg = (message or "").strip().lower()
+        if not msg:
+            return False
+
+        # Must have a log/analyze keyword
+        log_keywords = [
+            "log", "logs", "analyze", "analyse", "analysis",
+            "diagnose", "debug log", "run log", "error log",
+            "failure", "traceback", "stack trace",
+        ]
+        has_log_keyword = any(kw in msg for kw in log_keywords)
+        if not has_log_keyword:
+            # Even without explicit log keyword, detect follow-up references
+            # to a prior log analysis (e.g. "do you see api key issues?",
+            # "上述文件", "the file above", "从上面的log")
+            if self._log_analysis_context:
+                followup_cues = [
+                    "上述", "上面", "above", "the file", "that file",
+                    "该文件", "这个文件", "之前的", "前面的",
+                    "api key", "error", "warning", "issue", "problem",
+                    "是否", "有没有", "do you see", "did you find",
+                    "can you check", "what about",
+                ]
+                if any(cue in msg for cue in followup_cues):
+                    return True
+            return False
+
+        # If we have an active log analysis context, a log keyword alone
+        # is enough — the user is asking a follow-up about the same log.
+        if self._log_analysis_context:
+            return True
+
+        # Otherwise must reference a file path or file-like token
+        # Matches: C:\..., /home/..., ./foo.log, foo.log, foo.txt, etc.
+        has_file_ref = bool(re.search(
+            r'(?:'
+            r'[a-zA-Z]:\\[\w\\.\-/ ]+'       # Windows absolute path
+            r'|/[\w/.\-]+'                     # Unix absolute path
+            r'|\.[\\/][\w/.\\\-]+'             # Relative path ./foo or .\foo
+            r'|[\w\-]+\.(?:log|txt|out|err)'   # Bare filename with log-like extension
+            r')',
+            message  # case-sensitive original to preserve paths
+        ))
+
+        return has_file_ref
+
+    def _extract_file_path_from_message(self, message: str) -> Optional[str]:
+        """Extract a file path from a user message."""
+        if not message:
+            return None
+        # Try common path patterns in priority order
+        patterns = [
+            r'[A-Za-z]:\\[\w\\.\-/ ]+',       # Windows absolute
+            r'/[\w/.\-]+',                      # Unix absolute
+            r'\.[\\/][\w/.\\\-]+',              # Relative path
+            r'[\w\-]+\.(?:log|txt|out|err)',    # Bare filename
+        ]
+        for pat in patterns:
+            m = re.search(pat, message)
+            if m:
+                return m.group(0).strip()
+        return None
 
     def _is_explain_request(self, message: str) -> bool:
         msg = (message or "").strip().lower()
@@ -807,8 +881,31 @@ class SkillEditorAgent:
             f"sample_nodes=[{', '.join(node_lines)}]"
         )
 
+    def _get_llm_info(self) -> Dict[str, str]:
+        """Return provider/model metadata for the current LLM instance."""
+        try:
+            llm = self.planner.llm
+            model = getattr(llm, "model_name", None) or getattr(llm, "model", None) or "unknown"
+            cls_name = type(llm).__name__
+            # Try to get provider info from onboarding metadata
+            onboarding = getattr(llm, "_onboarding_info", None)
+            if onboarding:
+                provider = onboarding.get("display_name") or onboarding.get("provider") or cls_name
+            else:
+                provider = cls_name
+            base_url = getattr(llm, "openai_api_base", None) or getattr(llm, "base_url", None) or ""
+            return {"provider": str(provider), "model": str(model), "class": cls_name, "base_url": str(base_url)}
+        except Exception as e:
+            return {"provider": "unknown", "model": "unknown", "class": "unknown", "base_url": "", "error": str(e)}
+
     async def _invoke_llm_async(self, prompt: str) -> str:
         llm = self.planner.llm
+        llm_info = self._get_llm_info()
+        logger.info(
+            f"[SkillEditorAgent] LLM call — provider={llm_info['provider']}, "
+            f"model={llm_info['model']}, class={llm_info['class']}, "
+            f"prompt_len={len(prompt):,} chars"
+        )
         if hasattr(llm, "ainvoke"):
             resp = await llm.ainvoke(prompt)
             return resp.content if hasattr(resp, "content") else str(resp)
@@ -1038,6 +1135,489 @@ class SkillEditorAgent:
             ),
             intent=IntentType.CASUAL_CHAT,
             metadata={"session_id": session_id, "state": self._pipeline_state.value, "casual_rounds": rounds},
+        )
+
+    @staticmethod
+    def _extract_log_highlights(raw: str, context_lines: int = 3) -> str:
+        """Extract and **categorize** noteworthy log lines with surrounding context.
+
+        Returns a structured string with issues grouped by category in priority
+        order so the LLM sees critical-but-rare issues (like auth / API-key
+        failures) before high-volume noise (like repeated schema errors).
+
+        Categories (highest priority first):
+          1. AUTH FAILURES        – 401/403, Unauthorized, invalid API key, token rejected
+          2. RUNTIME ERRORS       – Exception, Traceback, CRITICAL, FATAL, panic, OOM
+          3. SCHEMA / VALIDATION  – GraphQL WrongType, missing fields, schema error
+          4. GENERAL FAILURES     – failed, failure, ERROR (not already categorised)
+          5. WARNINGS / RESOURCE  – WARNING, memory, disk, timeout
+          6. AUTH INFO            – token present, api key configured (informational, not failures)
+
+        Each category is capped at ``max_blocks_per_cat`` context blocks to prevent
+        one noisy category from consuming the entire token budget.
+        """
+        import re as _re
+
+        lines = raw.splitlines()
+        if not lines:
+            return ""
+
+        # --- Define category patterns (order = display priority) ---
+        # CRITICAL: AUTH FAILURES must be first and must ONLY match actual
+        # rejections (401, 403, "invalid", "Unauthorized", "Authentication
+        # Fails").  Informational auth lines ("Token present", "api key
+        # configured") go to AUTH INFO at the bottom so they don't drown
+        # out real failures.
+        _categories = [
+            ("🚨 AUTH FAILURES (API key / token rejected)", _re.compile(
+                r"(?i)"
+                r"(\bunauthorized\b"
+                r"|NotAuthorizedException"
+                r"|Authentication Fails"
+                r"|authentication_error"
+                r"|invalid_request_error"
+                r"|api[_\s]?key.*invalid"
+                r"|invalid.*api[_\s]?key"
+                r"|InvalidApiKey"
+                r"|\berrorCode['\"\s:]+401\b"
+                r"|\berror.code['\"\s:]+401\b"
+                r"|Error code:\s*401"
+                r"|\b403\b.*\bforbidden\b"
+                r"|\bforbidden\b.*\b403\b"
+                r"|token\s+(expired|invalid|revoked|rejected)"
+                r"|auth\w*\s*(fail|error|denied)"
+                r"|Valid authorization header not provided"
+                r"|connection closed during ack"
+                r"|ModelProviderError.*401"
+                r")",
+            )),
+            ("💥 RUNTIME ERRORS", _re.compile(
+                r"(?i)"
+                r"(Traceback \(most recent"
+                r"|\bCRITICAL\b|\bFATAL\b"
+                r"|\bpanic\b|\bOOM\b"
+                r"|Exception(?!Input)"  # avoid GraphQL 'ExceptionInput'
+                r"|Error[:\s](?!.*Validation error of type)"
+                r"|\braise\s+\w+Error"
+                r")",
+            )),
+            ("📋 SCHEMA / VALIDATION", _re.compile(
+                r"(?i)"
+                r"(Validation error of type"
+                r"|missing required fields"
+                r"|not in '.*Input'"
+                r"|GraphQL.*Error"
+                r"|Schema\s*Error"
+                r"|Cannot return null for non-nullable"
+                r")",
+            )),
+            ("❌ GENERAL FAILURES", _re.compile(
+                r"(?i)"
+                r"(\bERROR\b"
+                r"|\bfailed\b|\bfailure\b"
+                r"|\bretry\b.*\bfailed\b"
+                r"|Task failed after"
+                r")",
+            )),
+            ("⚠️ WARNINGS / RESOURCE", _re.compile(
+                r"(?i)"
+                r"(\bWARN(ING)?\b"
+                r"|memory[:\s].*percent"
+                r"|disk_usage"
+                r"|\btimeout\b"
+                r"|not installed"
+                r")",
+            )),
+            ("ℹ️ AUTH INFO (credentials present — not failures)", _re.compile(
+                r"(?i)"
+                r"(Token present"
+                r"|api[_\s]?key.{0,20}configured"
+                r"|has API key configured"
+                r"|api[_\s]?key\s*[:=]\s*\S+"  # lines that print the key value
+                r"|credential\s*(found|loaded|present)"
+                r"|secret\s*key"
+                r")",
+            )),
+        ]
+
+        max_blocks_per_cat = 15  # cap per category to keep output bounded
+
+        # --- Classify each line into the FIRST matching category ---
+        # (a line only belongs to its highest-priority category)
+        cat_hits: dict = {name: set() for name, _ in _categories}
+        classified: set = set()
+
+        for idx, line in enumerate(lines):
+            for cat_name, pat in _categories:
+                if pat.search(line):
+                    if idx not in classified:
+                        cat_hits[cat_name].add(idx)
+                        classified.add(idx)
+                    break  # first match wins
+
+        total_hits = sum(len(v) for v in cat_hits.values())
+        if total_hits == 0:
+            return ""
+
+        # --- Build context windows per category ---
+        def _build_blocks(indices: set) -> list:
+            if not indices:
+                return []
+            windows: list = []
+            for idx in sorted(indices):
+                start = max(0, idx - context_lines)
+                end = min(len(lines) - 1, idx + context_lines)
+                if windows and start <= windows[-1][1] + 1:
+                    windows[-1] = (windows[-1][0], end)
+                else:
+                    windows.append((start, end))
+            blocks = []
+            for start, end in windows[:max_blocks_per_cat]:
+                block_lines = lines[start: end + 1]
+                blocks.append(f"[lines {start + 1}-{end + 1}]\n" + "\n".join(block_lines))
+            truncated = len(windows) - max_blocks_per_cat
+            if truncated > 0:
+                blocks.append(f"... and {truncated} more context blocks in this category (omitted for brevity)")
+            return blocks
+
+        # --- Assemble output ---
+        sections: list = []
+        sections.append(f"({total_hits} issue lines found, categorised by type)\n")
+
+        for cat_name, _ in _categories:
+            hits = cat_hits[cat_name]
+            if not hits:
+                continue
+            blocks = _build_blocks(hits)
+            section = f"\n### {cat_name} ({len(hits)} hits)\n\n"
+            section += "\n---\n".join(blocks)
+            sections.append(section)
+
+        return "\n".join(sections)
+
+    async def _run_analyze_log(
+        self,
+        message: str,
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """
+        Read a log file from the user's message, analyze it for errors/failures,
+        and return a structured summary.
+        """
+        self._pipeline_state = PipelineState.IDLE
+        await self._emit_progress(on_event, "Reading log file...")
+
+        # --- Extract file path ---
+        file_path = self._extract_file_path_from_message(message)
+
+        # --- Follow-up on a previous log analysis? ---
+        if not file_path and self._log_analysis_context:
+            return await self._run_analyze_log_followup(message, session_id, on_event)
+
+        if not file_path:
+            return AgentResponse(
+                message=(
+                    "I couldn't find a file path in your message. "
+                    "Please provide the full path to the log file you want me to analyze.\n\n"
+                    "Example: *please analyze my run log in C:\\Users\\me\\logs\\run.log*"
+                ),
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle", "needs_file_path": True},
+            )
+
+        # --- Resolve file path (handle directory → pick most recent log file) ---
+        try:
+            p = Path(file_path)
+            if not p.exists():
+                return AgentResponse(
+                    message=f"File not found: **{file_path}**\n\nPlease double-check the path and try again.",
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "idle", "file_not_found": True},
+                )
+            if p.is_dir():
+                log_exts = {".log", ".txt", ".out", ".err"}
+                candidates = [
+                    f for f in p.iterdir()
+                    if f.is_file() and f.suffix.lower() in log_exts
+                ]
+                if not candidates:
+                    return AgentResponse(
+                        message=(
+                            f"**{file_path}** is a directory but contains no log files "
+                            f"(.log, .txt, .out, .err).\n\n"
+                            "Please provide the full path to a specific file."
+                        ),
+                        intent=IntentType.ANALYZE_LOG,
+                        metadata={"session_id": session_id, "state": "idle"},
+                    )
+                # Pick the most recently modified file
+                p = max(candidates, key=lambda f: f.stat().st_mtime)
+                file_path = str(p)
+                await self._emit_progress(
+                    on_event,
+                    f"Directory provided — using most recent file: {p.name}"
+                )
+        except Exception as e:
+            return AgentResponse(
+                message=f"Error accessing path **{file_path}**: {e}",
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle", "read_error": str(e)},
+            )
+
+        # --- Log LLM info ---
+        llm_info = self._get_llm_info()
+        logger.info(
+            f"[SkillEditorAgent] Log analysis using LLM: "
+            f"provider={llm_info['provider']}, model={llm_info['model']}, "
+            f"class={llm_info['class']}, base_url={llm_info.get('base_url', '')}"
+        )
+
+        # --- Read the file ---
+        raw = None
+        read_error = None
+        file_size = 0
+        try:
+            file_size = p.stat().st_size
+            raw = p.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            read_error = str(e)
+
+        if read_error:
+            return AgentResponse(
+                message=f"Failed to read **{file_path}**: {read_error}",
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle", "read_error": read_error},
+            )
+
+        if not raw or not raw.strip():
+            return AgentResponse(
+                message=f"The file **{file_path}** is empty — nothing to analyze.",
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle"},
+            )
+
+        await self._emit_progress(on_event, f"Pre-filtering {file_size:,} bytes of log data...")
+
+        # --- Stage 1: Pre-filter — extract ERROR/WARNING/Exception lines with context ---
+        highlights = self._extract_log_highlights(raw)
+        logger.info(
+            f"[SkillEditorAgent] Log pre-filter: {len(raw):,} chars raw, "
+            f"{len(highlights):,} chars highlights extracted"
+        )
+
+        # --- Stage 2: Decide what to send to the LLM ---
+        # For large logs (>500KB) with good highlights, send ONLY the highlights
+        # plus a small head+tail snippet for log structure/timespan context.
+        # For smaller logs, include the full content as supplementary context.
+        LARGE_LOG_THRESHOLD = 500_000  # ~500KB
+        is_large_log = len(raw) > LARGE_LOG_THRESHOLD and len(highlights) > 200
+        if is_large_log:
+            # Large log: highlights-only mode (mimics targeted grep approach)
+            snippet_head = raw[:3_000]
+            snippet_tail = raw[-3_000:]
+            log_content = (
+                snippet_head
+                + f"\n\n... [{len(raw):,} chars total — only head/tail snippet shown, "
+                f"see HIGHLIGHTS above for all issues] ...\n\n"
+                + snippet_tail
+            )
+            logger.info(
+                f"[SkillEditorAgent] Large log ({len(raw):,} chars) — highlights-only mode, "
+                f"sending {len(highlights):,} chars highlights + 6k snippet"
+            )
+        else:
+            MAX_CHARS = 120_000
+            highlights_budget = min(len(highlights), 40_000)
+            remaining_budget = MAX_CHARS - highlights_budget
+            if len(raw) > remaining_budget:
+                head = raw[:5_000]
+                tail = raw[-(remaining_budget - 5_000):]
+                log_content = (
+                    head
+                    + f"\n\n... [truncated {len(raw) - remaining_budget:,} characters] ...\n\n"
+                    + tail
+                )
+            else:
+                log_content = raw
+
+        await self._emit_progress(on_event, f"Analyzing with {llm_info['provider']} / {llm_info['model']}...")
+
+        # --- Build analysis prompt ---
+        prompt_parts = [
+            "You are an expert log analyst for eCan.ai, an AI agent / workflow automation platform.\n"
+            "The user has provided a run log file for analysis.\n\n"
+            "**IMPORTANT**: Below you will find a PRE-FILTERED HIGHLIGHTS section that has already "
+            "extracted and categorised all noteworthy lines from the log. The categories are ordered "
+            "by severity:\n"
+            "  1. AUTH FAILURES — actual 401/403/Unauthorized/invalid API key rejections\n"
+            "  2. RUNTIME ERRORS — exceptions, tracebacks, crashes\n"
+            "  3. SCHEMA/VALIDATION — GraphQL type mismatches\n"
+            "  4. GENERAL FAILURES — other errors\n"
+            "  5. WARNINGS/RESOURCE — warnings, memory, disk\n"
+            "  6. AUTH INFO — informational lines about tokens/keys being present (NOT failures)\n\n"
+            "You MUST address EVERY category that has hits. Pay SPECIAL attention to AUTH FAILURES — "
+            "even a single invalid API key or 401 error is often the ROOT CAUSE that cascades into "
+            "many downstream failures (e.g. LLM retries, browser-use failures, task timeouts).\n"
+            "Do NOT confuse AUTH INFO (key is configured/present) with AUTH FAILURES (key is rejected/invalid).\n\n"
+            "Instructions:\n"
+            "1. **Log Summary**: Concise summary — which task/skill ran, node count, duration.\n"
+            "2. **Issue Analysis (by category)**: For EACH category in the highlights, list every "
+            "distinct issue found. For each issue state:\n"
+            "   - The error message / traceback (quote the relevant log line)\n"
+            "   - Which node or component produced it\n"
+            "   - Root cause assessment\n"
+            "   - Whether it's a **setup issue** (customer config), **code bug**, or **backend issue**\n"
+            "3. **Classification Table**: Provide a summary table:\n"
+            "   Issue | Type (setup/code bug/backend) | Cause\n"
+            "4. **Recommended Actions**: Prioritised fix list for the customer.\n\n"
+            "Format your response in clear Markdown sections.\n"
+            "Be specific — quote relevant log lines when referencing errors.\n\n"
+            f"File: {file_path} ({file_size:,} bytes)\n"
+            f"User message: {message}\n\n"
+        ]
+
+        # Include pre-filtered highlights section FIRST so the LLM sees issues upfront
+        if highlights.strip():
+            prompt_parts.append(
+                "--- PRE-FILTERED & CATEGORISED HIGHLIGHTS (ordered by severity) ---\n"
+                f"{highlights[:40_000]}\n"
+                "--- END HIGHLIGHTS ---\n\n"
+            )
+
+        if is_large_log:
+            prompt_parts.append(
+                "--- LOG HEAD+TAIL SNIPPET (for timespan/structure context only) ---\n"
+                f"{log_content}\n"
+                "--- END SNIPPET ---\n"
+            )
+        else:
+            prompt_parts.append(
+                "--- BEGIN FULL LOG (may be truncated for large files) ---\n"
+                f"{log_content}\n"
+                "--- END FULL LOG ---\n"
+            )
+
+        prompt = "".join(prompt_parts)
+
+        try:
+            analysis = await self._invoke_llm_async(prompt)
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Log analysis LLM call failed: {e}")
+            analysis = (
+                f"I was able to read the log file ({file_size:,} bytes) but encountered an error "
+                f"during analysis: {e}\n\nPlease try again or provide a smaller log file."
+            )
+
+        analysis_text = str(analysis).strip()
+
+        # Append LLM info footer so user knows which model analyzed the log
+        analysis_text += (
+            f"\n\n---\n*Analysis performed by **{llm_info['provider']}** / "
+            f"**{llm_info['model']}** ({llm_info['class']})*"
+        )
+
+        # Save context so follow-up questions can reference this analysis
+        self._log_analysis_context = {
+            "file_path": file_path,
+            "file_size": file_size,
+            "log_content": log_content,
+            "highlights": highlights,
+            "last_analysis": analysis_text,
+        }
+
+        return AgentResponse(
+            message=analysis_text,
+            intent=IntentType.ANALYZE_LOG,
+            metadata={
+                "session_id": session_id,
+                "state": "idle",
+                "file_path": file_path,
+                "file_size": file_size,
+                "llm_provider": llm_info["provider"],
+                "llm_model": llm_info["model"],
+            },
+        )
+
+    async def _run_analyze_log_followup(
+        self,
+        message: str,
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Handle follow-up questions about a previously analyzed log file."""
+        ctx = self._log_analysis_context
+        file_path = ctx["file_path"]
+        log_content = ctx["log_content"]
+        last_analysis = ctx["last_analysis"]
+        file_size = ctx.get("file_size", 0)
+
+        await self._emit_progress(on_event, f"Answering follow-up about {Path(file_path).name}...")
+
+        # Build recent conversation history for context
+        history_block = ""
+        recent = self._conversation_history[-6:]  # last 3 exchanges
+        if recent:
+            history_lines = []
+            for msg in recent:
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                history_lines.append(f"{role}: {msg.get('content', '')[:2000]}")
+            history_block = "\n".join(history_lines)
+
+        highlights = ctx.get("highlights", "")
+
+        prompt = (
+            "You are an expert log analyst for eCan.ai, an AI agent / workflow automation platform.\n"
+            "You previously analyzed a log file and provided an analysis (shown below).\n"
+            "The user is now asking a follow-up question about the SAME log.\n\n"
+            "Answer the user's question precisely based on the log content.\n"
+            "If the answer is in the log, quote the relevant lines.\n"
+            "If the log does not contain information related to the question, say so clearly.\n\n"
+            f"File: {file_path} ({file_size:,} bytes)\n\n"
+            "--- PREVIOUS ANALYSIS ---\n"
+            f"{last_analysis[:8000]}\n"
+            "--- END PREVIOUS ANALYSIS ---\n\n"
+        )
+        if history_block:
+            prompt += (
+                "--- RECENT CONVERSATION ---\n"
+                f"{history_block}\n"
+                "--- END CONVERSATION ---\n\n"
+            )
+        if highlights.strip():
+            prompt += (
+                "--- PRE-FILTERED HIGHLIGHTS (ERROR/WARNING/Exception lines with context) ---\n"
+                f"{highlights[:40_000]}\n"
+                "--- END HIGHLIGHTS ---\n\n"
+            )
+        prompt += (
+            f"User's follow-up question: {message}\n\n"
+            "--- BEGIN FULL LOG ---\n"
+            f"{log_content}\n"
+            "--- END FULL LOG ---\n"
+        )
+
+        try:
+            analysis = await self._invoke_llm_async(prompt)
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Log follow-up LLM call failed: {e}")
+            analysis = f"Error during follow-up analysis: {e}\n\nPlease try again."
+
+        followup_text = str(analysis).strip()
+
+        # Update the last analysis so chained follow-ups accumulate context
+        self._log_analysis_context["last_analysis"] = followup_text
+
+        return AgentResponse(
+            message=followup_text,
+            intent=IntentType.ANALYZE_LOG,
+            metadata={
+                "session_id": session_id,
+                "state": "idle",
+                "file_path": file_path,
+                "file_size": file_size,
+                "is_followup": True,
+            },
         )
 
     async def _run_explain(self, message: str, session_id: Optional[str], on_event: Optional[Callable]) -> AgentResponse:
@@ -1291,6 +1871,11 @@ class SkillEditorAgent:
             if intent == IntentType.CASUAL_CHAT:
                 self._pipeline_state = PipelineState.IDLE
                 response = self._handle_casual_chat(message, session_id)
+                self._add_response_to_history(response)
+                return response
+
+            if intent == IntentType.ANALYZE_LOG:
+                response = await self._run_analyze_log(message, session_id, on_event)
                 self._add_response_to_history(response)
                 return response
 

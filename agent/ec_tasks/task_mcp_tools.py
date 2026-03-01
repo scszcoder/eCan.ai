@@ -70,6 +70,11 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         skill_id = config.get("skill_id", "")
         task_inputs = config.get("task_inputs") or {}
 
+        # Lineage fields for nested task progress tracking
+        correlation_id = config.get("correlation_id", "")
+        parent_run_id = config.get("parent_run_id", "")
+        parent_depth = int(config.get("parent_depth", 0) or 0)
+
         # --- Resolve agent ---
         agent = _resolve_agent(mainwin, agent_id)
         if agent is None:
@@ -101,18 +106,50 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         else:
             run_id = getattr(target_task, "run_id", "") or ""
 
+        # --- Build lineage for nested task progress ---
+        # If no correlation_id provided, this task is the root of a new chain
+        effective_corr_id = correlation_id or run_id
+        child_depth = (parent_depth + 1) if parent_run_id else 0
+        lineage = {
+            "correlation_id": effective_corr_id,
+            "parent_run_id": parent_run_id,
+            "depth": child_depth,
+        }
+
+        # Store lineage on task metadata so executor/runtime can access it
+        if not hasattr(target_task, "metadata") or target_task.metadata is None:
+            target_task.metadata = {}
+        target_task.metadata["lineage"] = lineage
+
+        # Register with the progress bus
+        try:
+            from .task_progress_bus import TaskProgressBus
+            bus = TaskProgressBus.get_instance()
+            bus.register_task(
+                correlation_id=effective_corr_id,
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+                task_id=resolved_task_id,
+                task_name=resolved_task_name,
+                depth=child_depth,
+            )
+        except Exception as e:
+            logger.debug(f"[launch_agent_task] Failed to register with progress bus: {e}")
+
         # --- Enqueue task_inputs as a message on the task's queue ---
         message_id = str(uuid.uuid4())
-        _enqueue_task_inputs(target_task, task_inputs, message_id)
+        _enqueue_task_inputs(target_task, task_inputs, message_id, lineage=lineage)
 
         return {
             "success": True,
             "task_id": resolved_task_id,
             "run_id": run_id,
+            "correlation_id": effective_corr_id,
             "message_id": message_id,
             "task_name": resolved_task_name,
             "agent_id": agent_id,
             "created": created,
+            "depth": child_depth,
             "message": (
                 f"Task '{resolved_task_name}' "
                 f"{'created and started' if created else 'message enqueued'}"
@@ -338,7 +375,7 @@ def _parse_datetime(dt_str: str, default) -> str:
     return _to_fmt(default)
 
 
-def _enqueue_task_inputs(task, task_inputs: dict, run_id: str):
+def _enqueue_task_inputs(task, task_inputs: dict, run_id: str, lineage: Optional[dict] = None):
     """Put a launch message on the task's queue."""
     queue = getattr(task, "queue", None)
     if queue is None:
@@ -348,6 +385,15 @@ def _enqueue_task_inputs(task, task_inputs: dict, run_id: str):
     from a2a.types import MessageSendParams, Message, TextPart
 
     message_id = str(uuid.uuid4())
+    metadata = {
+        "mtype": "launch_task",
+        "run_id": run_id,
+        "task_id": getattr(task, "id", ""),
+        "task_name": getattr(task, "name", ""),
+        "task_inputs": task_inputs,
+    }
+    if lineage:
+        metadata["lineage"] = lineage
     msg = MessageSendParams(
         id=str(uuid.uuid4()),
         message=Message(
@@ -355,13 +401,7 @@ def _enqueue_task_inputs(task, task_inputs: dict, run_id: str):
             role="user",
             parts=[TextPart(type="text", text=json.dumps(task_inputs) if task_inputs else "launch")],
         ),
-        metadata={
-            "mtype": "launch_task",
-            "run_id": run_id,
-            "task_id": getattr(task, "id", ""),
-            "task_name": getattr(task, "name", ""),
-            "task_inputs": task_inputs,
-        },
+        metadata=metadata,
     )
 
     try:
@@ -740,6 +780,18 @@ def add_launch_agent_task_tool_schema(tool_schemas: list):
                             "type": "object",
                             "description": "JSON object of inputs/parameters to inject into the task.",
                         },
+                        "correlation_id": {
+                            "type": "string",
+                            "description": "Correlation ID for tracking nested task chains. If omitted, the new task becomes the root of its own chain.",
+                        },
+                        "parent_run_id": {
+                            "type": "string",
+                            "description": "Run ID of the parent task that is launching this one. Used for lineage tracking.",
+                        },
+                        "parent_depth": {
+                            "type": "integer",
+                            "description": "Nesting depth of the parent task (0 = root). The child will be depth+1.",
+                        },
                     },
                 }
             },
@@ -1054,5 +1106,149 @@ async def async_stop_agent_task(mainwin, args: Dict[str, Any]) -> List[TextConte
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAsyncStopAgentTask")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+# ==================== Task Progress Visibility ====================
+
+def get_task_progress(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get progress of a launched task and its entire nested chain.
+
+    Can query by:
+      - run_id: Get status of a specific task run
+      - correlation_id: Get status of an entire task chain (all nested tasks)
+
+    Returns live snapshots of all tasks in the chain, their current node,
+    status, and recent progress events.
+
+    Args:
+        mainwin: Main window instance
+        config: Configuration dict with:
+            - run_id: str (optional) - specific task run to query
+            - correlation_id: str (optional) - entire chain to query
+            - include_events: bool (optional) - include recent events (default True)
+            - event_limit: int (optional) - max events to return (default 20)
+
+    Returns:
+        Dict with progress information.
+    """
+    try:
+        run_id = config.get("run_id", "")
+        correlation_id = config.get("correlation_id", "")
+        include_events = config.get("include_events", True)
+        event_limit = int(config.get("event_limit", 20) or 20)
+
+        if not run_id and not correlation_id:
+            return _error("run_id or correlation_id is required")
+
+        from .task_progress_bus import TaskProgressBus
+        bus = TaskProgressBus.get_instance()
+
+        # If only run_id provided, get single task snapshot
+        if run_id and not correlation_id:
+            snapshot = bus.get_task_snapshot(run_id)
+            if snapshot is None:
+                return _error(f"No task found with run_id={run_id!r}")
+
+            result = {
+                "success": True,
+                "task": snapshot,
+                "overall_status": snapshot.get("status", "unknown"),
+                "timestamp": int(time.time() * 1000),
+            }
+            if include_events:
+                # Try to find correlation_id from snapshot context
+                corr = correlation_id
+                if not corr:
+                    # Look up correlation from the snapshot's chain membership
+                    with bus._bus_lock:
+                        for c_id, run_ids in bus._chain.items():
+                            if run_id in run_ids:
+                                corr = c_id
+                                break
+                if corr:
+                    result["recent_events"] = bus.get_history(corr, limit=event_limit)
+            return result
+
+        # correlation_id provided — get full chain
+        chain_status = bus.get_chain_status(correlation_id)
+        chain_status["success"] = True
+        chain_status["timestamp"] = int(time.time() * 1000)
+
+        if not include_events:
+            chain_status.pop("recent_events", None)
+        elif event_limit and "recent_events" in chain_status:
+            chain_status["recent_events"] = chain_status["recent_events"][-event_limit:]
+
+        return chain_status
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorGetTaskProgress")
+        logger.error(err_trace)
+        return _error(err_trace)
+
+
+def add_get_task_progress_tool_schema(tool_schemas: list):
+    """Register the get_task_progress MCP tool schema."""
+    tool_schema = types.Tool(
+        _meta={"run_in_cloud": False},
+        name="get_task_progress",
+        description=(
+            "<category>Agent</category><sub-category>Task Management</sub-category>"
+            "Get the progress of a launched task and its nested sub-tasks. "
+            "Query by run_id for a single task or correlation_id for the entire chain. "
+            "Returns current node, status, child tasks, and recent events."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {
+                        "run_id": {
+                            "type": "string",
+                            "description": "Run ID of a specific task to query (returned by launch_agent_task).",
+                        },
+                        "correlation_id": {
+                            "type": "string",
+                            "description": "Correlation ID for the entire task chain (returned by launch_agent_task).",
+                        },
+                        "include_events": {
+                            "type": "boolean",
+                            "description": "Include recent progress events. Default: true.",
+                        },
+                        "event_limit": {
+                            "type": "integer",
+                            "description": "Max number of recent events to return. Default: 20.",
+                        },
+                    },
+                }
+            },
+        },
+    )
+    tool_schemas.append(tool_schema)
+
+
+async def async_get_task_progress(mainwin, args: Dict[str, Any]) -> List[TextContent]:
+    """Async wrapper for get_task_progress tool."""
+    try:
+        input_config = args.get("input", {})
+        result = get_task_progress(mainwin, input_config)
+
+        if result.get("success"):
+            msg = json.dumps(result, default=str, ensure_ascii=False)
+        else:
+            msg = f"Failed to get task progress: {result.get('error', 'Unknown error')}"
+
+        text_result = TextContent(type="text", text=msg)
+        text_result.meta = {"task_result": result}
+        return [text_result]
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAsyncGetTaskProgress")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]

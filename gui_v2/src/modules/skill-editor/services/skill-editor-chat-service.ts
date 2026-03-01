@@ -168,9 +168,18 @@ class SkillEditorChatService {
           id: s.id,
           name: s.name,
           flowgramId: s.flowgramId,
-          messages: [],
-          createdAt: new Date(s.createdAt).getTime(),
-          updatedAt: new Date(s.updatedAt).getTime()
+          messages: Array.isArray(s.messages)
+            ? s.messages.map((m: any) => ({
+                id: m.id,
+                role: m.role as 'user' | 'assistant' | 'system',
+                content: m.content,
+                timestamp: typeof m.timestamp === 'number' ? m.timestamp : new Date(m.timestamp).getTime(),
+                attachments: m.attachments,
+                metadata: m.metadata,
+              }))
+            : [],
+          createdAt: typeof s.createdAt === 'number' ? s.createdAt : new Date(s.createdAt).getTime(),
+          updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : new Date(s.updatedAt).getTime(),
         }));
       }
       
@@ -199,11 +208,14 @@ class SkillEditorChatService {
       );
       
       if (response.success && response.data) {
-        return response.data.map(m => ({
+        // Backend returns {messages: [...], total, sessionId}
+        const responseData = response.data as any;
+        const messages = Array.isArray(responseData) ? responseData : (responseData.messages || []);
+        return messages.map((m: any) => ({
           id: m.id,
           role: m.role as 'user' | 'assistant' | 'system',
           content: m.content,
-          timestamp: new Date(m.timestamp).getTime(),
+          timestamp: typeof m.timestamp === 'number' ? m.timestamp : new Date(m.timestamp).getTime(),
           attachments: m.attachments,
           metadata: m.metadata
         }));
