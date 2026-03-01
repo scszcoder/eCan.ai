@@ -328,4 +328,4 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
   );
 };
 
-export default PromptGuide;
+export default React.memo(PromptGuide);
