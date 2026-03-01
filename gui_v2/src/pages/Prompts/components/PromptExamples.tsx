@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Typography, Space, Tag, Divider, Collapse, Tabs, Spin, Alert } from 'antd';
 import {
   CheckCircleOutlined,
@@ -13,6 +13,28 @@ import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 
 const { Title, Text, Paragraph } = Typography;
+
+// Style constants to prevent recreation on every render
+const CONTAINER_STYLE = {
+  height: '100%',
+  display: 'flex' as const,
+  flexDirection: 'column' as const,
+  background: '#0f172a'
+};
+
+const TABS_STYLE = {
+  flex: 1,
+  display: 'flex' as const,
+  flexDirection: 'column' as const
+};
+
+const TAB_BAR_STYLE = {
+  margin: '0 20px',
+  paddingTop: '16px',
+  marginBottom: 16,
+  borderBottom: '1px solid rgba(148,163,184,0.14)',
+  flexShrink: 0
+};
 
 interface Example {
   id: string;
@@ -32,6 +54,7 @@ const PromptExamples: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Load markdown only once on mount
   useEffect(() => {
     const loadMarkdown = async () => {
       setLoading(true);
@@ -331,7 +354,8 @@ class User(BaseModel):
     return acc;
   }, {} as Record<string, Example[]>);
 
-  const tabItems = [
+  // Memoize tabItems to prevent recreation on every render
+  const tabItems = useMemo(() => [
     {
       key: 'builtin',
       label: (
@@ -636,33 +660,18 @@ class User(BaseModel):
         </>
       ),
     },
-  ];
+  ], [t, loading, error, markdownContent, groupedExamples, getLevelColor, getLevelText]);
 
   return (
-    <div style={{ 
-      height: '100%', 
-      display: 'flex',
-      flexDirection: 'column',
-      background: '#0f172a' 
-    }}>
+    <div style={CONTAINER_STYLE}>
       <Tabs
         defaultActiveKey="builtin"
         items={tabItems}
-        style={{ 
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column'
-        }}
-        tabBarStyle={{ 
-          margin: '0 20px',
-          paddingTop: '16px',
-          marginBottom: 16,
-          borderBottom: '1px solid rgba(148,163,184,0.14)',
-          flexShrink: 0
-        }}
+        style={TABS_STYLE}
+        tabBarStyle={TAB_BAR_STYLE}
       />
     </div>
   );
 };
 
-export default PromptExamples;
+export default React.memo(PromptExamples);

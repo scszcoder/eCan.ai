@@ -585,4 +585,4 @@ Output Format:
   );
 };
 
-export default PromptTemplates;
+export default React.memo(PromptTemplates);
