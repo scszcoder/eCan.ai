@@ -188,6 +188,14 @@
   border-color: rgba(148, 163, 184, 0.12) !important;
 }
 
+/* ========== Scroll Container ========== */
+.scrollContainer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overflow-y: scroll;
+}
+
 /* ========== Scrollbar ========== */
 .scrollContainer::-webkit-scrollbar {
   width: 8px;
