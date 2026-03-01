@@ -1733,6 +1733,73 @@ class WebGUI(QMainWindow):
                     description_widget.setMinimumHeight(150)
                     layout.addWidget(description_widget)
                 
+                # Download link (if available)
+                download_url = update_info.get('download_url', '')
+                if download_url:
+                    download_link_layout = QHBoxLayout()
+                    download_link_label = QLabel(_tr.tr('download_link') + ":")
+                    download_link_layout.addWidget(download_link_label)
+                    
+                    # Create clickable link button
+                    from PySide6.QtWidgets import QApplication
+                    from PySide6.QtCore import QTimer
+                    
+                    download_link_button = QPushButton()
+                    display_url = download_url if len(download_url) <= 60 else download_url[:57] + '...'
+                    download_link_button.setText(display_url)
+                    download_link_button.setToolTip(_tr.tr('click_to_copy_tooltip') + "\n" + download_url)
+                    download_link_button.setCursor(Qt.PointingHandCursor)
+                    download_link_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: transparent;
+                            color: #007AFF;
+                            border: none;
+                            text-align: left;
+                            padding: 2px;
+                            text-decoration: underline;
+                        }
+                        QPushButton:hover {
+                            color: #0051D5;
+                        }
+                    """)
+                    
+                    # Copy to clipboard on click
+                    def copy_link():
+                        clipboard = QApplication.clipboard()
+                        clipboard.setText(download_url)
+                        original_text = download_link_button.text()
+                        download_link_button.setText("✓ " + _tr.tr('link_copied'))
+                        download_link_button.setStyleSheet("""
+                            QPushButton {
+                                background-color: transparent;
+                                color: #3fb950;
+                                border: none;
+                                text-align: left;
+                                padding: 2px;
+                                font-weight: 600;
+                            }
+                        """)
+                        QTimer.singleShot(2000, lambda: (
+                            download_link_button.setText(original_text),
+                            download_link_button.setStyleSheet("""
+                                QPushButton {
+                                    background-color: transparent;
+                                    color: #007AFF;
+                                    border: none;
+                                    text-align: left;
+                                    padding: 2px;
+                                    text-decoration: underline;
+                                }
+                                QPushButton:hover {
+                                    color: #0051D5;
+                                }
+                            """)
+                        ))
+                    
+                    download_link_button.clicked.connect(copy_link)
+                    download_link_layout.addWidget(download_link_button, 1)
+                    layout.addLayout(download_link_layout)
+                
                 # Question
                 question_label = QLabel(_tr.tr('would_you_like_to_update'))
                 layout.addWidget(question_label)
