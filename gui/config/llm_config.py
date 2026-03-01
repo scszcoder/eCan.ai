@@ -267,6 +267,9 @@ class LLMConfig:
         """
         Get max tokens for a specific provider (by canonical identifier) and model.
         
+        This method prioritizes model-specific context_length from dynamic providers
+        (RyoAIS, Ollama) over static defaults.
+        
         Args:
             provider_identifier: Canonical provider identifier (e.g., "baidu_qianfan", "openai")
             model_name: Model name/ID
@@ -285,24 +288,60 @@ class LLMConfig:
                     break
             
             if not target_provider_config:
+                logger.debug(f"[get_max_tokens] Provider not found: {provider_identifier}")
                 return 25536  # Default
                 
             target_model = model_name or target_provider_config.default_model
             if not target_model:
+                logger.debug(f"[get_max_tokens] No model specified for provider: {provider_identifier}")
                 return 25536
 
             # Look up model config using provider's lookup name (p_conf.name)
-            # Since _models is keyed by provider name (e.g. "百度千帆")
+            # Since _models is keyed by provider name (e.g. "百度千帆", "Ollama", "RyoAIS")
+            logger.debug(f"[get_max_tokens] Looking up model: provider_name={target_provider_config.name}, model={target_model}")
             model_conf = self.get_model(target_provider_config.name, target_model)
             
+            # Priority 1: Use model-specific max_tokens from config
+            # For dynamic providers (RyoAIS, Ollama), this will contain context_length from API
             if model_conf and model_conf.max_tokens:
+                logger.debug(f"[get_max_tokens] ✅ Found max_tokens from model config: {model_conf.max_tokens}")
                 return model_conf.max_tokens
+            elif model_conf:
+                logger.debug(f"[get_max_tokens] Model config found but max_tokens is None/0, using fallback")
+            else:
+                logger.debug(f"[get_max_tokens] Model config not found in _models[{target_provider_config.name}], using fallback")
                 
-            # Fallback for specific providers if model config missing
+            # Priority 2: Provider-specific fallback defaults
+            # These are used when model config is missing or doesn't have max_tokens
+            # For dynamic providers (RyoAIS, Ollama), this should rarely be used
+            # as they should have context_length from their API responses
+            # Updated 2026-03: Modern LLMs now support much larger context windows
             if provider_id_lower in ("baidu", "qianfan", "baidu_qianfan"):
-                return 4000
+                return 128000  # Baidu Qianfan: ERNIE-4.0 supports 128k
+            elif provider_id_lower in ("ollama",):
+                logger.debug(f"[get_max_tokens] Using Ollama fallback (model config should have context_length)")
+                return 128000  # Ollama: Modern models (Llama3.1, Qwen2.5) support 128k+
+            elif provider_id_lower in ("ryoais",):
+                logger.debug(f"[get_max_tokens] Using RyoAIS fallback (model config should have context_length)")
+                return 128000  # RyoAIS: Most models support 128K+ context
+            elif provider_id_lower in ("deepseek",):
+                return 128000  # DeepSeek: V3 supports 128k
+            elif provider_id_lower in ("openai",):
+                return 128000  # OpenAI: GPT-4 Turbo/GPT-4o supports 128k
+            elif provider_id_lower in ("anthropic",):
+                return 200000  # Anthropic: Claude 3.5 Sonnet supports 200k
+            elif provider_id_lower in ("google",):
+                return 1000000  # Google: Gemini 1.5 Pro supports 1M tokens
+            elif provider_id_lower in ("zhipuai",):
+                return 128000  # 智谱AI: GLM-4 supports 128k
+            elif provider_id_lower in ("dashscope",):
+                return 128000  # DashScope: Qwen2.5 supports 128k
+            elif provider_id_lower in ("bytedance",):
+                return 128000  # 字节跳动: Doubao-pro supports 128k
                 
-            return 25536
+            # Priority 3: Default fallback for unknown providers
+            # Modern LLMs typically support 128k+ context
+            return 128000
         except Exception as e:
             logger.error(f"Error getting max tokens: {e}")
             return 25536

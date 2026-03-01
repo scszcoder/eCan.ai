@@ -33,7 +33,7 @@ dashscope==1.25.0
 # ============================================================================
 # AI & MACHINE LEARNING - MEMORY & RETRIEVAL
 # ============================================================================
-mem0ai==1.0.1
+mem0ai==1.0.4
 langmem==0.0.30
 # chroma-hnswlib==0.7.6  # Commented out - no Python 3.14 wheels available
 
@@ -76,7 +76,7 @@ pytesseract==0.3.13
 # ============================================================================
 selenium==4.32.0
 playwright==1.54.0
-browser-use==0.11.4
+browser-use==0.12.0
 # crawl4ai==0.8.0  # Commented out - no Python 3.14 wheels (requires lxml~=5.3 which lacks cp314 support)
 webdriver-manager==4.0.2
 fake-useragent==2.2.0
