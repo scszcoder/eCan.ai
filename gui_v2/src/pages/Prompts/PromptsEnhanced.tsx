@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Tabs, Button, Space, Tooltip } from 'antd';
+import { Tabs, Space } from 'antd';
 import {
   EditOutlined,
   BulbOutlined,
@@ -207,35 +207,6 @@ const PromptsEnhanced: React.FC = () => {
     return selected ? selected.title : t('pages.prompts.details');
   }, [activeTab, selected, t]);
 
-  const detailsExtra = useMemo(() => {
-    if (activeTab !== 'editor') return null;
-    
-    return (
-      <Space size={8}>
-        <Tooltip title={t('pages.prompts.tabs.guide', { defaultValue: '设计指南' })}>
-          <Button
-            type="text"
-            size="small"
-            icon={<BulbOutlined />}
-            onClick={() => setActiveTab('guide')}
-          >
-            {t('pages.prompts.viewGuide', { defaultValue: '查看指南' })}
-          </Button>
-        </Tooltip>
-        <Tooltip title={t('pages.prompts.tabs.templates', { defaultValue: '模板库' })}>
-          <Button
-            type="text"
-            size="small"
-            icon={<ThunderboltOutlined />}
-            onClick={() => setActiveTab('templates')}
-          >
-            {t('pages.prompts.useTemplate', { defaultValue: '使用模板' })}
-          </Button>
-        </Tooltip>
-      </Space>
-    );
-  }, [activeTab, t]);
-
   return (
     <DetailLayout
       listTitle={null}
@@ -257,14 +228,12 @@ const PromptsEnhanced: React.FC = () => {
         />
       }
       detailsContent={
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <Tabs
             activeKey={activeTab}
             onChange={setActiveTab}
-            items={tabItems}
-            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-            tabBarStyle={{ marginBottom: 0, paddingLeft: 20, paddingRight: 20, background: '#0f172a', flex: '0 0 auto' }}
             className={styles.promptsTabs}
+            items={tabItems}
           />
         </div>
       }

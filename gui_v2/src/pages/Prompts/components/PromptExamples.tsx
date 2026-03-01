@@ -341,8 +341,7 @@ class User(BaseModel):
         </Space>
       ),
       children: (
-        <div style={{ height: '100%', overflow: 'auto', overflowY: 'scroll', paddingBottom: '40px' }}>
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Card
             size="small"
             style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
@@ -464,8 +463,7 @@ class User(BaseModel):
             </Space>
           </div>
           ))}
-          </Space>
-        </div>
+        </Space>
       ),
     },
     {
@@ -477,7 +475,7 @@ class User(BaseModel):
         </Space>
       ),
       children: (
-        <div style={{ width: '100%', height: '100%', overflow: 'auto', overflowY: 'scroll', paddingBottom: '40px' }}>
+        <>
           {loading && (
             <div style={{ textAlign: 'center', padding: '40px' }}>
               <Spin size="large" />
@@ -635,7 +633,7 @@ class User(BaseModel):
               </div>
             </Card>
           )}
-        </div>
+        </>
       ),
     },
   ];
@@ -643,19 +641,24 @@ class User(BaseModel):
   return (
     <div style={{ 
       height: '100%', 
-      overflow: 'auto', 
-      overflowY: 'scroll',
-      padding: '16px 20px', 
-      paddingBottom: '40px',
+      display: 'flex',
+      flexDirection: 'column',
       background: '#0f172a' 
     }}>
       <Tabs
         defaultActiveKey="builtin"
         items={tabItems}
-        style={{ height: '100%' }}
+        style={{ 
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column'
+        }}
         tabBarStyle={{ 
+          margin: '0 20px',
+          paddingTop: '16px',
           marginBottom: 16,
           borderBottom: '1px solid rgba(148,163,184,0.14)',
+          flexShrink: 0
         }}
       />
     </div>
