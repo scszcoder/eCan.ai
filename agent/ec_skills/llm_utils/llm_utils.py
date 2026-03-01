@@ -1568,9 +1568,74 @@ def _get_logging_browser_use_class():
                 
                 @wraps(original_create)
                 async def create_with_logging(*args, **kwargs):
-                    response = await original_create(*args, **kwargs)
+                    # Step 1: Log request details and call LLM with detailed error handling
+                    import time
+                    start_time = time.time()
                     
-                    # Log organization header
+                    # Extract request info for logging
+                    model = kwargs.get('model', 'unknown')
+                    base_url = getattr(client, 'base_url', 'unknown')
+                    timeout = kwargs.get('timeout', 'default')
+                    
+                    logger.info(f"[BrowserUse] 🚀 Calling LLM: model={model}, base_url={base_url}, timeout={timeout}")
+                    
+                    try:
+                        response = await original_create(*args, **kwargs)
+                        elapsed = time.time() - start_time
+                        logger.info(f"[BrowserUse] ✅ LLM responded in {elapsed:.2f}s")
+                        
+                    except TimeoutError as e:
+                        elapsed = time.time() - start_time
+                        logger.error(f"[BrowserUse] ⏱️ TIMEOUT after {elapsed:.2f}s: {e}")
+                        logger.error(f"[BrowserUse] Model: {model}, Base URL: {base_url}")
+                        logger.error(f"[BrowserUse] 💡 Hint: Service is too slow or not responding")
+                        raise
+                        
+                    except ConnectionError as e:
+                        elapsed = time.time() - start_time
+                        logger.error(f"[BrowserUse] 🔌 CONNECTION ERROR after {elapsed:.2f}s: {e}")
+                        logger.error(f"[BrowserUse] Base URL: {base_url}")
+                        logger.error(f"[BrowserUse] Error type: {type(e).__name__}")
+                        
+                        # Provide specific hints based on error
+                        error_str = str(e).lower()
+                        if 'connection refused' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Service may not be running at {base_url}")
+                        elif 'connection reset' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Connection was reset by the server")
+                        
+                        raise
+                        
+                    except Exception as e:
+                        elapsed = time.time() - start_time
+                        error_type = type(e).__name__
+                        logger.error(f"[BrowserUse] ❌ LLM CALL FAILED after {elapsed:.2f}s: {error_type}: {e}")
+                        logger.error(f"[BrowserUse] Model: {model}, Base URL: {base_url}")
+                        
+                        # Log detailed exception info
+                        import traceback
+                        logger.error(f"[BrowserUse] Exception details:\n{traceback.format_exc()}")
+                        
+                        # Provide hints based on error message
+                        error_str = str(e).lower()
+                        if 'connection refused' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Service may not be running at {base_url}")
+                        elif 'timeout' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Service is too slow or not responding")
+                        elif 'name or service not known' in error_str or 'nodename nor servname provided' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Cannot resolve hostname {base_url}")
+                        elif 'connection reset' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Connection was reset by the server")
+                        elif '401' in error_str or 'unauthorized' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Invalid API key or authentication failed")
+                        elif '404' in error_str or 'not found' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Model or endpoint not found")
+                        elif '500' in error_str or 'internal server error' in error_str:
+                            logger.error(f"[BrowserUse] 💡 Hint: Server internal error, check service logs")
+                        
+                        raise
+                    
+                    # Step 2: Log organization header
                     try:
                         org = response.response.headers.get("openai-organization")
                         if org:
@@ -1578,7 +1643,7 @@ def _get_logging_browser_use_class():
                     except AttributeError:
                         pass
                     
-                    # Log and apply generic output cleaning for ALL providers
+                    # Step 3: Log and apply generic output cleaning for ALL providers
                     try:
                         if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
                             message = response.choices[0].message
