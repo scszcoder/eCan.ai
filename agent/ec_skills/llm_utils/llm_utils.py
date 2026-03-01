@@ -1750,6 +1750,19 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
             except Exception as e:
                 logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply Qwen output adapter: {e}")
         
+        # Add context_length attribute to LLM instance for content limiting in browser_use
+        # This prevents input prompts from exceeding the model's context window
+        # All defaults and error handling are in LLMConfig.get_max_tokens()
+        from gui.config.llm_config import LLMConfig
+        llm_config = LLMConfig()
+        model_name = bu_config.get('model', '')
+        context_length = llm_config.get_max_tokens(provider_type_id or '', model_name)
+        llm_instance.context_length = context_length
+        logger.info(
+            f"[_create_and_validate_browser_use_llm] ✅ Set context_length={context_length} "
+            f"for {provider_type_id}/{model_name}"
+        )
+        
         # Validate it's BrowserUseChatOpenAI or an adapter-wrapped instance
         # Adapters (DeepSeekCompatibleLLM, QwenCompatibleLLM) wrap BrowserUseChatOpenAI
         # and are fully compatible with browser-use
@@ -1866,7 +1879,8 @@ def create_browser_use_llm_by_provider_type(
     if provider_type_id in ['openai', 'azure_openai'] or 'openai' in class_name:
         bu_config = {
             'model': model_name or default_config['model'],
-            'api_key': api_key or default_config['api_key']
+            'api_key': api_key or default_config['api_key'],
+            'provider_type_id': provider_type_id,
         }
         if base_url:
             bu_config['base_url'] = base_url
@@ -1882,7 +1896,8 @@ def create_browser_use_llm_by_provider_type(
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key',
-            'timeout': 180.0  # 3 minutes timeout for slow inference (especially for Ollama/local models)
+            'timeout': 180.0,  # 3 minutes timeout for slow inference (especially for Ollama/local models)
+            'provider_type_id': provider_type_id,
         }
         
         # All major providers support response_format (JSON mode)
@@ -1993,7 +2008,8 @@ def create_browser_use_llm_by_provider_type(
         
         bu_config = {
             'model': model_name or default_config['model'],
-            'api_key': api_key or default_config['api_key']
+            'api_key': api_key or default_config['api_key'],
+            'provider_type_id': provider_type_id,
         }
         if base_url:
             bu_config['base_url'] = base_url
@@ -2021,7 +2037,8 @@ def create_browser_use_llm_by_provider_type(
         
         bu_config = {
             'model': model_name or default_config['model'],
-            'api_key': api_key or default_config['api_key']
+            'api_key': api_key or default_config['api_key'],
+            'provider_type_id': provider_type_id,
         }
         if base_url:
             bu_config['base_url'] = base_url
@@ -2178,11 +2195,13 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     return None
                 
                 # Attach supports_vision to LLM instance for later use
+                # Note: context_length is already set by _create_and_validate_browser_use_llm()
                 if llm_instance is not None:
                     llm_instance.supports_vision = supports_vision
                     log_msg = f"🤖 [create_browser_use_llm] Model {model_name} supports_vision: {supports_vision}"
                     logger.debug(log_msg)
                     send_skill_editor_log("log", log_msg)
+                
                 return llm_instance
                         
             except Exception as e:
@@ -2813,18 +2832,126 @@ def step3(state): return {"c": state["b"] * 2}
 CONTEXT_WINDOW_SIZE = 25536  # Conservative limit for GPT-4
 
 
-def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> list:
+def _compress_tool_result(content: str, max_length: int = 500) -> str:
+    """
+    Compress tool result content to save tokens while preserving key information.
+    
+    Strategy:
+    - Success/failure status: Keep complete
+    - Error messages: Keep first 200 chars
+    - Data results:
+      - Lists: Keep first 3 items + "...total N items"
+      - Long text: Keep first 300 chars + "...(truncated)"
+    - HTML/JSON: Extract key fields, discard redundant parts
+    
+    Args:
+        content: Tool result content to compress
+        max_length: Maximum length to keep (default: 500)
+        
+    Returns:
+        Compressed content string
+    """
+    if not content or len(content) <= max_length:
+        return content
+    
+    # Try to parse as JSON
+    try:
+        import json
+        data = json.loads(content)
+        
+        if isinstance(data, list):
+            # List: keep first 3 items
+            compressed = data[:3]
+            omitted = len(data) - 3
+            result = json.dumps(compressed, ensure_ascii=False)
+            if omitted > 0:
+                result += f"\n...(total {len(data)} items, {omitted} omitted)"
+            return result
+            
+        elif isinstance(data, dict):
+            # Dict: only keep key fields
+            key_fields = ['status', 'success', 'error', 'message', 'data', 'result', 'code']
+            compressed = {k: v for k, v in data.items() if k in key_fields}
+            return json.dumps(compressed, ensure_ascii=False)
+    except:
+        pass
+    
+    # Plain text: truncate
+    return content[:max_length] + f"\n...(truncated, original length: {len(content)} chars)"
+
+
+def _remove_old_screenshots(history: list, keep_recent: int = 3) -> list:
+    """
+    Remove old screenshots from history, keeping only the most recent N.
+    
+    In Vision mode, screenshots consume significant tokens (1000-3000 each).
+    Usually only the most recent screenshots are needed to understand current state.
+    
+    Args:
+        history: List of messages
+        keep_recent: Number of recent screenshots to keep (default: 3)
+        
+    Returns:
+        History with old screenshots removed
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+    
+    screenshot_count = 0
+    result = []
+    
+    # Traverse from end to start (keep most recent)
+    for msg in reversed(history):
+        if isinstance(msg, (HumanMessage, AIMessage)):
+            content = msg.content
+            has_image = False
+            
+            # Check if message contains image
+            if isinstance(content, list):
+                has_image = any(
+                    isinstance(item, dict) and item.get('type') == 'image_url'
+                    for item in content
+                )
+            elif isinstance(content, str):
+                has_image = 'data:image' in content or 'base64' in content
+            
+            if has_image:
+                screenshot_count += 1
+                if screenshot_count > keep_recent:
+                    # Remove image, keep only text part
+                    if isinstance(content, list):
+                        text_only = [item for item in content if item.get('type') == 'text']
+                        msg.content = text_only if text_only else "[Screenshot removed to save tokens]"
+                    else:
+                        msg.content = "[Screenshot removed to save tokens]"
+        
+        result.append(msg)
+    
+    return list(reversed(result))
+
+
+def get_recent_context(
+    history: list, 
+    max_tokens: int = CONTEXT_WINDOW_SIZE,
+    compress_tools: bool = True,
+    remove_old_screenshots: bool = True,
+    keep_screenshots: int = 3
+) -> list:
     """
     Returns a subset of chat history that fits within the token limit.
 
     Strategy:
     1. Always include the most recent SystemMessage (if exists) for context
-    2. Include as many recent messages as possible within the token limit
-    3. Estimate ~4 characters per token (conservative estimate)
+    2. Optimize for Agent scenarios: compress tool results, remove old screenshots
+    3. Include as many recent messages as possible within the token limit
+    4. Use conservative token estimation: ~3 characters per token (safer than 4)
+    5. Trust the caller to provide appropriate max_tokens based on model capabilities
 
     Args:
         history: List of LangChain message objects (SystemMessage, HumanMessage, AIMessage)
-        max_tokens: Maximum number of tokens to include
+        max_tokens: Maximum number of tokens to include (from model's actual capabilities)
+        compress_tools: Compress tool results to save tokens (default: True)
+        remove_old_screenshots: Remove old screenshots in Vision mode (default: True)
+        keep_screenshots: Number of recent screenshots to keep (default: 3)
 
     Returns:
         List of messages that fit within the token limit
@@ -2868,13 +2995,43 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
     if not filtered_history:
         return []
 
-    # Simple token estimation: ~4 chars per token (conservative)
+    # Agent optimization: Remove old screenshots to save tokens
+    if remove_old_screenshots:
+        original_count = len(filtered_history)
+        filtered_history = _remove_old_screenshots(filtered_history, keep_recent=keep_screenshots)
+        if len(filtered_history) < original_count:
+            logger.debug(f"[get_recent_context] Removed old screenshots, kept {keep_screenshots} most recent")
+
+    # Agent optimization: Compress tool results to save tokens
+    if compress_tools:
+        compressed_count = 0
+        for msg in filtered_history:
+            # Check if this is a tool result message
+            is_tool_result = (
+                msg.type in ('tool', 'function') or 
+                '[Tool Result]' in str(msg.content)
+            )
+            
+            if is_tool_result and hasattr(msg, 'content'):
+                original_len = len(str(msg.content))
+                if original_len > 500:
+                    msg.content = _compress_tool_result(str(msg.content), max_length=500)
+                    compressed_count += 1
+                    logger.debug(f"[get_recent_context] Compressed tool result: {original_len} → {len(msg.content)} chars")
+        
+        if compressed_count > 0:
+            logger.debug(f"[get_recent_context] Compressed {compressed_count} tool results")
+
+    # Use unified token estimation from token_utils module
+    # This ensures consistency across all components
+    from agent.ec_skills.browser_use_extension.token_utils import estimate_message_tokens
+    
     def estimate_tokens(msg) -> int:
-        try:
-            content = msg.content if hasattr(msg, 'content') else str(msg)
-            return len(str(content)) // 4
-        except Exception:
-            return 0
+        """
+        Estimate tokens for a message using unified token_utils.
+        Uses 2.5 chars/token for mixed content (more accurate than old 3 chars/token).
+        """
+        return estimate_message_tokens(msg)
 
     # Find the most recent SystemMessage
     system_msg = None

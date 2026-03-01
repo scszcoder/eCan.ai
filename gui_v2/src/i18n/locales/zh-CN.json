@@ -246,10 +246,168 @@
         "sample": "示例提示词",
         "mine": "我的提示词"
       },
+      "tabs": {
+        "editor": "编辑器",
+        "guide": "设计指南",
+        "templates": "模板库",
+        "examples": "示例库"
+      },
+      "quickActions": {
+        "viewGuide": "查看设计指南，学习最佳实践",
+        "useTemplate": "使用模板，快速开始",
+        "backToEditor": "返回编辑器",
+        "startWriting": "开始编写"
+      },
+      "viewGuide": "查看指南",
+      "useTemplate": "使用模板",
+      "guide": {
+        "title": "提示词设计指南",
+        "subtitle": "掌握提示词设计的核心原则和最佳实践",
+        "learnTip": "学习完设计原则后，可以使用模板快速开始",
+        "principlesTitle": "核心设计原则",
+        "techniquesTitle": "编写技巧",
+        "mistakesTitle": "常见错误与修正",
+        "good": "好",
+        "bad": "差"
+      },
+      "templates": {
+        "title": "提示词模板库",
+        "subtitle": "精选优质模板，快速开始你的提示词设计",
+        "usageTip": "点击“使用模板”按钮可将模板内容复制到编辑器",
+        "copied": "模板已复制到剪贴板",
+        "copyFailed": "复制失败",
+        "copy": "复制模板",
+        "use": "使用模板",
+        "viewTemplate": "查看模板",
+        "keyPoints": "要点解析",
+        "steps": "步",
+        "complexity": {
+          "simple": "简单",
+          "medium": "中等",
+          "complex": "复杂"
+        },
+        "ecommerceSimple": {
+          "title": "电商简单搜索",
+          "desc": "在电商网站搜索商品并获取基本信息",
+          "template": "任务：在 {website} 搜索 '{product_name}'\n\n步骤：\n1. 访问 {website}\n2. 在搜索框输入搜索词\n3. 提取前 {count} 个结果\n\n输出格式：\n| 商品 | 价格 | 评分 |\n|------|------|------|\n| ...  | ...  | ...  |\n\n验证点：\n- ✓ 成功访问网站\n- ✓ 搜索执行成功\n- ✓ 商品详情已提取"
+        },
+        "ecommerceFilter": {
+          "title": "电商筛选对比",
+          "desc": "搜索并筛选商品，对比多个结果",
+          "template": "任务：在 {website} 搜索并对比 {product_category}\n\n筛选条件：\n- 价格范围：{min_price} - {max_price}\n- 品牌：{brand_list}\n- 评分：{min_rating}+ 星\n- 配送：{shipping_requirement}\n\n步骤：\n1. 访问 {website}\n2. 搜索 '{product_category}'\n3. 应用价格筛选\n4. 应用品牌筛选\n5. 应用评分筛选\n6. 按 {sort_criteria} 排序\n7. 提取前 {count} 个商品\n8. 生成对比表格\n\n输出格式：\n| 商品 | 品牌 | 价格 | 评分 | 评论数 | 配送 |\n|------|------|------|------|--------|------|\n| ...  | ...  | ...  | ...  | ...    | ...  |\n\n推荐：\n基于对比结果，推荐最佳性价比选项并说明理由。\n\n验证点：\n- ✓ 所有筛选条件正确应用\n- ✓ 提取了 {count} 个商品\n- ✓ 生成了对比表格\n- ✓ 提供了推荐"
+        },
+        "ecommerceMulti": {
+          "title": "跨店比价",
+          "desc": "访问多个店铺，对比价格和服务",
+          "template": "任务：在 {website} 对比 {store_count} 个不同店铺的 '{product_name}'\n\n对比维度：\n- 商品价格\n- 店铺评分\n- 月销量\n- 评论数\n- 好评率\n- 发货地\n- 是否包邮\n- 退换政策\n\n步骤：\n1. 访问 {website}\n2. 搜索 '{product_name}'\n3. 点击第一个店铺的商品\n4. 提取所有对比维度\n5. 返回搜索结果\n6. 点击第二个店铺的商品（不同卖家）\n7. 提取所有对比维度\n8. 对第三个店铺重复操作\n9. 汇总对比数据\n10. 计算每个店铺的价值评分\n11. 生成详细对比表格\n12. 提供推荐及理由\n\n输出格式：\n## 对比表格\n| 店铺 | 价格 | 评分 | 销量 | 评论数 | 好评率 | 发货地 | 配送 | 退换 |\n|------|------|------|------|--------|--------|--------|------|------|\n| ...  | ...  | ...  | ...  | ...    | ...    | ...    | ...  | ...  |\n\n## 价值分析\n- 店铺1：[评分] - [理由]\n- 店铺2：[评分] - [理由]\n- 店铺3：[评分] - [理由]\n\n## 推荐\n最佳选择：[店铺名称]\n理由：[综合考虑价格、质量、服务的详细说明]\n\n错误处理：\n- 如果店铺数据不足，跳过并尝试下一个\n- 如果找到的店铺少于 {store_count} 个，报告实际数量\n- 如果商品缺货，报告并建议替代品\n\n验证点：\n- ✓ 访问了 {store_count} 个不同店铺\n- ✓ 提取了所有对比维度\n- ✓ 生成了对比表格\n- ✓ 提供了价值分析\n- ✓ 给出了最终推荐"
+        },
+        "contentGen": {
+          "title": "内容生成",
+          "desc": "生成营销文案、邮件等内容",
+          "template": "角色：你是一位专业的营销文案撰写专家\n\n任务：为 {product/service} 创作 {content_type}\n\n目标受众：\n- 人口统计：{age_group}，{location}\n- 兴趣爱好：{interests}\n- 痛点需求：{pain_points}\n\n语气：{tone}（例如：专业、友好、紧迫）\n\n要求：\n- 长度：{word_count} 字\n- 包含：{key_points}\n- 行动号召：{cta}\n- 避免：{avoid_list}\n\n输出格式：\n## 标题（如果是邮件）\n[吸引人的标题]\n\n## 正文内容\n[内容主体]\n\n## 行动号召\n[清晰的 CTA]\n\n指导原则：\n- 使用有力的词汇和情感触发点\n- 保持句子简短易读\n- 如有可能包含社会证明\n- 以明确的下一步行动结尾"
+        },
+        "codeGen": {
+          "title": "代码生成",
+          "desc": "生成特定功能的代码"
+        }
+      },
       "examples": {
+        "title": "优秀提示词示例",
+        "subtitle": "学习实战案例，掌握提示词设计精髓",
+        "viewPrompt": "查看完整提示词",
+        "highlights": "设计亮点",
+        "performanceMetrics": "性能指标",
+        "tabs": {
+          "builtin": "内置示例",
+          "documentation": "完整文档"
+        },
+        "loadingDoc": "加载文档中...",
+        "loadError": "加载失败",
+        "categories": {
+          "ecommerce": "电商场景",
+          "content": "内容生成",
+          "code": "代码生成"
+        },
+        "levels": {
+          "beginner": "初级",
+          "intermediate": "中级",
+          "advanced": "高级"
+        },
+        "ecommerceBasic": {
+          "title": "基础商品搜索",
+          "desc": "在电商网站搜索特定商品并提取关键信息",
+          "prompt": "任务：在 Amazon 搜索 \"无线鼠标\"\n\n步骤：\n1. 打开 Amazon 首页\n2. 在搜索框输入 \"无线鼠标\"\n3. 点击搜索按钮\n4. 提取前 5 个商品的以下信息：\n   - 商品名称\n   - 价格\n   - 评分\n   - 评论数\n\n输出格式：\n| 商品名称 | 价格 | 评分 | 评论数 |\n|---------|------|------|--------|\n\n验证点：\n✓ 成功打开网站\n✓ 搜索执行成功\n✓ 提取到 5 个商品信息\n✓ 所有字段完整",
+          "highlight1": "明确的步骤分解（4步）",
+          "highlight2": "清晰的数据字段定义",
+          "highlight3": "表格化输出格式",
+          "highlight4": "完整的验证清单",
+          "results": "成功率: 95% | 平均耗时: 15秒 | 数据完整性: 98%"
+        },
+        "ecommerceAdvanced": {
+          "title": "多条件筛选对比",
+          "desc": "使用多个筛选条件，对比不同商品",
+          "prompt": "任务：在 Amazon 对比游戏笔记本\n\n筛选条件：\n- 价格范围：$800 - $1500\n- 品牌：ASUS, MSI, Lenovo\n- 最低评分：4.0 星\n- 配送：仅限免费配送\n\n步骤：\n1. 访问 Amazon\n2. 搜索 \"gaming laptop\"\n3. 应用价格筛选器\n4. 应用品牌筛选器\n5. 应用评分筛选器\n6. 应用配送筛选器\n7. 按 \"最佳评价\" 排序\n8. 提取前 3 个商品的详细信息\n\n输出格式：\n| 商品 | 价格 | CPU | 内存 | 显卡 | 评分 | 评论数 |\n|------|------|-----|------|------|------|--------|\n\n对比分析：\n- 性价比最高：[商品名]\n- 配置最强：[商品名]\n- 用户评价最好：[商品名]\n\n验证点：\n✓ 所有筛选条件已应用\n✓ 提取到 3 个商品\n✓ 包含完整的对比分析",
+          "highlight1": "多维度筛选条件",
+          "highlight2": "详细的产品规格提取",
+          "highlight3": "智能对比分析",
+          "highlight4": "结构化验证流程",
+          "results": "成功率: 88% | 平均耗时: 35秒 | 筛选准确性: 92%"
+        },
+        "contentGen": {
+          "title": "营销邮件生成",
+          "desc": "生成专业的营销邮件内容",
+          "prompt": "角色：你是一位专业的营销文案撰写专家\n\n任务：为新产品发布撰写营销邮件\n\n产品信息：\n- 产品名称：智能降噪耳机 Pro\n- 核心功能：主动降噪、40小时续航、快速充电\n- 目标受众：25-40岁职场人士\n- 优惠活动：限时8折优惠\n\n要求：\n1. 邮件标题：吸引人，不超过50字\n2. 正文内容：\n   - 开头：引起兴趣\n   - 中间：介绍产品核心优势（3个要点）\n   - 结尾：明确的行动号召（CTA）\n3. 语气：专业但友好\n4. 长度：150-200字\n\n约束：\n- 不使用夸张或虚假宣传\n- 避免垃圾邮件常用词\n- 包含优惠信息\n\n输出格式：\n【邮件标题】\n[标题内容]\n\n【邮件正文】\n[正文内容]",
+          "highlight1": "明确的角色定义",
+          "highlight2": "详细的产品信息",
+          "highlight3": "结构化的内容要求",
+          "highlight4": "清晰的约束条件",
+          "results": "质量评分: 4.5/5.0 | 用户满意度: 90% | 转化率提升: 25%"
+        },
+        "codeGen": {
+          "title": "API 接口生成",
+          "desc": "生成 RESTful API 接口代码",
+          "prompt": "任务：生成用户管理 RESTful API\n\n技术栈：\n- 语言：Python\n- 框架：FastAPI\n- 数据库：PostgreSQL\n- ORM：SQLAlchemy\n\n功能需求：\n1. 用户注册（POST /api/users/register）\n2. 用户登录（POST /api/users/login）\n3. 获取用户信息（GET /api/users/{user_id}）\n4. 更新用户信息（PUT /api/users/{user_id})\n\n代码要求：\n- 包含完整的类型注解\n- 添加输入验证\n- 包含错误处理\n- 添加必要的注释\n- 遵循 PEP 8 规范\n\n输出格式：\n1. 数据模型定义\n2. API 路由实现\n3. 请求/响应示例\n\n示例：\n```python\nfrom fastapi import FastAPI, HTTPException\nfrom pydantic import BaseModel\n\nclass User(BaseModel):\n    username: str\n    email: str\n    ...\n```",
+          "highlight1": "完整的技术栈说明",
+          "highlight2": "详细的功能需求",
+          "highlight3": "明确的代码规范",
+          "highlight4": "提供代码示例",
+          "results": "代码质量: A级 | 可运行性: 95% | 规范符合度: 98%"
+        },
         "write_a_marketing_email": {
           "title": "写一封营销邮件",
           "roleToneContext": "你是一名营销助理。语气：友好、简洁。",
+          "techniques": {
+            "role": {
+              "title": "1. 角色定义",
+              "desc": "明确 AI 的角色和专业领域",
+              "example": "你是一位专业的电商分析师，擅长产品对比分析。"
+            },
+            "context": {
+              "title": "2. 背景信息",
+              "desc": "提供必要的上下文和约束条件",
+              "example": "背景：用户是大学生，预算有限，需要购买游戏笔记本。"
+            },
+            "task": {
+              "title": "3. 任务描述",
+              "desc": "清晰描述要完成的具体任务",
+              "example": "任务：在 Amazon 搜索游戏笔记本，价格筛选 $800-$1500，对比前 3 款。"
+            },
+            "format": {
+              "title": "4. 输出格式",
+              "desc": "指定期望的输出格式和结构",
+              "example": "输出：Markdown 表格，包含列：产品、价格、CPU、内存、评分。"
+            },
+            "examples": {
+              "title": "5. 示例说明",
+              "desc": "提供期望输出的具体示例",
+              "example": "示例：\n| 产品 | 价格 | CPU | 内存 |\n| ASUS ROG | $1299 | i7-12700H | 16GB |"
+            },
+            "constraints": {
+              "title": "6. 约束条件",
+              "desc": "明确限制和边界条件",
+              "example": "约束：最多 3 个产品，仅限 4 星以上卖家，仅限免费配送。"
+            }
+          },
           "goals": {
             "0": "介绍新产品",
             "1": "提升点击率"
