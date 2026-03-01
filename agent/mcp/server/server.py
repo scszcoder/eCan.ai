@@ -2157,7 +2157,11 @@ async def os_open_app(mainwin, args):
 
 async def os_close_app(mainwin, args):
     try:
-        app_window = gw.getWindowsWithTitle(args["input"]["win_title"])[0]
+        win_title = args["input"]["win_title"]
+        windows = gw.getWindowsWithTitle(win_title)
+        if not windows:
+            return [TextContent(type="text", text=f"Window '{win_title}' not found. Is the app running?")]
+        app_window = windows[0]
         app_window.close()
 
         msg = "completed closing app"
@@ -2170,7 +2174,11 @@ async def os_close_app(mainwin, args):
 
 async def os_switch_to_app(mainwin, args):
     try:
-        target_window = gw.getWindowsWithTitle(args["input"]["win_title"])[0]
+        win_title = args["input"]["win_title"]
+        windows = gw.getWindowsWithTitle(win_title)
+        if not windows:
+            return [TextContent(type="text", text=f"Window '{win_title}' not found. Is the app running?")]
+        target_window = windows[0]
 
         # Activate the window (bring it to front)
         target_window.activate()

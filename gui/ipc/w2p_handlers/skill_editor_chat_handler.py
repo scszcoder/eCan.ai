@@ -89,9 +89,12 @@ def _get_chat_history_path() -> str:
     try:
         from config.app_info import AppInfo
         app_info = AppInfo()
-        return os.path.join(app_info.appdata_home_path, "skill_editor_chat_history.json")
+        base = getattr(app_info, "appdata_path", None) or getattr(app_info, "app_home_path", None)
+        if base:
+            return os.path.join(base, "skill_editor_chat_history.json")
     except Exception:
-        return "skill_editor_chat_history.json"
+        pass
+    return "skill_editor_chat_history.json"
 
 
 class SkillEditorChatStore:

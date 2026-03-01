@@ -62,9 +62,10 @@ import time
 def main(node_state, *, runtime, store):
     # Build the output object
     print("in myfunc0.........", node_state)
-    time.sleep(5)
+    time.sleep(1)
     print("myfunc0 woke now, outa here.....")
-    state["result"] = {"status": "myfunc0 succeeded!!!"}
+    state["result"]["llm_result"] = {"all_done": False}
+    state["result"]["status"]"myfunc0 succeeded!!!"
     return state
 """
 
