@@ -66,6 +66,21 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 </FormItem>
               );
             }
+            if (et === 'timer') {
+              return (
+                <FormItem key={`main-extra-${et}`} name="Timer Name" type="string" vertical>
+                  <Field<any> name="inputsValues.timerName">
+                    {({ field: tnField }) => (
+                      <Input
+                        value={String(tnField.value?.content ?? '')}
+                        placeholder="e.g. check_orders"
+                        onChange={(val) => tnField.onChange({ type: 'constant', content: String(val) })}
+                      />
+                    )}
+                  </Field>
+                </FormItem>
+              );
+            }
             return null;
           }}
         </Field>
@@ -77,7 +92,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
               const toObj = (item: any) =>
                 typeof item === 'string'
                   ? { type: item }
-                  : { type: String(item?.type ?? 'human_chat'), messageType: item?.messageType ?? '', agentIds: item?.agentIds ?? '' };
+                  : { type: String(item?.type ?? 'human_chat'), messageType: item?.messageType ?? '', agentIds: item?.agentIds ?? '', timerName: item?.timerName ?? '' };
               const arr = (raw || []).map(toObj);
               const setArray = (next: any[]) => field.onChange({ type: 'constant', content: next });
               const addOne = () => setArray([...(arr || []), { type: 'human_chat' }]);
@@ -91,7 +106,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 next[idx] = { ...next[idx], type: val };
                 setArray(next);
               };
-              const updateExtraAt = (idx: number, key: 'messageType' | 'agentIds', val: string) => {
+              const updateExtraAt = (idx: number, key: 'messageType' | 'agentIds' | 'timerName', val: string) => {
                 const next = [...arr];
                 next[idx] = { ...next[idx], [key]: val };
                 setArray(next);
@@ -126,6 +141,15 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                             <Input
                               value={item.agentIds ?? ''}
                               onChange={(val) => updateExtraAt(i, 'agentIds', String(val))}
+                            />
+                          </FormItem>
+                        )}
+                        {et === 'timer' && (
+                          <FormItem key={`list-extra-${i}-timer`} name="Timer Name" type="string" vertical>
+                            <Input
+                              value={item.timerName ?? ''}
+                              placeholder="e.g. check_orders"
+                              onChange={(val) => updateExtraAt(i, 'timerName', String(val))}
                             />
                           </FormItem>
                         )}

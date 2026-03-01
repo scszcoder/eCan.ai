@@ -700,6 +700,15 @@ try:
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
+        # Install power monitor for sleep/wake detection (cross-platform)
+        try:
+            from utils.power_monitor import get_power_monitor
+            power_monitor = get_power_monitor()
+            power_monitor.install()
+            logger.info("[Startup] Power monitor installed — sleep/wake detection active")
+        except Exception as e:
+            logger.warning(f"[Startup] Power monitor install failed (non-critical): {e}")
+
         # Async preload will be started by WebGUI after event loop is running
         # This allows heavy modules to load in background during user login
         progress_manager.update_progress(58, "Preparing background preload...")
@@ -755,7 +764,7 @@ try:
         except Exception as e:
             logger.warning(f"[OTA] Failed to schedule auto check: {e}")
 
-        # Setup cleanup for OTA updater on application exit
+        # Setup cleanup for OTA updater and sleep inhibitor on application exit
         def _cleanup_on_quit():
             logger.info("Application is about to quit. Cleaning up resources...")
             if hasattr(ctx, 'ota_updater') and ctx.ota_updater:
@@ -763,6 +772,12 @@ try:
                 ctx.ota_updater.stop_auto_check()
             else:
                 logger.info("No active OTA updater found to stop.")
+            # Release sleep inhibitor so OS can sleep normally after app exit
+            try:
+                from utils.sleep_inhibitor import get_sleep_inhibitor
+                get_sleep_inhibitor().force_release()
+            except Exception:
+                pass
 
         app.aboutToQuit.connect(_cleanup_on_quit)
         logger.info("Registered OTA updater cleanup on application quit.")

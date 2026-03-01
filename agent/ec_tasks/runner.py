@@ -39,6 +39,7 @@ from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor, _create_message
 from .timer_service import get_timer_service, TimerService
+from utils.sleep_inhibitor import get_sleep_inhibitor
 
 if TYPE_CHECKING:
     from agent.ec_agent import EC_Agent
@@ -616,12 +617,13 @@ class TaskRunner(Generic[Context]):
         """Extract all event types and their match_fields from a skill's pend_event nodes.
         
         Inspects the skill's diagram (flowgram) for pend_event_node type nodes
-        and collects their eventType, pendingSources, and matchFields configuration.
+        and collects their eventType, pendingSources, matchFields, and timerName.
         
         Returns:
             List of dicts, each with:
               - event_type (str): The event type string
               - match_fields (list): Array of {event_path, task_path} from the node config
+              - timer_name (str|None): Timer name if event_type is 'timer'
         """
         results: List[Dict[str, Any]] = []
         try:
@@ -669,10 +671,16 @@ class TaskRunner(Generic[Context]):
                             if ep:  # event_path is required; task_path can be blank
                                 match_fields.append({"event_path": ep, "task_path": tp})
                 
+                # Extract timerName from main event config
+                main_timer_name = ((inputs.get("timerName") or {}).get("content") or "").strip()
+                
                 # Main event type
                 main_et = (inputs.get("eventType") or {}).get("content")
                 if isinstance(main_et, str) and main_et.strip():
-                    results.append({"event_type": main_et.strip(), "match_fields": match_fields})
+                    entry = {"event_type": main_et.strip(), "match_fields": match_fields}
+                    if main_et.strip() == "timer" and main_timer_name:
+                        entry["timer_name"] = main_timer_name
+                    results.append(entry)
                 
                 # Additional pending sources
                 pending_raw = (inputs.get("pendingSources") or {}).get("content") or []
@@ -683,17 +691,22 @@ class TaskRunner(Generic[Context]):
                         elif isinstance(src, dict):
                             st = (src.get("type") or "").strip()
                             if st:
-                                results.append({"event_type": st, "match_fields": match_fields})
+                                entry = {"event_type": st, "match_fields": match_fields}
+                                # Extract timerName from pending source item
+                                src_timer = (src.get("timerName") or "").strip()
+                                if st == "timer" and src_timer:
+                                    entry["timer_name"] = src_timer
+                                results.append(entry)
         except Exception as e:
             logger.debug(f"[EventRouting] Error extracting event types from skill: {e}")
         
-        # Deduplicate by event_type while preserving order (keep first occurrence)
+        # Deduplicate by (event_type, timer_name) while preserving order
         seen = set()
         unique = []
         for entry in results:
-            et = entry["event_type"]
-            if et not in seen:
-                seen.add(et)
+            key = (entry["event_type"], entry.get("timer_name", ""))
+            if key not in seen:
+                seen.add(key)
                 unique.append(entry)
         return unique
     
@@ -705,6 +718,8 @@ class TaskRunner(Generic[Context]):
         entries to the global config.
         
         If the node has match_fields configured, uses match_fields-based routing.
+        For timer events with a timer_name, auto-generates a match_fields rule
+        that matches on the timer_name field in the event.
         Otherwise falls back to routing_key: command.run_id for dynamic matching.
         
         Skips event types that already have a routing rule in the global config.
@@ -722,9 +737,14 @@ class TaskRunner(Generic[Context]):
             for entry in event_entries:
                 et = entry["event_type"]
                 node_match_fields = entry.get("match_fields") or []
+                timer_name = entry.get("timer_name") or ""
                 
-                if et in self._global_event_routing:
-                    logger.debug(f"[EventRouting] Event type '{et}' already has a routing rule, skipping")
+                # For timer events with a name, use a composite routing key
+                # so multiple tasks can listen for different timer names
+                routing_key_name = f"{et}:{timer_name}" if timer_name else et
+                
+                if routing_key_name in self._global_event_routing:
+                    logger.debug(f"[EventRouting] Event '{routing_key_name}' already has a routing rule, skipping")
                     continue
                 
                 rule: Dict[str, Any] = {
@@ -734,7 +754,21 @@ class TaskRunner(Generic[Context]):
                     "_auto_added_by_skill": getattr(skill, "name", ""),
                 }
                 
-                if node_match_fields:
+                if et == "timer" and timer_name:
+                    # Auto-generate match_fields for timer events:
+                    # match event.timer_name == configured timer_name (literal)
+                    timer_match = list(node_match_fields) if node_match_fields else []
+                    timer_match.append({
+                        "event_path": "timer_name",
+                        "literal": timer_name,
+                    })
+                    rule["match_fields"] = timer_match
+                    rule["match_mode"] = "all"
+                    logger.info(
+                        f"[EventRouting] Added timer routing rule: event 'timer' "
+                        f"(name='{timer_name}') -> task '{task.name}'"
+                    )
+                elif node_match_fields:
                     # Use match_fields from the node config for declarative matching
                     rule["match_fields"] = node_match_fields
                     rule["match_mode"] = "all"
@@ -749,7 +783,7 @@ class TaskRunner(Generic[Context]):
                         f"[EventRouting] Added routing_key rule: event '{et}' -> task '{task.name}' (id={task.id})"
                     )
                 
-                self._global_event_routing[et] = rule
+                self._global_event_routing[routing_key_name] = rule
                 amended = True
             
             if amended:
@@ -869,7 +903,9 @@ class TaskRunner(Generic[Context]):
         """Evaluate match_fields rules against a request and task.
         
         Args:
-            match_fields: List of {event_path, task_path, transform?} dicts.
+            match_fields: List of {event_path, task_path, transform?, literal?} dicts.
+                If 'literal' is present, compare event value against the static string
+                (ignores task_path). Otherwise compare event value vs task value.
             match_mode: "all" (every pair must match) or "any" (at least one).
             request: The incoming event/request object.
             task: The candidate ManagedTask.
@@ -886,26 +922,42 @@ class TaskRunner(Generic[Context]):
                 continue
             event_path = mf.get("event_path") or ""
             task_path = mf.get("task_path") or ""
+            literal = mf.get("literal")
             transform = mf.get("transform") or ""
             
-            if not event_path or not task_path:
+            if not event_path:
+                continue
+            # Need either task_path or literal to compare against
+            if not task_path and literal is None:
                 continue
             
             event_val = self._extract_nested_value(request, event_path)
-            task_val = self._extract_task_value(task, task_path)
             
-            # Apply transform to both sides
-            if transform:
-                event_val = self._apply_match_transform(event_val, transform)
-                task_val = self._apply_match_transform(task_val, transform)
-            
-            matched = (event_val is not None and task_val is not None
-                       and str(event_val) == str(task_val))
-            results.append(matched)
-            logger.debug(
-                f"[ROUTING] match_field: event.{event_path}={event_val} vs task.{task_path}={task_val} "
-                f"→ {'✅' if matched else '❌'}"
-            )
+            if literal is not None:
+                # Compare event value against a static literal string
+                if transform:
+                    event_val = self._apply_match_transform(event_val, transform)
+                matched = (event_val is not None and str(event_val) == str(literal))
+                results.append(matched)
+                logger.debug(
+                    f"[ROUTING] match_field: event.{event_path}={event_val} vs literal='{literal}' "
+                    f"→ {'✅' if matched else '❌'}"
+                )
+            else:
+                task_val = self._extract_task_value(task, task_path)
+                
+                # Apply transform to both sides
+                if transform:
+                    event_val = self._apply_match_transform(event_val, transform)
+                    task_val = self._apply_match_transform(task_val, transform)
+                
+                matched = (event_val is not None and task_val is not None
+                           and str(event_val) == str(task_val))
+                results.append(matched)
+                logger.debug(
+                    f"[ROUTING] match_field: event.{event_path}={event_val} vs task.{task_path}={task_val} "
+                    f"→ {'✅' if matched else '❌'}"
+                )
         
         if not results:
             return False
@@ -947,7 +999,19 @@ class TaskRunner(Generic[Context]):
         
         try:
             # Look up rule in global routing table
+            # For timer events, also try composite key "timer:<timer_name>"
             rule = self._global_event_routing.get(etype)
+            if not isinstance(rule, dict) and etype == "timer":
+                timer_name = None
+                if isinstance(event, dict):
+                    timer_name = event.get("timer_name") or (event.get("data") or {}).get("timer_name")
+                elif isinstance(request, dict):
+                    timer_name = request.get("timer_name")
+                if timer_name:
+                    composite_key = f"{etype}:{timer_name}"
+                    rule = self._global_event_routing.get(composite_key)
+                    if isinstance(rule, dict):
+                        logger.debug(f"[ROUTING] Resolved timer via composite key '{composite_key}'")
             if not isinstance(rule, dict):
                 logger.debug(f"[ROUTING] No global routing rule for event type '{etype}'")
                 return None
@@ -1708,7 +1772,19 @@ class TaskRunner(Generic[Context]):
         
         # Local tasks require a runnable
         if not hasattr(task.skill, 'runnable') or task.skill.runnable is None:
-            logger.error(f"[SKILL_MISSING] Task '{task.name}' skill has runnable=None!")
+            skill = task.skill
+            logger.error(
+                f"[SKILL_MISSING] Task '{task.name}' (id={task.id}) skill has runnable=None!\n"
+                f"  skill type: {type(skill).__name__}\n"
+                f"  skill name: {getattr(skill, 'name', 'N/A')}\n"
+                f"  skill id: {getattr(skill, 'id', 'N/A')}\n"
+                f"  skill source: {getattr(skill, 'source', 'N/A')}\n"
+                f"  skill is str: {isinstance(skill, str)}\n"
+                f"  agent: {self.agent.card.name if self.agent and self.agent.card else 'N/A'}\n"
+                f"  agent tasks count: {len(self.agent.tasks) if self.agent and self.agent.tasks else 0}\n"
+                f"  agent skills count: {len(self.agent.skills) if self.agent and self.agent.skills else 0}\n"
+                f"  mainwin.agent_skills count: {len(getattr(self.agent.mainwin, 'agent_skills', []) or []) if self.agent and self.agent.mainwin else 'N/A'}"
+            )
             return False
         
         return True
@@ -1762,6 +1838,12 @@ class TaskRunner(Generic[Context]):
         # Create callback
         def _on_complete(future):
             self._on_skill_complete(future, task, waiter_task_id, trigger_type)
+        
+        # Prevent idle sleep while task is running
+        try:
+            get_sleep_inhibitor().acquire()
+        except Exception:
+            pass
         
         # Submit
         task_state = self._task_states.setdefault(task.id, {})
@@ -2684,12 +2766,48 @@ class TaskRunner(Generic[Context]):
                     self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
                 elif trigger_type == "message" and waiter_task_id:
                     self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+
+                # Emit task_failed to TaskProgressBus
+                try:
+                    lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
+                    if isinstance(lineage, dict) and lineage.get("correlation_id"):
+                        from .task_progress_bus import TaskProgressBus, TaskProgressEvent
+                        TaskProgressBus.get_instance().emit(TaskProgressEvent(
+                            correlation_id=lineage["correlation_id"],
+                            run_id=getattr(task, "run_id", ""),
+                            parent_run_id=lineage.get("parent_run_id", ""),
+                            task_id=getattr(task, "id", ""),
+                            task_name=getattr(task, "name", ""),
+                            depth=lineage.get("depth", 0),
+                            event_type="task_failed",
+                            error=err_text,
+                        ))
+                except Exception:
+                    pass
                 return
 
             # Reset failure counter on success
             if hasattr(task, 'reset_failures'):
                 task.reset_failures()
             logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
+
+            # Emit task_completed to TaskProgressBus
+            try:
+                lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
+                if isinstance(lineage, dict) and lineage.get("correlation_id"):
+                    from .task_progress_bus import TaskProgressBus, TaskProgressEvent
+                    TaskProgressBus.get_instance().emit(TaskProgressEvent(
+                        correlation_id=lineage["correlation_id"],
+                        run_id=getattr(task, "run_id", ""),
+                        parent_run_id=lineage.get("parent_run_id", ""),
+                        task_id=getattr(task, "id", ""),
+                        task_name=getattr(task, "name", ""),
+                        depth=lineage.get("depth", 0),
+                        event_type="task_completed",
+                        result=response,
+                    ))
+            except Exception:
+                pass
 
             self._log_task_node_timings(task, waiter_task_id, response)
             
@@ -2701,9 +2819,15 @@ class TaskRunner(Generic[Context]):
                 
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
-                    # Note: send_response_back removed here — chat_node now sends
-                    # the LLM response directly to GUI via ChatMessageSender.
-                    # Keeping the interrupt detection for task state management.
+                    # Send the LLM response back to the GUI/opposite agent
+                    if current_state and hasattr(current_state, 'values'):
+                        try:
+                            from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                            chatId = current_state.values.get("messages", [None, None])[1]
+                            if chatId:
+                                send_response_back(current_state.values)
+                        except Exception as srb_err:
+                            logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})
@@ -2742,6 +2866,12 @@ class TaskRunner(Generic[Context]):
                 task.last_run_datetime = datetime.now()
                 task.already_run_flag = True
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
+        finally:
+            # Allow idle sleep once this task execution completes
+            try:
+                get_sleep_inhibitor().release()
+            except Exception:
+                pass
     
     # ==================== Deprecated Methods ====================
     
