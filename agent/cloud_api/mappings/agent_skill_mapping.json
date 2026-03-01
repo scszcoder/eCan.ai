@@ -6,7 +6,9 @@
   
   "field_mapping": {
     "agid": "agent_id",
-    "skid": "skill_id"
+    "skid": "skill_id",
+    "owner": "",
+    "name": ""
   },
   
   "cloud_required_fields": {

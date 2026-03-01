@@ -1382,6 +1382,45 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleOcrTest = async () => {
+        setTestOutput('');
+        appendTestOutput('OCR Test: Starting...');
+
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+
+        const winTitleKw = parsedArgs.win_title_kw || '';
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/test-ocr`;
+
+        appendTestOutput(`OCR Test: endpoint=${testUrl}`);
+        appendTestOutput(`OCR Test: win_title_kw="${winTitleKw}"`);
+        appendTestOutput('OCR Test: Capturing screen and running OCR...');
+
+        try {
+            const response = await fetch(testUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ win_title_kw: winTitleKw }),
+            });
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                appendTestOutput(`OCR Test: SUCCESS - ${result.result_count} items detected`);
+                appendTestOutput(`OCR Test: win_title_kw="${result.win_title_kw}"`);
+                appendTestOutput(JSON.stringify(result.result, null, 2));
+            } else {
+                appendTestOutput(`OCR Test: FAILED - ${result.error}`);
+                if (result.traceback) {
+                    appendTestOutput(result.traceback);
+                }
+            }
+        } catch (error) {
+            appendTestOutput(`OCR Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            appendTestOutput('Make sure the local server is running.');
+        }
+    };
+
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
         const target = e.target as HTMLElement;
         console.log('[Tests] Page click:', {
@@ -1520,6 +1559,17 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button onClick={handleGetRunId} style={{ marginLeft: 8 }}>
                             Get Run ID
+                        </Button>
+                        <Button
+                            onClick={handleOcrTest}
+                            style={{
+                                marginLeft: 8,
+                                background: '#13c2c2',
+                                borderColor: '#13c2c2',
+                                color: '#fff',
+                            }}
+                        >
+                            OCR Test
                         </Button>
                     </Space>
                     {/* Test Selection */}
