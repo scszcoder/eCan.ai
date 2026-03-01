@@ -419,14 +419,7 @@ Output Format:
   };
 
   return (
-    <div style={{
-      height: '100%',
-      overflow: 'auto',
-      padding: '16px 20px',
-      background: '#0f172a',
-      overflowY: 'scroll'
-    }}>
-      <Space direction="vertical" size="large" style={{ width: '100%', paddingBottom: '40px' }}>
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Quick Action Banner */}
         <Card
           size="small"
@@ -589,8 +582,7 @@ Output Format:
           </Card>
         ))}
       </Space>
-    </div>
   );
 };
 
-export default PromptTemplates;
+export default React.memo(PromptTemplates);

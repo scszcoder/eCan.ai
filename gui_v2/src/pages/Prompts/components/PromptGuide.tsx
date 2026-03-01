@@ -159,14 +159,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
   ];
 
   return (
-    <div style={{
-      height: '100%',
-      overflow: 'auto',
-      padding: '16px 20px',
-      background: '#0f172a',
-      overflowY: 'scroll'
-    }}>
-      <Space direction="vertical" size="large" style={{ width: '100%', paddingBottom: '40px' }}>
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Quick Action Banner */}
         <Card
           size="small"
@@ -332,8 +325,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
           </Space>
         </Card>
       </Space>
-    </div>
   );
 };
 
-export default PromptGuide;
+export default React.memo(PromptGuide);
