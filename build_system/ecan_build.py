@@ -527,7 +527,17 @@ Name: "{const_group}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target
 Name: "{const_userdesktop}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
 
 {registry_section}[UninstallDelete]
-Type: filesandordirs; Name: "{{{{localappdata}}}}\\eCan"
+; ⚠️ CRITICAL: Do NOT delete user data directories during uninstall
+; User data includes: my_prompts, settings, databases, logs, etc.
+; Only delete application binaries and temporary files
+; User data is stored in the installation directory (e.g., D:\MyApps\eCan\my_prompts)
+; If we delete the entire installation directory, user loses all their data!
+;
+; REMOVED: Type: filesandordirs; Name: "{{{{localappdata}}}}\\eCan"
+; This was too aggressive and deleted ALL user data including my_prompts
+;
+; Instead, let users manually delete data if they want, or provide an option during uninstall
+; The uninstall wizard will ask users if they want to remove user data (see InitializeUninstall)
 
 [Code]
 var
@@ -646,14 +656,41 @@ begin
   end;
 end;
 
-// Optional: ask to remove user data on uninstall
+// Ask user if they want to remove user data on uninstall
+// This gives users control over their data (my_prompts, settings, databases, etc.)
 function InitializeUninstall(): Boolean;
 var
   ResultCode: Integer;
+  InstallPath: String;
+  UserDataDirs: array[0..4] of String;
+  I: Integer;
 begin
   Result := True;
+  
+  // Get the installation directory from registry
+  InstallPath := ExpandConstant('{{{{app}}}}');
+  
+  // Define user data directories to potentially remove
+  UserDataDirs[0] := InstallPath + '\\my_prompts';
+  UserDataDirs[1] := InstallPath + '\\settings';
+  UserDataDirs[2] := InstallPath + '\\logs';
+  UserDataDirs[3] := InstallPath + '\\resource';
+  UserDataDirs[4] := InstallPath + '\\anonymous';
+  
+  // Ask user if they want to remove user data
   if MsgBox(ExpandConstant('{cm_remove_user_data}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
+    // Remove user data directories
+    for I := 0 to 4 do
+    begin
+      if DirExists(UserDataDirs[I]) then
+      begin
+        if not DelTree(UserDataDirs[I], True, True, True) then
+          MsgBox('Could not remove directory: ' + UserDataDirs[I], mbInformation, MB_OK);
+      end;
+    end;
+    
+    // Also check LOCALAPPDATA for any user-specific data
     if DirExists(ExpandConstant('{{{{localappdata}}}}\\eCan')) then
     begin
       if not DelTree(ExpandConstant('{{{{localappdata}}}}\\eCan'), True, True, True) then
