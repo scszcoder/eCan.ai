@@ -123,6 +123,7 @@ from agent.ec_tasks.task_mcp_tools import (
     async_schedule_agent_task,
     async_delete_agent_task,
     async_stop_agent_task,
+    async_get_task_progress,
 )
 from agent.mcp.server.code_utils.code_tools import (
     async_run_code,
@@ -2156,7 +2157,11 @@ async def os_open_app(mainwin, args):
 
 async def os_close_app(mainwin, args):
     try:
-        app_window = gw.getWindowsWithTitle(args["input"]["win_title"])[0]
+        win_title = args["input"]["win_title"]
+        windows = gw.getWindowsWithTitle(win_title)
+        if not windows:
+            return [TextContent(type="text", text=f"Window '{win_title}' not found. Is the app running?")]
+        app_window = windows[0]
         app_window.close()
 
         msg = "completed closing app"
@@ -2169,7 +2174,11 @@ async def os_close_app(mainwin, args):
 
 async def os_switch_to_app(mainwin, args):
     try:
-        target_window = gw.getWindowsWithTitle(args["input"]["win_title"])[0]
+        win_title = args["input"]["win_title"]
+        windows = gw.getWindowsWithTitle(win_title)
+        if not windows:
+            return [TextContent(type="text", text=f"Window '{win_title}' not found. Is the app running?")]
+        target_window = windows[0]
 
         # Activate the window (bring it to front)
         target_window.activate()
@@ -2977,6 +2986,7 @@ tool_function_mapping = {
         "schedule_agent_task": async_schedule_agent_task,
         "delete_agent_task": async_delete_agent_task,
         "stop_agent_task": async_stop_agent_task,
+        "get_task_progress": async_get_task_progress,
         # Code execution tools
         "run_code": async_run_code,
         "run_shell_script": async_run_shell_script,

@@ -132,6 +132,49 @@ def apply_operator(left, right, operator):
         return float(left) <= float(right)
     return False
 
+class _Missing:
+    """Falsy sentinel returned by KeySafeDict for missing keys.
+    Supports chained [] access so ``state["a"]["b"]["c"]`` never raises
+    KeyError — it simply returns this sentinel which is falsy.
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return "<Missing>"
+
+    def __getitem__(self, _key):
+        return self
+
+    def get(self, _key, default=None):
+        return default if default is not None else self
+
+
+class KeySafeDict(dict):
+    """A dict subclass that returns a falsy ``_Missing`` sentinel instead of
+    raising ``KeyError``.  Nested dicts are automatically wrapped so that
+    chained bracket access like ``d["a"]["b"]["c"]`` is always safe.
+    """
+    _MISSING = _Missing()
+
+    def __getitem__(self, key):
+        try:
+            value = super().__getitem__(key)
+            if isinstance(value, dict) and not isinstance(value, KeySafeDict):
+                value = KeySafeDict(value)
+                super().__setitem__(key, value)
+            return value
+        except KeyError:
+            return self._MISSING
+
+
 def _safe_eval_expr(expr: str, state: dict) -> bool:
     """Evaluate a simple python expression with extremely limited context.
     Exposes 'state' and 'attributes' only. Returns False on error.
@@ -149,10 +192,13 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={state_result}")
 
         safe_globals = {"__builtins__": {}}
-        attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+        # Wrap state in KeySafeDict so missing nested keys return a falsy
+        # sentinel instead of raising KeyError.
+        safe_state = KeySafeDict(state) if isinstance(state, dict) else state
+        attrs = safe_state.get("attributes", {}) if isinstance(safe_state, dict) else {}
         # Merge attributes as bare names so flags like `data_ready` can be used
         # Also expose 'node_state' as alias for 'state' for backward compatibility
-        safe_locals = {"state": state, "node_state": state, "attributes": attrs}
+        safe_locals = {"state": safe_state, "node_state": safe_state, "attributes": attrs}
         if isinstance(attrs, dict):
             for k, v in attrs.items():
                 if isinstance(k, str) and k.isidentifier() and k not in safe_locals:
