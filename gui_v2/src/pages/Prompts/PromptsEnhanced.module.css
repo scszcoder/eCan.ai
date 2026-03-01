@@ -1,0 +1,22 @@
+/* Fix Tabs content area scrolling */
+.promptsTabs :global(.ant-tabs-content) {
+  height: 100%;
+  overflow: hidden;
+}
+
+.promptsTabs :global(.ant-tabs-content-holder) {
+  height: 100%;
+  overflow: hidden;
+}
+
+.promptsTabs :global(.ant-tabs-tabpane) {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Ensure tab content can scroll */
+.promptsTabs :global(.ant-tabs-tabpane-active) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
