@@ -108,7 +108,25 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         else:
             # Lazy import to avoid slow startup
             from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
-            results = run_dev_skill(ctx.main_window, skill)
+            import threading
+            
+            # Run skill in background thread to avoid blocking IPC handler and agents initialization
+            def run_skill_background():
+                try:
+                    logger.info("[IPC][run_skill] Starting skill execution in background thread...")
+                    results = run_dev_skill(ctx.main_window, skill)
+                    logger.info(f"[IPC][run_skill] Skill execution completed: {results.get('success', False)}")
+                except Exception as e:
+                    logger.error(f"[IPC][run_skill] Background skill execution failed: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            # Start background thread
+            skill_thread = threading.Thread(target=run_skill_background, daemon=True)
+            skill_thread.start()
+            
+            # Return immediately without waiting
+            results = {"success": True, "message": "Skill execution started in background"}
         
         return create_success_response(request, {
             "results": results,

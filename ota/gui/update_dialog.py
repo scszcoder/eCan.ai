@@ -894,12 +894,78 @@ class UpdateDialog(QDialog):
             # The system installer will show its own window
             self.status_label.setText(_tr.tr("installer_launched_status"))
             
+            # ✅ Show delete downloaded file confirmation dialog
+            self._show_delete_download_confirmation()
+            
             # ✅ Hide the update dialog since installation is in progress
             logger.info("[UpdateDialog] Installation launched successfully, hiding update dialog")
             self.hide()
         else:
             self.status_label.setText(_tr.tr("installation_failed_status"))
             QMessageBox.warning(self, _tr.tr("installation_failed"), message)
+    
+    def _show_delete_download_confirmation(self):
+        """Show confirmation dialog to delete downloaded installation file"""
+        try:
+            from ota.core.package_manager import package_manager
+            
+            # Get downloaded package path
+            if not package_manager.current_package or not package_manager.current_package.download_path:
+                logger.info("[UpdateDialog] No package to delete")
+                return
+            
+            package_path = package_manager.current_package.download_path
+            if not os.path.exists(package_path):
+                logger.info(f"[UpdateDialog] Package file not found: {package_path}")
+                return
+            
+            # Get file size for display
+            file_size = os.path.getsize(package_path)
+            size_mb = file_size / (1024 * 1024)
+            
+            # Create confirmation dialog
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(_tr.tr("delete_download_title"))
+            msg_box.setIcon(QMessageBox.Question)
+            
+            # Message text
+            message_text = _tr.tr("delete_download_message").format(
+                file_path=package_path,
+                file_size=f"{size_mb:.1f} MB"
+            )
+            msg_box.setText(message_text)
+            msg_box.setInformativeText(_tr.tr("delete_download_info"))
+            
+            # Buttons
+            delete_button = msg_box.addButton(_tr.tr("delete_now"), QMessageBox.YesRole)
+            keep_button = msg_box.addButton(_tr.tr("keep_file"), QMessageBox.NoRole)
+            msg_box.setDefaultButton(keep_button)
+            
+            # Show dialog
+            msg_box.exec()
+            
+            # Check which button was clicked
+            if msg_box.clickedButton() == delete_button:
+                try:
+                    os.remove(package_path)
+                    logger.info(f"[UpdateDialog] Deleted downloaded file: {package_path}")
+                    QMessageBox.information(
+                        self,
+                        _tr.tr("delete_success_title"),
+                        _tr.tr("delete_success_message")
+                    )
+                except Exception as e:
+                    logger.error(f"[UpdateDialog] Failed to delete file: {e}")
+                    QMessageBox.warning(
+                        self,
+                        _tr.tr("delete_failed_title"),
+                        _tr.tr("delete_failed_message").format(error=str(e))
+                    )
+            else:
+                logger.info(f"[UpdateDialog] User chose to keep downloaded file: {package_path}")
+                
+        except Exception as e:
+            logger.error(f"[UpdateDialog] Error in delete confirmation dialog: {e}")
     
     def _show_installation_launched_dialog(self):
         """Show beautiful installation launched dialog"""

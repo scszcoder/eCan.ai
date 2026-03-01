@@ -859,7 +859,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             </Button>
           </Space>
         </div>
-      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 150, overflow: 'auto', padding: '16px 20px' }}>
+      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: '60px' }}>
         {/* Top editable area */}
         <SectionContainer
           title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
@@ -1058,13 +1058,13 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                       />
                     ) : (
                       section.items.map((item, idx) => (
-                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                           <Typography.Text style={{ 
                             color: '#94a3b8', 
                             minWidth: 32,
                             fontSize: '13px',
                             fontWeight: 500,
-                            paddingTop: '10px',
+                            paddingTop: '6px',
                             lineHeight: '1.5'
                           }}>
                             {idx + 1})
@@ -1285,13 +1285,13 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                       />
                     ) : (
                       section.items.map((item, idx) => (
-                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                           <Typography.Text style={{ 
                             color: '#94a3b8', 
                             minWidth: 32,
                             fontSize: '13px',
                             fontWeight: 500,
-                            paddingTop: '10px',
+                            paddingTop: '6px',
                             lineHeight: '1.5'
                           }}>
                             {idx + 1})
@@ -1346,10 +1346,14 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
         </>
       )}
 
-      {/* Preview Collapse Panel */}
+      {/* Preview Collapse Panel - Sticky at bottom */}
       <div style={{ 
+        position: 'sticky',
+        bottom: 0,
         borderTop: '1px solid rgba(148, 163, 184, 0.2)',
-        background: 'rgba(15, 23, 42, 0.8)'
+        background: 'rgba(15, 23, 42, 0.95)',
+        backdropFilter: 'blur(10px)',
+        zIndex: 50
       }}>
         {/* Drag handle - above the title */}
         <div
@@ -1384,55 +1388,70 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             borderRadius: '2px'
           }} />
         </div>
-        <Collapse
-          ghost
-          expandIconPosition="end"
-          style={{
-            background: 'transparent',
-            border: 'none'
-          }}
-          items={[{
-            key: 'preview',
-            label: (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                padding: '8px 0',
-                width: '100%'
-              }}>
-                <Typography.Text strong style={{ color: '#e2e8f0', fontSize: '14px' }}>
-                  {t('pages.prompts.preview.title', { defaultValue: 'Preview' })}
-                </Typography.Text>
+        <div style={{ position: 'relative' }}>
+          <Collapse
+            ghost
+            expandIconPosition="end"
+            style={{
+              background: 'transparent',
+              border: 'none'
+            }}
+            expandIcon={({ isActive }) => (
+              <div style={{ transform: isActive ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                ▼
               </div>
-            ),
-            children: (
-              <div style={{ 
-                height: previewHeight,
-                overflow: 'auto',
-                padding: '16px'
-              }}>
-                <pre className={styles.previewContent} style={{ position: 'relative' }}>
-                  <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
-                    <Button 
-                      size="small" 
-                      icon={<CopyOutlined />} 
-                      onClick={copyPreview} 
-                      className={styles.smallButton}
-                      style={{
-                        position: 'absolute',
-                        top: '8px',
-                        right: '8px',
-                        zIndex: 10
-                      }}
-                    />
-                  </Tooltip>
-                  {previewText}
-                </pre>
-              </div>
-            )
-          }]}
-        />
+            )}
+            items={[{
+              key: 'preview',
+              label: (
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  padding: '8px 0',
+                  width: '100%'
+                }}>
+                  <Typography.Text strong style={{ color: '#e2e8f0', fontSize: '14px' }}>
+                    {t('pages.prompts.preview.title', { defaultValue: 'Preview' })}
+                  </Typography.Text>
+                </div>
+              ),
+              children: (
+                <div style={{ 
+                  maxHeight: '400px',
+                  height: previewHeight,
+                  overflow: 'auto',
+                  padding: '16px',
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'rgba(15, 23, 42, 0.98)',
+                  borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+                  boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.3)'
+                }}>
+                  <pre className={styles.previewContent} style={{ position: 'relative' }}>
+                    <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
+                      <Button 
+                        size="small" 
+                        icon={<CopyOutlined />} 
+                        onClick={copyPreview} 
+                        className={styles.smallButton}
+                        style={{
+                          position: 'absolute',
+                          top: '8px',
+                          right: '8px',
+                          zIndex: 10
+                        }}
+                      />
+                    </Tooltip>
+                    {previewText}
+                  </pre>
+                </div>
+              )
+            }]}
+          />
+        </div>
       </div>
     </div>
   );

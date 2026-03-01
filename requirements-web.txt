@@ -53,13 +53,13 @@ a2ui-pydantic==0.1.1
 # ============================================================================
 # AI & MACHINE LEARNING - MEMORY & RETRIEVAL
 # ============================================================================
-mem0ai==1.0.1
+mem0ai==1.0.4
 langmem==0.0.30
 
 # ============================================================================
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
 # ============================================================================
-openai==2.14.0
+openai==2.16.0
 ollama>=0.1.0,<1.0.0
 anthropic>=0.18.0,<1.0.0
 voyageai>=0.2.0,<1.0.0
@@ -88,7 +88,7 @@ pytesseract==0.3.13
 # ============================================================================
 selenium==4.32.0
 playwright==1.54.0
-browser-use==0.11.2
+browser-use==0.12.0
 webdriver-manager==4.0.2
 fake-useragent==2.2.0
 beautifulsoup4==4.13.3
@@ -116,7 +116,7 @@ wsproto==1.2.0
 # ============================================================================
 # ASYNC & CONCURRENCY
 # ============================================================================
-anyio==4.9.0
+anyio==4.12.1  # Required by browser-use 0.12.0, compatible with all other packages
 aiohappyeyeballs==2.6.1
 aiofiles==24.1.0
 aioconsole==0.7.1
@@ -177,9 +177,9 @@ flatbuffers==25.2.10
 # UTILITIES
 # ============================================================================
 python-dotenv==1.2.1
-click==8.3.0
+click==8.3.1  # Required by browser-use 0.12.0, compatible with flask and uvicorn
 typer==0.15.2
-rich==14.2.0
+rich==14.3.1
 colorama==0.4.6
 colorlog==6.8.2
 tqdm==4.67.1
@@ -189,7 +189,7 @@ schedule==1.2.2
 watchdog==4.0.1
 watchfiles==1.1.1
 setproctitle==1.3.7
-psutil==7.0.0
+psutil==7.2.2  # Required by browser-use 0.12.0
 py-cpuinfo==9.0.0
 distro==1.9.0
 
@@ -260,7 +260,7 @@ networkx==3.4.2
 # ============================================================================
 # MCP (Model Context Protocol)
 # ============================================================================
-mcp==1.20.0
+mcp==1.26.0  # Required by browser-use 0.12.0, compatible with langchain-mcp-adapters
 
 # ============================================================================
 # DOCUMENT PROCESSING
@@ -310,7 +310,7 @@ pymongo>=4.0.0,<5.0.0
 # ============================================================================
 # MONITORING & TELEMETRY
 # ============================================================================
-posthog==3.20.0
+posthog==7.7.0  # Required by browser-use 0.12.0, compatible with mem0ai
 
 # ============================================================================
 # MISCELLANEOUS

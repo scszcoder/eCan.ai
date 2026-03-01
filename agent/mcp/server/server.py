@@ -136,14 +136,15 @@ from agent.mcp.server.chat_utils.chat_tools import (
     async_list_chat_agents,
     async_get_chat_history,
 )
-from agent.ec_tasks.timer_mcp_tools import (
-    async_add_timer,
-    async_remove_timer,
-    async_update_timer,
-    async_list_timers,
-    async_pause_timer,
-    async_resume_timer,
-)
+# Timer MCP tools are not implemented yet
+# from agent.ec_tasks.task_mcp_tools import (
+#     async_add_timer,
+#     async_remove_timer,
+#     async_update_timer,
+#     async_list_timers,
+#     async_pause_timer,
+#     async_resume_timer,
+# )
 from agent.mcp.server.aws_utils.aws_tools import (
     aws_read_billing,
     aws_shutdown,
@@ -3229,13 +3230,13 @@ tool_function_mapping = {
         "send_chat": async_send_chat,
         "list_chat_agents": async_list_chat_agents,
         "get_chat_history": async_get_chat_history,
-        # Timer management tools
-        "add_timer": async_add_timer,
-        "remove_timer": async_remove_timer,
-        "update_timer": async_update_timer,
-        "list_timers": async_list_timers,
-        "pause_timer": async_pause_timer,
-        "resume_timer": async_resume_timer,
+        # Timer management tools (not implemented yet)
+        # "add_timer": async_add_timer,
+        # "remove_timer": async_remove_timer,
+        # "update_timer": async_update_timer,
+        # "list_timers": async_list_timers,
+        # "pause_timer": async_pause_timer,
+        # "resume_timer": async_resume_timer,
         # AWS cost monitoring and emergency shutdown tools
         "aws_read_billing": aws_read_billing,
         "aws_shutdown": aws_shutdown,
