@@ -375,7 +375,7 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
 
     # Promote common routing fields into context for clean match paths
     # (e.g. context.run_id instead of data.raw.run_id)
-    _PROMOTED_FIELDS = ("client_id", "task_id", "run_id", "timer_id")
+    _PROMOTED_FIELDS = ("client_id", "task_id", "run_id", "timer_id", "timer_name")
     ctx = event["context"]
     for field in _PROMOTED_FIELDS:
         if ctx.get(field):
@@ -971,7 +971,9 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             or _safe_get(msg, "params.metadata.mtype")
             or event.get("data", {}).get("metadata", {}).get("mtype")
         ) if isinstance(event, dict) else None
-        resume_payload["event_type"] = message_mtype
+        resume_payload["event_type"] = message_mtype or event.get("type", "")
+        # Include the full normalized event envelope so downstream nodes can inspect it
+        resume_payload["_event_envelope"] = event
         if isinstance(message_mtype, str) and "send_chat" in message_mtype.lower():
             chat_params = _safe_get(msg, "params.metadata.params") or {}
             chat_attrs = {"mtype": message_mtype}

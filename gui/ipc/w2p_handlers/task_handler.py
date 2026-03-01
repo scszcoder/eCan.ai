@@ -108,7 +108,7 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         'source': agent_task_info.get('source', 'ui'),
         'priority': agent_task_info.get('priority', 'medium'),
         'status': agent_task_info.get('status', 'pending'),
-        'task_type': agent_task_info.get('task_type', ''),
+        'task_type': agent_task_info.get('task_type', 'local'),
         'objectives': _safe_parse_json(agent_task_info.get('objectives'), []),
         'schedule': _safe_parse_json(agent_task_info.get('schedule'), {}),
         'trigger': agent_task_info.get('trigger') or agent_task_info.get('trigger_type') or 'manual',
@@ -283,6 +283,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
             name=agent_task_data['name'],
             description=agent_task_data.get('description', ''),
             owner=agent_task_data['owner'],
+            task_type=agent_task_data.get('task_type', 'local'),
             status=TaskStatus(
                 state=TaskState(task_status)
             ),

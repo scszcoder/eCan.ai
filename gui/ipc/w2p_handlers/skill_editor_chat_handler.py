@@ -89,9 +89,12 @@ def _get_chat_history_path() -> str:
     try:
         from config.app_info import AppInfo
         app_info = AppInfo()
-        return os.path.join(app_info.appdata_home_path, "skill_editor_chat_history.json")
+        base = getattr(app_info, "appdata_path", None) or getattr(app_info, "app_home_path", None)
+        if base:
+            return os.path.join(base, "skill_editor_chat_history.json")
     except Exception:
-        return "skill_editor_chat_history.json"
+        pass
+    return "skill_editor_chat_history.json"
 
 
 class SkillEditorChatStore:
@@ -269,10 +272,12 @@ def handle_create_session(request: IPCRequest, params: Optional[Dict[str, Any]])
         Session info with ID
     """
     try:
-        logger.info(f"[SkillEditorChat] create_session called with params: {params}")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        logger.info(f"[SkillEditorChat] create_session called with params: {p}")
         
-        name = (params or {}).get("name", "New Chat")
-        flowgram_id = (params or {}).get("flowgramId")
+        name = p.get("name", "New Chat")
+        flowgram_id = p.get("flowgramId")
         
         session = _chat_store.create_session(name=name, flowgram_id=flowgram_id)
         
@@ -332,7 +337,9 @@ def handle_get_history(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         List of messages
     """
     try:
-        session_id = (params or {}).get("sessionId")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
         
@@ -340,8 +347,8 @@ def handle_get_history(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         if not session:
             return create_error_response(request, 'SESSION_NOT_FOUND', f"Session {session_id} not found")
         
-        limit = (params or {}).get("limit")
-        offset = (params or {}).get("offset", 0)
+        limit = p.get("limit")
+        offset = p.get("offset", 0)
         
         messages = session.messages[offset:]
         if limit:
@@ -387,11 +394,13 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         Assistant response with message, clarification, plan, flowgram, validation
     """
     try:
-        session_id = (params or {}).get("sessionId")
-        content = (params or {}).get("content", "")
-        attachments = (params or {}).get("attachments", [])
-        canvas_context = (params or {}).get("canvasContext")
-        clarification_responses = (params or {}).get("clarificationResponses")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
+        content = p.get("content", "")
+        attachments = p.get("attachments", [])
+        canvas_context = p.get("canvasContext")
+        clarification_responses = p.get("clarificationResponses")
         
         logger.info(f"[SkillEditorChat] send_message called - sessionId={session_id}, content_length={len(content)}, has_canvas_context={canvas_context is not None}, has_clarification_responses={clarification_responses is not None}")
         
@@ -550,7 +559,9 @@ def handle_cancel_generation(request: IPCRequest, params: Optional[Dict[str, Any
         Cancellation status
     """
     try:
-        session_id = (params or {}).get("sessionId")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
         
@@ -585,7 +596,9 @@ def handle_delete_session(request: IPCRequest, params: Optional[Dict[str, Any]])
         Deletion status
     """
     try:
-        session_id = (params or {}).get("sessionId")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
         

@@ -3403,12 +3403,25 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
+    timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
 
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
         log_msg = f"🤖 Executing node pending event node: {node_name}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
+
+        # Safety net: auto-resume any paused timers when we reach a pend_event
+        # node that listens for timer events. This handles the case where the
+        # LLM called pause_timer but forgot to call resume_timer.
+        if main_event == "timer" or "timer" in (additional_events or []):
+            try:
+                agent_id = (state.get("attributes") or {}).get("agent_id", "")
+                if agent_id:
+                    from agent.ec_tasks.timer_service import get_timer_service
+                    get_timer_service().resume_all_paused_for_agent(agent_id)
+            except Exception as _auto_resume_err:
+                logger.debug(f"[pend_event] auto-resume timers skipped: {_auto_resume_err}")
 
         current_node_name = runtime.context["this_node"].get("name")
         # Truncate screenshot data for logging
@@ -3433,6 +3446,8 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "prompt_to_human": prompt,
             "qa_form_to_human": qa_form,
             "notification_to_human": notification,
+            "event_type": main_event,
+            "timer_name": timer_name,
         }
         resume_payload = interrupt(info)
 
@@ -3442,8 +3457,30 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         # send_skill_editor_log("log", log_msg)
 
+        # --- Append full event envelope to state["events"] ---
         try:
-            state["events"].append({"event_type": resume_payload["event_type"]})
+            envelope = resume_payload.get("_event_envelope") if isinstance(resume_payload, dict) else None
+            event_record = {
+                "event_type": (resume_payload.get("event_type") if isinstance(resume_payload, dict) else None)
+                             or (envelope.get("type") if isinstance(envelope, dict) else None)
+                             or main_event
+                             or "",
+                "source": (envelope.get("source", "") if isinstance(envelope, dict) else ""),
+                "timestamp": (envelope.get("timestamp", "") if isinstance(envelope, dict) else ""),
+                "context": (envelope.get("context", {}) if isinstance(envelope, dict) else {}),
+                "tag": (envelope.get("tag", "") if isinstance(envelope, dict) else ""),
+                "node": node_name,
+            }
+            # Include event data (human_text, metadata, etc.) if present
+            if isinstance(envelope, dict) and envelope.get("data"):
+                event_record["data"] = envelope["data"]
+            state.setdefault("events", []).append(event_record)
+            logger.debug(f"[pend_event_node] Appended event to state['events']: type={event_record['event_type']}, source={event_record['source']}")
+        except Exception as ev_err:
+            logger.debug(f"[pend_event_node] Failed to append event record: {ev_err}")
+
+        # --- Deep-merge _state_patch into state ---
+        try:
             if isinstance(resume_payload, dict) and "_state_patch" in resume_payload:
                 patch = resume_payload.get("_state_patch")
                 if isinstance(patch, dict):
@@ -3456,14 +3493,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                                 out[k] = v
                         return out
 
-                    # merge patch into state in place
-                    try:
-                        if isinstance(state, dict):
-                            merged = _deep_merge(state, patch)
-                            state.clear()
-                            state.update(merged)
-                    except Exception:
-                        pass
+                    if isinstance(state, dict):
+                        merged = _deep_merge(state, patch)
+                        state.clear()
+                        state.update(merged)
         except Exception:
             pass
 
