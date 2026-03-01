@@ -246,7 +246,201 @@
         "sample": "Sample prompts",
         "mine": "My prompts"
       },
+      "tabs": {
+        "editor": "Editor",
+        "guide": "Design Guide",
+        "templates": "Templates",
+        "examples": "Examples"
+      },
+      "quickActions": {
+        "viewGuide": "View design guide and learn best practices",
+        "useTemplate": "Use template to get started quickly",
+        "backToEditor": "Back to editor",
+        "startWriting": "Start Writing"
+      },
+      "viewGuide": "View Guide",
+      "useTemplate": "Use Template",
+      "guide": {
+        "title": "Prompt Design Guide",
+        "subtitle": "Master core principles and best practices of prompt design",
+        "learnTip": "After learning design principles, you can use templates to get started quickly",
+        "principlesTitle": "Core Design Principles",
+        "techniquesTitle": "Writing Techniques",
+        "mistakesTitle": "Common Mistakes & Fixes",
+        "good": "Good",
+        "bad": "Bad",
+        "principles": {
+          "clarity": {
+            "title": "Clarity - Clear goals and steps",
+            "good": "Search for 'laptop' on Amazon, find first product under $1000",
+            "bad": "Help me find a cheap laptop",
+            "tip": "Use specific numbers, brands, price ranges"
+          },
+          "verifiable": {
+            "title": "Verifiability - Include clear validation points",
+            "good": "Get title, price, and rating of top 3 products",
+            "bad": "See what good products there are",
+            "tip": "Specify exact data fields and quantities to extract"
+          },
+          "structured": {
+            "title": "Structured - Use clear format",
+            "good": "Task: Search\\nFilters: Price $500-$1000\\nOutput: Table format",
+            "bad": "Find something between 500 and 1000, show in table",
+            "tip": "Use tags, lists, tables for structure"
+          },
+          "scoped": {
+            "title": "Scoped - Control complexity",
+            "good": "Simple: 3-5 steps | Medium: 5-8 steps | Complex: 8-12 steps",
+            "bad": "Do a complete market research report (unlimited steps)",
+            "tip": "Break complex tasks into simple steps"
+          }
+        },
+        "techniques": {
+          "role": {
+            "title": "1. Role Definition",
+            "desc": "Define AI's role and expertise",
+            "example": "You are an expert e-commerce analyst specializing in product comparison."
+          },
+          "context": {
+            "title": "2. Background Info",
+            "desc": "Provide necessary context and constraints",
+            "example": "Context: User is looking for gaming laptops within budget for college student."
+          },
+          "task": {
+            "title": "3. Task Description",
+            "desc": "Clearly describe the specific task",
+            "example": "Task: Search Amazon for gaming laptops, filter by price $800-$1500, compare top 3."
+          },
+          "format": {
+            "title": "4. Output Format",
+            "desc": "Specify expected output format and structure",
+            "example": "Output: Markdown table with columns: Product, Price, CPU, RAM, Rating."
+          },
+          "examples": {
+            "title": "5. Examples",
+            "desc": "Provide concrete examples of expected output",
+            "example": "Example:\n| Product | Price | CPU | RAM |\n| ASUS ROG | $1299 | i7-12700H | 16GB |"
+          },
+          "constraints": {
+            "title": "6. Constraints",
+            "desc": "Define limits and boundaries",
+            "example": "Constraints: Max 3 products, only from sellers with 4+ stars, free shipping only."
+          }
+        },
+        "mistakes": {
+          "vague": "Too vague description",
+          "vagueFix": "Use specific numbers, brands, conditions",
+          "noFormat": "No output format specified",
+          "noFormatFix": "Require table, JSON, list format explicitly",
+          "tooComplex": "Task too complex",
+          "tooComplexFix": "Break into simple steps",
+          "noValidation": "Missing validation points",
+          "noValidationFix": "Add clear success criteria"
+        }
+      },
+      "templates": {
+        "title": "Prompt Template Library",
+        "subtitle": "Curated templates to jumpstart your prompt design",
+        "usageTip": "Click 'Use Template' button to copy template content to editor",
+        "copied": "Template copied to clipboard",
+        "copyFailed": "Copy failed",
+        "copy": "Copy Template",
+        "use": "Use Template",
+        "viewTemplate": "View Template",
+        "keyPoints": "Key Points",
+        "steps": "steps",
+        "complexity": {
+          "simple": "Simple",
+          "medium": "Medium",
+          "complex": "Complex"
+        },
+        "ecommerceSimple": {
+          "title": "Simple E-commerce Search",
+          "desc": "Search for products on e-commerce sites and extract basic info",
+          "template": "Task: Search for '{product_name}' on {website}\n\nSteps:\n1. Navigate to {website}\n2. Enter search term in search box\n3. Extract first {count} results\n\nOutput Format:\n| Product | Price | Rating |\n|---------|-------|--------|\n| ...     | ...   | ...    |\n\nValidation:\n- ✓ Successfully navigated to website\n- ✓ Search executed\n- ✓ Product details extracted"
+        },
+        "ecommerceFilter": {
+          "title": "E-commerce Filter & Compare",
+          "desc": "Search and filter products, compare multiple results",
+          "template": "Task: Search and compare {product_category} on {website}\n\nFilters:\n- Price range: {min_price} - {max_price}\n- Brand: {brand_list}\n- Rating: {min_rating}+ stars\n- Shipping: {shipping_requirement}\n\nSteps:\n1. Navigate to {website}\n2. Search for '{product_category}'\n3. Apply price filter\n4. Apply brand filter\n5. Apply rating filter\n6. Sort by {sort_criteria}\n7. Extract top {count} products\n8. Generate comparison table\n\nOutput Format:\n| Product | Brand | Price | Rating | Reviews | Shipping |\n|---------|-------|-------|--------|---------|----------|\n| ...     | ...   | ...   | ...    | ...     | ...      |\n\nRecommendation:\nBased on the comparison, recommend the best value option with reasoning.\n\nValidation:\n- ✓ All filters applied correctly\n- ✓ Extracted {count} products\n- ✓ Comparison table generated\n- ✓ Recommendation provided"
+        },
+        "ecommerceMulti": {
+          "title": "Multi-store Price Comparison",
+          "desc": "Visit multiple stores, compare prices and services",
+          "template": "Task: Compare '{product_name}' across {store_count} different stores on {website}\n\nComparison Dimensions:\n- Product price\n- Store rating\n- Monthly sales\n- Review count\n- Positive review rate\n- Shipping location\n- Free shipping availability\n- Return policy\n\nSteps:\n1. Navigate to {website}\n2. Search for '{product_name}'\n3. Click first store's product\n4. Extract all comparison dimensions\n5. Return to search results\n6. Click second store's product (different seller)\n7. Extract all comparison dimensions\n8. Repeat for store 3\n9. Compile comparison data\n10. Calculate value score for each\n11. Generate detailed comparison table\n12. Provide recommendation with reasoning\n\nOutput Format:\n## Comparison Table\n| Store | Price | Rating | Sales | Reviews | Positive% | Location | Shipping | Return |\n|-------|-------|--------|-------|---------|-----------|----------|----------|--------|\n| ...   | ...   | ...    | ...   | ...     | ...       | ...      | ...      | ...    |\n\n## Value Analysis\n- Store 1: [Score] - [Reasoning]\n- Store 2: [Score] - [Reasoning]\n- Store 3: [Score] - [Reasoning]\n\n## Recommendation\nBest value: [Store Name]\nReasoning: [Detailed explanation considering price, quality, service]\n\nError Handling:\n- If store has insufficient data, skip and try next\n- If less than {store_count} stores found, report actual count\n- If product unavailable, report and suggest alternatives\n\nValidation:\n- ✓ Visited {store_count} different stores\n- ✓ Extracted all comparison dimensions\n- ✓ Generated comparison table\n- ✓ Provided value analysis\n- ✓ Gave final recommendation"
+        },
+        "contentGen": {
+          "title": "Content Generation",
+          "desc": "Generate marketing copy, emails, etc.",
+          "template": "Role: You are an expert marketing copywriter\n\nTask: Create a {content_type} for {product/service}\n\nTarget Audience:\n- Demographics: {age_group}, {location}\n- Interests: {interests}\n- Pain points: {pain_points}\n\nTone: {tone} (e.g., professional, friendly, urgent)\n\nRequirements:\n- Length: {word_count} words\n- Include: {key_points}\n- Call-to-action: {cta}\n- Avoid: {avoid_list}\n\nOutput Format:\n## Subject Line (if email)\n[Compelling subject line]\n\n## Main Content\n[Content body]\n\n## Call-to-Action\n[Clear CTA]\n\nGuidelines:\n- Use power words and emotional triggers\n- Keep sentences short and scannable\n- Include social proof if available\n- End with clear next steps"
+        },
+        "codeGen": {
+          "title": "Code Generation",
+          "desc": "Generate code for specific functionality"
+        }
+      },
       "examples": {
+        "title": "Excellent Prompt Examples",
+        "subtitle": "Learn from real-world cases and master prompt design",
+        "viewPrompt": "View Full Prompt",
+        "highlights": "Design Highlights",
+        "performanceMetrics": "Performance Metrics",
+        "tabs": {
+          "builtin": "Built-in Examples",
+          "documentation": "Full Documentation"
+        },
+        "loadingDoc": "Loading documentation...",
+        "loadError": "Failed to load",
+        "categories": {
+          "ecommerce": "E-commerce Scenarios",
+          "content": "Content Generation",
+          "code": "Code Generation"
+        },
+        "levels": {
+          "beginner": "Beginner",
+          "intermediate": "Intermediate",
+          "advanced": "Advanced"
+        },
+        "ecommerceBasic": {
+          "title": "Basic Product Search",
+          "desc": "Search for specific products on e-commerce sites and extract key information",
+          "prompt": "Task: Search for \"wireless mouse\" on Amazon\n\nSteps:\n1. Open Amazon homepage\n2. Enter \"wireless mouse\" in search box\n3. Click search button\n4. Extract the following info for top 5 products:\n   - Product name\n   - Price\n   - Rating\n   - Review count\n\nOutput Format:\n| Product Name | Price | Rating | Reviews |\n|--------------|-------|--------|----------|\n\nValidation:\n✓ Successfully opened website\n✓ Search executed\n✓ Extracted 5 products\n✓ All fields complete",
+          "highlight1": "Clear step breakdown (4 steps)",
+          "highlight2": "Well-defined data fields",
+          "highlight3": "Table output format",
+          "highlight4": "Complete validation checklist",
+          "results": "Success Rate: 95% | Avg Time: 15s | Data Completeness: 98%"
+        },
+        "ecommerceAdvanced": {
+          "title": "Multi-filter Comparison",
+          "desc": "Use multiple filters to compare different products",
+          "prompt": "Task: Compare gaming laptops on Amazon\n\nFilters:\n- Price range: $800 - $1500\n- Brands: ASUS, MSI, Lenovo\n- Min rating: 4.0 stars\n- Shipping: Free shipping only\n\nSteps:\n1. Visit Amazon\n2. Search \"gaming laptop\"\n3. Apply price filter\n4. Apply brand filter\n5. Apply rating filter\n6. Apply shipping filter\n7. Sort by \"Best Rated\"\n8. Extract top 3 products details\n\nOutput Format:\n| Product | Price | CPU | RAM | GPU | Rating | Reviews |\n|---------|-------|-----|-----|-----|--------|----------|\n\nComparison Analysis:\n- Best value: [Product name]\n- Best specs: [Product name]\n- Best rated: [Product name]\n\nValidation:\n✓ All filters applied\n✓ Extracted 3 products\n✓ Complete comparison analysis",
+          "highlight1": "Multi-dimensional filters",
+          "highlight2": "Detailed spec extraction",
+          "highlight3": "Smart comparison analysis",
+          "highlight4": "Structured validation",
+          "results": "Success Rate: 88% | Avg Time: 35s | Filter Accuracy: 92%"
+        },
+        "contentGen": {
+          "title": "Marketing Email Generation",
+          "desc": "Generate professional marketing email content",
+          "prompt": "Role: You are a professional marketing copywriter\n\nTask: Write marketing email for new product launch\n\nProduct Info:\n- Product: Smart Noise-Canceling Headphones Pro\n- Key features: Active noise canceling, 40hr battery, fast charging\n- Target audience: 25-40 year old professionals\n- Promotion: Limited 20% off\n\nRequirements:\n1. Email subject: Catchy, under 50 characters\n2. Body content:\n   - Opening: Grab attention\n   - Middle: 3 key product benefits\n   - Closing: Clear call-to-action (CTA)\n3. Tone: Professional yet friendly\n4. Length: 150-200 words\n\nConstraints:\n- No exaggeration or false claims\n- Avoid spam trigger words\n- Include promotion info\n\nOutput Format:\n【Subject Line】\n[Subject content]\n\n【Email Body】\n[Body content]",
+          "highlight1": "Clear role definition",
+          "highlight2": "Detailed product info",
+          "highlight3": "Structured content requirements",
+          "highlight4": "Clear constraints",
+          "results": "Quality Score: 4.5/5.0 | User Satisfaction: 90% | Conversion Lift: 25%"
+        },
+        "codeGen": {
+          "title": "API Interface Generation",
+          "desc": "Generate RESTful API interface code",
+          "prompt": "Task: Generate user management RESTful API\n\nTech Stack:\n- Language: Python\n- Framework: FastAPI\n- Database: PostgreSQL\n- ORM: SQLAlchemy\n\nFeature Requirements:\n1. User registration (POST /api/users/register)\n2. User login (POST /api/users/login)\n3. Get user info (GET /api/users/{user_id})\n4. Update user info (PUT /api/users/{user_id})\n\nCode Requirements:\n- Include complete type annotations\n- Add input validation\n- Include error handling\n- Add necessary comments\n- Follow PEP 8 standards\n\nOutput Format:\n1. Data model definitions\n2. API route implementations\n3. Request/response examples\n\nExample:\n```python\nfrom fastapi import FastAPI, HTTPException\nfrom pydantic import BaseModel\n\nclass User(BaseModel):\n    username: str\n    email: str\n    ...\n```",
+          "highlight1": "Complete tech stack description",
+          "highlight2": "Detailed feature requirements",
+          "highlight3": "Clear code standards",
+          "highlight4": "Provides code examples",
+          "results": "Code Quality: A-grade | Runnable: 95% | Standards Compliance: 98%"
+        },
         "write_a_marketing_email": {
           "title": "Write a marketing email",
           "roleToneContext": "You are a helpful marketing assistant. Tone: friendly, concise.",
