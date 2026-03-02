@@ -1078,21 +1078,84 @@ function parseSourceFiles(source) {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Authorize a skill-file operation (upload / download / delete).
+ *
+ * Access is granted when ANY of these conditions is true:
+ *   1. The requester owns the skill (owner match by email or Cognito sub).
+ *   2. The skill is public AND free (price <= 0).
+ *   3. The requester is a paid subscriber whose agent account is active (not suspended).
+ *
+ * @param {string} skillId        – DB id of the skill (e.g. "skill_985de41be…")
+ * @param {string} ownerEmail      – authenticated requester's email
+ * @param {string} ownerSub        – authenticated requester's Cognito sub
+ * @param {string} action          – human label for log messages ("upload"/"download"/"delete")
+ * @returns {Promise<{allowed:boolean, reason:string}>}
+ */
+async function authorizeSkillFileAccess(skillId, ownerEmail, ownerSub, action) {
+  // 1. Look up the skill
+  const skill = await skillService.getSkillById(skillId);
+  if (!skill) {
+    // Skill not in DB – allow owner-path ops (new skill being created) only if
+    // the caller is also the file-owner (checked at the call-site).
+    return { allowed: true, reason: "skill_not_in_db" };
+  }
+
+  // 2. Owner check – compare against both email and Cognito sub
+  const isOwner =
+    (ownerEmail && skill.owner === ownerEmail) ||
+    (ownerSub && skill.owner === ownerSub);
+  if (isOwner) {
+    return { allowed: true, reason: "owner" };
+  }
+
+  // 3. Public + free
+  const isPublic = skill.public === true || skill.public === "true" || skill.public === 1;
+  const isFree = !skill.price || Number(skill.price) <= 0;
+  if (isPublic && isFree) {
+    return { allowed: true, reason: "public_free" };
+  }
+
+  // 4. Paid subscriber with active account
+  //    a) Resolve requester's agents
+  const agents = await agentService.getAgentsByOwners(ownerEmail, ownerEmail, ownerSub);
+  if (!agents || agents.length === 0) {
+    console.warn(`[authorizeSkillFileAccess] ${action} DENIED – no agent found for ${ownerEmail}`);
+    return { allowed: false, reason: "no_agent" };
+  }
+
+  //    b) Check that at least one agent is active (not suspended / disabled)
+  const activeAgent = agents.find(a => (a.status || "active") === "active");
+  if (!activeAgent) {
+    console.warn(`[authorizeSkillFileAccess] ${action} DENIED – all agents suspended for ${ownerEmail}`);
+    return { allowed: false, reason: "account_suspended" };
+  }
+
+  //    c) Check subscription: any of the requester's agents subscribed to this skill?
+  const agentIds = agents.filter(a => (a.status || "active") === "active").map(a => a.id);
+  const subscribedSkillIds = await skillService.getSubscribedSkillIds(agentIds);
+  if (subscribedSkillIds.includes(skillId)) {
+    return { allowed: true, reason: "subscriber" };
+  }
+
+  console.warn(`[authorizeSkillFileAccess] ${action} DENIED – ${ownerEmail} is not owner/subscriber of ${skillId}`);
+  return { allowed: false, reason: "not_authorized" };
+}
+
 async function prepareSkillUploadTargets({ skill, ownerEmail }) {
   const userDir = normalizeEmailForPath(ownerEmail);
   const skillBase = normalizeSkillName(skill.name, skill.id);
-  let pathPrefix = "";
-  if (skill.path && !isAbsolutePathLike(skill.path)) {
-    pathPrefix = normalizeSkillPathInput(skill.path);
-  }
-  const pathForDb = pathPrefix
-    ? (pathPrefix.endsWith(`/${skillBase}`) || pathPrefix === skillBase ? pathPrefix : `${pathPrefix}/${skillBase}`)
-    : skillBase;
+  // Canonical S3 layout: {owner}/my_skills/{skillBase}_skill/
+  const skillDir = skillBase.endsWith("_skill") ? skillBase : `${skillBase}_skill`;
+  const pathForDb = `my_skills/${skillDir}`;
   const root = `${userDir}/${pathForDb}`;
 
   const diagramDirRaw = skill.diagram?.dir;
   const hasDiagramDir = !!diagramDirRaw;
-  const diagramDir = hasDiagramDir ? normalizePathSegment(diagramDirRaw) || "diagram_dir" : null;
+  // Only use the last path segment to avoid full local paths (e.g. C:\Users\...) leaking into S3 keys
+  const diagramDir = hasDiagramDir
+    ? normalizePathSegment(String(diagramDirRaw).split(/[\\/]/).filter(Boolean).pop()) || "diagram_dir"
+    : null;
   const codeDir = "code_dir";
 
   const dataMappingKey = `${root}/data_mapping.json`;
@@ -6582,6 +6645,15 @@ async function processEvent(event, context, callback, test_stub) {
               if (!skillId || !fileOwner || !fileName) {
                 throw new Error("skillId, owner and fileName are required");
               }
+              // Upload is only allowed for the skill owner
+              const authResult = await authorizeSkillFileAccess(skillId, ownerEmail, ownerSub, "upload");
+              if (!authResult.allowed) {
+                throw new Error(`FORBIDDEN: You are not authorized to upload files for this skill (${authResult.reason})`);
+              }
+              // For upload, additionally require owner match (subscribers can't upload)
+              if (authResult.reason !== "owner" && authResult.reason !== "skill_not_in_db") {
+                throw new Error("FORBIDDEN: Only the skill owner can upload files");
+              }
               const sanitizedOwner = normalizeEmailForPath(fileOwner);
               const skillDir = skillId.endsWith("_skill") ? skillId : `${skillId}_skill`;
               const s3Key = `${sanitizedOwner}/my_skills/${skillDir}/${fileName}`;
@@ -6600,6 +6672,12 @@ async function processEvent(event, context, callback, test_stub) {
               const skillId = event.arguments?.skillId;
               if (!fileOwner || !skillId) {
                 returnData = { success: false, error: "owner and skillId are required" };
+                break;
+              }
+              // Delete is only allowed for the skill owner
+              const delAuth = await authorizeSkillFileAccess(skillId, ownerEmail, ownerSub, "delete");
+              if (!delAuth.allowed || (delAuth.reason !== "owner" && delAuth.reason !== "skill_not_in_db")) {
+                returnData = { success: false, error: "FORBIDDEN: Only the skill owner can delete files" };
                 break;
               }
               const sanitizedOwner = normalizeEmailForPath(fileOwner);
@@ -7519,6 +7597,11 @@ ${contextText}`;
               const skillId = event.arguments?.skillId;
               if (!fileOwner || !skillId) {
                 throw new Error("owner and skillId are required");
+              }
+              // Download allowed for: owner, public+free skills, or active paid subscribers
+              const dlAuth = await authorizeSkillFileAccess(skillId, ownerEmail, ownerSub, "download");
+              if (!dlAuth.allowed) {
+                throw new Error(`FORBIDDEN: You are not authorized to download this skill (${dlAuth.reason})`);
               }
               const sanitizedOwner = normalizeEmailForPath(fileOwner);
               const skillDir = skillId.endsWith("_skill") ? skillId : `${skillId}_skill`;
