@@ -2760,11 +2760,11 @@ class MainWindow:
             # Define agent configurations based on role
             agent_configs = []
             
-            # Basic Agent — twin agent removed, chat routes directly to recipient agent
-            # agent_configs.append({
-            #     'name': 'My Twin',
-            #     'builder': set_up_my_twin_agent
-            # })
+            # Basic Agent — My Twin Agent (required for chat functionality)
+            agent_configs.append({
+                'name': 'My Twin',
+                'builder': set_up_my_twin_agent
+            })
             
             # Add other agents based on role
             # if "Platoon" in self.machine_role:
