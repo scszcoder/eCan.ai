@@ -1018,8 +1018,20 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Adjust context window based on provider limitations
             # Fetch max_tokens from LLM config (gui/config/llm_providers.json)
             from gui.config.llm_config import llm_config
-            context_limit = llm_config.get_max_tokens(llm_provider, model_name)
-            logger.debug(f"Using max_tokens={context_limit} from config for {llm_provider}/{model_name}")
+            model_max_tokens = llm_config.get_max_tokens(llm_provider, model_name)
+            
+            # Reserve tokens ONLY for LLM response output
+            # System prompt and current user input are added separately and counted by LLM provider
+            # History is what get_recent_context() controls
+            # Total input = system_prompt + history + current_input (all auto-calculated)
+            # We only need to ensure: total_input + response_output <= model_max_tokens
+            RESPONSE_RESERVE = 4000  # Reserve for LLM response generation
+            context_limit = max(8000, model_max_tokens - RESPONSE_RESERVE)  # More room for history
+            
+            logger.debug(
+                f"Token allocation: model_max={model_max_tokens}, "
+                f"history_limit={context_limit}, response_reserve={RESPONSE_RESERVE}"
+            )
             
             logger.debug(f"Forming context (limit={context_limit})......")
             _t_stage = _time.perf_counter()
@@ -1716,7 +1728,113 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     'error_message': error_msg
                 }
         else:
-            logger.error("ERROR LLM NODE: messages empty ")
+            # Cloud worker / no-agent mode: state["messages"] is empty (no GUI agent_id).
+            # Still invoke the LLM with the already-formatted base prompts so the graph
+            # can progress and conditionals like all_done can become True.
+            logger.warning(
+                f"LLM NODE [{node_name}]: messages empty - running in cloud worker mode without agent context"
+            )
+            try:
+                import os as _os
+
+                # Resolve API key – prefer node config, fall back to env vars
+                _raw_key = (api_key or "").strip()
+
+                def _looks_masked_simple(v: str) -> bool:
+                    v = (v or "").strip()
+                    return not v or any(c in v for c in ("*", "•", "·")) or v.lower().startswith("sk-xxxxx")
+
+                if _looks_masked_simple(_raw_key):
+                    _key_env_map = {
+                        "openai": "OPENAI_API_KEY",
+                        "anthropic": "ANTHROPIC_API_KEY",
+                        "claude": "ANTHROPIC_API_KEY",
+                        "google": "GEMINI_API_KEY",
+                        "gemini": "GEMINI_API_KEY",
+                        "deepseek": "DEEPSEEK_API_KEY",
+                        "dashscope": "DASHSCOPE_API_KEY",
+                        "qwen": "DASHSCOPE_API_KEY",
+                        "qwq": "DASHSCOPE_API_KEY",
+                        "bytedance": "ARK_API_KEY",
+                        "doubao": "ARK_API_KEY",
+                        "baidu": "BAIDU_API_KEY",
+                        "qianfan": "BAIDU_API_KEY",
+                        "zhipuai": "ZHIPUAI_API_KEY",
+                        "chatglm": "ZHIPUAI_API_KEY",
+                        "azure": "AZURE_OPENAI_API_KEY",
+                        "azure_openai": "AZURE_OPENAI_API_KEY",
+                    }
+                    _env_var = _key_env_map.get(llm_provider, "OPENAI_API_KEY")
+                    _key = (_os.getenv(_env_var) or "").strip() or _raw_key
+                else:
+                    _key = _raw_key
+
+                _host = (api_host or "").strip()
+                _prov = llm_provider
+
+                # Build a minimal LLM using already-closed-over config variables
+                if _prov in ("openai",):
+                    _kw = {"model": model_name, "api_key": _key, "temperature": temperature}
+                    if _host:
+                        _kw["base_url"] = _host
+                    _llm = ChatOpenAI(**_kw)
+                elif _prov in ("anthropic", "claude"):
+                    _llm = ChatAnthropic(model=model_name, api_key=_key, temperature=temperature)
+                elif _prov in ("deepseek",):
+                    _base_url = _host or "https://api.deepseek.com"
+                    _llm = ChatDeepSeek(
+                        model=model_name or "deepseek-chat",
+                        api_key=_key,
+                        base_url=_base_url,
+                        temperature=temperature,
+                    )
+                elif _prov in ("dashscope", "qwen", "qwq"):
+                    if ChatQwQ is None:
+                        raise ImportError("langchain-qwq not installed")
+                    _base_url = _host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    _llm = ChatQwQ(
+                        model=model_name or "qwq-plus",
+                        api_key=_key,
+                        base_url=_base_url,
+                        temperature=temperature,
+                    )
+                elif _prov in ("ollama",):
+                    _llm = ChatOllama(
+                        model=model_name or "llama3.2",
+                        base_url=_host or "http://localhost:11434",
+                        temperature=temperature,
+                    )
+                else:
+                    # Default to OpenAI-compatible
+                    _kw = {"model": model_name, "api_key": _key, "temperature": temperature}
+                    if _host:
+                        _kw["base_url"] = _host
+                    _llm = ChatOpenAI(**_kw)
+
+                log_msg = f"[LLM_NO_AGENT] Invoking {_prov}/{model_name} with {len(messages)} base messages"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+
+                _t_stage = _time.perf_counter()
+                _response = _llm.invoke(messages)
+                _perf_llm("invoke_no_agent", _t_stage)
+
+                log_msg = f"✅ LLM (no-agent) response from {_prov}: {_response}"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+
+                # Parse the response and update state["result"] so loop conditions can evaluate
+                from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
+                _parsed = standard_post_llm_func("skid0", full_node_name, state, _response)
+                state["result"] = _parsed
+                _perf_llm("total", _t0)
+
+            except Exception as _no_agent_err:
+                _err_msg = f"LLM error (no-agent mode, provider={llm_provider}, model={model_name}): {type(_no_agent_err).__name__}: {_no_agent_err}"
+                logger.error(f"[LLM_NODE] {_err_msg}")
+                send_skill_editor_log("error", _err_msg)
+                state["error"] = _err_msg
+
         return state
 
     full_node_callable = node_builder(llm_node_callable, node_name, skill_name, owner, bp_manager)
@@ -1749,7 +1867,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
         logger.error(err_msg)
         send_skill_editor_log("error", err_msg)
         # Return a no-op function that just passes the state through
-        return lambda state: state
+        return lambda state, runtime=None, store=None, **kwargs: state
 
     node_callable = None
     node_name = node_id
@@ -1803,7 +1921,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
     # If callable creation failed, return a no-op function
     if node_callable is None:
-        return lambda state: state
+        return lambda state, runtime=None, store=None, **kwargs: state
 
     log_msg = f"done building basic node {node_name}"
     logger.debug(log_msg)
@@ -4791,11 +4909,29 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             controller = custom_controller
                         
-            agent_kwargs = {
-                'use_vision': node_use_vision,  # Pass use_vision from node config to browser_use Agent
-                'use_thinking': node_use_thinking,  # Pass use_thinking from node config to browser_use Agent
-                'use_judge': enable_judge_setting,  # Use enable_judge from node editor (validates actions before execution)
-            }
+            # Use unified agent configuration for consistency across local and cloud modes
+            from agent.ec_skills.browser_use_extension.agent_config import get_agent_kwargs_with_compaction
+            
+            agent_kwargs = get_agent_kwargs_with_compaction(
+                use_vision=node_use_vision,
+                use_thinking=node_use_thinking,
+                use_judge=enable_judge_setting,
+                llm=llm,  # Pass LLM to auto-detect context_length for adaptive compaction
+            )
+            
+            # Debug: Log the actual message_compaction settings
+            if 'message_compaction' in agent_kwargs:
+                mc = agent_kwargs['message_compaction']
+                logger.error(
+                    f"[DEBUG] message_compaction settings:\n"
+                    f"  enabled={mc.enabled}\n"
+                    f"  compact_every_n_steps={mc.compact_every_n_steps}\n"
+                    f"  trigger_char_count={mc.trigger_char_count}\n"
+                    f"  trigger_token_count={mc.trigger_token_count}\n"
+                    f"  keep_last_items={mc.keep_last_items}\n"
+                    f"  summary_max_chars={mc.summary_max_chars}\n"
+                    f"  chars_per_token={mc.chars_per_token}"
+                )
             
             # Check if extensions should be disabled (dev mode)
             # In dev mode: default to disabled (avoid network timeout)
@@ -4816,6 +4952,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
                 _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
                 logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            
+            # Clean stale lock files before creating browser profile
+            # This prevents startup failures from previous abnormal exits
+            from agent.ec_skills.browser_use_extension.profile_lock_cleaner import ensure_profile_unlocked
+            ensure_profile_unlocked(_bp_user_data_dir, auto_clean=True)
             
             # Create browser profile with persistent storage for all modes
             browser_profile = BrowserProfile(
@@ -4945,29 +5086,44 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
             
-            history = await agent.run()
-
-            # Persist focus target across node iterations to survive session churn.
             try:
-                _focus_after_run = getattr(getattr(agent, 'browser_session', None), 'agent_focus_target_id', None)
-                if _focus_after_run:
-                    _last_known_focus_target_id = _focus_after_run
-            except Exception:
-                pass
-            
-            # Truncate long output for logging
-            history_str = str(history)
-            if len(history_str) > 10000:
-                history_str = history_str[:10000] + '... (truncated)'
-            logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
-            
-            final = history.final_result() if hasattr(history, 'final_result') else None
-            final_str = str(final)
-            if len(final_str) > 10000:
-                final_str = final_str[:10000] + '... (truncated)'
-            logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
-            
-            return {"final": final, "history": str(history)}
+                history = await agent.run()
+
+                # Persist focus target across node iterations to survive session churn.
+                try:
+                    _focus_after_run = getattr(getattr(agent, 'browser_session', None), 'agent_focus_target_id', None)
+                    if _focus_after_run:
+                        _last_known_focus_target_id = _focus_after_run
+                except Exception:
+                    pass
+                
+                # Truncate long output for logging
+                history_str = str(history)
+                if len(history_str) > 10000:
+                    history_str = history_str[:10000] + '... (truncated)'
+                logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
+                
+                final = history.final_result() if hasattr(history, 'final_result') else None
+                final_str = str(final)
+                if len(final_str) > 10000:
+                    final_str = final_str[:10000] + '... (truncated)'
+                logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
+                
+                return {"final": final, "history": str(history)}
+            finally:
+                # Clean up browser session if not cached
+                # Only close non-cached sessions to prevent resource leaks
+                if hasattr(agent, 'browser_session') and agent.browser_session:
+                    # Check if this is the cached session
+                    is_cached_session = (agent.browser_session == _cached_browser_session)
+                    
+                    # Only close if NOT cached (cached sessions are reused)
+                    if not is_cached_session and browser_type_setting != 'new chromium':
+                        try:
+                            await agent.browser_session.stop()
+                            logger.debug("[BrowserAutomation] Browser session stopped (non-cached)")
+                        except Exception as e:
+                            logger.warning(f"[BrowserAutomation] Failed to stop browser session: {e}")
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
@@ -5016,6 +5172,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
         # Combine prompts into task instructions for browser_use agent
         task_instructions = final_user_prompt.strip() or task_text or final_system_prompt.strip()
+        
+        # Validate that we have a task (P0 Fix: prevent empty task)
+        if not task_instructions:
+            default_task = "Browse the current webpage and report what you find."
+            logger.warning(
+                f"[BrowserAutomation] ⚠️ No task provided (system_prompt, user_prompt, and task_text are all empty). "
+                f"Using default task: {default_task}"
+            )
+            send_skill_editor_log("warning", f"[BrowserAutomation] No task specified, using default task")
+            task_instructions = default_task
+        
         if final_system_prompt.strip():
             combined_task = f"{final_system_prompt.strip()}\n\n{task_instructions}"
         else:
@@ -5034,13 +5201,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             agent_id = None  # Initialize agent_id for use in _run_browser_use
             
             # Try to get agent_id from state (works in both local and cloud mode)
+            # P0 Fix: Prioritize attributes.agent_id and validate messages[0] type
             try:
-                if state.get("messages") and len(state["messages"]) > 0:
-                    agent_id = state["messages"][0]
-                elif state.get("attributes", {}).get("agent_id"):
-                    agent_id = state["attributes"]["agent_id"]
-            except Exception:
-                pass
+                # First priority: attributes.agent_id (most reliable)
+                agent_id = state.get("attributes", {}).get("agent_id")
+                
+                # Fallback: messages[0] if it's a string
+                if not agent_id and state.get("messages"):
+                    first_msg = state["messages"][0]
+                    if isinstance(first_msg, str):
+                        agent_id = first_msg
+                    else:
+                        logger.debug(
+                            f"[BrowserAutomation] messages[0] is not a string (type: {type(first_msg).__name__}), "
+                            f"cannot use as agent_id"
+                        )
+            except Exception as e:
+                logger.warning(f"[BrowserAutomation] Failed to extract agent_id: {e}")
             
             if not is_cloud_mode:
                 try:

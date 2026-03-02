@@ -185,33 +185,44 @@ export class APIRouter {
         if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
           logger.warn(`[APIRouter] Authentication failed for ${method}: ${errorCode}`);
           
-          // Clear the invalid token from storage
+          // During the post-login grace period the backend (MainWindow) may still
+          // be initializing.  Suppress the aggressive token-clear + redirect so the
+          // IPC retry loop can handle transient failures instead of bouncing the
+          // user back to the login page (the "double login" bug).
           try {
             const { userStorageManager } = await import('../storage/UserStorageManager');
-            userStorageManager.removeToken();
-            logger.info('[APIRouter] Cleared invalid token from storage');
             
-            // Show user notification (only once)
-            if (!sessionStorage.getItem('token_expired_notification_shown')) {
-              sessionStorage.setItem('token_expired_notification_shown', 'true');
+            if (userStorageManager.isInPostLoginGracePeriod()) {
+              logger.info(`[APIRouter] Within post-login grace period, suppressing redirect for ${method}: ${errorCode}`);
+              // Fall through — return the error to the caller without clearing
+              // the token or redirecting.  The caller / retry loop will handle it.
+            } else {
+              // Clear the invalid token from storage
+              userStorageManager.removeToken();
+              logger.info('[APIRouter] Cleared invalid token from storage');
               
-              // Try to show Ant Design message if available
-              try {
-                const { message } = await import('antd');
-                message.warning('Your session has expired. Please log in again.');
-              } catch {
-                // Fallback to console if Ant Design not available
-                console.warn('Session expired. Please log in again.');
+              // Show user notification (only once)
+              if (!sessionStorage.getItem('token_expired_notification_shown')) {
+                sessionStorage.setItem('token_expired_notification_shown', 'true');
+                
+                // Try to show Ant Design message if available
+                try {
+                  const { message } = await import('antd');
+                  message.warning('Your session has expired. Please log in again.');
+                } catch {
+                  // Fallback to console if Ant Design not available
+                  console.warn('Session expired. Please log in again.');
+                }
               }
-            }
-            
-            // Redirect to login page if not already there
-            if (window.location.hash !== '#/login') {
-              logger.info('[APIRouter] Redirecting to login due to invalid token');
-              // Small delay to allow notification to show
-              setTimeout(() => {
-                window.location.hash = '#/login';
-              }, 500);
+              
+              // Redirect to login page if not already there
+              if (window.location.hash !== '#/login') {
+                logger.info('[APIRouter] Redirecting to login due to invalid token');
+                // Small delay to allow notification to show
+                setTimeout(() => {
+                  window.location.hash = '#/login';
+                }, 500);
+              }
             }
           } catch (error) {
             logger.error('[APIRouter] Error clearing invalid token:', error);

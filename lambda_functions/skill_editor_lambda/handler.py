@@ -10,9 +10,25 @@ import boto3
 
 from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
 from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_dir_name
+from agent.skill_editor.prompt_store import prompt_store
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Pre-fetch all prompts from DynamoDB during cold start so sub-agents
+# never block on individual gets.
+_PROMPT_IDS = [
+    "intent_classifier",
+    "planner",
+    "code_gen",
+    "edit_flowgram",
+    "validator",
+]
+try:
+    prompt_store.preload(_PROMPT_IDS)
+    logger.info("Prompt store preloaded successfully")
+except Exception as _pre_err:
+    logger.warning("Prompt store preload failed (will fall back to defaults): %s", _pre_err)
 
 # Cache detected S3 base prefixes per owner to avoid repeated list calls within
 # the same warm Lambda environment.
@@ -1826,9 +1842,10 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             from langchain_openai import ChatOpenAI
 
             api_key = os.environ.get("OPENAI_API_KEY")
+            model_name = os.environ.get("SKILL_EDITOR_MODEL", "gpt-5.2")
             if api_key:
-                llm_instance = ChatOpenAI(model="gpt-4o", api_key=api_key)
-                logger.info("[sendSkillEditorChatMessage] Using OpenAI LLM (hardcoded)")
+                llm_instance = ChatOpenAI(model=model_name, api_key=api_key)
+                logger.info(f"[sendSkillEditorChatMessage] Using OpenAI LLM model={model_name}")
             else:
                 logger.warning("[sendSkillEditorChatMessage] OPENAI_API_KEY missing; falling back to default LLM selection")
         except Exception as e:
@@ -1868,16 +1885,27 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
 
         logger.info("[sendSkillEditorChatMessage] Publishing stream_end event...")
         try:
+            stream_end_payload = {
+                "messageId": assistant_message_id,
+                "fullContent": response.message or "",
+                "state": agent.pipeline_state.value if agent else "idle",
+                "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+                "clarification": [q.model_dump() for q in (response.clarification or [])] if getattr(response, "clarification", None) else None,
+                "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
+                "flowgram": response.flowgram.model_dump() if getattr(response, "flowgram", None) else None,
+                "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
+            }
+            logger.info(f"[sendSkillEditorChatMessage] stream_end payload keys: {list(stream_end_payload.keys())}, "
+                        f"hasClarification={stream_end_payload.get('clarification') is not None}, "
+                        f"hasPlan={stream_end_payload.get('plan') is not None}, "
+                        f"hasFlowgram={stream_end_payload.get('flowgram') is not None}")
             _publish(
                 env,
                 owner=owner,
                 session_id=session_id,
                 flowgram_id=flowgram_id,
                 event_type="skill_editor.chat.stream_end",
-                payload={
-                    "messageId": assistant_message_id,
-                    "fullContent": response.message or "",
-                },
+                payload=stream_end_payload,
             )
         except Exception as pub_err:
             logger.warning(f"[sendSkillEditorChatMessage] Error publishing stream_end: {pub_err}")
@@ -2049,6 +2077,155 @@ def _resolve_skill_name(input_: Dict[str, Any]) -> str:
     return "untitled_skill"
 
 
+def _sanitize_owner(owner: str) -> str:
+    """Sanitize owner email for S3 path: replace @ and . with _."""
+    return (owner or "unknown").replace("@", "_").replace(".", "_")
+
+
+def _skill_dir_name(skill_id: str) -> str:
+    """Ensure skill directory has the '_skill' suffix."""
+    if skill_id.endswith("_skill"):
+        return skill_id
+    return f"{skill_id}_skill"
+
+
+def _build_skills_s3_prefix(env: _Env, owner: str, skill_id: str) -> str:
+    """Construct the S3 prefix used for skill files.
+
+    Uses "{sanitized_owner}/my_skills/{skillId}_skill/" layout to match
+    the existing desktop/cloud skill storage convention.
+    """
+    prefix = _norm_prefix(env.s3_key_root)
+    sanitized = _sanitize_owner(owner)
+    skill_dir = _skill_dir_name(skill_id)
+    return _s3_key(prefix, sanitized, "my_skills", skill_dir)
+
+
+def _handle_request_skill_file_upload_url(event: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("[requestSkillFileUploadUrl] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+
+    skill_id = input_.get("skillId") or args.get("skillId")
+    owner = input_.get("owner") or args.get("owner") or _owner_from_event(event)
+    file_name = input_.get("fileName") or args.get("fileName")
+
+    if not skill_id or not owner or not file_name:
+        raise RuntimeError("skillId, owner and fileName are required")
+
+    s3_key = _s3_key(_build_skills_s3_prefix(env, owner, skill_id), file_name)
+    client = _s3_client()
+
+    expires = 900  # 15 minutes
+    try:
+        url = client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": env.s3_bucket, "Key": s3_key},
+            ExpiresIn=expires,
+        )
+        logger.info(f"[requestSkillFileUploadUrl] Generated presigned PUT for {s3_key}")
+        return {"uploadUrl": url, "s3Key": s3_key, "expiresIn": expires}
+    except Exception as e:
+        logger.error(f"[requestSkillFileUploadUrl] Failed to create presigned url: {e}")
+        raise
+
+
+def _handle_request_skill_file_download_url(event: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("[requestSkillFileDownloadUrl] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    owner = args.get("owner") or _owner_from_event(event)
+    skill_id = args.get("skillId") or args.get("skillID") or args.get("id")
+
+    if not owner or not skill_id:
+        raise RuntimeError("owner and skillId are required")
+
+    prefix = _build_skills_s3_prefix(env, owner, skill_id)
+    if prefix and not prefix.endswith("/"):
+        prefix = prefix + "/"
+
+    client = _s3_client()
+    try:
+        resp = client.list_objects_v2(Bucket=env.s3_bucket, Prefix=prefix, MaxKeys=100)
+        contents = resp.get("Contents") or []
+        # Prefer largest or most recent object; pick the first valid object for now
+        obj = None
+        if contents:
+            # sort by LastModified desc
+            contents.sort(key=lambda o: o.get("LastModified") or 0, reverse=True)
+            for c in contents:
+                k = c.get("Key")
+                if k and not k.endswith("/"):
+                    obj = c
+                    break
+
+        if not obj:
+            raise RuntimeError("No skill files found for given owner/skillId")
+
+        key = obj.get("Key")
+        expires = 900
+        url = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": env.s3_bucket, "Key": key},
+            ExpiresIn=expires,
+        )
+        logger.info(f"[requestSkillFileDownloadUrl] Generated presigned GET for {key}")
+        return {"downloadUrl": url, "s3Key": key, "expiresIn": expires}
+    except Exception as e:
+        logger.error(f"[requestSkillFileDownloadUrl] Error: {e}")
+        raise
+
+
+def _handle_delete_skill_files(event: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("[deleteSkillFiles] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    owner = args.get("owner") or _owner_from_event(event)
+    skill_id = args.get("skillId")
+
+    if not owner or not skill_id:
+        return {"success": False, "error": "owner and skillId are required"}
+
+    prefix = _build_skills_s3_prefix(env, owner, skill_id)
+    if prefix and not prefix.endswith("/"):
+        prefix = prefix + "/"
+
+    client = _s3_client()
+    try:
+        # List objects under the prefix
+        to_delete = []
+        continuation = None
+        while True:
+            kwargs = {"Bucket": env.s3_bucket, "Prefix": prefix}
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            resp = client.list_objects_v2(**kwargs)
+            for obj in resp.get("Contents") or []:
+                k = obj.get("Key")
+                if k and not k.endswith("/"):
+                    to_delete.append({"Key": k})
+            if resp.get("IsTruncated"):
+                continuation = resp.get("NextContinuationToken")
+                continue
+            break
+
+        if not to_delete:
+            logger.info("[deleteSkillFiles] No objects to delete")
+            return {"success": True}
+
+        # Batch delete (max 1000 per request)
+        for i in range(0, len(to_delete), 1000):
+            batch = to_delete[i : i + 1000]
+            client.delete_objects(Bucket=env.s3_bucket, Delete={"Objects": batch, "Quiet": True})
+
+        logger.info(f"[deleteSkillFiles] Deleted {len(to_delete)} objects under {prefix}")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"[deleteSkillFiles] Error deleting objects: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def _handle_load_skill_editor_contexts(event: Dict[str, Any]) -> Dict[str, Any]:
     """Load skill editor contexts from S3 (per user, per skill)."""
     logger.info("[loadSkillEditorContexts] Starting handler")
@@ -2181,6 +2358,12 @@ def handler(event, context):
             return _handle_read_skill_file(event, allow_skill_name=False)
         if field == "writeSkillFile":
             return _handle_write_skill_file(event)
+        if field == "requestSkillFileUploadUrl":
+            return _handle_request_skill_file_upload_url(event)
+        if field == "requestSkillFileDownloadUrl":
+            return _handle_request_skill_file_download_url(event)
+        if field == "deleteSkillFiles":
+            return _handle_delete_skill_files(event)
         
         # Skill Run Control
         if field == "runSkill":

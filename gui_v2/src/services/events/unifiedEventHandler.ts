@@ -146,13 +146,14 @@ export class UnifiedEventHandler {
   }
 
   private handleSkillEditorChatEnd(event: StandardizedEvent): void {
-    const { sessionId, messageId, fullContent } = event.payload;
+    const { sessionId, messageId, fullContent, ...rest } = event.payload;
     
     eventBus.emit('skill_editor:chat:stream_end', {
       sessionId: sessionId || event.sessionId,
       messageId,
       fullContent,
-      source: event.source
+      source: event.source,
+      ...rest,  // forward clarification, a2ui, plan, state, etc.
     });
   }
 
