@@ -89,6 +89,7 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
           if (!t || typeof t !== 'string') return t;
           const s = t.trim().toLowerCase();
           if (s === 'float') return 'number';
+          if (s === 'int') return 'integer';
           if (s === 'dict') return 'object';
           if (s === '[int]' || s === '[integer]') return { type: 'array', items: { type: 'integer' } };
           if (s === '[string]' || s === '[str]') return { type: 'array', items: { type: 'string' } };

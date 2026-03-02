@@ -172,7 +172,7 @@ def build_agent_mcp_tools_schemas():
                     "required": ["works"],
                     "properties": {
                         "works": {
-                            "type": "dict",
+                            "type": "object",
                             "description": "work to be dones",
                         }
                     },
@@ -268,7 +268,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)",
                         },
                         "sub_area": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "sub area of screen shot with relative offset [left, top, right, bottom]",
                         },
                         "file": {
@@ -315,10 +315,14 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {
                     "type": "object",
-                    "required": ["loc", "post_move_delay", "post_click_delay"],
+                    "required": ["click_type", "loc", "post_move_delay", "post_click_delay"],
                     "properties": {
+                        "click_type": {
+                            "type": "string",
+                            "description": "click type, can be 'left', 'right', 'double'",
+                        },
                         "loc": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates of [x, y]",
                         },
                         "post_move_delay": {
@@ -349,7 +353,7 @@ def build_agent_mcp_tools_schemas():
                     "required": ["location", "post_wait"],
                     "properties": {
                         "location": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates of [x, y]",
                         },
                         "post_wait": {
@@ -376,15 +380,15 @@ def build_agent_mcp_tools_schemas():
                     "required": ["pick_loc","drop_loc", "duration", "post_wait"],
                     "properties": {
                         "pick_loc": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates mouse pick up locationof [x, y]",
                         },
                         "drop_loc": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates mouse drop locationof [x, y]",
                         },
                         "duration": {
-                            "type": "float",
+                            "type": "number",
                             "description": "time interval in seconds (could be fractional) between pick up and drop off",
                         },
                         "post_wait": {
@@ -446,7 +450,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "text string to be typed in",
                         },
                         "interval": {
-                            "type": "float",
+                            "type": "number",
                             "description": "amount of time interval in seconds(can be fractional number) between key strokes",
                         },
                         "post_wait": {
@@ -473,7 +477,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["keys", "post_wait"],
                     "properties": {
                         "keys": {
-                            "type": "[string]",
+                            "type": "array",
+                            "items": {"type": "string"},
                             "description": "list of keys to be keyed in, for example ['ctrl', 'x']",
                         },
                         "post_wait": {
@@ -500,7 +505,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["keyword", "duration"],
                     "properties": {
                         "keyword": {
-                            "type": "[string]",
+                            "type": "array",
+                            "items": {"type": "string"},
                             "description": "the text on the button to where the mouse will be pressed and held down",
                         },
                         "duration": {
@@ -1480,7 +1486,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_open_app",
-        description="<category>System</category><sub-category>General Applications</sub-category>in OS, open an app.",
+        description="<category>System</category><sub-category>General Applications</sub-category>Open an app in the OS. Smart: first checks if a matching window is already open (brings to front), then checks running processes, and only launches the executable if needed. Supports common app aliases (WeChat/微信, DingTalk/钉钉, etc.) and searches typical installation directories as fallback.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1491,7 +1497,7 @@ def build_agent_mcp_tools_schemas():
                     "properties": {
                         "app_name": {
                             "type": "string",
-                            "description": "the name of the app to open.",
+                            "description": "The name of the app to open (e.g. 'WeChat', '微信', 'chrome') or a full executable path (e.g. 'C:\\Program Files\\Tencent\\WeChat\\WeChat.exe').",
                         }
                     },
                 }
@@ -1766,7 +1772,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["apps"],
                     "properties": {
                         "apps": {
-                            "type": "[string]",
+                            "type": "array",
+                            "items": {"type": "string"},
                             "description": "the processes to be killed, all digits meaning process ID, otherwise, process name",
                         }
                     },
@@ -2139,12 +2146,14 @@ def build_agent_mcp_tools_schemas():
         add_schedule_agent_task_tool_schema,
         add_delete_agent_task_tool_schema,
         add_stop_agent_task_tool_schema,
+        add_get_task_progress_tool_schema,
     )
     add_launch_agent_task_tool_schema(tool_schemas)
     add_create_agent_task_with_skill_tool_schema(tool_schemas)
     add_schedule_agent_task_tool_schema(tool_schemas)
     add_delete_agent_task_tool_schema(tool_schemas)
     add_stop_agent_task_tool_schema(tool_schemas)
+    add_get_task_progress_tool_schema(tool_schemas)
 
     # Code execution tools
     from agent.mcp.server.code_utils.code_tools import (
@@ -2175,6 +2184,132 @@ def build_agent_mcp_tools_schemas():
     # AWS cost monitoring and emergency shutdown tools
     add_aws_read_billing_tool_schema(tool_schemas)
     add_aws_shutdown_tool_schema(tool_schemas)
+
+    # ==================== Timer Management Tools ====================
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="add_timer",
+        description="<category>OS</category><sub-category>Timer</sub-category>Create and start a named repeating interval timer. The timer fires periodically and generates timer events that can resume pend_event nodes configured to listen for the specified timer name.",
+        inputSchema={
+            "type": "object",
+            "required": ["timer_name", "period_ms"],
+            "properties": {
+                "timer_name": {
+                    "type": "string",
+                    "description": "Human-readable name for this timer (e.g. 'check_orders', 'poll_inbox'). Must be unique per agent.",
+                },
+                "timer_id": {
+                    "type": "string",
+                    "description": "Optional explicit timer ID. If not provided, one will be auto-generated.",
+                },
+                "period_ms": {
+                    "type": "integer",
+                    "description": "Interval between fires in milliseconds (e.g. 15000 for 15 seconds, 60000 for 1 minute).",
+                },
+                "repeat_count": {
+                    "type": "integer",
+                    "description": "Number of times to fire. -1 means continuous non-stop (default), 0 means create but don't start, positive integer means fire that many times then stop.",
+                    "default": -1,
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="remove_timer",
+        description="<category>OS</category><sub-category>Timer</sub-category>Stop and remove a named repeating timer by its timer_id or timer_name. The timer will stop firing and be removed from the system.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {
+                "timer_id": {
+                    "type": "string",
+                    "description": "The ID of the timer to remove. Either timer_id or timer_name must be provided.",
+                },
+                "timer_name": {
+                    "type": "string",
+                    "description": "The name of the timer to remove. Either timer_id or timer_name must be provided.",
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="update_timer",
+        description="<category>OS</category><sub-category>Timer</sub-category>Update a repeating timer's period and/or repeat count. The timer will be restarted with the new parameters. To pause a timer, set repeat_count to 0. To resume, set repeat_count to -1 (continuous) or a positive number.",
+        inputSchema={
+            "type": "object",
+            "required": ["timer_id"],
+            "properties": {
+                "timer_id": {
+                    "type": "string",
+                    "description": "The ID of the timer to update.",
+                },
+                "period_ms": {
+                    "type": "integer",
+                    "description": "New interval between fires in milliseconds. Leave unset to keep current value.",
+                },
+                "repeat_count": {
+                    "type": "integer",
+                    "description": "New repeat count. -1 = continuous, 0 = pause/stop, positive = fire N more times.",
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="list_timers",
+        description="<category>OS</category><sub-category>Timer</sub-category>List all repeating timers for the current agent. Returns timer_id, timer_name, period_ms, repeat_count, fire_count, and active status for each timer.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {},
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="pause_timer",
+        description="<category>OS</category><sub-category>Timer</sub-category>Pause a repeating timer so it stops firing events. The timer remains registered and can be resumed later. Use this before long-running operations (e.g. LLM + MCP tool calls) to prevent timer events from accumulating in the queue.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {
+                "timer_id": {
+                    "type": "string",
+                    "description": "The ID of the timer to pause. Either timer_id or timer_name must be provided.",
+                },
+                "timer_name": {
+                    "type": "string",
+                    "description": "The name of the timer to pause. Either timer_id or timer_name must be provided.",
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="resume_timer",
+        description="<category>OS</category><sub-category>Timer</sub-category>Resume a previously paused repeating timer so it starts firing events again. Call this after long-running operations complete to restart periodic polling.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {
+                "timer_id": {
+                    "type": "string",
+                    "description": "The ID of the timer to resume. Either timer_id or timer_name must be provided.",
+                },
+                "timer_name": {
+                    "type": "string",
+                    "description": "The name of the timer to resume. Either timer_id or timer_name must be provided.",
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
 
     # Azure cost monitoring and emergency shutdown tools
     add_azure_read_billing_tool_schema(tool_schemas)

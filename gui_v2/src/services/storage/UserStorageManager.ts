@@ -350,6 +350,27 @@ export class UserStorageManager {
     return true;
   }
 
+  /**
+   * Check if we are within a post-login grace period.
+   * During this window the backend (MainWindow) may still be initializing,
+   * so INVALID_TOKEN responses from early API calls should NOT trigger
+   * token removal + redirect to login.  The IPC retry loop already
+   * handles SYSTEM_NOT_READY; this grace period covers the narrow race
+   * where the system just became ready but the first non-whitelisted
+   * request arrives before the token is fully propagated.
+   */
+  isInPostLoginGracePeriod(gracePeriodMs: number = 30000): boolean {
+    try {
+      const loginTimeStr = localStorage.getItem(STORAGE_KEYS.LOGIN_TIME);
+      if (!loginTimeStr) return false;
+      const loginTime = parseInt(loginTimeStr, 10);
+      if (isNaN(loginTime)) return false;
+      return (Date.now() - loginTime) < gracePeriodMs;
+    } catch {
+      return false;
+    }
+  }
+
   // ===== User Preferences =====
   
   /**

@@ -9,7 +9,7 @@ import {
   ReloadOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox, Tag } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Tag, Checkbox } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -18,6 +18,7 @@ import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useSkillStore } from '@/stores/domain/skillStore';
+import { useTaskStore } from '@/stores/domain/taskStore';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import {
   StyledFormItem,
@@ -37,7 +38,7 @@ const DEFAULT_TASK = {
   id: '',
   name: '',
   description: '',
-  cloud_based: false,
+  task_type: 'local',
   priority: 'none',
   trigger: ['schedule'] as string[],
   skills: [] as string[],  // Support multiple skills
@@ -48,9 +49,42 @@ const DEFAULT_TASK = {
     start_date_time: dayjs(),
     end_date_time: undefined as any,
     time_out: 3600,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   },
   metadata: {},
 };
+
+const TASK_TYPE_OPTIONS = ['local', 'cloud', 'hybrid_cloud'];
+
+const TIMEZONE_OPTIONS = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'America/Toronto',
+  'America/Vancouver',
+  'America/Mexico_City',
+  'America/Sao_Paulo',
+  'America/Argentina/Buenos_Aires',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Moscow',
+  'Europe/Istanbul',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Bangkok',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+  'Australia/Sydney',
+  'Australia/Melbourne',
+  'Pacific/Auckland',
+];
 
 const PRIORITY_OPTIONS = ['none', 'low', 'medium', 'high', 'urgent'];
 const TRIGGER_OPTIONS = [
@@ -108,21 +142,37 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
 
-  // Pre-process the task data to ensure dates are valid Dayjs objects or undefined
+  // Pre-process the task data - extract only primitive values to avoid circular references
   const task = React.useMemo(() => {
     if (!rawTask || Object.keys(rawTask).length === 0) {
       return isNew ? DEFAULT_TASK : null;
     }
+    const raw = rawTask as any;
     const processedSchedule = {
-      ...((rawTask as any).schedule || {}),
-      start_date_time: toDayjs((rawTask as any).schedule?.start_date_time),
-      end_date_time: toDayjs((rawTask as any).schedule?.end_date_time),
+      repeat_type: raw.schedule?.repeat_type || 'none',
+      repeat_number: raw.schedule?.repeat_number || 1,
+      repeat_unit: raw.schedule?.repeat_unit || 'by hours',
+      start_date_time: toDayjs(raw.schedule?.start_date_time),
+      end_date_time: toDayjs(raw.schedule?.end_date_time),
+      time_out: raw.schedule?.time_out || 3600,
     };
+    // Extract only primitive values, no spreading to avoid circular references
     return {
-      ...rawTask,
+      id: raw.id,
+      name: raw.name,
+      description: raw.description,
+      owner: raw.owner,
+      agent_id: raw.agent_id || raw.agentId,
+      latest_version: raw.latest_version,
+      priority: raw.priority || 'none',
+      trigger: raw.trigger,
+      skill: raw.skill,
+      skills: raw.skills,
+      cloud_based: raw.cloud_based,
+      status: raw.status,
+      state: raw.state,
+      metadata: raw.metadata,
       schedule: processedSchedule,
-      // Ensure priority is 'none' if it's null or undefined
-      priority: (rawTask as any).priority || 'none',
     };
   }, [rawTask, isNew]);
   const { t } = useTranslation();
@@ -134,20 +184,36 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [launching, setLaunching] = React.useState(false);
   const [latestStatus, setLatestStatus] = React.useState<string>('');
   const [currentTrigger, setCurrentTrigger] = React.useState<string[]>(['schedule']);
+  const [currentTaskType, setCurrentTaskType] = React.useState<string>('local');
   // skills store and fetch-on-mount if needed
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
+  // all tasks from store (for companion local task picker)
+  const allTasks = useTaskStore((s) => s.items);
+  // Compute local task options for companion picker (exclude current task)
+  const localTaskOptions = React.useMemo(() => {
+    const currentId = task ? (task as any).id : '';
+    return (allTasks || [])
+      .filter((t: any) => {
+        const tt = t.task_type || t.metadata?.task_type || 'local';
+        return tt === 'local' && t.id !== currentId;
+      })
+      .map((t: any) => ({ value: t.id, label: t.name || t.id }));
+  }, [allTasks, task]);
 
   // Extract only id and name to avoid circular reference in deep comparison
+  // Use primitive dependencies to avoid triggering deep comparison on circular structures
+  const skillsKey = React.useMemo(() => {
+    // Use length as primitive dependency to avoid deep comparison
+    return (skills || []).length;
+  }, [skills?.length]);
+
   const skillsSimplified = React.useMemo(() => {
-    const result = (skills || []).map((s: any) => ({ id: s.id, name: s.name }));
-    console.log('[TaskDetail] skillsSimplified updated:', result.length, 'skills');
-    return result;
-  }, [skills]);  // Depend on skills to ensure updates when store changes
+    return (skills || []).map((s: any) => ({ id: s.id, name: s.name }));
+  }, [skillsKey]);  // Depend on primitive key instead of full skills object
 
   // Memoize skill options to avoid circular reference warnings
   const skillOptions = React.useMemo(() => {
-    console.log('[TaskDetail] Building skillOptions from', skillsSimplified.length, 'skills');
     return skillsSimplified.map((s) => ({ 
       key: s.id || s.name,
       value: s.name, 
@@ -166,24 +232,55 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           if (loginInfo?.success) uname = loginInfo.data?.last_login?.username || '';
         }
         if (uname) {
-          console.log('[TaskDetail] Fetching skills for user:', uname);
           const res = await api.getAgentSkills<any[]>(uname, []);
           // API returns skills array directly in res.data (not res.data.skills)
           // due to resultPath: 'getAllMine.skills' in api config
           const skillsData = res?.data?.skills || res?.data;
           if (res?.success && Array.isArray(skillsData) && skillsData.length > 0) {
-            console.log('[TaskDetail] Loaded skills:', skillsData.length);
-            setSkills(skillsData as any);
-          } else {
-            console.warn('[TaskDetail] No skills returned or error:', res);
+
+            // Sanitize skills data to remove circular references before storing
+            const sanitizedSkills = skillsData.map((skill: any) => ({
+              id: skill.id,
+              name: skill.name,
+              description: skill.description,
+              owner: skill.owner,
+              version: skill.version,
+              level: skill.level,
+              path: skill.path,
+              source: skill.source,
+              tags: skill.tags,
+              examples: skill.examples,
+              inputModes: skill.inputModes,
+              outputModes: skill.outputModes,
+              apps: skill.apps,
+              limitations: skill.limitations,
+              price: skill.price,
+              price_model: skill.price_model,
+              public: skill.public,
+              rentable: skill.rentable,
+              run_in_cloud: skill.run_in_cloud,
+              // Explicitly exclude config, work_flow, ui_info and other fields that may contain circular refs
+            }));
+
+            setSkills(sanitizedSkills as any);
           }
         }
       } catch (e) {
-        console.error('[TaskDetail] Error fetching skills:', e);
+        // Silently handle skill fetch errors - non-critical
       }
     };
     ensureSkills();
   }, [username, setSkills]);
+
+  // Create a stable primitive key for task to avoid circular reference warnings
+  const taskKey = React.useMemo(() => {
+    if (!task) return 'no-task';
+    const t = task as any;
+    // Include status in the key so taskStatus updates when status changes
+    const status = t.status ?? t.state?.top ?? '';
+    const statusStr = typeof status === 'object' ? (status.state || status.status || '') : String(status || '');
+    return `${t.id || ''}_${t.name || ''}_${t.latest_version || ''}_${statusStr}_${isNew ? 'new' : 'edit'}`;
+  }, [task, isNew]);
 
   const taskStatus = React.useMemo(() => {
     if (!task) return '';
@@ -198,18 +295,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }
     
     return String(statusValue || '');
-  }, [task]);
+  }, [taskKey]);
 
   React.useEffect(() => {
     setLatestStatus(taskStatus);
   }, [taskStatus]);
 
   // Watch trigger changes to update repeat_type options
-  const handleTriggerChange = React.useCallback((triggers: string[]) => {
-    setCurrentTrigger(triggers);
-    
+  const handleTriggerChange = React.useCallback(() => {
     // 'none' repeat_type is valid for schedule triggers (one-time run)
-  }, [form]);
+    // Trigger state is managed by form, no need for separate state
+  }, []);
 
   React.useEffect(() => {
     if (task) {
@@ -221,79 +317,81 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       const metadata = (task as any).metadata || {};
       const metaStr = Object.keys(metadata).length > 0 ? JSON.stringify(metadata, null, 2) : '';
 
-      // ä½¿ç”¨ name Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç”¨ skill Fieldä½œä¸ºåŽå¤‡
+      // ä½¿ç"¨ name Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç"¨ skill Fieldä½œä¸ºåŽå¤‡
       const taskName = (task as any).name || taskSkill || '';
 
-      // ä½¿ç”¨ description Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç”¨ metadata ä¸­çš„Descriptionä½œä¸ºåŽå¤‡
+      // ä½¿ç"¨ description Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç"¨ metadata ä¸­çš„Descriptionä½œä¸ºåŽå¤‡
       const taskDescription = (task as any).description
         || (task as any).metadata?.description
         || '';
 
-      // ç¡®ä¿AllFieldéƒ½æ­£ç¡®Settings
+      // ç¡®ä¿AllFieldéƒ½æ­£ç¡®Settings
       // For new tasks, auto-generate ID and set owner
       const taskId = isNew ? generateTaskId() : (task as any).id;
       const taskOwner = isNew ? username : ((task as any).owner || username);
       const taskAgentId = (task as any).agent_id || (task as any).agentId || '';
 
-      const formValues = {
-        ...(task as any),
-        id: taskId,
-        owner: taskOwner,
-        name: taskName,
-        description: taskDescription,
-        cloud_based: !!(metadata?.cloud_run),
-        skills: taskSkills,  // Multiple skills support
-        metadata_text: metaStr,
-        agent_id: taskAgentId,
-      };
-
-      form.setFieldsValue(formValues);
-      
-      // Set current trigger for validation
-      // Backend stores trigger as a comma-separated string (e.g. "schedule,message")
-      const rawTrigger = (task as any).trigger;
+      // Extract primitive values from task to avoid circular references
+      const t = task as any;
+      // Process trigger value - backend stores as comma-separated string
+      const rawTrigger = t.trigger;
       const taskTrigger: string[] = Array.isArray(rawTrigger)
         ? rawTrigger
         : (typeof rawTrigger === 'string' && rawTrigger
             ? rawTrigger.split(',').map((s: string) => s.trim()).filter(Boolean)
             : ['schedule']);
+
+      const formValues = {
+        id: taskId,
+        owner: taskOwner,
+        name: taskName,
+        description: taskDescription,
+        task_type: (task as any).task_type || metadata?.task_type || 'local',
+        companion_local_task: metadata?.companion_local_task || undefined,
+        light_weight: !!metadata?.light_weight,
+        skills: taskSkills,  // Multiple skills support
+        metadata_text: metaStr,
+        agent_id: taskAgentId,
+        latest_version: t.latest_version || '1.0.0',
+        priority: t.priority || 'none',
+        trigger: taskTrigger,  // Use processed trigger value
+        schedule: {
+          repeat_type: t.schedule?.repeat_type || 'none',
+          repeat_number: t.schedule?.repeat_number || 1,
+          repeat_unit: t.schedule?.repeat_unit || 'by hours',
+          start_date_time: t.schedule?.start_date_time,
+          end_date_time: t.schedule?.end_date_time,
+          time_out: t.schedule?.time_out || 3600,
+        },
+      };
+
+      // Set all form values at once, including trigger
+      form.setFieldsValue(formValues);
+
+      // Set current task type for conditional companion picker
+      const taskType = (task as any).task_type || metadata?.task_type || 'local';
+      setCurrentTaskType(taskType);
+
+      // Set current trigger for validation
       setCurrentTrigger(taskTrigger);
       form.setFieldValue('trigger', taskTrigger);
     } else {
       form.resetFields();
       setEditMode(false);
     }
-  }, [task, form, isNew, username]);
+  }, [taskKey, username]); // form is stable and doesn't need to be a dependency
 
   const handleCancel = () => {
     if (isNew) {
-      // æ–°å»ºæ¨¡å¼ï¼šæ¸…ç©ºFormå¹¶Notificationçˆ¶ComponentCloseé¢æ¿
+      // New mode: Clear form and notify parent to close panel
       form.resetFields();
       if (onCancel) {
         onCancel();
       }
     } else {
-      // Editæ¨¡å¼ï¼šRestoreåŽŸå§‹Dataå¹¶é€€å‡ºEditæ¨¡å¼ï¼ˆä¸Closeé¢æ¿ï¼‰
-      if (task) {
-        const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
-        const taskName = (task as any).name || (task as any).skill || '';
-        const taskDescription = (task as any).description
-          || (task as any).metadata?.description
-          || '';
-        
-        const formValues = {
-          ...(task as any),
-          id: (task as any).id,
-          owner: (task as any).owner || username,
-          name: taskName,
-          description: taskDescription,
-          metadata_text: metaStr,
-        };
-        
-        form.setFieldsValue(formValues);
-      }
+      // Edit mode: Exit edit mode (form will be re-populated by useEffect)
       setEditMode(false);
-      // Editæ¨¡å¼ä¸‹ä¸è°ƒç”¨ onCancelï¼Œä¿æŒé¢æ¿Open
+      // Edit mode does not call onCancel to keep panel open
     }
   };
 
@@ -330,7 +428,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
         owner: (values as any).owner || username,
         description: (values as any).description || '',
-        cloud_based: !!(values as any).cloud_based,
+        task_type: (values as any).task_type || 'local',
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: ((values as any).trigger || ['auto']).join(','),
@@ -347,10 +445,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             (values as any).schedule.end_date_time.toISOString() :
             null,
           time_out: (values as any).schedule?.time_out || 3600,
+          timezone: (values as any).schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         metadata: {
           ...((values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {}),
-          cloud_run: !!(values as any).cloud_based,
+          task_type: (values as any).task_type || 'local',
+          ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
+            ? { companion_local_task: (values as any).companion_local_task }
+            : {}),
+          ...((values as any).task_type === 'cloud'
+            ? { light_weight: !!(values as any).light_weight }
+            : {}),
         },
       };
 
@@ -499,7 +604,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       const api = get_ipc_api();
       const response = await api.runAgentTask<any>(username, {
         task_id: taskId,
-        cloud_based: !!(task as any).cloud_based,
+        task_type: (task as any).task_type || 'local',
+        cloud_based: ((task as any).task_type || 'local') !== 'local',
         skill_id: (task as any).skill_id,
         skill: (task as any).skill,
       });
@@ -725,13 +831,52 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
                 <Col span={12}>
                   <StyledFormItem
-                    label={t('pages.tasks.cloudRun', 'Cloud Run')}
-                    name="cloud_based"
-                    valuePropName="checked"
+                    label={t('pages.tasks.taskTypeLabel', 'Task Type')}
+                    name="task_type"
+                    htmlFor="task-type"
                   >
-                    <Checkbox>{t('pages.tasks.cloudRun', 'Cloud Run')}</Checkbox>
+                    <Select
+                      id="task-type"
+                      size="large"
+                      onChange={(value) => setCurrentTaskType(value)}
+                      options={TASK_TYPE_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.taskType.${v}`, v) }))}
+                      aria-label={t('pages.tasks.taskTypeLabel', 'Task Type')}
+                    />
                   </StyledFormItem>
                 </Col>
+                {currentTaskType === 'hybrid_cloud' && (
+                  <Col span={12}>
+                    <StyledFormItem
+                      label={t('pages.tasks.companionLocalTask', 'Companion Local Task')}
+                      name="companion_local_task"
+                      htmlFor="task-companion"
+                    >
+                      <Select
+                        id="task-companion"
+                        size="large"
+                        allowClear
+                        showSearch
+                        placeholder={t('pages.tasks.selectCompanionTask', 'Select a local helper task')}
+                        options={localTaskOptions}
+                        filterOption={(input, option) =>
+                          (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                        }
+                        aria-label={t('pages.tasks.companionLocalTask', 'Companion Local Task')}
+                      />
+                    </StyledFormItem>
+                  </Col>
+                )}
+                {currentTaskType === 'cloud' && (
+                  <Col span={12}>
+                    <StyledFormItem
+                      label={t('pages.tasks.lightWeightLabel', 'Light Weight')}
+                      name="light_weight"
+                      valuePropName="checked"
+                    >
+                      <Checkbox>{t('pages.tasks.lightWeightDesc', 'Run as light-weight cloud task')}</Checkbox>
+                    </StyledFormItem>
+                  </Col>
+                )}
                 <Col span={24}>
                   <StyledFormItem label={t('common.description', 'Description')} name="description" htmlFor="task-description">
                     <Input.TextArea
@@ -924,6 +1069,20 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   min={60}
                                   step={60}
                                   aria-label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                            <Col span={12}>
+                              <StyledFormItem label={t('pages.tasks.scheduleTimezoneLabel', 'Time Zone')} name={["schedule", "timezone"]} htmlFor="task-timezone">
+                                <Select
+                                  id="task-timezone"
+                                  size="large"
+                                  showSearch
+                                  options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))}
+                                  filterOption={(input, option) =>
+                                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                  }
+                                  aria-label={t('pages.tasks.scheduleTimezoneLabel', 'Time Zone')}
                                 />
                               </StyledFormItem>
                             </Col>

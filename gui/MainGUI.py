@@ -506,6 +506,13 @@ class MainWindow:
             total_time = time.time() - self._init_start_time
             logger.info(f"[MainWindow] âœ… Background initialization completed successfully in {total_time:.2f}s total")
 
+            # Start AppSync subscription listener for cloud event relay (desktop mode)
+            try:
+                from gui.ipc.appsync_subscription_client import start_appsync_subscriptions_for_desktop
+                start_appsync_subscriptions_for_desktop()
+            except Exception as sub_err:
+                logger.debug(f"[MainWindow] AppSync subscription start skipped: {sub_err}")
+
             # TEST: Push demo ad after initialization (comment out after testing)
             # self._test_push_demo_ad()
 
@@ -2319,6 +2326,19 @@ class MainWindow:
                 logger.error(f"[MainWindow] âŒ Agent ultra-parallel process failed: {e}")
                 agents_built = False
             
+            # Install wake recovery callbacks now that agents are ready
+            try:
+                from utils.power_monitor import get_power_monitor
+                from utils.wake_recovery import WakeRecoveryManager
+                wake_mgr = WakeRecoveryManager(self)
+                pm = get_power_monitor()
+                pm.on_sleep(wake_mgr.on_sleep)
+                pm.on_wake(wake_mgr.on_wake)
+                self._wake_recovery_manager = wake_mgr
+                logger.info("[MainWindow] Wake recovery callbacks registered")
+            except Exception as e:
+                logger.warning(f"[MainWindow] Wake recovery setup failed (non-critical): {e}")
+
             # Mark async initialization complete
             self._initialization_status['async_init_complete'] = True
             
@@ -2687,6 +2707,24 @@ class MainWindow:
                             logger.warning(f"[AGENT_INVENTORY]   - No skills assigned")
                     else:
                         logger.warning(f"[AGENT_INVENTORY]   - No 'skills' attribute")
+                    
+                    # Log task-level skill info
+                    if hasattr(agent, 'tasks') and agent.tasks:
+                        logger.info(f"[AGENT_INVENTORY]   - Tasks count: {len(agent.tasks)}")
+                        for task_idx, task in enumerate(agent.tasks):
+                            task_name = getattr(task, 'name', f'Task_{task_idx}')
+                            task_skill = getattr(task, 'skill', None)
+                            if task_skill is None:
+                                logger.error(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill=None (MISSING!)")
+                            elif isinstance(task_skill, str):
+                                logger.warning(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{task_skill}' (STRING, not compiled!)")
+                            else:
+                                sk_name = getattr(task_skill, 'name', '?')
+                                has_run = getattr(task_skill, 'runnable', None) is not None
+                                if has_run:
+                                    logger.info(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{sk_name}', runnable=YES")
+                                else:
+                                    logger.error(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{sk_name}', runnable=NO (WILL FAIL!)")
                 except Exception as e:
                     logger.error(f"[AGENT_INVENTORY] Error inspecting agent {idx}: {e}")
             logger.info("[AGENT_INVENTORY] =============================================")

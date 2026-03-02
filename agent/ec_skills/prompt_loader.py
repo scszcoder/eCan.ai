@@ -5,11 +5,21 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from utils.logger_helper import logger_helper as logger
+from utils.user_path_helper import get_user_data_dir
 
 # Define prompt directories
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MY_PROMPTS_DIR = PROJECT_ROOT / "my_prompts"
+# User prompts are stored in user_data directory (production-safe)
+MY_PROMPTS_DIR = None  # Will be set dynamically based on current user
 SAMPLE_PROMPTS_DIR = PROJECT_ROOT / "resource" / "systems" / "sample_prompts"
+
+def _get_my_prompts_dir() -> Path:
+    """Get user-specific prompts directory (production-safe)."""
+    global MY_PROMPTS_DIR
+    if MY_PROMPTS_DIR is None:
+        user_data_dir = get_user_data_dir(subdir="my_prompts")
+        MY_PROMPTS_DIR = Path(user_data_dir)
+    return MY_PROMPTS_DIR
 
 def load_prompt_by_id(prompt_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -25,7 +35,7 @@ def load_prompt_by_id(prompt_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     # Search in my_prompts first
-    for directory in [MY_PROMPTS_DIR, SAMPLE_PROMPTS_DIR]:
+    for directory in [_get_my_prompts_dir(), SAMPLE_PROMPTS_DIR]:
         if not directory.exists():
             continue
             

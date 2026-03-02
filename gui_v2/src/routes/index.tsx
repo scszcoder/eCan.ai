@@ -28,7 +28,7 @@ const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDe
 const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
-const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
+const Prompts = React.lazy(() => import('../pages/Prompts/PromptsEnhanced'));
 const Avatars = React.lazy(() => import('../pages/Avatars/Avatars'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
 const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
@@ -69,6 +69,15 @@ export const isAuthenticated = () => {
 // 受保护的路由Component
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (!isAuthenticated()) {
+        // During the post-login grace period, the token may have been transiently
+        // cleared by an early INVALID_TOKEN response while the backend was still
+        // initializing.  Don't redirect to login in that case — the token-clear
+        // suppression in api-router / api.ts should prevent this, but this serves
+        // as a safety net to avoid the "double login" bounce.
+        if (userStorageManager.isInPostLoginGracePeriod()) {
+            console.warn('[ProtectedRoute] Not authenticated but within post-login grace period, allowing through');
+            return <MainLayout>{children}</MainLayout>;
+        }
         return <Navigate to="/login" replace />;
     }
     return <MainLayout>{children}</MainLayout>;

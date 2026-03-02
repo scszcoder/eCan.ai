@@ -15,6 +15,19 @@ from pathlib import Path
 # Track locally-deleted skill IDs to prevent cloud re-sync from re-adding them
 _DELETED_SKILL_IDS: set = set()
 
+# Guarded import of skill file sync (S3 upload/download)
+_SKILL_FILE_SYNC_AVAILABLE = False
+try:
+    from gui.ipc.w2p_handlers.skill_file_sync import (
+        upload_skill_files_to_cloud,
+        download_skill_files_from_cloud,
+        delete_skill_files_from_cloud,
+        sync_all_skill_files_to_cloud,
+    )
+    _SKILL_FILE_SYNC_AVAILABLE = True
+except ImportError as _imp_err:
+    logger.debug(f"[skill_handler] skill_file_sync not available: {_imp_err}")
+
 # --- Simple in-memory simulation state for step-sim debug ---
 _SIM_BUNDLE: Optional[Dict[str, Any]] = None
 _SIM_CURRENT_SHEET_ID: Optional[str] = None
@@ -77,6 +90,13 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                             pass
                     if 'id' not in sk_dict:
                         sk_dict['id'] = f"skill_{i}"
+                    
+                    # Remove circular references from config to prevent frontend warnings
+                    if 'config' in sk_dict and isinstance(sk_dict['config'], dict):
+                        # Remove known circular reference fields
+                        config_clean = {k: v for k, v in sk_dict['config'].items() 
+                                       if k not in ['graph', 'mcp_client', 'store', 'checkpointer', 'runtime']}
+                        sk_dict['config'] = config_clean
 
                     skills_dicts.append(sk_dict)
                     logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')} (id: {sk_dict.get('id', 'NO ID')})")
@@ -96,16 +116,13 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # ── Step 3: Merge local + cloud, local wins on conflict ─────────
         # Build lookup sets for dedup: by id, askid, and normalized name
-        local_ids = set()
-        local_askids = set()
-        local_names_norm = set()
-        for sk in skills_dicts:
-            if sk.get('id'):
-                local_ids.add(str(sk['id']))
-            if sk.get('askid'):
-                local_askids.add(str(sk['askid']))
-            if sk.get('name'):
-                local_names_norm.add(sk['name'].strip().lower())
+        # Optimization: Use set comprehension for batch processing (faster than loop)
+        local_ids = {str(sk['id']) for sk in skills_dicts if sk.get('id')}
+        local_askids = {str(sk['askid']) for sk in skills_dicts if sk.get('askid')}
+        local_names_norm = {sk['name'].strip().lower() for sk in skills_dicts if sk.get('name')}
+        
+        # Combine all local identifiers for efficient lookup
+        all_local_identifiers = local_ids | local_askids
 
         cloud_added = 0
         cloud_skipped_deleted = 0
@@ -113,26 +130,20 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
             c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
             cname = cloud_sk.get('name', '').strip().lower() if cloud_sk.get('name') else None
-            # Skip if already present locally (by id, askid, or normalized name)
-            if cid and cid in local_ids:
-                continue
-            if c_askid and c_askid in local_askids:
-                continue
-            if cid and cid in local_askids:
-                continue
-            if c_askid and c_askid in local_ids:
+            
+            # Optimization: Reduced from 6 checks to 3 by combining ID lookups
+            # Skip if already present locally (by any identifier)
+            if (cid and cid in all_local_identifiers) or (c_askid and c_askid in all_local_identifiers):
                 continue
             if cname and cname in local_names_norm:
                 continue
+            
             # Skip cloud skills that were deleted locally in this session
-            if cid and cid in _DELETED_SKILL_IDS:
+            if (cid and cid in _DELETED_SKILL_IDS) or (c_askid and c_askid in _DELETED_SKILL_IDS):
                 cloud_skipped_deleted += 1
-                logger.debug(f"[skill_handler] Skipping cloud skill '{cloud_sk.get('name')}' (id={cid}) - deleted locally")
+                logger.debug(f"[skill_handler] Skipping cloud skill '{cloud_sk.get('name')}' (id={cid or c_askid}) - deleted locally")
                 continue
-            if c_askid and c_askid in _DELETED_SKILL_IDS:
-                cloud_skipped_deleted += 1
-                logger.debug(f"[skill_handler] Skipping cloud skill '{cloud_sk.get('name')}' (askid={c_askid}) - deleted locally")
-                continue
+            
             cloud_sk['_source'] = 'cloud'
             skills_dicts.append(cloud_sk)
             cloud_added += 1
@@ -142,6 +153,25 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
         logger.info(f"Returning {len(skills_dicts)} skills to frontend "
                      f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
+
+        # Kick off background bulk upload of local skill files to S3
+        if _SKILL_FILE_SYNC_AVAILABLE:
+            try:
+                local_skills = [sk for sk in skills_dicts if sk.get('_source') != 'cloud']
+                sync_all_skill_files_to_cloud(local_skills)
+            except Exception as fs_exc:
+                logger.debug(f"[skill_handler] bulk skill file sync skipped: {fs_exc}")
+
+            # For cloud-only skills that lack local files, download from S3
+            try:
+                for sk in skills_dicts:
+                    if sk.get('_source') == 'cloud':
+                        from gui.ipc.w2p_handlers.skill_file_sync import _resolve_skill_dir
+                        local_dir = _resolve_skill_dir(sk)
+                        if local_dir is None or not local_dir.is_dir():
+                            download_skill_files_from_cloud(sk)
+            except Exception as fs_exc:
+                logger.debug(f"[skill_handler] cloud skill file download skipped: {fs_exc}")
 
         resultJS = {
             'skills': skills_dicts,
@@ -181,8 +211,13 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
     jresp = send_get_agent_skills_request_to_cloud(session, token, endpoint)
 
     if not isinstance(jresp, list):
-        # Error dict or unexpected format
-        logger.warning(f"[_fetch_cloud_skills] Unexpected response type: {type(jresp)}")
+        # Dict response indicates an error from the cloud API
+        if isinstance(jresp, dict):
+            error_msg = jresp.get('message', 'Unknown error')
+            logger.warning(f"[_fetch_cloud_skills] Cloud API error: {error_msg}")
+        else:
+            # Truly unexpected type (not list or dict)
+            logger.warning(f"[_fetch_cloud_skills] Unexpected response type: {type(jresp)}")
         return []
 
     # Convert cloud format to local dict format using schema registry,
@@ -444,6 +479,13 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             if knowledge_ids:
                 _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
 
+            # Step 5: Sync skill source files to S3 (async, fire and forget)
+            if _SKILL_FILE_SYNC_AVAILABLE:
+                try:
+                    upload_skill_files_to_cloud(skill_data_with_id)
+                except Exception as fs_exc:
+                    logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+
             # Create clean response
             clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
 
@@ -539,6 +581,13 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Sync Skill-Knowledge relationships
             if 'knowledges' in skill_data:
                 _sync_skill_knowledge_relations(skill_id, skill_data.get('knowledges', []), Operation.ADD)
+
+            # Step 4: Sync skill source files to S3 (async, fire and forget)
+            if _SKILL_FILE_SYNC_AVAILABLE:
+                try:
+                    upload_skill_files_to_cloud(skill_data_with_id)
+                except Exception as fs_exc:
+                    logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
 
             # Create clean response
             clean_skill_data = _create_clean_skill_response(skill_id, skill_data)
@@ -730,6 +779,13 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         except Exception as e:
             logger.warning(f"[skill_handler] Cloud deletion failed (non-fatal): {e}")
 
+        # Step 5: Delete skill files from S3 (async, fire and forget)
+        if _SKILL_FILE_SYNC_AVAILABLE:
+            try:
+                delete_skill_files_from_cloud(skill_id)
+            except Exception as fs_exc:
+                logger.debug(f"[skill_handler] skill file S3 delete skipped: {fs_exc}")
+
         # Return success if any deletion succeeded (local DB, memory, file, or cloud)
         if db_deleted or mem_deleted or file_deleted or cloud_deleted:
             return create_success_response(request, {
@@ -818,6 +874,11 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     # Store cloud execution settings in config dict (not separate columns)
     # Top-level fields in skill_info take priority, then fall back to values already in config
     config = skill_data.get('config', {}) or {}
+    # Ensure config is a dict (handle case where it might be a string or other type)
+    if not isinstance(config, dict):
+        logger.warning(f"[skill_handler] config is not a dict (type: {type(config)}), resetting to empty dict")
+        config = {}
+    
     config['run_in_cloud'] = skill_info.get('run_in_cloud', config.get('run_in_cloud', False))
     config['hybrid_cloud_mode'] = skill_info.get('hybrid_cloud_mode', config.get('hybrid_cloud_mode', False))
     config['local_helper_skill_id'] = skill_info.get('local_helper_skill_id', config.get('local_helper_skill_id', None))
@@ -1023,8 +1084,7 @@ def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operat
     for tool_id in tool_ids:
         relation_data = {
             'skill_id': skill_id,
-            'tool_id': tool_id,
-            'owner': owner
+            'tool_id': tool_id
         }
         
         def _log_result(result: Dict[str, Any]):
@@ -1067,8 +1127,7 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
     for knowledge_id in knowledge_ids:
         relation_data = {
             'skill_id': skill_id,
-            'knowledge_id': knowledge_id,
-            'owner': owner
+            'knowledge_id': knowledge_id
         }
         
         def _log_result(result: Dict[str, Any]):
@@ -1105,6 +1164,11 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
     """
     
     try:
+        import os
+        # Normalize file path to handle Chinese characters correctly
+        # This ensures consistent path format in database for proper querying
+        file_path = os.path.abspath(os.path.normpath(file_path))
+        
         # Check if this is a code-based skill from resource/my_skills
         code_skill = is_code_skill(file_path)
         
@@ -1188,6 +1252,13 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id['id'] = skill_id
                 _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
                 
+                # Sync skill source files to S3
+                if _SKILL_FILE_SYNC_AVAILABLE:
+                    try:
+                        upload_skill_files_to_cloud(skill_data_with_id)
+                    except Exception as fs_exc:
+                        logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+                
                 logger.info(f"[skill_handler] ✅ Skill updated successfully: {skill_name}")
                 return {'success': True, 'skill_id': skill_id, 'operation': 'update'}
             else:
@@ -1211,6 +1282,13 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+                
+                # Sync skill source files to S3
+                if _SKILL_FILE_SYNC_AVAILABLE:
+                    try:
+                        upload_skill_files_to_cloud(skill_data_with_id)
+                    except Exception as fs_exc:
+                        logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
                 
                 logger.info(f"[skill_handler] ✅ Skill created successfully: {skill_name} (ID: {skill_id})")
                 return {'success': True, 'skill_id': skill_id, 'operation': 'create'}

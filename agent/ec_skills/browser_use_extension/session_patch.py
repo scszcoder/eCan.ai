@@ -33,8 +33,8 @@ def patch_navigation_timeout(cross_domain_timeout: float = 10.0, same_domain_tim
         
         original_navigate_and_wait = BrowserSession._navigate_and_wait
         
-        async def _patched_navigate_and_wait(self, url: str, target_id: str, timeout: float | None = None):
-            """Patched version with increased default timeouts."""
+        async def _patched_navigate_and_wait(self, url: str, target_id: str, timeout: float | None = None, wait_until: str | None = None):
+            """Patched version with increased default timeouts (browser-use 0.12.0 compatible)."""
             if timeout is None:
                 # Use our increased timeouts instead of the hardcoded 4s/2s
                 try:
@@ -49,7 +49,11 @@ def patch_navigation_timeout(cross_domain_timeout: float = 10.0, same_domain_tim
                 except Exception:
                     timeout = cross_domain_timeout
             
-            return await original_navigate_and_wait(self, url, target_id, timeout=timeout)
+            # Pass wait_until parameter if provided (browser-use 0.12.0+)
+            if wait_until is not None:
+                return await original_navigate_and_wait(self, url, target_id, timeout=timeout, wait_until=wait_until)
+            else:
+                return await original_navigate_and_wait(self, url, target_id, timeout=timeout)
         
         BrowserSession._navigate_and_wait = _patched_navigate_and_wait
         _patched = True

@@ -698,7 +698,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         "lastMove": page_sect,
         "options": "",
         "theme": page_theme,
-        "imageFile": img_file.replace("\\", "\\\\"),
+        "imageFile": img_file.replace("\\", "/"),
         "factor": factors
     }]
 
@@ -754,13 +754,30 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         logger.debug("OCR API key detected (length=%d).", len(api_key))
     else:
         logger.warning("OCR API key missing or empty.")
+
+    # --- Detailed OCR request logging ---
+    try:
+        from urllib.parse import urlparse
+        _parsed = urlparse(img_endpoint)
+        logger.info("[OCR_REQUEST] engine=%s, endpoint=%s, host=%s, port=%s, path=%s, api_key=%s, imageFile=%s",
+                     network_api_engine, img_endpoint,
+                     _parsed.hostname, _parsed.port, _parsed.path,
+                     f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else api_key,
+                     img_file)
+    except Exception as _e:
+        logger.info("[OCR_REQUEST] engine=%s, endpoint=%s, api_key_len=%s, imageFile=%s",
+                     network_api_engine, img_endpoint, len(api_key) if api_key else 0, img_file)
+
     result = await req_read_screen8(session, request, token, api_key, local_info, imgs, network_api_engine,
                                     img_endpoint)
+
+    logger.debug("req_read_screen8 result type=%s keys=%s", type(result).__name__,
+                 list(result.keys()) if isinstance(result, dict) else "N/A")
 
     if network_api_engine == "wan":
         jresult = json.loads(result['body'])
     else:
-        jresult = result['body']
+        jresult = result['body'] if isinstance(result, dict) and 'body' in result else result
     # logger.info("cloud result data: "+json.dumps(jresult["data"]))
     logger.info(
         ">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
@@ -774,15 +791,33 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         if network_api_engine == "wan":
             jbody = json.loads(result['body'])
         else:
-            jbody = json.loads(result['body']['data']['body'])
-            # Truncate long OCR response for logging
+            # LAN: result is the unwrapped reqScreenTxtRead value.
+            # It may be a JSON string or dict; dig into nested 'body' / 'data' as available.
             from utils.logger_helper import truncate_for_log
+            _raw = result
+            if isinstance(_raw, str):
+                _raw = json.loads(_raw)
+            # _raw could be {"statusCode":200, "body":"..."} or {"data":[...]} or [...]
+            if isinstance(_raw, dict) and 'body' in _raw:
+                _inner = _raw['body']
+                if isinstance(_inner, str):
+                    _inner = json.loads(_inner)
+                # _inner could be {"data": {..., "body":"..."}} or the final payload
+                if isinstance(_inner, dict) and 'data' in _inner and isinstance(_inner['data'], dict) and 'body' in _inner['data']:
+                    jbody = json.loads(_inner['data']['body']) if isinstance(_inner['data']['body'], str) else _inner['data']['body']
+                else:
+                    jbody = _inner
+            else:
+                jbody = _raw
+            logger.debug("OCR jbody type=%s keys=%s", type(jbody).__name__,
+                         list(jbody.keys()) if isinstance(jbody, dict) else "N/A")
             logger.debug("OCR response body: %s", truncate_for_log(jbody, 300))
 
         # global var "last_screen" always contains information extracted from the last screen shot.
-        if len(jbody["data"]) > 0:
+        ocr_data = jbody.get("data") if isinstance(jbody, dict) else jbody
+        if ocr_data and len(ocr_data) > 0:
             # Simplify OCR data to reduce token usage when stored in history
-            simplified_data = simplify_ocr_result(jbody["data"])
+            simplified_data = simplify_ocr_result(ocr_data)
             symTab["last_screen"] = simplified_data
             return simplified_data
         else:

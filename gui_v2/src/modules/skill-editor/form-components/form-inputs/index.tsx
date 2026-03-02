@@ -208,7 +208,8 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
                   if (property?.type === 'string') {
                     return renderStringInput(key, property, field, fieldState);
                   }
-                  if (property?.type === 'number') {
+                  if (property?.type === 'number' || property?.type === 'integer') {
+                    const isInteger = property?.type === 'integer';
                     // Extract the actual number value from FlowValue
                     let numValue = '';
                     if (field.value && typeof field.value === 'object' && 'content' in field.value) {
@@ -216,23 +217,22 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
                     } else if (field.value !== null && field.value !== undefined) {
                       numValue = String(field.value);
                     }
-                    try { console.debug('[MCP][FormInputs] number input field value =', numValue); } catch {}
+                    try { console.debug('[MCP][FormInputs] number input field value =', numValue, 'isInteger=', isInteger); } catch {}
                     return (
                       <input
                         type="number"
-                        step="0.01"
-                        min="0"
-                        max="1"
+                        step={isInteger ? '1' : 'any'}
                         style={{ width: '100%', padding: 6, border: '1px solid var(--semi-color-border)', backgroundColor: '#fff', color: '#111' }}
                         value={numValue}
                         onChange={(e) => {
                           const val = e.target.value;
+                          const schemaType = isInteger ? 'integer' : 'number';
                           // Only store non-empty values, convert to number
                           if (val === '') {
-                            field.onChange({ type: 'constant', content: '', schema: { type: 'number' } });
+                            field.onChange({ type: 'constant', content: '', schema: { type: schemaType } });
                           } else {
-                            const parsed = parseFloat(val);
-                            field.onChange({ type: 'constant', content: isNaN(parsed) ? val : parsed, schema: { type: 'number' } });
+                            const parsed = isInteger ? parseInt(val, 10) : parseFloat(val);
+                            field.onChange({ type: 'constant', content: isNaN(parsed) ? val : parsed, schema: { type: schemaType } });
                           }
                         }}
                         disabled={readonly}

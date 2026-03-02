@@ -390,6 +390,11 @@ def merge_ryoais_models_to_config_provider(
             try:
                 model_kwargs = extra_kwargs.copy()
                 
+                # Add context_length as max_tokens for LLM models
+                if provider_type == 'llm' and model.get('context_length'):
+                    model_kwargs['max_tokens'] = model.get('context_length')
+                    logger.debug(f"[RyoAIS] Set max_tokens={model.get('context_length')} from context_length for {model_name}")
+                
                 # Add embedding dimensions if available
                 if provider_type == 'embedding' and model.get('dimensions'):
                     model_kwargs['dimensions'] = model.get('dimensions')

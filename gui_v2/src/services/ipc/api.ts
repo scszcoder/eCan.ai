@@ -178,41 +178,51 @@ export class IPCAPI {
                 if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
                     logger.warn(`[IPCAPI] Authentication failed for ${method}: ${errorCode}`);
                     
-                    // Clear the invalid token from storage
+                    // During the post-login grace period the backend (MainWindow) may still
+                    // be initializing.  Suppress the aggressive token-clear + redirect so the
+                    // IPC retry loop can handle transient failures instead of bouncing the
+                    // user back to the login page (the "double login" bug).
                     try {
                         const { userStorageManager } = await import('../storage/UserStorageManager');
-                        userStorageManager.removeToken();
-                        logger.info('[IPCAPI] Cleared invalid token from storage');
+                        
+                        if (userStorageManager.isInPostLoginGracePeriod()) {
+                            logger.info(`[IPCAPI] Within post-login grace period, suppressing redirect for ${method}: ${errorCode}`);
+                            // Fall through — return the error to the caller without clearing
+                            // the token or redirecting.  The caller / retry loop will handle it.
+                        } else {
+                            userStorageManager.removeToken();
+                            logger.info('[IPCAPI] Cleared invalid token from storage');
 
-                        // Reset InitializationProgressManager singleton state so the login page
-                        // does not inherit a stale fully_ready=true from the previous session
-                        try {
-                            const { forceCleanupInitializationProgress } = await import('../../hooks/useInitializationProgress');
-                            forceCleanupInitializationProgress();
-                            logger.info('[IPCAPI] Cleared stale initialization progress state due to invalid token');
-                        } catch { /* ignore */ }
-                        
-                        // Show user notification (only once)
-                        if (!sessionStorage.getItem('token_expired_notification_shown')) {
-                            sessionStorage.setItem('token_expired_notification_shown', 'true');
-                            
-                            // Try to show Ant Design message if available
+                            // Reset InitializationProgressManager singleton state so the login page
+                            // does not inherit a stale fully_ready=true from the previous session
                             try {
-                                const { message } = await import('antd');
-                                message.warning('Your session has expired. Please log in again.');
-                            } catch {
-                                // Fallback to console if Ant Design not available
-                                console.warn('Session expired. Please log in again.');
+                                const { forceCleanupInitializationProgress } = await import('../../hooks/useInitializationProgress');
+                                forceCleanupInitializationProgress();
+                                logger.info('[IPCAPI] Cleared stale initialization progress state due to invalid token');
+                            } catch { /* ignore */ }
+                            
+                            // Show user notification (only once)
+                            if (!sessionStorage.getItem('token_expired_notification_shown')) {
+                                sessionStorage.setItem('token_expired_notification_shown', 'true');
+                                
+                                // Try to show Ant Design message if available
+                                try {
+                                    const { message } = await import('antd');
+                                    message.warning('Your session has expired. Please log in again.');
+                                } catch {
+                                    // Fallback to console if Ant Design not available
+                                    console.warn('Session expired. Please log in again.');
+                                }
                             }
-                        }
-                        
-                        // Redirect to login page if not already there
-                        if (window.location.hash !== '#/login') {
-                            logger.info('[IPCAPI] Redirecting to login due to invalid token');
-                            // Small delay to allow notification to show
-                            setTimeout(() => {
-                                window.location.hash = '#/login';
-                            }, 500);
+                            
+                            // Redirect to login page if not already there
+                            if (window.location.hash !== '#/login') {
+                                logger.info('[IPCAPI] Redirecting to login due to invalid token');
+                                // Small delay to allow notification to show
+                                setTimeout(() => {
+                                    window.location.hash = '#/login';
+                                }, 500);
+                            }
                         }
                     } catch (error) {
                         logger.error('[IPCAPI] Error clearing invalid token:', error);
@@ -1298,7 +1308,7 @@ export class IPCAPI {
           resultPath: 'addAgents'
         }
       },
-      { username, input: agent }
+      { username, agent }
     );
     }
 
@@ -1774,7 +1784,7 @@ export class IPCAPI {
           resultPath: 'updateAgentSkills'
         }
       },
-      { username, skill_info: normalizedSkill, input: [normalizedSkill] }
+      { username, skill_info: normalizedSkill }
     );
     }
 
@@ -1843,7 +1853,7 @@ export class IPCAPI {
           resultPath: 'addAgentSkills'
         }
       },
-      { username, skill_info: normalizedSkill, input: [normalizedSkill] }
+      { username, skill_info: normalizedSkill }
     );
     }
 
