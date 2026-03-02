@@ -6573,6 +6573,59 @@ async function processEvent(event, context, callback, test_stub) {
             }
             break;
 
+          case "requestSkillFileUploadUrl":
+            {
+              const input = event.arguments?.input || {};
+              const skillId = input.skillId || event.arguments?.skillId;
+              const fileOwner = input.owner || event.arguments?.owner || ownerEmail || owner;
+              const fileName = input.fileName || event.arguments?.fileName;
+              if (!skillId || !fileOwner || !fileName) {
+                throw new Error("skillId, owner and fileName are required");
+              }
+              const sanitizedOwner = normalizeEmailForPath(fileOwner);
+              const skillDir = skillId.endsWith("_skill") ? skillId : `${skillId}_skill`;
+              const s3Key = `${sanitizedOwner}/my_skills/${skillDir}/${fileName}`;
+              const uploadUrl = await getSignedUrl(
+                s3,
+                new PutObjectCommand({ Bucket: SKILL_BUCKET, Key: s3Key }),
+                { expiresIn: 900 }
+              );
+              returnData = { uploadUrl, s3Key, expiresIn: 900 };
+            }
+            break;
+
+          case "deleteSkillFiles":
+            {
+              const fileOwner = event.arguments?.owner || ownerEmail || owner;
+              const skillId = event.arguments?.skillId;
+              if (!fileOwner || !skillId) {
+                returnData = { success: false, error: "owner and skillId are required" };
+                break;
+              }
+              const sanitizedOwner = normalizeEmailForPath(fileOwner);
+              const skillDir = skillId.endsWith("_skill") ? skillId : `${skillId}_skill`;
+              const prefix = `${sanitizedOwner}/my_skills/${skillDir}/`;
+              const { DeleteObjectCommand } = require("@aws-sdk/client-s3");
+              let continuation;
+              let deletedCount = 0;
+              do {
+                const listParams = { Bucket: SKILL_BUCKET, Prefix: prefix };
+                if (continuation) listParams.ContinuationToken = continuation;
+                const listResp = await s3.send(new ListObjectsV2Command(listParams));
+                const contents = listResp.Contents || [];
+                for (const obj of contents) {
+                  if (obj.Key && !obj.Key.endsWith("/")) {
+                    await s3.send(new DeleteObjectCommand({ Bucket: SKILL_BUCKET, Key: obj.Key }));
+                    deletedCount++;
+                  }
+                }
+                continuation = listResp.IsTruncated ? listResp.NextContinuationToken : undefined;
+              } while (continuation);
+              console.log(`[deleteSkillFiles] Deleted ${deletedCount} objects under ${prefix}`);
+              returnData = { success: true };
+            }
+            break;
+
           default:
             return UNRECOGNIZED_INPUT;
         }
@@ -7457,6 +7510,33 @@ ${contextText}`;
               } catch (e) {
                 returnData = { status: "none", message: "No index found", progress: 0, taskArn: null, lastIndexedAt: null, docCount: 0, chunkCount: 0 };
               }
+            }
+            break;
+
+          case "requestSkillFileDownloadUrl":
+            {
+              const fileOwner = event.arguments?.owner || ownerEmail || owner;
+              const skillId = event.arguments?.skillId;
+              if (!fileOwner || !skillId) {
+                throw new Error("owner and skillId are required");
+              }
+              const sanitizedOwner = normalizeEmailForPath(fileOwner);
+              const skillDir = skillId.endsWith("_skill") ? skillId : `${skillId}_skill`;
+              const prefix = `${sanitizedOwner}/my_skills/${skillDir}/`;
+              const listResp = await s3.send(new ListObjectsV2Command({ Bucket: SKILL_BUCKET, Prefix: prefix, MaxKeys: 100 }));
+              const contents = (listResp.Contents || []).filter(o => o.Key && !o.Key.endsWith("/"));
+              if (contents.length === 0) {
+                throw new Error("No skill files found for given owner/skillId");
+              }
+              // Pick most recently modified object
+              contents.sort((a, b) => (b.LastModified || 0) - (a.LastModified || 0));
+              const chosenKey = contents[0].Key;
+              const downloadUrl = await getSignedUrl(
+                s3,
+                new GetObjectCommand({ Bucket: SKILL_BUCKET, Key: chosenKey }),
+                { expiresIn: 900 }
+              );
+              returnData = { downloadUrl, s3Key: chosenKey, expiresIn: 900 };
             }
             break;
 
