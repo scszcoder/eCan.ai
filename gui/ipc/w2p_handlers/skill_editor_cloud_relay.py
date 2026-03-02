@@ -335,7 +335,7 @@ def relay_send_message(session_id: str,
             if isinstance(e, dict)
         )
         if is_lambda_timeout:
-            logger.warning(
+            logger.info(
                 f"[se_cloud_relay] send_message: AppSync response timeout "
                 f"(Lambda still running) for session={session_id}. "
                 f"Result will arrive via AppSync subscription relay."

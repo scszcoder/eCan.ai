@@ -519,9 +519,13 @@ class TaskExecutor:
                 try:
                     from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
                     log_step_sync = truncate_screenshot_for_logging(step)
+                    log_step_str = str(log_step_sync)
+                    if len(log_step_str) > 1000:
+                        log_step_str = log_step_str[:1000] + "..."
+                    logger.debug(f"sync Step output: {log_step_str}")
                 except Exception:
-                    log_step_sync = str(step)[:500] + "..."
-                logger.debug(f"sync Step output: {log_step_sync}")
+                    log_step_str = str(step)[:1000] + "..." if len(str(step)) > 1000 else str(step)
+                    logger.debug(f"sync Step output: {log_step_str}")
                 
                 # Check for cancellation
                 if self.task.cancellation_event.is_set():
@@ -656,9 +660,13 @@ class TaskExecutor:
                 try:
                     from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
                     log_step = truncate_screenshot_for_logging(step)
+                    log_step_str = str(log_step)
+                    if len(log_step_str) > 1000:
+                        log_step_str = log_step_str[:1000] + "..."
+                    logger.debug(f"async Step output: {log_step_str}")
                 except Exception:
-                    log_step = str(step)[:500] + "..."
-                logger.debug(f"async Step output: {log_step}")
+                    log_step_str = str(step)[:1000] + "..." if len(str(step)) > 1000 else str(step)
+                    logger.debug(f"async Step output: {log_step_str}")
                 await self.task.pause_event.wait()
                 
                 # Check for cancellation
