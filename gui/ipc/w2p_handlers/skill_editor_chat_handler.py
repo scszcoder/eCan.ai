@@ -497,29 +497,54 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     f"intent={cloud_result.get('intent')}"
                 )
 
-                # Relay canvas commands from cloud response to the local frontend
-                # The Lambda publishes them via AppSync subscriptions, but the desktop
-                # frontend listens on local WebSocket, so we also push them here.
+                # Push result to frontend.  If the AppSync subscription client
+                # is running it already relays stream_chunk / stream_end events
+                # from the cloud in real time — pushing a SECOND stream_end here
+                # would corrupt the frontend's streaming state machine.
+                # Only push from the synchronous cloud relay response when the
+                # subscription is NOT active (fallback path).
                 try:
-                    msg = cloud_result.get("message") or {}
-                    msg_content = msg.get("content", "") if isinstance(msg, dict) else ""
-                    msg_id = msg.get("id", str(uuid.uuid4())) if isinstance(msg, dict) else str(uuid.uuid4())
+                    sub_active = False
+                    try:
+                        from gui.ipc.appsync_subscription_client import appsync_sub_client
+                        sub_active = appsync_sub_client.is_running
+                    except Exception:
+                        pass
 
-                    from gui.ipc.api import IPCAPI
-                    ipc = IPCAPI.get_instance()
-                    ipc.push_skill_editor_chat_done(
-                        session_id=session_id,
-                        message_id=msg_id,
-                        full_content=msg_content,
-                    )
+                    if not sub_active:
+                        msg = cloud_result.get("message") or {}
+                        msg_content = msg.get("content", "") if isinstance(msg, dict) else ""
+                        msg_id = msg.get("id", str(uuid.uuid4())) if isinstance(msg, dict) else str(uuid.uuid4())
 
-                    # Forward flowgram as a canvas command so the local frontend loads it
-                    flowgram_data = cloud_result.get("flowgram")
-                    if flowgram_data:
-                        ipc.push_skill_editor_canvas_command(
-                            session_id=session_id,
-                            command_type="canvas.load_flowgram_data",
-                            payload={"flowgram": flowgram_data},
+                        from gui.ipc.api import IPCAPI
+                        ipc = IPCAPI.get_instance()
+
+                        if cloud_result.get("state") == "processing":
+                            ipc.push_skill_editor_chat_chunk(
+                                session_id=session_id,
+                                message_id=msg_id,
+                                chunk=msg_content,
+                                chunk_index=0,
+                            )
+                        else:
+                            ipc.push_skill_editor_chat_done(
+                                session_id=session_id,
+                                message_id=msg_id,
+                                full_content=msg_content,
+                            )
+
+                        # Forward flowgram as a canvas command so the local frontend loads it
+                        flowgram_data = cloud_result.get("flowgram")
+                        if flowgram_data:
+                            ipc.push_skill_editor_canvas_command(
+                                session_id=session_id,
+                                command_type="canvas.load_flowgram_data",
+                                payload={"flowgram": flowgram_data},
+                            )
+                    else:
+                        logger.debug(
+                            f"[SkillEditorChat] Subscription active — skipping duplicate "
+                            f"push for state={cloud_result.get('state')}"
                         )
                 except Exception as relay_push_err:
                     logger.debug(f"[SkillEditorChat] Cloud relay push to frontend skipped: {relay_push_err}")

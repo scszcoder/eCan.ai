@@ -317,7 +317,34 @@ def relay_send_message(session_id: str,
     jresp = _appsync_request(_GQL_SEND_MESSAGE, ctx, variables=variables, timeout=300)
 
     if "errors" in jresp:
-        logger.error(f"[se_cloud_relay] send_message errors: {jresp['errors']}")
+        errors = jresp["errors"]
+        # AppSync has a ~30s response timeout.  If the Lambda exceeds that,
+        # AppSync returns a Lambda:ExecutionTimeoutException — but the Lambda
+        # itself keeps running (up to its 15-min hard limit).  We must NOT
+        # fall back to the local agent in this case because the cloud Lambda
+        # is still processing the request.
+        is_lambda_timeout = any(
+            e.get("errorType") == "Lambda:ExecutionTimeoutException"
+            for e in errors
+            if isinstance(e, dict)
+        )
+        if is_lambda_timeout:
+            logger.warning(
+                f"[se_cloud_relay] send_message: AppSync response timeout "
+                f"(Lambda still running) for session={session_id}. "
+                f"Result will arrive via AppSync subscription relay."
+            )
+            return {
+                "sessionId": session_id,
+                "state": "processing",
+                "message": {
+                    "id": None,
+                    "role": "assistant",
+                    "content": "Processing your request — the cloud agent is still working on it. "
+                               "The response will arrive shortly via streaming.",
+                },
+            }
+        logger.error(f"[se_cloud_relay] send_message errors: {errors}")
         return None
 
     raw = _extract_data(jresp, "sendSkillEditorChatMessage")

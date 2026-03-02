@@ -538,6 +538,7 @@ class IPCAPI:
         session_id: str,
         message_id: str,
         full_content: str,
+        extra: Optional[Dict] = None,
         callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
         """
@@ -546,14 +547,24 @@ class IPCAPI:
             session_id: Chat session ID
             message_id: Message ID that finished streaming
             full_content: Complete message content
+            extra: Optional full subscription payload (clarification, a2ui, plan, etc.)
             callback: Callback function
         """
         logger.info(f"[IPCAPI] push_skill_editor_chat_done: session={session_id}, msg={message_id}, content_len={len(full_content)}")
-        self._send_request('skill_editor.chat.stream_end', {
+        data: Dict = {
             'sessionId': session_id,
             'messageId': message_id,
             'fullContent': full_content
-        }, callback=callback, channel_id=f'session:{session_id}')
+        }
+        # Merge additional structured fields from the subscription payload
+        # so the frontend can extract clarification / a2ui / plan / state.
+        if extra and isinstance(extra, dict):
+            for key in ('clarification', 'a2ui', 'plan', 'state', 'intent',
+                        'flowgram', 'validation', 'sessionName', 'message'):
+                if key in extra and extra[key] is not None:
+                    data[key] = extra[key]
+        self._send_request('skill_editor.chat.stream_end', data,
+                           callback=callback, channel_id=f'session:{session_id}')
 
     def push_skill_editor_chat_error(
         self,
