@@ -3014,8 +3014,8 @@ def get_recent_context(
             
             if is_tool_result and hasattr(msg, 'content'):
                 original_len = len(str(msg.content))
-                if original_len > 500:
-                    msg.content = _compress_tool_result(str(msg.content), max_length=500)
+                if original_len > 4000:
+                    msg.content = _compress_tool_result(str(msg.content), max_length=4000)
                     compressed_count += 1
                     logger.debug(f"[get_recent_context] Compressed tool result: {original_len} → {len(msg.content)} chars")
         

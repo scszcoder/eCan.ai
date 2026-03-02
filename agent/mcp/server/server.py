@@ -1375,8 +1375,8 @@ async def in_browser_scroll(mainwin, args):
             if browser_session:
                 page = await _get_current_page(browser_session)
                 if page:
-                    mouse = await page.mouse
-                    await mouse.scroll(x=0, y=0, delta_x=0, delta_y=scroll_y)
+                    _page_mouse = await page.mouse
+                    await _page_mouse.scroll(x=0, y=0, delta_x=0, delta_y=scroll_y)
                     if post_wait:
                         await asyncio.sleep(post_wait)
 
@@ -1622,12 +1622,12 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
                     else:
                         # Coordinate-based drag and drop using mouse operations
                         if source_x is not None and source_y is not None:
-                            mouse = await page.mouse
-                            await mouse.move(source_x, source_y)
-                            await mouse.down()
+                            _page_mouse = await page.mouse
+                            await _page_mouse.move(source_x, source_y)
+                            await _page_mouse.down()
                             if target_x is not None and target_y is not None:
-                                await mouse.move(target_x, target_y)
-                            await mouse.up()
+                                await _page_mouse.move(target_x, target_y)
+                            await _page_mouse.up()
 
         # Build result message
         if use_element_mode:
@@ -1761,9 +1761,8 @@ async def mouse_click(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse click"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
-
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseClick")
@@ -1788,9 +1787,8 @@ async def mouse_press_hold(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse press and hold"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
-
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMousePressHold")
@@ -1811,9 +1809,9 @@ async def mouse_move(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse move"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
-        return result
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
+        return [result]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseMove")
@@ -1833,8 +1831,8 @@ async def mouse_drag_drop(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse drag and drop"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseDragDrop")
@@ -1855,8 +1853,8 @@ async def mouse_scroll(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse scroll"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseScroll")
@@ -1883,8 +1881,7 @@ async def mouse_act_on_screen(mainwin, args):
 
         time.sleep(args["input"].get("post_delay", 0))
         msg = "completed action on screen."
-        result = [TextContent(type="text", text=msg)]
-        return [result]
+        return [TextContent(type="text", text=msg)]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseActOnScreen")
         logger.error(err_trace)
@@ -1904,8 +1901,8 @@ async def keyboard_text_input(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed text input"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardTextInput")
@@ -1925,8 +1922,8 @@ async def keyboard_keys_input(mainwin, args):
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed keys press"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardKeysInput")
@@ -1937,8 +1934,7 @@ async def http_call_api(mainwin, args):
     try:
 
         msg = "completed calling API"
-        result = [TextContent(type="text", text=msg)]
-        return [result]
+        return [TextContent(type="text", text=msg)]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorHttpCallApi")
         logger.error(err_trace)
@@ -2572,8 +2568,8 @@ async def os_screen_analyze(mainwin, args):
         screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed screen analysis"
-        result = TextContent(type="text", text=msg)
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
 
     except Exception as e:
