@@ -594,6 +594,15 @@ const DocumentsTab: React.FC = () => {
 
       console.log('[DocumentsTab] Raw API response:', response);
       
+      // Log error details if failed
+      if (!response.success) {
+        console.error('[DocumentsTab] API call failed with error:', {
+          code: response.error?.code,
+          message: response.error?.message,
+          details: response.error?.details
+        });
+      }
+      
       // Check if server is not ready (connection refused) and retry
       if (!response.success && retryCount < MAX_RETRIES) {
         const errorMsg = response.error?.message || '';

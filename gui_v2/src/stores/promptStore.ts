@@ -21,7 +21,7 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
   fetch: async (username: string, force = false) => {
     const state = get();
     if (state.loading && !force) {
-      console.warn('[promptStore] Fetch already in progress, skipping duplicate request');
+      console.debug('[promptStore] Fetch already in progress, skipping duplicate request');
       return;
     }
     if (state.fetched && !force) {

@@ -6,7 +6,6 @@ import styled from '@emotion/styled';
 import type { ChatContext } from '../types/context';
 import { ContextItemCard } from './ContextItemCard';
 import { useContextStore } from '@/stores/contextStore';
-import { ipcInvoke } from '@/services/ipc/ipcWCClient';
 
 const StyledCard = styled(Card)`
   margin: 8px 0;

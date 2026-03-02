@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { TeamOutlined } from '@ant-design/icons';
-import { IPCWCClient } from '@/services/ipc/ipcWCClient';
+import { IPCAPI } from '@/services/ipc/api';
 import './OrgDoor.css';
 
 interface OrgDoorProps {
@@ -27,14 +27,13 @@ const getRandomSystemVideo = async (): Promise<string | null> => {
     
     // Cache不存在，通过 IPC GetSystem视频List
     console.log('[OrgDoor] Fetching system avatars from IPC...');
-    const response: any = await IPCWCClient.getInstance().sendRequest('avatar.get_system_avatars', {
-      username: 'system'
-    });
+    const api = IPCAPI.getInstance();
+    const response = await api.getSystemAvatars<any[]>('system');
     
-    if (response?.status === 'success' && response.result && Array.isArray(response.result)) {
+    if (response.success && response.data && Array.isArray(response.data)) {
       // 提取All有视频的 avatar
       const videos: string[] = [];
-      response.result.forEach((avatar: any) => {
+      response.data.forEach((avatar: any) => {
         // 优先使用 webm 格式
         if (avatar.videoWebmPath) {
           videos.push(avatar.videoWebmPath);

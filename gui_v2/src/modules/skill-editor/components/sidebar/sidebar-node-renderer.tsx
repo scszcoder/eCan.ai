@@ -163,7 +163,7 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
                 try {
                   const api = IPCAPI.getInstance();
                   const last = await api.getLastLoginInfo<any>();
-                  const username = (last.success && (last.data as any)?.username) || '';
+                  const username = (last.success && (last.data as any)?.last_login?.username) || '';
                   if (!username || !skillInfo) {
                     console.warn('[NodeState] Refresh skipped: missing username or skillInfo');
                     return;
@@ -182,7 +182,7 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
                 try {
                   const api = IPCAPI.getInstance();
                   const last = await api.getLastLoginInfo<any>();
-                  const username = (last.success && (last.data as any)?.username) || '';
+                  const username = (last.success && (last.data as any)?.last_login?.username) || '';
                   if (!username || !skillInfo) {
                     console.warn('[NodeState] Inject skipped: missing username or skillInfo');
                     return;

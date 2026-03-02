@@ -17,8 +17,7 @@ import {
   SkillEditorEvent,
   SkillEditorEventType,
 } from '../types';
-import { ipcClient } from '../../../services/ipc';
-import { loadSkillFile } from './skill-loader';
+import { IPCAPI } from '../../../services/ipc/api';
 
 // ============================================================
 // Types
@@ -668,14 +667,15 @@ class CanvasControllerService {
       
       // Call existing run_skill IPC handler
       console.log('[CanvasController] Calling run_skill IPC');
-      const response = await ipcClient.invoke('run_skill', { skill: skillData });
-      console.log('[CanvasController] run_skill response:', { status: response.status });
+      const api = IPCAPI.getInstance();
+      const response = await api.runSkillViaIPC(skillData);
+      console.log('[CanvasController] run_skill response:', { success: response.success });
       
-      if (response.status === 'success') {
+      if (response.success) {
         return { 
           success: true, 
           message: 'Run initiated',
-          data: { runId, result: response.result }
+          data: { runId, result: response.data }
         };
       } else {
         return { 
@@ -699,10 +699,11 @@ class CanvasControllerService {
       this.emitEvent('run.step', { runId });
       
       // Call existing step_run_skill IPC handler
-      const response = await ipcClient.invoke('step_run_skill', {});
+      const api = IPCAPI.getInstance();
+      const response = await api.stepRunSkillViaIPC();
       
-      if (response.status === 'success') {
-        return { success: true, message: 'Step initiated', data: response.result };
+      if (response.success) {
+        return { success: true, message: 'Step initiated', data: response.data };
       } else {
         return { success: false, error: response.error?.message || 'Failed to step' };
       }
@@ -722,11 +723,12 @@ class CanvasControllerService {
       this.emitEvent('run.pause', { runId: 'current' });
       
       // Call existing pause_run_skill IPC handler
-      const response = await ipcClient.invoke('pause_run_skill', {});
-      console.log('[CanvasController] pause_run_skill response:', { status: response.status });
+      const api = IPCAPI.getInstance();
+      const response = await api.pauseRunSkillViaIPC();
+      console.log('[CanvasController] pause_run_skill response:', { success: response.success });
       
-      if (response.status === 'success') {
-        return { success: true, message: 'Pause requested', data: response.result };
+      if (response.success) {
+        return { success: true, message: 'Pause requested', data: response.data };
       } else {
         return { success: false, error: response.error?.message || 'Failed to pause' };
       }
@@ -746,11 +748,12 @@ class CanvasControllerService {
       this.emitEvent('run.resume', { runId: 'current' });
       
       // Call existing resume_run_skill IPC handler
-      const response = await ipcClient.invoke('resume_run_skill', {});
-      console.log('[CanvasController] resume_run_skill response:', { status: response.status });
+      const api = IPCAPI.getInstance();
+      const response = await api.resumeRunSkillViaIPC();
+      console.log('[CanvasController] resume_run_skill response:', { success: response.success });
       
-      if (response.status === 'success') {
-        return { success: true, message: 'Resume requested', data: response.result };
+      if (response.success) {
+        return { success: true, message: 'Resume requested', data: response.data };
       } else {
         return { success: false, error: response.error?.message || 'Failed to resume' };
       }
@@ -770,11 +773,12 @@ class CanvasControllerService {
       this.emitEvent('run.stop', { runId: 'current', reason: 'User requested' });
       
       // Call existing cancel_run_skill IPC handler
-      const response = await ipcClient.invoke('cancel_run_skill', {});
-      console.log('[CanvasController] cancel_run_skill response:', { status: response.status });
+      const api = IPCAPI.getInstance();
+      const response = await api.cancelRunSkillViaIPC();
+      console.log('[CanvasController] cancel_run_skill response:', { success: response.success });
       
-      if (response.status === 'success') {
-        return { success: true, message: 'Stop requested', data: response.result };
+      if (response.success) {
+        return { success: true, message: 'Stop requested', data: response.data };
       } else {
         return { success: false, error: response.error?.message || 'Failed to stop' };
       }

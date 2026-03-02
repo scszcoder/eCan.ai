@@ -767,7 +767,8 @@
       "weekday5": "Weekday5",
       "weekday6": "Weekday6",
       "zoomIn": "Zoom In",
-      "zoomOut": "Zoom Out"
+      "zoomOut": "Zoom Out",
+      "refreshFromCloud": "Refresh from Cloud"
     },
     "console": {
       "activate": "Activate",
