@@ -1,6 +1,6 @@
 """Cloud file sync for skill source directories via S3 presigned URLs.
 
-Each skill lives in a local directory under ``resource/my_skills/<skill_name>_skill/``.
+Each skill lives in a local directory under ``my_skills/<skill_name>_skill/``.
 To sync to cloud we:
   1. Zip the entire skill directory into a temp file.
   2. Request a presigned **upload** URL from the cloud (GraphQL mutation).
@@ -37,7 +37,7 @@ from utils.logger_helper import logger_helper as logger
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-MY_SKILLS_DIR = Path("resource/my_skills")
+MY_SKILLS_DIR = Path("my_skills")
 
 # ---------------------------------------------------------------------------
 # Auth helpers (reuse prompt_cloud_sync pattern)
@@ -254,7 +254,7 @@ def _resolve_skill_dir(skill_data: Dict[str, Any]) -> Optional[Path]:
     """Determine the local directory for a skill.
 
     Looks at skill_data['path'] first, then falls back to
-    ``resource/my_skills/<name>_skill/``.
+    ``my_skills/<name>_skill/``.
     """
     # Try explicit path from skill metadata
     path_str = skill_data.get("path", "")
@@ -264,30 +264,75 @@ def _resolve_skill_dir(skill_data: Dict[str, Any]) -> Optional[Path]:
         if p.suffix:
             p = p.parent
         # Ensure we're at the *_skill level (not inside diagram_dir etc.)
-        while p.name and not p.name.endswith("_skill") and p != MY_SKILLS_DIR:
-            p = p.parent
-        if p.is_dir():
+        # Safety: limit iterations to avoid walking up to C:\ / filesystem root
+        for _ in range(10):
+            if not p.name:
+                break
+            if p.name.endswith("_skill"):
+                break
+            parent = p.parent
+            if parent == p:
+                break  # reached filesystem root
+            p = parent
+        if p.name.endswith("_skill") and p.is_dir():
             return p
 
     # Fallback: derive from skill name
     name = skill_data.get("name", "")
     if name:
         dir_name = name.strip().lower().replace(" ", "_")
-        if not dir_name.endswith("_skill"):
-            dir_name += "_skill"
+        # Try the name as-is first (handles names that already end with _skill)
         candidate = MY_SKILLS_DIR / dir_name
         if candidate.is_dir():
             return candidate
+        # Then try with _skill suffix appended
+        if not dir_name.endswith("_skill"):
+            candidate = MY_SKILLS_DIR / (dir_name + "_skill")
+            if candidate.is_dir():
+                return candidate
 
     # Fallback: derive from skill ID
     skill_id = skill_data.get("id", "")
     if skill_id:
-        for child in MY_SKILLS_DIR.iterdir():
-            if child.is_dir() and skill_id in child.name:
-                return child
+        try:
+            for child in MY_SKILLS_DIR.iterdir():
+                if child.is_dir() and skill_id in child.name:
+                    return child
+        except OSError:
+            pass
 
     logger.debug(f"[skill_file_sync] Could not resolve skill dir for: {skill_data.get('name', skill_data.get('id', '?'))}")
     return None
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+def _is_valid_skill_dir(skill_dir: Path, skill_name: str = "") -> bool:
+    """Return True if *skill_dir* looks like a well-formed skill directory.
+
+    Rejects directories that:
+    - Don't end with ``_skill``
+    - Are outside ``my_skills/`` (e.g. resolved to C:\\ or another root)
+    - Have suspicious names (empty, whitespace-only, etc.)
+    """
+    name = skill_dir.name
+    if not name or not name.strip():
+        logger.warning(f"[skill_file_sync] Skipping skill '{skill_name}': empty dir name")
+        return False
+    if not name.endswith("_skill"):
+        logger.warning(f"[skill_file_sync] Skipping skill '{skill_name}': dir '{name}' does not end with '_skill'")
+        return False
+    # Guard against dirs that resolved outside the project (e.g. C:\ or /)
+    try:
+        resolved = skill_dir.resolve()
+        if resolved == resolved.parent:
+            logger.warning(f"[skill_file_sync] Skipping skill '{skill_name}': resolved to filesystem root")
+            return False
+    except Exception:
+        pass
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +356,16 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
             if skill_dir is None:
                 logger.debug(f"[skill_file_sync] No local dir for skill '{skill_data.get('name')}' — skip upload")
                 return
+            if not _is_valid_skill_dir(skill_dir, skill_data.get('name', '')):
+                return
+
+            # Use the directory name as the skill identifier for S3 paths.
+            # e.g. skill_dir.name='passive0_skill' -> cloud_skill_id='passive0'
+            # This avoids sending internal DB IDs (like 'skill_985de41be1284b38')
+            # which create spurious S3 directories.
+            cloud_skill_id = skill_dir.name
+            if cloud_skill_id.endswith("_skill"):
+                cloud_skill_id = cloud_skill_id[:-6]  # strip '_skill' suffix
 
             # Zip
             zip_bytes = _zip_skill_dir(skill_dir)
@@ -319,7 +374,7 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
 
             # Request presigned upload URL
             file_name = f"{skill_dir.name}.zip"
-            url_info = _request_upload_url(skill_id, ctx["owner"], file_name, ctx)
+            url_info = _request_upload_url(cloud_skill_id, ctx["owner"], file_name, ctx)
             if not url_info:
                 return
 
@@ -349,8 +404,16 @@ def download_skill_files_from_cloud(skill_data: Dict[str, Any], target_dir: Opti
                 logger.warning("[skill_file_sync] No skill ID — cannot download")
                 return
 
+            # Derive cloud skill ID from skill name (not internal DB ID)
+            cloud_skill_id = skill_data.get("name", "").strip().lower().replace(" ", "_")
+            if not cloud_skill_id:
+                cloud_skill_id = skill_id  # fallback to DB ID
+            # Strip _skill suffix if present — cloud Lambda appends it
+            if cloud_skill_id.endswith("_skill"):
+                cloud_skill_id = cloud_skill_id[:-6]
+
             # Request presigned download URL
-            url_info = _request_download_url(skill_id, ctx["owner"], ctx)
+            url_info = _request_download_url(cloud_skill_id, ctx["owner"], ctx)
             if not url_info:
                 return
 
@@ -439,6 +502,8 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
                     continue
                 skill_dir = _resolve_skill_dir(sk)
                 if skill_dir and skill_dir.is_dir():
+                    if not _is_valid_skill_dir(skill_dir, sk.get('name', '')):
+                        continue
                     to_sync.append((sk, skill_dir))
 
             if not to_sync:
@@ -457,7 +522,11 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
                         continue
 
                     file_name = f"{skill_dir.name}.zip"
-                    url_info = _request_upload_url(sk["id"], ctx["owner"], file_name, ctx)
+                    # Use dir name as cloud skill ID (not internal DB ID)
+                    cloud_skill_id = skill_dir.name
+                    if cloud_skill_id.endswith("_skill"):
+                        cloud_skill_id = cloud_skill_id[:-6]
+                    url_info = _request_upload_url(cloud_skill_id, ctx["owner"], file_name, ctx)
                     if not url_info:
                         err_count += 1
                         continue
