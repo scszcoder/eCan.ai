@@ -1040,15 +1040,15 @@ const Tests: React.FC = () => {
         appendTestOutput(`L2C WS Test: endpoint=${wanEndpoint}`);
         
         // Get Cognito JWT token from Python backend via IPC
-        const { ipcClient } = await import('../../services/ipc/ipcClient');
+        const { IPCAPI } = await import('../../services/ipc/api');
         let cognitoToken = '';
         try {
             appendTestOutput('L2C WS Test: Calling IPC get_auth_token...');
-            const tokenResp = await ipcClient.invoke('get_auth_token', {});
-            // IPC response uses status='success' and result field, not success boolean and data
-            appendTestOutput(`L2C WS Test: IPC response: status=${tokenResp.status}, hasResult=${!!tokenResp.result}, error=${JSON.stringify(tokenResp.error || null)}`);
-            if (tokenResp.status === 'success' && tokenResp.result) {
-                cognitoToken = tokenResp.result as string;
+            const api = IPCAPI.getInstance();
+            const tokenResp = await api.getAuthToken();
+            appendTestOutput(`L2C WS Test: IPC response: success=${tokenResp.success}, hasData=${!!tokenResp.data}, error=${JSON.stringify(tokenResp.error || null)}`);
+            if (tokenResp.success && tokenResp.data) {
+                cognitoToken = tokenResp.data;
                 appendTestOutput(`L2C WS Test: Got token from IPC (length: ${cognitoToken.length})`);
             }
         } catch (e) {
@@ -1201,12 +1201,13 @@ const Tests: React.FC = () => {
 
         const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
 
-        const { ipcClient } = await import('../../services/ipc/ipcClient');
+        const { IPCAPI } = await import('../../services/ipc/api');
         let cognitoToken = '';
         try {
-            const tokenResp = await ipcClient.invoke('get_auth_token', {});
-            if (tokenResp.status === 'success' && tokenResp.result) {
-                cognitoToken = tokenResp.result as string;
+            const api = IPCAPI.getInstance();
+            const tokenResp = await api.getAuthToken();
+            if (tokenResp.success && tokenResp.data) {
+                cognitoToken = tokenResp.data;
                 appendTestOutput(`Run Cloud Task: Got auth token (length: ${cognitoToken.length})`);
             }
         } catch (e) {
@@ -1300,12 +1301,13 @@ const Tests: React.FC = () => {
 
         const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
 
-        const { ipcClient } = await import('../../services/ipc/ipcClient');
+        const { IPCAPI } = await import('../../services/ipc/api');
         let cognitoToken = '';
         try {
-            const tokenResp = await ipcClient.invoke('get_auth_token', {});
-            if (tokenResp.status === 'success' && tokenResp.result) {
-                cognitoToken = tokenResp.result as string;
+            const api = IPCAPI.getInstance();
+            const tokenResp = await api.getAuthToken();
+            if (tokenResp.success && tokenResp.data) {
+                cognitoToken = tokenResp.data;
                 appendTestOutput(`Get Run ID: Got auth token (length: ${cognitoToken.length})`);
             }
         } catch (e) {

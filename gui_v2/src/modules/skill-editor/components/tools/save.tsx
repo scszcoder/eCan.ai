@@ -9,12 +9,11 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { SkillInfo } from '../../typings/skill-info';
 import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
-import { IPCWCClient } from '@/services/ipc/ipcWCClient';
+import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
-import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
 
@@ -599,12 +598,10 @@ export const Save = ({ disabled }: SaveProps) => {
           const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
 
           if (oldBase && proposedBase && oldBase !== proposedBase) {
-            const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', {
-              oldName: oldBase,
-              newName: proposedBase,
-            });
-            if (resp?.status === 'success' && resp.result?.skillRoot) {
-              const newRoot: string = String(resp.result.skillRoot).replace(/\\/g, '/');
+            const api = IPCAPI.getInstance();
+            const resp = await api.renameSkill(oldBase, proposedBase);
+            if (resp.success && resp.data?.skillRoot) {
+              const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
               effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
               setCurrentFilePath(effectivePath);
             }

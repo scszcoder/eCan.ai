@@ -129,9 +129,9 @@ def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]
 
 
 @IPCHandlerRegistry.background_handler('lightrag.query')
-async def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle knowledge query request (async to avoid blocking UI).
+    Handle knowledge query request (runs in background thread to avoid blocking UI).
     
     Expected params:
     - text: str - Query text
@@ -161,11 +161,8 @@ async def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         if not isinstance(text, str) or not text.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'text must be a non-empty string')
         
-        import asyncio
         client = get_client()
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.query(text, options)
-        )
+        result = client.query(text, options)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Query failed')
@@ -750,24 +747,19 @@ def handle_select_directory(request: IPCRequest, params: Optional[Dict[str, Any]
 
 
 @IPCHandlerRegistry.background_handler('lightrag.updateEntity')
-async def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle entity update request (async to avoid blocking UI)."""
+def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle entity update request (runs in background thread to avoid blocking UI)."""
     try:
         is_valid, data, error = validate_params(params, ['entity_name', 'updated_data'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        import asyncio
         client = get_client()
-        # Run the blocking HTTP call in a thread pool to avoid blocking the event loop
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.update_entity(
-                data['entity_name'],
-                data['updated_data'],
-                data.get('allow_rename', False),
-                data.get('allow_merge', False)
-            )
+        result = client.update_entity(
+            data['entity_name'],
+            data['updated_data'],
+            data.get('allow_rename', False),
+            data.get('allow_merge', False)
         )
         
         if result.get('status') == 'error':
@@ -781,20 +773,15 @@ async def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, A
 
 
 @IPCHandlerRegistry.background_handler('lightrag.checkEntityNameExists')
-async def handle_check_entity_name_exists(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle check entity name exists request (async to avoid blocking UI)."""
+def handle_check_entity_name_exists(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle check entity name exists request (runs in background thread to avoid blocking UI)."""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        import asyncio
         client = get_client()
-        # Run the blocking HTTP call in a thread pool
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.check_entity_name_exists(data['name'])
-        )
+        result = client.check_entity_name_exists(data['name'])
         
         if result.get('status') == 'error':
             return create_error_response(request, 'CHECK_ENTITY_ERROR', result.get('message', 'Failed to check entity'))
@@ -806,19 +793,15 @@ async def handle_check_entity_name_exists(request: IPCRequest, params: Optional[
 
 
 @IPCHandlerRegistry.background_handler('lightrag.updateRelation')
-async def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle relation update request (async to avoid blocking UI)."""
+def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle relation update request (runs in background thread to avoid blocking UI)."""
     try:
         is_valid, data, error = validate_params(params, ['source_id', 'target_id', 'updated_data'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        import asyncio
         client = get_client()
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.update_relation(data['source_id'], data['target_id'], data['updated_data'])
-        )
+        result = client.update_relation(data['source_id'], data['target_id'], data['updated_data'])
         
         if result.get('status') == 'error':
             return create_error_response(request, 'UPDATE_RELATION_ERROR', result.get('message', 'Failed to update relation'))
@@ -831,14 +814,11 @@ async def handle_update_relation(request: IPCRequest, params: Optional[Dict[str,
 
 
 @IPCHandlerRegistry.background_handler('lightrag.getGraphLabelList')
-async def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle get graph label list request (async to avoid blocking UI)."""
+def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle get graph label list request (runs in background thread to avoid blocking UI)."""
     try:
-        import asyncio
         client = get_client()
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.get_graph_label_list()
-        )
+        result = client.get_graph_label_list()
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_LABEL_LIST_ERROR', result.get('message', 'Failed to get label list'))
@@ -851,8 +831,8 @@ async def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict
 
 
 @IPCHandlerRegistry.background_handler('lightrag.getPopularLabels')
-async def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle get popular labels request (async to avoid blocking UI)."""
+def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle get popular labels request (runs in background thread to avoid blocking UI)."""
     try:
         params = params or {}
         limit = params.get('limit', 300)
@@ -862,10 +842,7 @@ async def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[s
         if not hasattr(client, 'get_popular_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'get_popular_labels not implemented in client')
 
-        import asyncio
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.get_popular_labels(limit=limit)
-        )
+        result = client.get_popular_labels(limit=limit)
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_POPULAR_LABELS_ERROR', result.get('message', 'Failed to get popular labels'))
@@ -878,8 +855,8 @@ async def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[s
 
 
 @IPCHandlerRegistry.background_handler('lightrag.searchLabels')
-async def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle search labels request (async to avoid blocking UI)."""
+def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle search labels request (runs in background thread to avoid blocking UI)."""
     try:
         params = params or {}
         query = params.get('query', '')
@@ -893,10 +870,7 @@ async def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, A
         if not hasattr(client, 'search_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'search_labels not implemented in client')
 
-        import asyncio
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.search_labels(q=query, limit=limit)
-        )
+        result = client.search_labels(q=query, limit=limit)
         
         if result.get('status') == 'error':
             return create_error_response(request, 'SEARCH_LABELS_ERROR', result.get('message', 'Failed to search labels'))
@@ -909,8 +883,8 @@ async def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, A
 
 
 @IPCHandlerRegistry.background_handler('lightrag.getDocumentsPaginated')
-async def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle paginated documents request (async to avoid blocking UI)."""
+def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle paginated documents request (runs in background thread to avoid blocking UI)."""
     try:
         # Default params
         defaults = {
@@ -923,11 +897,12 @@ async def handle_get_documents_paginated(request: IPCRequest, params: Optional[D
         
         logger.info(f"[lightrag_handler] get_documents_paginated called with params: {request_params}")
         
-        import asyncio
         client = get_client()
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.get_documents_paginated(request_params)
-        )
+        
+        # Call synchronously (this runs in a background thread via registry)
+        result = client.get_documents_paginated(request_params)
+        
+        logger.info(f"[lightrag_handler] Client returned result type: {type(result)}, value: {result}")
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to get documents')
@@ -1402,9 +1377,9 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 
 
 @IPCHandlerRegistry.background_handler('lightrag.queryGraphs')
-async def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle graph query request (async to avoid blocking UI).
+    Handle graph query request (runs in background thread to avoid blocking UI).
     Expected params:
     - label: str - Node label to search for (or '*')
     - maxDepth: int - Traversal depth
@@ -1416,13 +1391,10 @@ async def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, An
         max_depth = params.get('maxDepth', 1)
         max_nodes = params.get('maxNodes', 400)
         
-        import asyncio
         client = get_client()
         # Call query_graphs method (assumed to be added to client)
         if hasattr(client, 'query_graphs'):
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: client.query_graphs(label, max_depth, max_nodes)
-            )
+            result = client.query_graphs(label, max_depth, max_nodes)
         else:
             # Fallback mock if not implemented yet
             return create_success_response(request, {'nodes': [], 'edges': [], 'is_truncated': False})

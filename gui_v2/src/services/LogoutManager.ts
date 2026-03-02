@@ -139,17 +139,56 @@ export class LogoutManager {
       
       // CleanupUserRelated tolocalStorage项
       const keysToRemove = [
+        // Authentication
+        'ipc_auth_token',
+        'token',
+        'isAuthenticated',
+        'authToken',
+        
+        // User info
+        'username',
+        'user_info',
+        'userRole',
         'userSession',
         'loginSession',
         'userInfo',
-        'authToken',
-        'lastLoginInfo'
+        
+        // Session
+        'loginTime',
+        'lastLogin',
+        'lastLoginInfo',
+        'session_id',
+        'sessionExpiresAt',
+        'lastActivity',
+        
+        // Preferences
+        'language',
+        'theme',
+        'appData',
+        'userPreferences',
+        
+        // Token refresh
+        'token_expired_notification_shown'
       ];
 
       keysToRemove.forEach(key => {
         if (localStorage.getItem(key)) {
           localStorage.removeItem(key);
           logger.debug(`[LogoutManager] Removed localStorage key: ${key}`);
+        }
+      });
+
+      // 清理所有以特定前缀开头的 key
+      const allKeys = Object.keys(localStorage);
+      allKeys.forEach(key => {
+        if (key.startsWith('pref_') || 
+            key.startsWith('user_') || 
+            key.startsWith('session_') ||
+            key.startsWith('temp_') ||
+            key.startsWith('cache_') ||
+            key.startsWith('draft_')) {
+          localStorage.removeItem(key);
+          logger.debug(`[LogoutManager] Removed prefixed key: ${key}`);
         }
       });
 

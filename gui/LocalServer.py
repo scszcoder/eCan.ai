@@ -440,7 +440,7 @@ class RequestHandlers:
                         if bearer_token:
                             request_params['token'] = bearer_token
             
-            # 将 extensions 中的其他参数也合并进来（排除 method 和 operationName）
+            # 将 extensions 中的其他元数据合并进来（排除 method 和 operationName）
             for key, value in extensions.items():
                 if key not in ('method', 'operationName'):
                     request_params[key] = value
