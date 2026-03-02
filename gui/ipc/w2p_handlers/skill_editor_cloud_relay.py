@@ -255,9 +255,15 @@ def relay_get_history(session_id: str,
     if isinstance(raw, list):
         messages = raw
     elif isinstance(raw, dict) and "messages" in raw:
-        return raw  # already in the expected shape
+        messages = raw["messages"] if isinstance(raw["messages"], list) else []
     else:
         messages = []
+
+    # Parse AWSJSON fields on each message
+    for msg in messages:
+        if isinstance(msg, dict):
+            msg["metadata"] = _parse_awsjson(msg.get("metadata"))
+            msg["attachments"] = _parse_awsjson(msg.get("attachments"))
 
     return {
         "messages": messages,
