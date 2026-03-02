@@ -38,6 +38,7 @@ from .schemas import (
     get_node_types_description,
 )
 from .placement import place_nodes, LOOP_INTERNAL_CFG
+from .prompt_store import prompt_store
 
 
 # ============================================================
@@ -53,7 +54,17 @@ START_POSITION_Y = 100
 # Preferred prompt pool IDs (fallback defaults when config is missing)
 DEFAULT_LLM_PROMPT_ID = "pr-454780"
 DEFAULT_BROWSER_PROMPT_ID = "pr-935241"
-MY_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "my_prompts"
+# User prompts are stored in user_data directory (production-safe)
+MY_PROMPTS_DIR = None  # Will be set dynamically based on current user
+
+def _get_my_prompts_dir() -> Path:
+    """Get user-specific prompts directory (production-safe)."""
+    global MY_PROMPTS_DIR
+    if MY_PROMPTS_DIR is None:
+        from utils.user_path_helper import get_user_data_dir
+        user_data_dir = get_user_data_dir(subdir="my_prompts")
+        MY_PROMPTS_DIR = Path(user_data_dir)
+    return MY_PROMPTS_DIR
 
 # Default scaffold for code nodes
 CODE_NODE_DEFAULT_TEMPLATE = """# Here, you can retrieve input variables from the node using 'state'
@@ -1489,7 +1500,8 @@ Continue the JSON output (do not include any text before the continuation):"""
             if not system_prompt and not user_prompt:
                 return
 
-            MY_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+            my_prompts_dir = _get_my_prompts_dir()
+            my_prompts_dir.mkdir(parents=True, exist_ok=True)
             prompt_id = f"pr-{uuid.uuid4().hex[:6]}"
             base_id = (node_id or "").strip()
             base_type = (node_type or "").strip()
@@ -1599,7 +1611,8 @@ Continue the JSON output (do not include any text before the continuation):"""
                         ],
                     })
 
-            out_path = MY_PROMPTS_DIR / f"{title}.json"
+            my_prompts_dir = _get_my_prompts_dir()
+            out_path = my_prompts_dir / f"{title}.json"
             with out_path.open("w", encoding="utf-8") as f:
                 json.dump(prompt_doc, f, ensure_ascii=False, indent=2)
 
@@ -2088,7 +2101,7 @@ Continue the JSON output (do not include any text before the continuation):"""
         
         try:
             # Build prompt
-            prompt = CODE_GENERATION_PROMPT.format(
+            prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
                 node_types=get_node_types_description(),
                 canvas_context=self._format_canvas_context(canvas_context),
                 plan_context=self._format_plan_context(plan)
@@ -2181,7 +2194,7 @@ ORIGINAL REQUEST: {user_message}
 Please regenerate the flowgram with these errors fixed.
 """
         
-        prompt = CODE_GENERATION_PROMPT.format(
+        prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
             node_types=get_node_types_description(),
             canvas_context=self._format_canvas_context(canvas_context),
             plan_context=self._format_plan_context(plan)
@@ -2238,7 +2251,7 @@ Please regenerate the flowgram with these errors fixed.
         
         try:
             # Build edit prompt
-            prompt = EDIT_FLOWGRAM_PROMPT.format(
+            prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT).format(
                 current_flowgram=json.dumps(flowgram.model_dump(), indent=2),
                 edit_request=edit_request,
                 node_types=get_node_types_description()

@@ -506,6 +506,13 @@ class MainWindow:
             total_time = time.time() - self._init_start_time
             logger.info(f"[MainWindow] âœ… Background initialization completed successfully in {total_time:.2f}s total")
 
+            # Start AppSync subscription listener for cloud event relay (desktop mode)
+            try:
+                from gui.ipc.appsync_subscription_client import start_appsync_subscriptions_for_desktop
+                start_appsync_subscriptions_for_desktop()
+            except Exception as sub_err:
+                logger.debug(f"[MainWindow] AppSync subscription start skipped: {sub_err}")
+
             # TEST: Push demo ad after initialization (comment out after testing)
             # self._test_push_demo_ad()
 

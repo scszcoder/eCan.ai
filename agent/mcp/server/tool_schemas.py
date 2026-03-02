@@ -172,7 +172,7 @@ def build_agent_mcp_tools_schemas():
                     "required": ["works"],
                     "properties": {
                         "works": {
-                            "type": "dict",
+                            "type": "object",
                             "description": "work to be dones",
                         }
                     },
@@ -268,7 +268,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)",
                         },
                         "sub_area": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "sub area of screen shot with relative offset [left, top, right, bottom]",
                         },
                         "file": {
@@ -322,7 +322,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "click type, can be 'left', 'right', 'double'",
                         },
                         "loc": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates of [x, y]",
                         },
                         "post_move_delay": {
@@ -353,7 +353,7 @@ def build_agent_mcp_tools_schemas():
                     "required": ["location", "post_wait"],
                     "properties": {
                         "location": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates of [x, y]",
                         },
                         "post_wait": {
@@ -380,15 +380,15 @@ def build_agent_mcp_tools_schemas():
                     "required": ["pick_loc","drop_loc", "duration", "post_wait"],
                     "properties": {
                         "pick_loc": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates mouse pick up locationof [x, y]",
                         },
                         "drop_loc": {
-                            "type": "[int]",
+                            "type": "array", "items": {"type": "integer"},
                             "description": "coordinates mouse drop locationof [x, y]",
                         },
                         "duration": {
-                            "type": "float",
+                            "type": "number",
                             "description": "time interval in seconds (could be fractional) between pick up and drop off",
                         },
                         "post_wait": {
@@ -450,7 +450,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "text string to be typed in",
                         },
                         "interval": {
-                            "type": "float",
+                            "type": "number",
                             "description": "amount of time interval in seconds(can be fractional number) between key strokes",
                         },
                         "post_wait": {
@@ -477,7 +477,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["keys", "post_wait"],
                     "properties": {
                         "keys": {
-                            "type": "[string]",
+                            "type": "array",
+                            "items": {"type": "string"},
                             "description": "list of keys to be keyed in, for example ['ctrl', 'x']",
                         },
                         "post_wait": {
@@ -504,7 +505,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["keyword", "duration"],
                     "properties": {
                         "keyword": {
-                            "type": "[string]",
+                            "type": "array",
+                            "items": {"type": "string"},
                             "description": "the text on the button to where the mouse will be pressed and held down",
                         },
                         "duration": {
@@ -1484,7 +1486,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_open_app",
-        description="<category>System</category><sub-category>General Applications</sub-category>in OS, open an app.",
+        description="<category>System</category><sub-category>General Applications</sub-category>Open an app in the OS. Smart: first checks if a matching window is already open (brings to front), then checks running processes, and only launches the executable if needed. Supports common app aliases (WeChat/微信, DingTalk/钉钉, etc.) and searches typical installation directories as fallback.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1495,7 +1497,7 @@ def build_agent_mcp_tools_schemas():
                     "properties": {
                         "app_name": {
                             "type": "string",
-                            "description": "the name of the app to open.",
+                            "description": "The name of the app to open (e.g. 'WeChat', '微信', 'chrome') or a full executable path (e.g. 'C:\\Program Files\\Tencent\\WeChat\\WeChat.exe').",
                         }
                     },
                 }
@@ -1770,7 +1772,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["apps"],
                     "properties": {
                         "apps": {
-                            "type": "[string]",
+                            "type": "array",
+                            "items": {"type": "string"},
                             "description": "the processes to be killed, all digits meaning process ID, otherwise, process name",
                         }
                     },

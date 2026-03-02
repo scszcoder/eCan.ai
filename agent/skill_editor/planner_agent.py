@@ -26,6 +26,7 @@ from .schemas import (
     NODE_TYPES,
     get_node_types_description,
 )
+from .prompt_store import prompt_store
 
 
 # ============================================================
@@ -581,7 +582,7 @@ class PlannerAgent:
         
         try:
             # Build system prompt
-            system_prompt = PLANNER_SYSTEM_PROMPT.format(
+            system_prompt = prompt_store.get("planner", default=PLANNER_SYSTEM_PROMPT).format(
                 max_questions=MAX_CLARIFICATION_QUESTIONS,
                 node_types=get_node_types_description(),
                 canvas_context=self._format_canvas_context(canvas_context),

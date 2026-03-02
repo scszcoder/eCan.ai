@@ -553,7 +553,33 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           
           // Auto-select the most recent session if none selected
           if (!activeSessionId && convertedSessions.length > 0) {
-            setActiveSessionId(convertedSessions[0].id);
+            const firstId = convertedSessions[0].id;
+            setActiveSessionId(firstId);
+
+            // Cloud getSessions only returns metadata — fetch messages
+            if (!convertedSessions[0].messages.length) {
+              try {
+                const history = await skillEditorChatService.getHistory(firstId);
+                if (history && history.length > 0) {
+                  const mapped: ChatMessage[] = history.map(m => ({
+                    id: m.id,
+                    role: m.role as 'user' | 'assistant',
+                    content: m.content,
+                    timestamp: new Date(m.timestamp),
+                    attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
+                    clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
+                    plan: m.metadata?.plan as ImplementationPlan | undefined,
+                    state: m.metadata?.state as PipelineState | undefined,
+                  }));
+                  setSessions(prev => prev.map(s =>
+                    s.id === firstId ? { ...s, messages: mapped } : s
+                  ));
+                  console.log(`[ChatPanel] Auto-loaded ${mapped.length} messages for session ${firstId}`);
+                }
+              } catch (err) {
+                console.warn('[ChatPanel] Failed to auto-load history:', err);
+              }
+            }
           }
         } else {
           console.log('[ChatPanel] No sessions found in backend');
@@ -671,6 +697,76 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       try {
         if (!payload || payload.sessionId !== activeSessionId) return;
         setStreamingStatus('');
+        setIsLoading(false);
+
+        // If the stream_end carries actual content, render it as (or update)
+        // the assistant message.  This is the primary delivery path when the
+        // AppSync subscription relay is active — the synchronous IPC response
+        // may only contain a placeholder "processing" message.
+        const content = payload.fullContent;
+        if (typeof content === 'string' && content.trim()) {
+          const msgId = payload.messageId || `msg-stream-${Date.now()}`;
+          setMessages(prev => {
+            // If the last assistant message is the synthetic "processing"
+            // placeholder, replace its content with the real response.
+            const last = prev.length > 0 ? prev[prev.length - 1] : null;
+            if (
+              last &&
+              last.role === 'assistant' &&
+              /processing|still working|arrive shortly/i.test(last.content)
+            ) {
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...last, id: msgId, content };
+              return updated;
+            }
+            // Check if a message with this ID already exists (update it)
+            const existingIdx = prev.findIndex(m => m.id === msgId);
+            if (existingIdx >= 0) {
+              const updated = [...prev];
+              updated[existingIdx] = { ...updated[existingIdx], content };
+              return updated;
+            }
+            // Don't blindly append — the synchronous handleSend response
+            // is the authoritative message source.  Only append if there's
+            // no pending synchronous response (i.e. isLoading is still
+            // true, meaning handleSend hasn't resolved yet — but we can't
+            // check that here).  Instead, mark a flag so handleSend can
+            // deduplicate via content matching.
+            return [...prev, {
+              id: msgId,
+              role: 'assistant' as const,
+              content,
+              timestamp: new Date(),
+            }];
+          });
+        }
+
+        // Extract structured data forwarded from the subscription payload.
+        // For Lambda-timeout responses the synchronous IPC result is a bare
+        // "processing" placeholder — the real clarification / a2ui / plan
+        // arrives here via the subscription relay's stream_end event.
+        const clarification = payload.clarification;
+        const plan = payload.plan;
+        const a2uiData = payload.a2ui;
+        const state = payload.state;
+
+        if (state) {
+          setPipelineState(state);
+        }
+
+        if (Array.isArray(clarification) && clarification.length > 0) {
+          setPendingClarification(clarification);
+          if (a2uiData?.messages && a2uiData?.surfaceId) {
+            setPendingA2UI({ surfaceId: a2uiData.surfaceId, messages: a2uiData.messages });
+          }
+          setPendingPlan(null);
+        } else if (plan) {
+          setPendingPlan(plan);
+          setPendingClarification(null);
+          setPendingA2UI(null);
+        }
+        // Don't clear pending states here for bare stream_end (no structured
+        // data) — the synchronous response handler may still set them.
       } catch {
         return;
       }
@@ -1180,36 +1276,64 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           state: response.state,
         };
         
-        setMessages(prev => [...prev, assistantMessage]);
+        // Deduplicate: the subscription relay (handleDone) may have already
+        // added a message with the same content but a different ID (it uses
+        // payload.messageId while the synchronous response uses
+        // response.message.id).  Match by ID first, then by content to
+        // prevent showing the response twice.
+        setMessages(prev => {
+          let existingIdx = prev.findIndex(m => m.id === assistantMessage.id);
+          if (existingIdx < 0) {
+            // Fallback: find the last assistant message with matching content
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'assistant' && prev[i].content === assistantMessage.content) {
+                existingIdx = i;
+                break;
+              }
+            }
+          }
+          if (existingIdx >= 0) {
+            // Update existing with richer metadata from synchronous response
+            const updated = [...prev];
+            updated[existingIdx] = { ...updated[existingIdx], ...assistantMessage };
+            return updated;
+          }
+          return [...prev, assistantMessage];
+        });
         
         // Update pipeline state
         setPipelineState(response.state || 'complete');
         setStreamingStatus('');
         
-        // Handle clarification questions
-        if (response.clarification && response.clarification.length > 0) {
-          console.log('[ChatPanel] Received clarification questions:', response.clarification.length);
-          setPendingClarification(response.clarification);
-          // Capture A2UI data if provided by LLM
-          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
-            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
-          } else {
+        // Handle clarification questions / plan / a2ui from the synchronous
+        // response.  Skip this entirely for state=processing (Lambda timeout)
+        // because the synchronous result is a synthetic placeholder — the real
+        // structured data will arrive via the subscription relay's stream_end.
+        if (response.state !== 'processing') {
+          if (response.clarification && response.clarification.length > 0) {
+            console.log('[ChatPanel] Received clarification questions:', response.clarification.length);
+            setPendingClarification(response.clarification);
+            // Capture A2UI data if provided by LLM
+            if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+              setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+            } else {
+              setPendingA2UI(null);
+            }
+            setPendingPlan(null);
+          }
+          // Handle implementation plan
+          else if (response.plan) {
+            console.log('[ChatPanel] Received implementation plan');
+            setPendingPlan(response.plan);
+            setPendingClarification(null);
             setPendingA2UI(null);
           }
-          setPendingPlan(null);
-        }
-        // Handle implementation plan
-        else if (response.plan) {
-          console.log('[ChatPanel] Received implementation plan');
-          setPendingPlan(response.plan);
-          setPendingClarification(null);
-          setPendingA2UI(null);
-        }
-        // Clear pending states on completion
-        else {
-          setPendingClarification(null);
-          setPendingA2UI(null);
-          setPendingPlan(null);
+          // Clear pending states on completion
+          else {
+            setPendingClarification(null);
+            setPendingA2UI(null);
+            setPendingPlan(null);
+          }
         }
         
         // Load flowgram into canvas if present in response
