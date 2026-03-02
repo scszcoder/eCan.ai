@@ -434,7 +434,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     console.warn('Failed to update store:', e);
                 }
 
-                message.success(t('common.saved', 'Saved'));
+                message.success(t('common.saved'));
                 setEditMode(false);
                 if (onSave) onSave();
                 else onRefresh();

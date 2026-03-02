@@ -13,11 +13,32 @@ from uuid import uuid4
 from gui.ipc.types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from gui.ipc.registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
+from utils.user_path_helper import get_user_data_dir
+# Cloud sync import - guarded to prevent import failures from breaking IPC
+try:
+    from gui.ipc.w2p_handlers.prompt_cloud_sync import sync_prompt_to_cloud, delete_prompt_from_cloud, sync_all_prompts_to_cloud
+    _CLOUD_SYNC_AVAILABLE = True
+except Exception as _sync_import_err:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(f"[prompts] Cloud sync not available: {_sync_import_err}")
+    _CLOUD_SYNC_AVAILABLE = False
+    def sync_prompt_to_cloud(*a, **kw): pass
+    def delete_prompt_from_cloud(*a, **kw): pass
+    def sync_all_prompts_to_cloud(*a, **kw): pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SYSTEMS_DIR = PROJECT_ROOT / "systems"
-MY_PROMPTS_DIR = PROJECT_ROOT / "my_prompts"
+# User prompts are stored in user_data directory (production-safe)
+MY_PROMPTS_DIR = None  # Will be set dynamically based on current user
 SAMPLE_PROMPTS_DIR = PROJECT_ROOT / "resource" / "systems" / "sample_prompts"
+
+def _get_my_prompts_dir() -> Path:
+    """Get user-specific prompts directory (production-safe)."""
+    global MY_PROMPTS_DIR
+    if MY_PROMPTS_DIR is None:
+        user_data_dir = get_user_data_dir(subdir="my_prompts")
+        MY_PROMPTS_DIR = Path(user_data_dir)
+    return MY_PROMPTS_DIR
 
 SECTION_TYPES: Tuple[str, ...] = (
     "role",
@@ -37,7 +58,8 @@ SECTION_TYPES: Tuple[str, ...] = (
 
 def _ensure_prompt_dirs() -> None:
     try:
-        MY_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+        prompts_dir = _get_my_prompts_dir()
+        prompts_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:  # pragma: no cover - defensive
         logger.error(f"[prompts] failed to create my_prompts directory: {exc}")
 
@@ -237,6 +259,9 @@ def _slugify(value: str) -> str:
 
 def _load_prompts_from_directory(dir_path: Path, *, source: str, read_only: bool) -> List[Tuple[Dict[str, Any], float]]:
     prompts: List[Tuple[Dict[str, Any], float]] = []
+    # For MY_PROMPTS_DIR, ensure it's initialized
+    if source == "my_prompts" and dir_path is None:
+        dir_path = _get_my_prompts_dir()
     if not dir_path.exists():
         return prompts
 
@@ -264,7 +289,7 @@ def _load_all_prompts() -> List[Dict[str, Any]]:
 
     directories = [
         (SAMPLE_PROMPTS_DIR, "sample_prompts", False),  # Changed to editable
-        (MY_PROMPTS_DIR, "my_prompts", False),
+        (_get_my_prompts_dir(), "my_prompts", False),
     ]
 
     for dir_path, source, read_only in directories:
@@ -297,9 +322,10 @@ def _load_all_prompts() -> List[Dict[str, Any]]:
 def _find_prompt_file_by_id(prompt_id: str) -> Optional[Path]:
     if not prompt_id:
         return None
-    if not MY_PROMPTS_DIR.exists():
+    my_prompts_dir = _get_my_prompts_dir()
+    if not my_prompts_dir.exists():
         return None
-    for file_path in MY_PROMPTS_DIR.glob("*.json"):
+    for file_path in my_prompts_dir.glob("*.json"):
         try:
             with file_path.open("r", encoding="utf-8") as fp:
                 data = json.load(fp)
@@ -386,7 +412,8 @@ def _write_prompt_to_file(prompt: Dict[str, Any]) -> Dict[str, Any]:
     base_label = str(serialized.get("title") or serialized.get("topic") or "prompt")
     name_slug = _slugify(base_label) or "prompt"
     filename_base = f"{name_slug}_{id_slug}"
-    target_path = MY_PROMPTS_DIR / f"{filename_base}.json"
+    my_prompts_dir = _get_my_prompts_dir()
+    target_path = my_prompts_dir / f"{filename_base}.json"
 
     existing_path = _find_prompt_file_by_id(prompt_id)
     if existing_path and existing_path.exists() and existing_path.resolve() != target_path.resolve():
@@ -446,6 +473,12 @@ def _delete_prompt_file(prompt_id: str) -> bool:
 def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     try:
         prompts = _bootstrap_prompts()
+        # Kick off background bulk sync to cloud (non-blocking, fire-and-forget)
+        if _CLOUD_SYNC_AVAILABLE:
+            try:
+                sync_all_prompts_to_cloud(prompts)
+            except Exception as sync_exc:
+                logger.debug(f"[prompts] bulk cloud sync skipped: {sync_exc}")
         return create_success_response(request, {"prompts": prompts})
     except Exception as e:
         logger.error(f"[prompts] get_prompts error: {e}")
@@ -496,6 +529,8 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
             return create_error_response(request, 'READ_ONLY', 'Cannot modify read-only prompt')
         normalized = _write_prompt_to_file(prompt)
         logger.debug(f"[prompts] saved prompt {normalized.get('id')} to my_prompts")
+        # Sync to cloud in background
+        sync_prompt_to_cloud(normalized)
         return create_success_response(request, {"prompt": normalized})
     except Exception as e:
         logger.error(f"[prompts] save_prompt error: {e}")
@@ -531,6 +566,9 @@ def handle_delete_prompt(request: IPCRequest, params: Optional[dict]) -> IPCResp
             return create_error_response(request, 'READ_ONLY', 'Cannot delete read-only prompt')
 
         deleted = _delete_prompt_file(str(pid))
+        # Remove from cloud in background
+        if deleted:
+            delete_prompt_from_cloud(str(pid))
         return create_success_response(request, {"deleted": deleted})
     except Exception as e:
         logger.error(f"[prompts] delete_prompt error: {e}")

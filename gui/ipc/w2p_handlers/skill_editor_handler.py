@@ -77,13 +77,24 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         
         if skill:
             logger.debug(f"[IPC][run_skill] skill source: params.input.skill or params.skill")
+            logger.debug(f"[IPC][run_skill] skill payload type: {type(skill).__name__}")
             logger.debug(f"[IPC][run_skill] run_in_cloud: {run_in_cloud}, meta_data: {meta_data}")
         else:
             logger.warning(f"[IPC][run_skill] No skill found in params: {params}")
             raise ValueError("No skill data provided in request")
         
         try:
-            diagram = (skill or {}).get("diagram") or {}
+            # Debug logging supports both dict payloads and JSON-string payloads.
+            skill_for_log = skill
+            if isinstance(skill_for_log, str):
+                try:
+                    skill_for_log = json.loads(skill_for_log)
+                except Exception as parse_err:
+                    logger.debug(f"[IPC][run_skill] skill JSON parse failed for debug logging: {parse_err}")
+                    skill_for_log = {}
+
+            diagram = (skill_for_log or {}).get("diagram") if isinstance(skill_for_log, dict) else {}
+            diagram = diagram or {}
             wf = diagram.get("workFlow") or {}
             bundle = (diagram.get("bundle") or {}).get("sheets") or []
             logger.debug(f"[IPC][run_skill] incoming diagram.workFlow: nodes={len(wf.get('nodes', []))} edges={len(wf.get('edges', []))}")
@@ -97,7 +108,25 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         else:
             # Lazy import to avoid slow startup
             from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
-            results = run_dev_skill(ctx.main_window, skill)
+            import threading
+            
+            # Run skill in background thread to avoid blocking IPC handler and agents initialization
+            def run_skill_background():
+                try:
+                    logger.info("[IPC][run_skill] Starting skill execution in background thread...")
+                    results = run_dev_skill(ctx.main_window, skill)
+                    logger.info(f"[IPC][run_skill] Skill execution completed: {results.get('success', False)}")
+                except Exception as e:
+                    logger.error(f"[IPC][run_skill] Background skill execution failed: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            # Start background thread
+            skill_thread = threading.Thread(target=run_skill_background, daemon=True)
+            skill_thread.start()
+            
+            # Return immediately without waiting
+            results = {"success": True, "message": "Skill execution started in background"}
         
         return create_success_response(request, {
             "results": results,
@@ -1360,8 +1389,11 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             # This is just a local cache to prevent data loss
             # Real sync happens only when user explicitly clicks "Save"
             try:
-                os.makedirs(skill_file.parent, exist_ok=True)
-                with open(skill_file, 'w', encoding='utf-8') as sf:
+                # Ensure parent directory exists with proper encoding for Chinese characters
+                skill_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Write file with UTF-8 encoding
+                with open(str(skill_file), 'w', encoding='utf-8') as sf:
                     json.dump(skill_info, sf, indent=2, ensure_ascii=False)
                 logger.info(f"[AutoSave] Cached to local file: {skill_file} (no cloud sync)")
             except Exception as write_error:
@@ -1375,7 +1407,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             if sheets_data:
                 try:
                     bundle_data = _build_bundle_data(sheets_data)
-                    with open(bundle_file, 'w', encoding='utf-8') as bf:
+                    # Write bundle file with UTF-8 encoding for Chinese characters
+                    with open(str(bundle_file), 'w', encoding='utf-8') as bf:
                         json.dump(bundle_data, bf, indent=2, ensure_ascii=False)
                     logger.info(f"[AutoSave] Saved to bundle file: {bundle_file} ({len(bundle_data.get('sheets', []))} sheets)")
                     bundle_file_saved = True

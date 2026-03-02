@@ -23,6 +23,28 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 
+# Feature flag: when True, skill editor chat requests are relayed to
+# the cloud-based SkillEditorAgent (via AppSync/Lambda) instead of
+# running the local agent.  Set to False to revert to local processing.
+USE_CLOUD_SKILL_EDITOR = True
+
+_CLOUD_RELAY_AVAILABLE = False
+if USE_CLOUD_SKILL_EDITOR:
+    try:
+        from gui.ipc.w2p_handlers.skill_editor_cloud_relay import (
+            relay_create_session,
+            relay_get_sessions,
+            relay_get_history,
+            relay_send_message,
+            relay_cancel_generation,
+            relay_delete_session,
+        )
+        _CLOUD_RELAY_AVAILABLE = True
+        logger.info("[SkillEditorChat] Cloud relay mode ENABLED")
+    except Exception as _import_err:
+        logger.warning(f"[SkillEditorChat] Cloud relay import failed, using local agent: {_import_err}")
+        _CLOUD_RELAY_AVAILABLE = False
+
 
 # ============================================================
 # Type Definitions (mirrors TypeScript types)
@@ -89,9 +111,12 @@ def _get_chat_history_path() -> str:
     try:
         from config.app_info import AppInfo
         app_info = AppInfo()
-        return os.path.join(app_info.appdata_home_path, "skill_editor_chat_history.json")
+        base = getattr(app_info, "appdata_path", None) or getattr(app_info, "app_home_path", None)
+        if base:
+            return os.path.join(base, "skill_editor_chat_history.json")
     except Exception:
-        return "skill_editor_chat_history.json"
+        pass
+    return "skill_editor_chat_history.json"
 
 
 class SkillEditorChatStore:
@@ -269,11 +294,23 @@ def handle_create_session(request: IPCRequest, params: Optional[Dict[str, Any]])
         Session info with ID
     """
     try:
-        logger.info(f"[SkillEditorChat] create_session called with params: {params}")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        logger.info(f"[SkillEditorChat] create_session called with params: {p}")
         
-        name = (params or {}).get("name", "New Chat")
-        flowgram_id = (params or {}).get("flowgramId")
-        
+        name = p.get("name", "New Chat")
+        flowgram_id = p.get("flowgramId")
+
+        # --- Cloud relay mode ---
+        if _CLOUD_RELAY_AVAILABLE:
+            cloud_result = relay_create_session(name=name, flowgram_id=flowgram_id)
+            if cloud_result:
+                logger.info(f"[SkillEditorChat] Cloud create_session OK: {cloud_result.get('id')}")
+                return create_success_response(request, cloud_result)
+            else:
+                logger.warning("[SkillEditorChat] Cloud create_session failed, falling back to local")
+
+        # --- Local fallback ---
         session = _chat_store.create_session(name=name, flowgram_id=flowgram_id)
         
         # Return session data directly (same format as Lambda)
@@ -301,6 +338,19 @@ def handle_get_sessions(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         List of sessions
     """
     try:
+        # --- Cloud relay mode ---
+        if _CLOUD_RELAY_AVAILABLE:
+            cloud_sessions = relay_get_sessions()
+            if cloud_sessions is not None:
+                logger.info(f"[SkillEditorChat] Cloud get_sessions OK: {len(cloud_sessions)} sessions")
+                return create_success_response(request, {
+                    "sessions": cloud_sessions,
+                    "count": len(cloud_sessions)
+                })
+            else:
+                logger.warning("[SkillEditorChat] Cloud get_sessions failed, falling back to local")
+
+        # --- Local fallback ---
         sessions = _chat_store.get_all_sessions()
         return create_success_response(request, {
             "sessions": [s.to_dict() for s in sessions],
@@ -332,16 +382,28 @@ def handle_get_history(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         List of messages
     """
     try:
-        session_id = (params or {}).get("sessionId")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
-        
+
+        limit = p.get("limit")
+        offset = p.get("offset", 0)
+
+        # --- Cloud relay mode ---
+        if _CLOUD_RELAY_AVAILABLE:
+            cloud_history = relay_get_history(session_id, limit=limit, offset=offset)
+            if cloud_history is not None:
+                logger.info(f"[SkillEditorChat] Cloud get_history OK for session={session_id}")
+                return create_success_response(request, cloud_history)
+            else:
+                logger.warning("[SkillEditorChat] Cloud get_history failed, falling back to local")
+
+        # --- Local fallback ---
         session = _chat_store.get_session(session_id)
         if not session:
             return create_error_response(request, 'SESSION_NOT_FOUND', f"Session {session_id} not found")
-        
-        limit = (params or {}).get("limit")
-        offset = (params or {}).get("offset", 0)
         
         messages = session.messages[offset:]
         if limit:
@@ -387,11 +449,13 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         Assistant response with message, clarification, plan, flowgram, validation
     """
     try:
-        session_id = (params or {}).get("sessionId")
-        content = (params or {}).get("content", "")
-        attachments = (params or {}).get("attachments", [])
-        canvas_context = (params or {}).get("canvasContext")
-        clarification_responses = (params or {}).get("clarificationResponses")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
+        content = p.get("content", "")
+        attachments = p.get("attachments", [])
+        canvas_context = p.get("canvasContext")
+        clarification_responses = p.get("clarificationResponses")
         
         logger.info(f"[SkillEditorChat] send_message called - sessionId={session_id}, content_length={len(content)}, has_canvas_context={canvas_context is not None}, has_clarification_responses={clarification_responses is not None}")
         
@@ -399,7 +463,97 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
         if not content.strip():
             return create_error_response(request, 'INVALID_PARAMS', "content is required")
-        
+
+        # --- Cloud relay mode ---
+        if _CLOUD_RELAY_AVAILABLE:
+            logger.info(f"[SkillEditorChat] Relaying send_message to cloud for session={session_id}")
+            # Parse canvas_context / clarification_responses if they are JSON strings
+            parsed_canvas = canvas_context
+            if isinstance(parsed_canvas, str):
+                try:
+                    import json as _json
+                    parsed_canvas = _json.loads(parsed_canvas)
+                except (ValueError, TypeError):
+                    pass
+            parsed_clarification = clarification_responses
+            if isinstance(parsed_clarification, str):
+                try:
+                    import json as _json
+                    parsed_clarification = _json.loads(parsed_clarification)
+                except (ValueError, TypeError):
+                    pass
+
+            cloud_result = relay_send_message(
+                session_id=session_id,
+                content=content,
+                attachments=attachments if attachments else None,
+                canvas_context=parsed_canvas if isinstance(parsed_canvas, dict) else None,
+                clarification_responses=parsed_clarification if isinstance(parsed_clarification, dict) else None,
+                flowgram_id=p.get("flowgramId"),
+            )
+            if cloud_result is not None:
+                logger.info(
+                    f"[SkillEditorChat] Cloud send_message OK: state={cloud_result.get('state')}, "
+                    f"intent={cloud_result.get('intent')}"
+                )
+
+                # Push result to frontend.  If the AppSync subscription client
+                # is running it already relays stream_chunk / stream_end events
+                # from the cloud in real time — pushing a SECOND stream_end here
+                # would corrupt the frontend's streaming state machine.
+                # Only push from the synchronous cloud relay response when the
+                # subscription is NOT active (fallback path).
+                try:
+                    sub_active = False
+                    try:
+                        from gui.ipc.appsync_subscription_client import appsync_sub_client
+                        sub_active = appsync_sub_client.is_running
+                    except Exception:
+                        pass
+
+                    if not sub_active:
+                        msg = cloud_result.get("message") or {}
+                        msg_content = msg.get("content", "") if isinstance(msg, dict) else ""
+                        msg_id = msg.get("id", str(uuid.uuid4())) if isinstance(msg, dict) else str(uuid.uuid4())
+
+                        from gui.ipc.api import IPCAPI
+                        ipc = IPCAPI.get_instance()
+
+                        if cloud_result.get("state") == "processing":
+                            ipc.push_skill_editor_chat_chunk(
+                                session_id=session_id,
+                                message_id=msg_id,
+                                chunk=msg_content,
+                                chunk_index=0,
+                            )
+                        else:
+                            ipc.push_skill_editor_chat_done(
+                                session_id=session_id,
+                                message_id=msg_id,
+                                full_content=msg_content,
+                            )
+
+                        # Forward flowgram as a canvas command so the local frontend loads it
+                        flowgram_data = cloud_result.get("flowgram")
+                        if flowgram_data:
+                            ipc.push_skill_editor_canvas_command(
+                                session_id=session_id,
+                                command_type="canvas.load_flowgram_data",
+                                payload={"flowgram": flowgram_data},
+                            )
+                    else:
+                        logger.debug(
+                            f"[SkillEditorChat] Subscription active — skipping duplicate "
+                            f"push for state={cloud_result.get('state')}"
+                        )
+                except Exception as relay_push_err:
+                    logger.debug(f"[SkillEditorChat] Cloud relay push to frontend skipped: {relay_push_err}")
+
+                return create_success_response(request, cloud_result)
+            else:
+                logger.warning("[SkillEditorChat] Cloud send_message failed, falling back to local agent")
+
+        # --- Local fallback ---
         session = _chat_store.get_session(session_id)
         if not session:
             # Auto-create session if not exists
@@ -550,10 +704,22 @@ def handle_cancel_generation(request: IPCRequest, params: Optional[Dict[str, Any
         Cancellation status
     """
     try:
-        session_id = (params or {}).get("sessionId")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
-        
+
+        # --- Cloud relay mode ---
+        if _CLOUD_RELAY_AVAILABLE:
+            cancelled = relay_cancel_generation(session_id)
+            logger.info(f"[SkillEditorChat] Cloud cancel_generation: {cancelled}")
+            return create_success_response(request, {
+                "cancelled": cancelled,
+                "sessionId": session_id
+            })
+
+        # --- Local fallback ---
         was_active = _chat_store.is_generation_active(session_id)
         _chat_store.set_generation_active(session_id, False)
         
@@ -585,10 +751,22 @@ def handle_delete_session(request: IPCRequest, params: Optional[Dict[str, Any]])
         Deletion status
     """
     try:
-        session_id = (params or {}).get("sessionId")
+        # Unwrap 'input' key if present (frontend sends { input: { ... } })
+        p = (params or {}).get("input") or params or {}
+        session_id = p.get("sessionId")
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
-        
+
+        # --- Cloud relay mode ---
+        if _CLOUD_RELAY_AVAILABLE:
+            deleted = relay_delete_session(session_id)
+            logger.info(f"[SkillEditorChat] Cloud delete_session: {deleted}")
+            return create_success_response(request, {
+                "deleted": deleted,
+                "sessionId": session_id
+            })
+
+        # --- Local fallback ---
         deleted = _chat_store.delete_session(session_id)
         
         return create_success_response(request, {

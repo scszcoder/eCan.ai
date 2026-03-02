@@ -53,7 +53,17 @@ START_POSITION_Y = 100
 # Preferred prompt pool IDs (fallback defaults when config is missing)
 DEFAULT_LLM_PROMPT_ID = "pr-454780"
 DEFAULT_BROWSER_PROMPT_ID = "pr-935241"
-MY_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "my_prompts"
+# User prompts are stored in user_data directory (production-safe)
+MY_PROMPTS_DIR = None  # Will be set dynamically based on current user
+
+def _get_my_prompts_dir() -> Path:
+    """Get user-specific prompts directory (production-safe)."""
+    global MY_PROMPTS_DIR
+    if MY_PROMPTS_DIR is None:
+        from utils.user_path_helper import get_user_data_dir
+        user_data_dir = get_user_data_dir(subdir="my_prompts")
+        MY_PROMPTS_DIR = Path(user_data_dir)
+    return MY_PROMPTS_DIR
 
 # Default scaffold for code nodes
 CODE_NODE_DEFAULT_TEMPLATE = """# Here, you can retrieve input variables from the node using 'state'
@@ -62,9 +72,10 @@ import time
 def main(node_state, *, runtime, store):
     # Build the output object
     print("in myfunc0.........", node_state)
-    time.sleep(5)
+    time.sleep(1)
     print("myfunc0 woke now, outa here.....")
-    state["result"] = {"status": "myfunc0 succeeded!!!"}
+    state["result"]["llm_result"] = {"all_done": False}
+    state["result"]["status"]"myfunc0 succeeded!!!"
     return state
 """
 
@@ -1488,7 +1499,8 @@ Continue the JSON output (do not include any text before the continuation):"""
             if not system_prompt and not user_prompt:
                 return
 
-            MY_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+            my_prompts_dir = _get_my_prompts_dir()
+            my_prompts_dir.mkdir(parents=True, exist_ok=True)
             prompt_id = f"pr-{uuid.uuid4().hex[:6]}"
             base_id = (node_id or "").strip()
             base_type = (node_type or "").strip()
@@ -1598,7 +1610,8 @@ Continue the JSON output (do not include any text before the continuation):"""
                         ],
                     })
 
-            out_path = MY_PROMPTS_DIR / f"{title}.json"
+            my_prompts_dir = _get_my_prompts_dir()
+            out_path = my_prompts_dir / f"{title}.json"
             with out_path.open("w", encoding="utf-8") as f:
                 json.dump(prompt_doc, f, ensure_ascii=False, indent=2)
 
