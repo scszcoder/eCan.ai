@@ -405,6 +405,9 @@ def handle_get_history(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         if not session:
             return create_error_response(request, 'SESSION_NOT_FOUND', f"Session {session_id} not found")
         
+        limit = p.get("limit")
+        offset = p.get("offset", 0)
+        
         messages = session.messages[offset:]
         if limit:
             messages = messages[:limit]

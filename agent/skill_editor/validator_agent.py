@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 
 from utils.logger_helper import logger_helper as logger
+from .prompt_store import prompt_store
 
 
 class ValidatorAction(str, Enum):
@@ -269,7 +270,7 @@ Return ONLY the fixed JSON, no explanations."""
                 from langchain_core.messages import SystemMessage, HumanMessage
                 
                 messages = [
-                    SystemMessage(content=VALIDATOR_SYSTEM_PROMPT),
+                    SystemMessage(content=prompt_store.get("validator", default=VALIDATOR_SYSTEM_PROMPT)),
                     HumanMessage(content=repair_prompt)
                 ]
                 

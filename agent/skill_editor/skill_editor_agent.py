@@ -49,6 +49,7 @@ from .schemas import (
 from .planner_agent import PlannerAgent, get_planner_agent
 from .code_agent import CodeAgent, get_code_agent
 from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
+from .prompt_store import prompt_store
 
 
 def _is_lambda_runtime() -> bool:
@@ -1043,8 +1044,9 @@ class SkillEditorAgent:
     async def _classify_intent_llm(self, message: str, canvas_context: Optional[Dict]) -> Tuple[IntentType, float, str]:
         has_canvas = self._has_loaded_canvas(canvas_context)
         canvas_summary = self._format_canvas_context_for_intent(canvas_context)
+        _intent_prompt = prompt_store.get("intent_classifier", default=INTENT_CLASSIFIER_SYSTEM_PROMPT)
         prompt = (
-            f"{INTENT_CLASSIFIER_SYSTEM_PROMPT}\n\n"
+            f"{_intent_prompt}\n\n"
             f"has_canvas={str(has_canvas).lower()}\n"
             f"canvas_summary={canvas_summary}\n\n"
             f"user_message={json.dumps(message)}\n"

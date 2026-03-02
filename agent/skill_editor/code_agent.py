@@ -38,6 +38,7 @@ from .schemas import (
     get_node_types_description,
 )
 from .placement import place_nodes, LOOP_INTERNAL_CFG
+from .prompt_store import prompt_store
 
 
 # ============================================================
@@ -2100,7 +2101,7 @@ Continue the JSON output (do not include any text before the continuation):"""
         
         try:
             # Build prompt
-            prompt = CODE_GENERATION_PROMPT.format(
+            prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
                 node_types=get_node_types_description(),
                 canvas_context=self._format_canvas_context(canvas_context),
                 plan_context=self._format_plan_context(plan)
@@ -2193,7 +2194,7 @@ ORIGINAL REQUEST: {user_message}
 Please regenerate the flowgram with these errors fixed.
 """
         
-        prompt = CODE_GENERATION_PROMPT.format(
+        prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
             node_types=get_node_types_description(),
             canvas_context=self._format_canvas_context(canvas_context),
             plan_context=self._format_plan_context(plan)
@@ -2250,7 +2251,7 @@ Please regenerate the flowgram with these errors fixed.
         
         try:
             # Build edit prompt
-            prompt = EDIT_FLOWGRAM_PROMPT.format(
+            prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT).format(
                 current_flowgram=json.dumps(flowgram.model_dump(), indent=2),
                 edit_request=edit_request,
                 node_types=get_node_types_description()
