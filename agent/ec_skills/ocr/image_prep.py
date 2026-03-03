@@ -46,14 +46,70 @@ def get_top_visible_window(win_title_keyword: str):
                         except Exception:
                             pass
 
+            def _restore_if_minimized(hwnd, rect):
+                """Bring window to foreground (restore if minimized) and return fresh rect."""
+                try:
+                    import win32con
+                    import time as _time
+                    if win32gui.IsIconic(hwnd):
+                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                        _time.sleep(0.4)
+                    # Always bring to foreground so pyautogui.screenshot captures it
+                    try:
+                        win32gui.SetForegroundWindow(hwnd)
+                    except Exception:
+                        # SetForegroundWindow can fail if we don't own the foreground;
+                        # use the AllowSetForegroundWindow workaround
+                        try:
+                            import ctypes
+                            ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+                            win32gui.SetForegroundWindow(hwnd)
+                        except Exception:
+                            pass
+                    _time.sleep(0.15)
+                    l2, t2, r2, b2 = win32gui.GetWindowRect(hwnd)
+                    return [l2, t2, max(0, r2 - l2), max(0, b2 - t2)]
+                except Exception:
+                    pass
+                return rect
+
             win32gui.EnumWindows(_enum_handler, None)
 
-            # If keyword provided, pick first match; else pick the largest window above threshold
+            # If keyword provided, pick best match; else pick the largest window above threshold
             if win_title_keyword:
                 low = win_title_keyword.lower()
+                # Alias table: expand search to all known titles for an app
+                _WIN_ALIASES = {
+                    "wechat": ["wechat", "weixin", "微信"],
+                    "weixin": ["wechat", "weixin", "微信"],
+                    "微信": ["wechat", "weixin", "微信"],
+                    "dingtalk": ["dingtalk", "钉钉"],
+                    "钉钉": ["dingtalk", "钉钉"],
+                    "feishu": ["feishu", "飞书", "lark"],
+                    "飞书": ["feishu", "飞书", "lark"],
+                }
+                search_terms = _WIN_ALIASES.get(low, [low])
+
+                # Pass 1: exact title match (title IS one of the search terms)
                 for t, hwnd, area, rect in candidates:
-                    if low in t.lower():
-                        return (t, rect)
+                    tl = t.lower().strip()
+                    if tl in search_terms:
+                        return (t, _restore_if_minimized(hwnd, rect))
+
+                # Pass 2: title starts with a search term (e.g. "WeChat - ...")
+                for t, hwnd, area, rect in candidates:
+                    tl = t.lower().strip()
+                    for st in search_terms:
+                        if tl.startswith(st):
+                            return (t, _restore_if_minimized(hwnd, rect))
+
+                # Pass 3: substring match but skip windows with long titles that
+                # likely belong to other apps (e.g. "wechat_chat.csk - VS Code")
+                for t, hwnd, area, rect in candidates:
+                    tl = t.lower()
+                    for st in search_terms:
+                        if st in tl and len(t) < 60:
+                            return (t, _restore_if_minimized(hwnd, rect))
             # filter out tiny windows and pick largest by area
             large = [c for c in candidates if c[2] >= min_w * min_h]
             chosen = max(large, key=lambda x: x[2]) if large else (candidates[0] if candidates else None)
@@ -86,9 +142,30 @@ def get_top_visible_window(win_title_keyword: str):
 
             if win_title_keyword:
                 kw = win_title_keyword.lower()
+                _WIN_ALIASES_MAC = {
+                    "wechat": ["wechat", "weixin", "微信"],
+                    "weixin": ["wechat", "weixin", "微信"],
+                    "微信": ["wechat", "weixin", "微信"],
+                }
+                search_terms_mac = _WIN_ALIASES_MAC.get(kw, [kw])
+                # Pass 1: exact match
                 for t, owner, area, rect in candidates:
-                    if isinstance(t, str) and kw in t.lower():
+                    if isinstance(t, str) and t.lower().strip() in search_terms_mac:
                         return (t, rect)
+                # Pass 2: starts-with
+                for t, owner, area, rect in candidates:
+                    if isinstance(t, str):
+                        tl = t.lower().strip()
+                        for st in search_terms_mac:
+                            if tl.startswith(st):
+                                return (t, rect)
+                # Pass 3: substring (short titles only)
+                for t, owner, area, rect in candidates:
+                    if isinstance(t, str):
+                        tl = t.lower()
+                        for st in search_terms_mac:
+                            if st in tl and len(t) < 60:
+                                return (t, rect)
 
             # pick the largest window above threshold
             large = [c for c in candidates if c[2] >= min_w * min_h]
@@ -597,6 +674,59 @@ def takeScreenShot(win_title_keyword, subArea=None):
     return im0, window_rect
 
 
+def _apply_window_offset(ocr_data, window_rect):
+    """Add window screen position to all OCR loc and box coordinates so they become absolute.
+
+    window_rect is (x, y, ...) from captureScreenToFile (top-left of captured window).
+    OCR loc format is [y1, x1, y2, x2].
+    OCR txt_struct box format is [x1, y1, x2, y2].
+    """
+    if not ocr_data or not isinstance(ocr_data, list):
+        return ocr_data
+    ox, oy = int(window_rect[0]), int(window_rect[1])
+    if ox == 0 and oy == 0:
+        return ocr_data  # full-screen capture, no offset needed
+    adjusted = 0
+    for item in ocr_data:
+        if isinstance(item, dict) and 'loc' in item:
+            loc = item['loc']
+            if isinstance(loc, list) and len(loc) == 4:
+                try:
+                    loc[0] = int(loc[0]) + oy  # y1
+                    loc[1] = int(loc[1]) + ox  # x1
+                    loc[2] = int(loc[2]) + oy  # y2
+                    loc[3] = int(loc[3]) + ox  # x2
+                    adjusted += 1
+                except (TypeError, ValueError):
+                    pass
+            # Also adjust box coords in txt_struct (word-level boxes)
+            # box format is [x1, y1, x2, y2] -- different order from loc
+            for ts in item.get('txt_struct', []):
+                if isinstance(ts, dict):
+                    box = ts.get('box')
+                    if isinstance(box, list) and len(box) == 4:
+                        try:
+                            box[0] = int(box[0]) + ox  # x1
+                            box[1] = int(box[1]) + oy  # y1
+                            box[2] = int(box[2]) + ox  # x2
+                            box[3] = int(box[3]) + oy  # y2
+                        except (TypeError, ValueError):
+                            pass
+                    for word in ts.get('words', []):
+                        if isinstance(word, dict):
+                            wbox = word.get('box')
+                            if isinstance(wbox, list) and len(wbox) == 4:
+                                try:
+                                    wbox[0] = int(wbox[0]) + ox  # x1
+                                    wbox[1] = int(wbox[1]) + oy  # y1
+                                    wbox[2] = int(wbox[2]) + ox  # x2
+                                    wbox[3] = int(wbox[3]) + oy  # y2
+                                except (TypeError, ValueError):
+                                    pass
+    logger.info(f"[OCR_OFFSET] Applied window offset (ox={ox}, oy={oy}) to {adjusted}/{len(ocr_data)} items")
+    return ocr_data
+
+
 # win_title_keyword == "" means capture the entire screen
 async def readRandomWindow8(mission, win_title_keyword, log_user, session, token):
     dtnow = datetime.now()
@@ -611,9 +741,9 @@ async def readRandomWindow8(mission, win_title_keyword, log_user, session, token
     path_manager.ensure_directory_exists(image_file)
 
     screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, image_file)
-    # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
-    # shutil.copy(source_file, image_file)
-    return await cloudAnalyzeRandomImage8(mission, screen_img, image_file, screen_img, session, token)
+    logger.info(f"[readRandomWindow8] image_file={image_file}, img_bytes_len={len(img_bytes) if img_bytes else 0}, window_rect={window_rect}")
+    ocr_data = await cloudAnalyzeRandomImage8(mission, screen_img, image_file, screen_img, session, token)
+    return _apply_window_offset(ocr_data, window_rect)
 
 
 async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options,
@@ -631,6 +761,72 @@ async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layou
     result = await cloudAnalyzeImage8(image_file, screen_img, img_bytes, site_page, page_sect, page_theme, layout, mid,
                                       bid, sk_settings, options, factors, session, token, mission)
     return result
+
+
+async def readAppWindow8(mission, win_title_keyword, log_user, session, token, app_cfg):
+    """OCR with app-specific anchor/icon matching via cloudAnalyzeImage8.
+
+    app_cfg: dict from ocr_app_cfg.json entry.
+    Returns OCR data with absolute screen coordinates.
+    """
+    dtnow = datetime.now()
+    date_word = dtnow.strftime("%Y%m%d")
+    dt_string = str(int(dtnow.timestamp()))
+
+    platform = app_cfg.get("platform", "any")
+    app = app_cfg.get("app", "any")
+    site = app_cfg.get("site", "any")
+    page = app_cfg.get("page", "any")
+    skill = app_cfg.get("skill", "any")
+    pas_dir = f"{platform}_{app}_{site}_{page}"
+
+    fdir = path_manager.get_log_path(log_user, date_word, f"b0m0/{pas_dir}/skills/{skill}/images")
+    image_file = os.path.join(fdir, f"scrn_{dt_string}.png")
+    path_manager.ensure_directory_exists(image_file)
+
+    screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, image_file)
+
+    mainwin = mission.get_main_win()
+    sk_settings = {
+        "platform": platform,
+        "app": app,
+        "site": site,
+        "skname": skill,
+        "skfname": f"resource/skills/public/{pas_dir}/{skill}/scripts/{skill}.psk",
+        "display_resolution": app_cfg.get("display_resolution",
+                              mainwin.config_manager.general_settings.display_resolution),
+        "wan_api_key": mainwin.config_manager.general_settings.ocr_api_key
+    }
+
+    old_cuspas = mission.getCusPAS()
+    mission.setCusPAS(f"{platform},{app},{site}")
+
+    site_page = app_cfg.get("page", "any")
+    page_sect = app_cfg.get("sect", "any")
+    page_theme = app_cfg.get("theme", "")
+    layout = app_cfg.get("layout", "")
+    options = app_cfg.get("options", "")
+    factors = app_cfg.get("factors", "{}")
+    mid = mission.getMid()
+    bid = mission.getBid()
+
+    logger.info(f"[readAppWindow8] image_file={image_file}, img_bytes_len={len(img_bytes) if img_bytes else 0}, "
+                f"window_rect={window_rect}, skfname={sk_settings['skfname']}, "
+                f"cuspas={platform},{app},{site}, old_cuspas={old_cuspas}, "
+                f"page={site_page}, sect={page_sect}, theme={page_theme}, layout={layout}")
+
+    try:
+        ocr_data = await cloudAnalyzeImage8(
+            image_file, screen_img, img_bytes,
+            site_page, page_sect, page_theme, layout,
+            mid, bid, sk_settings, options, factors,
+            session, token, mission
+        )
+    finally:
+        mission.setCusPAS(old_cuspas)
+        logger.debug(f"[readAppWindow8] Restored mission cuspas to: {old_cuspas}")
+
+    return _apply_window_offset(ocr_data, window_rect)
 
 
 # image_file *.png must be put in the following diretory
@@ -723,16 +919,12 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
 
             request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
     else:
-        # txt_attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
-        # attention_targets is a list of text strings to find in the attention area. this whole attention scheme is about using more
-        # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
-        # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
-        # or center half of the screen.
-        half_width = int(full_width / 2)
-        half_height = int((full_height) / 2)
+        # txt_attention_area: [left, top, right, bottom] — area for enhanced OCR.
+        # Use full image so both left (chat list) and right (chat content) are covered.
+        # attention_targets: ["@all"] tells the server to recognize all text robustly.
         request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"],
-                                            "txt_attention_area": [half_width, 0, full_width, full_height],
-                                            "attention_targets": ["OK"]}).replace('"', '\\"')
+                                            "txt_attention_area": [0, 0, full_width, full_height],
+                                            "attention_targets": ["@all"]}).replace('"', '\\"')
 
     logger.info(
         ">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
@@ -827,7 +1019,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
 
 # Threshold for OCR data simplification (in characters)
 # Only simplify when serialized data exceeds this limit
-OCR_SIMPLIFY_THRESHOLD = 20000
+OCR_SIMPLIFY_THRESHOLD = 8000
 
 
 def simplify_ocr_result(ocr_data: list, force: bool = False) -> list:
