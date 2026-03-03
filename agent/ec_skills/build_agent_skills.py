@@ -48,7 +48,7 @@ async def build_agent_skills_parallel(mainwin):
     # Group skills by priority and dependencies
     # Batch 1: Core skills (fast creation)
     core_skills = [
-        # ("my_twin_chatter", create_my_twin_chatter_skill),  # Removed: twin agent eliminated, chat routes directly to recipient
+        ("my_twin_chatter", create_my_twin_chatter_skill),  # Required for My Twin Agent chat functionality
         # ("self_test", create_self_test_skill),
         # ("self_test_chatter", create_self_test_chatter_skill),
         # ("test_dev", create_test_dev_skill)

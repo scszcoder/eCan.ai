@@ -790,8 +790,8 @@ def handle_get_system_avatars(request: IPCRequest, params: Optional[dict[str, An
 
 
 @IPCHandlerRegistry.background_handler('avatar.upload_avatar')
-async def handle_upload_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
-    """Upload user avatar."""
+def handle_upload_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
+    """Upload user avatar (runs in background thread to avoid blocking UI)."""
     try:
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
@@ -803,11 +803,13 @@ async def handle_upload_avatar(request: IPCRequest, params: Optional[dict[str, A
         if not username or not file_data_b64:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, fileData')
         
-        result = await avatar_handler.upload_avatar({
+        # Call async method synchronously using asyncio.run
+        import asyncio
+        result = asyncio.run(avatar_handler.upload_avatar({
             'username': username,
             'fileData': file_data_b64,
             'filename': filename
-        })
+        }))
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))
@@ -837,8 +839,8 @@ def handle_get_uploaded_avatars(request: IPCRequest, params: Optional[dict[str, 
 
 
 @IPCHandlerRegistry.background_handler('avatar.delete_uploaded_avatar')
-async def handle_delete_uploaded_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
-    """Delete an uploaded avatar."""
+def handle_delete_uploaded_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
+    """Delete an uploaded avatar (runs in background thread to avoid blocking UI)."""
     try:
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
@@ -849,10 +851,12 @@ async def handle_delete_uploaded_avatar(request: IPCRequest, params: Optional[di
         if not username or not avatar_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, avatarId')
         
-        result = await avatar_handler.delete_uploaded_avatar({
+        # Call async method synchronously using asyncio.run
+        import asyncio
+        result = asyncio.run(avatar_handler.delete_uploaded_avatar({
             'username': username,
             'avatarId': avatar_id
-        })
+        }))
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))
@@ -864,8 +868,8 @@ async def handle_delete_uploaded_avatar(request: IPCRequest, params: Optional[di
 
 
 @IPCHandlerRegistry.background_handler('avatar.set_agent_avatar')
-async def handle_set_agent_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
-    """Set agent avatar."""
+def handle_set_agent_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
+    """Set agent avatar (runs in background thread to avoid blocking UI)."""
     try:
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
@@ -880,14 +884,16 @@ async def handle_set_agent_avatar(request: IPCRequest, params: Optional[dict[str
         if not username or not agent_id or not avatar_type or not image_url:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, agentId, avatarType, imageUrl')
         
-        result = await avatar_handler.set_agent_avatar({
+        # Call async method synchronously using asyncio.run
+        import asyncio
+        result = asyncio.run(avatar_handler.set_agent_avatar({
             'username': username,
             'agentId': agent_id,
             'avatarType': avatar_type,
             'imageUrl': image_url,
             'videoUrl': video_url,
             'metadata': metadata
-        })
+        }))
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))
@@ -899,8 +905,8 @@ async def handle_set_agent_avatar(request: IPCRequest, params: Optional[dict[str
 
 
 @IPCHandlerRegistry.background_handler('avatar.generate_avatar_video')
-async def handle_generate_avatar_video(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
-    """Generate avatar video."""
+def handle_generate_avatar_video(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
+    """Generate avatar video (runs in background thread to avoid blocking UI)."""
     try:
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters')
@@ -913,12 +919,14 @@ async def handle_generate_avatar_video(request: IPCRequest, params: Optional[dic
         if not username or not image_path:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, imagePath')
         
-        result = await avatar_handler.generate_avatar_video({
+        # Call async method synchronously using asyncio.run
+        import asyncio
+        result = asyncio.run(avatar_handler.generate_avatar_video({
             'username': username,
             'imagePath': image_path,
             'model': model,
             'params': gen_params
-        })
+        }))
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))

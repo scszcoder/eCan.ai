@@ -652,10 +652,8 @@ const AgentDetails: React.FC = () => {
         const api = get_ipc_api();
         let uname = username;
         if (!uname) {
-          const loginInfo = await api.getLastLoginInfo<{ last_login: { username: string } }>();
-          if (loginInfo?.success) {
-            uname = loginInfo.data?.last_login?.username;
-          }
+          const loginInfo = await api.getLastLoginInfo<any>();
+          uname = (loginInfo?.success && (loginInfo.data as any)?.last_login?.username) || '';
         }
         if (uname) {
           // 并行加载 tasks 和 skills，提高加载速度

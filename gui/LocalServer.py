@@ -440,7 +440,7 @@ class RequestHandlers:
                         if bearer_token:
                             request_params['token'] = bearer_token
             
-            # 将 extensions 中的其他参数也合并进来（排除 method 和 operationName）
+            # 将 extensions 中的其他元数据合并进来（排除 method 和 operationName）
             for key, value in extensions.items():
                 if key not in ('method', 'operationName'):
                     request_params[key] = value
@@ -468,11 +468,32 @@ class RequestHandlers:
             logger.debug(f"[GraphQL] Request cancelled during shutdown: {method}")
             raise  # Re-raise to properly propagate cancellation
         except Exception as e:
-            logger.error(f"[GraphQL] ❌ Error handling request: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            # Extract error code from error message if present
+            error_message = str(e)
+            error_code = "GRAPHQL_ERROR"
+            
+            # Check if error message contains known error codes
+            if "INVALID_TOKEN" in error_message or "Token validation failed" in error_message:
+                error_code = "INVALID_TOKEN"
+            elif "TOKEN_REQUIRED" in error_message:
+                error_code = "TOKEN_REQUIRED"
+            elif "SYSTEM_NOT_READY" in error_message:
+                error_code = "SYSTEM_NOT_READY"
+            
+            # Log expected auth/system errors as warning without traceback
+            # Log unexpected errors as error with traceback
+            if error_code in ("INVALID_TOKEN", "TOKEN_REQUIRED", "SYSTEM_NOT_READY"):
+                logger.warning(f"[GraphQL] {error_code} for {method}: {error_message}")
+            else:
+                logger.error(f"[GraphQL] ❌ Error handling request: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+            
             return JSONResponse({
-                "errors": [{"message": str(e)}]
+                "errors": [{
+                    "message": error_message,
+                    "extensions": {"code": error_code}
+                }]
             }, status_code=200)  # GraphQL returns 200 even for errors
     
     def _extract_graphql_operation_name(self, graphql_query: str) -> Optional[str]:
@@ -638,7 +659,10 @@ async def test_ocr(request):
         logger.info(f"[TestOCR] log_user={log_user}, session={type(session).__name__}, "
                      f"token_len={len(token) if isinstance(token, str) and token else 0}, mission={type(mission).__name__}")
 
-        result = await readRandomWindow8(mission, win_title_kw, log_user, session, token)
+        # Serialize with MCP _screen_read calls to prevent concurrent OCR requests
+        from agent.mcp.server.server import _ocr_semaphore
+        async with _ocr_semaphore:
+            result = await readRandomWindow8(mission, win_title_kw, log_user, session, token)
 
         logger.info(f"[TestOCR] OCR completed. Result type={type(result).__name__}, "
                      f"items={len(result) if isinstance(result, list) else 'N/A'}")

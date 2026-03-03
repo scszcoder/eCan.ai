@@ -353,7 +353,7 @@ class CanvasEventHandler {
                 const api = IPCAPI.getInstance();
                 const last = await api.getLastLoginInfo<any>();
                 const storeUsername = useUserStore.getState().username || '';
-                const lastUsername = (last.success && (last.data as any)?.username) || '';
+                const lastUsername = (last.success && (last.data as any)?.last_login?.username) || '';
                 const username = storeUsername || lastUsername || 'user';
                 await usePromptStore.getState().fetch(username, true);
               } catch (e) {
