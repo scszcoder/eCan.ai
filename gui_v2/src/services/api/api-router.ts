@@ -222,48 +222,58 @@ export class APIRouter {
         if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
           logger.warn(`[APIRouter] Authentication failed for ${method}: ${errorCode}`);
           
-          // During the post-login grace period the backend (MainWindow) may still
-          // be initializing.  Suppress the aggressive token-clear + redirect so the
-          // IPC retry loop can handle transient failures instead of bouncing the
-          // user back to the login page (the "double login" bug).
+          // IMPORTANT: INVALID_TOKEN means the token is truly invalid (e.g., session replaced by new login)
+          // This is different from SYSTEM_NOT_READY which is a transient initialization issue.
+          // We should ALWAYS handle INVALID_TOKEN immediately, regardless of grace period.
           try {
             const { userStorageManager } = await import('../storage/UserStorageManager');
             
-            if (userStorageManager.isInPostLoginGracePeriod()) {
-              logger.info(`[APIRouter] Within post-login grace period, suppressing redirect for ${method}: ${errorCode}`);
-              // Fall through — return the error to the caller without clearing
-              // the token or redirecting.  The caller / retry loop will handle it.
-            } else {
-              // Clear the invalid token from storage
-              userStorageManager.removeToken();
-              logger.info('[APIRouter] Cleared invalid token from storage');
+            // Clear the invalid token from storage
+            userStorageManager.removeToken();
+            logger.info('[APIRouter] Cleared invalid token from storage');
+            
+            // Show user notification (only once)
+            if (!sessionStorage.getItem('token_expired_notification_shown')) {
+              sessionStorage.setItem('token_expired_notification_shown', 'true');
               
-              // Show user notification (only once)
-              if (!sessionStorage.getItem('token_expired_notification_shown')) {
-                sessionStorage.setItem('token_expired_notification_shown', 'true');
+              // Try to show Ant Design message if available
+              try {
+                const { message } = await import('antd');
+                // Get i18n translation
+                const i18nModule = await import('@/i18n');
+                const i18n = i18nModule.default;
+                const messageText = i18n.t('auth.sessionInvalidated');
                 
-                // Try to show Ant Design message if available
-                try {
-                  const { message } = await import('antd');
-                  message.warning('Your session has expired. Please log in again.');
-                } catch {
-                  // Fallback to console if Ant Design not available
-                  console.warn('Session expired. Please log in again.');
-                }
+                message.warning({
+                  content: messageText,
+                  duration: 5,
+                  key: 'session-invalidated'
+                });
+              } catch (error) {
+                // Fallback to console if Ant Design or i18n not available
+                console.warn('Session invalidated. You may have logged in from another device. Please log in again.');
               }
-              
-              // Redirect to login page if not already there
-              if (window.location.hash !== '#/login') {
-                logger.info('[APIRouter] Redirecting to login due to invalid token');
-                // Small delay to allow notification to show
-                setTimeout(() => {
-                  window.location.hash = '#/login';
-                }, 500);
-              }
+            }
+            
+            // Redirect to login page if not already there
+            if (window.location.hash !== '#/login') {
+              logger.info('[APIRouter] Redirecting to login due to invalid token');
+              // Force full page reload to login to ensure React Router responds
+              setTimeout(() => {
+                window.location.replace(window.location.origin + '/#/login');
+              }, 500);
             }
           } catch (error) {
             logger.error('[APIRouter] Error clearing invalid token:', error);
           }
+          
+          // Return empty success response to prevent error display in UI
+          // The redirect will happen shortly, so we don't want to show error messages
+          // This prevents the error from being displayed while the redirect is in progress
+          return {
+            success: true,
+            data: null as any  // Empty data to prevent UI errors
+          };
         }
         
         return {

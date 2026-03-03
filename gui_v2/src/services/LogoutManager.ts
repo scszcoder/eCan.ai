@@ -121,6 +121,12 @@ export class LogoutManager {
         } else {
           logger.error('[LogoutManager] Backend logout failed:', response.error);
         }
+        
+        // Wait for backend cleanup to complete (server shutdown, resource cleanup, etc.)
+        // This ensures the backend has enough time to properly clean up before frontend redirects
+        logger.info('[LogoutManager] Waiting for backend cleanup to complete...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        logger.info('[LogoutManager] Backend cleanup wait completed');
       } else {
         logger.warn('[LogoutManager] IPC API not available for logout');
       }

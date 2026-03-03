@@ -468,11 +468,32 @@ class RequestHandlers:
             logger.debug(f"[GraphQL] Request cancelled during shutdown: {method}")
             raise  # Re-raise to properly propagate cancellation
         except Exception as e:
-            logger.error(f"[GraphQL] ❌ Error handling request: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            # Extract error code from error message if present
+            error_message = str(e)
+            error_code = "GRAPHQL_ERROR"
+            
+            # Check if error message contains known error codes
+            if "INVALID_TOKEN" in error_message or "Token validation failed" in error_message:
+                error_code = "INVALID_TOKEN"
+            elif "TOKEN_REQUIRED" in error_message:
+                error_code = "TOKEN_REQUIRED"
+            elif "SYSTEM_NOT_READY" in error_message:
+                error_code = "SYSTEM_NOT_READY"
+            
+            # Log expected auth/system errors as warning without traceback
+            # Log unexpected errors as error with traceback
+            if error_code in ("INVALID_TOKEN", "TOKEN_REQUIRED", "SYSTEM_NOT_READY"):
+                logger.warning(f"[GraphQL] {error_code} for {method}: {error_message}")
+            else:
+                logger.error(f"[GraphQL] ❌ Error handling request: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+            
             return JSONResponse({
-                "errors": [{"message": str(e)}]
+                "errors": [{
+                    "message": error_message,
+                    "extensions": {"code": error_code}
+                }]
             }, status_code=200)  # GraphQL returns 200 even for errors
     
     def _extract_graphql_operation_name(self, graphql_query: str) -> Optional[str]:
