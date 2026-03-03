@@ -1,0 +1,16 @@
+[
+    {
+        "app_name": "wechat",
+        "platform": "win",
+        "app": "wechat",
+        "site": "local",
+        "page": "chat",
+        "sect": "top",
+        "skill": "wechat_chat",
+        "theme": "dark",
+        "layout": "list",
+        "display_resolution": "D3840X2160",
+        "options": "",
+        "factors": "{}"
+    }
+]
