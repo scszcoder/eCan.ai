@@ -169,6 +169,25 @@ const connectWebSocket = (owner: string) => {
     return;
   }
 
+  // In desktop mode, skip AppSync entirely and use local WebSocket only
+  const platform = detectPlatform();
+  if (platform !== 'web') {
+    logger.debug('[AppSyncSubscriptions] Desktop mode detected - using local WebSocket only, skipping AppSync');
+    console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket for desktop mode...');
+    initWebSocketEventListeners();
+    localWebSocketClient.connect(true).then(connected => {
+      if (connected) {
+        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected - will receive push notifications via local server');
+      } else {
+        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected - push notifications may not work');
+      }
+    }).catch(err => {
+      console.error('[AppSyncSubscriptions] Local WebSocket connection error:', err);
+    });
+    return;
+  }
+
+  // Web mode: check for AppSync configuration
   const env = getEnv();
   const settings = useSettingsStore.getState().settings;
 
@@ -191,24 +210,15 @@ const connectWebSocket = (owner: string) => {
   });
 
   if (!apiKey) {
-    const platform = detectPlatform();
-    if (platform === 'web') {
-      // In web mode, missing API key is a real configuration problem
-      logger.warn('[AppSyncSubscriptions] Missing API key in web mode; AppSync subscriptions disabled');
-    } else {
-      // In desktop mode, no API key is expected - use local WebSocket instead
-      logger.debug('[AppSyncSubscriptions] No API key - desktop mode, using local WebSocket instead');
-    }
-    
-    // Connect to local WebSocket (desktop mode: primary channel; web mode: fallback)
-    console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket for desktop mode...');
+    logger.warn('[AppSyncSubscriptions] Missing API key in web mode; AppSync subscriptions disabled');
+    // Fallback to local WebSocket in web mode
+    console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket as fallback...');
     initWebSocketEventListeners();
-    // Force=true to bypass shouldUseLocalWebSocket check - we already know we need it
     localWebSocketClient.connect(true).then(connected => {
       if (connected) {
-        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected - will receive push notifications via local server');
+        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected (fallback)');
       } else {
-        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected - push notifications may not work');
+        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected');
       }
     }).catch(err => {
       console.error('[AppSyncSubscriptions] Local WebSocket connection error:', err);

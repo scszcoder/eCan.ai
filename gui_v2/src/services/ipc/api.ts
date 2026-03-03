@@ -2,13 +2,11 @@
  * IPC API
  * 提供与 Python Backend通信的Advanced API
  */
-import { IPCResponse } from './types';
 import { logger } from '../../utils/logger';
 import { createChatApi } from './chatApi';
 import { createLightRAGApi } from './lightragApi';
 import { logoutManager } from '../LogoutManager';
 import { ipcClient } from './ipcClient';
-import { detectPlatform } from '../../config/platform';
 import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
@@ -104,8 +102,7 @@ export class IPCAPI {
      */
     public async windowToggleFullscreen(): Promise<boolean> {
         await this.ensureInitialized();
-        const response = await ipcClient.invoke('window_toggle_fullscreen', {});
-        return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
+        return apiRouter.windowToggleFullscreen();
     }
 
     /**
@@ -113,15 +110,12 @@ export class IPCAPI {
      */
     public async windowGetFullscreenState(): Promise<boolean> {
         await this.ensureInitialized();
-        const response = await ipcClient.invoke('window_get_fullscreen_state', {});
-        return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
+        return apiRouter.windowGetFullscreenState();
     }
 
     private async ensureInitialized(): Promise<void> {
-        if (ipcClient.isInitialized()) {
-            return;
-        }
-
+        // ipcClient 现在只是兼容层，已经在构造函数中初始化
+        // 所有请求都通过 apiRouter 处理，无需额外初始化检查
         if (!this.clientInitPromise) {
             this.clientInitPromise = ipcClient.initialize().catch((error) => {
                 this.clientInitPromise = null;
@@ -141,38 +135,23 @@ export class IPCAPI {
      */
     public async executeRequest<T>(method: string, params?: unknown, timeout?: number): Promise<APIResponse<T>> {
         const startTs = Date.now();
-        // Removed verbose logging - errors and important events are still logged
         try {
-            // All requests now go directly through IPC (Web Bridge deprecated)
+            // All requests now use HTTP GraphQL via apiRouter
             await this.ensureInitialized();
 
-            const currentMode = ipcClient.getMode?.() ?? detectPlatform();
-            if (currentMode === 'web' && !ipcClient.isConnected()) {
-                return {
-                    success: false,
-                    error: {
-                        code: 'NOT_CONNECTED',
-                        message: 'WebSocket not connected. Call connect() first.'
-                    }
-                };
-            }
-
-            // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制
-            let response: IPCResponse;
-            if (method === 'get_initialization_progress') {
-                response = await ipcClient.invoke(method, params, { timeout });
-            } else {
-                response = await ipcClient.invoke(method, params, { timeout });
-            }
+            // Use apiRouter.execute() for all requests
+            const response = await apiRouter.execute<T>(
+                { method },
+                params,
+                { timeout }
+            );
 
             console.log('[IPCAPI] executeRequest:response', method, { response, durationMs: Date.now() - startTs });
-            if (response.status === 'success') {
-                return {
-                    success: true,
-                    data: response.result as T
-                };
-            } else {
-                const errorCode = String(response.error?.code || 'UNKNOWN_ERROR');
+            
+            // apiRouter.execute already returns APIResponse<T> format
+            // Handle error cases for token validation
+            if (!response.success && response.error) {
+                const errorCode = String(response.error.code || 'UNKNOWN_ERROR');
                 
                 // Handle INVALID_TOKEN error by clearing stored token and redirecting to login
                 if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
@@ -208,9 +187,18 @@ export class IPCAPI {
                                 // Try to show Ant Design message if available
                                 try {
                                     const { message } = await import('antd');
-                                    message.warning('Your session has expired. Please log in again.');
-                                } catch {
-                                    // Fallback to console if Ant Design not available
+                                    // Get i18n translation
+                                    const i18nModule = await import('@/i18n');
+                                    const i18n = i18nModule.default;
+                                    const messageText = i18n.t('auth.sessionInvalidated');
+                                    
+                                    message.warning({
+                                        content: messageText,
+                                        duration: 5,
+                                        key: 'session-invalidated'
+                                    });
+                                } catch (error) {
+                                    // Fallback to console if Ant Design or i18n not available
                                     console.warn('Session expired. Please log in again.');
                                 }
                             }
@@ -218,11 +206,17 @@ export class IPCAPI {
                             // Redirect to login page if not already there
                             if (window.location.hash !== '#/login') {
                                 logger.info('[IPCAPI] Redirecting to login due to invalid token');
-                                // Small delay to allow notification to show
+                                // Force full page reload to login to ensure React Router responds
                                 setTimeout(() => {
-                                    window.location.hash = '#/login';
+                                    window.location.replace(window.location.origin + '/#/login');
                                 }, 500);
                             }
+                            
+                            // Return empty success response to prevent error display in UI
+                            return {
+                                success: true,
+                                data: null as any
+                            };
                         }
                     } catch (error) {
                         logger.error('[IPCAPI] Error clearing invalid token:', error);
@@ -238,6 +232,9 @@ export class IPCAPI {
                     }
                 };
             }
+            
+            // Return the response (success case)
+            return response;
         } catch (error) {
             console.log('[IPCAPI] executeRequest:error', method, { error, durationMs: Date.now() - startTs });
             logger.error(`Failed to execute ${method}:`, error);
@@ -292,6 +289,42 @@ export class IPCAPI {
 
     public async loginWithApple<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'login_with_apple' });
+    }
+
+    /**
+     * Get token information
+     * @param token - JWT token
+     * @returns Token information including expiration, username, etc.
+     */
+    public async getTokenInfo(token: string): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'auth.getTokenInfo' }, { token });
+    }
+
+    /**
+     * Refresh authentication token
+     * @param token - Current JWT token
+     * @returns New token information
+     */
+    public async refreshToken(token: string): Promise<APIResponse<{ token: string }>> {
+        return apiRouter.execute({ method: 'auth.refreshToken' }, { token });
+    }
+
+    /**
+     * Extend token validity period
+     * @param token - Current JWT token
+     * @param seconds - Number of seconds to extend (optional)
+     * @returns Extended token information
+     */
+    public async extendToken(token: string, seconds?: number): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'auth.extendToken' }, { token, seconds });
+    }
+
+    /**
+     * Get current authentication token
+     * @returns Current authentication token
+     */
+    public async getAuthToken(): Promise<APIResponse<string>> {
+        return apiRouter.execute({ method: 'get_auth_token' }, {});
     }
 
     public async getAll<T>(username: string): Promise<APIResponse<T>> {
@@ -569,7 +602,7 @@ export class IPCAPI {
               resultPath: 'queryAvatars'
             }
           },
-          { input: { owner: 'public' } }
+          { username }
         );
         return this._transformAvatarResponse<T>(response, 'system');
     }
@@ -583,7 +616,7 @@ export class IPCAPI {
               resultPath: 'queryAvatars'
             }
           },
-          { input: { owner: username } }
+          { username }
         );
         return this._transformAvatarResponse<T>(response, 'uploaded');
     }
@@ -597,14 +630,7 @@ export class IPCAPI {
               resultPath: 'addAvatars'
             }
           },
-          {
-            input: [{
-              id: `avatar_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-              name: filename,
-              resource_type: 'uploaded',
-              image_path: filename
-            }]
-          }
+          { username, fileData, filename }
         );
         // After creating the DB record, upload the actual file to S3 via presigned URL
         if (response.success && response.data) {
@@ -644,7 +670,7 @@ export class IPCAPI {
               resultPath: 'removeAvatars'
             }
           },
-          { input: [avatarId] }
+          { username, avatarId }
         );
     }
 
@@ -660,10 +686,14 @@ export class IPCAPI {
             try { rows = JSON.parse(rows); } catch { return { success: true, data: [] as any }; }
         }
         if (!Array.isArray(rows)) return { success: true, data: [] as any };
+        
+        console.log('[IPCAPI] _transformAvatarResponse raw data:', rows);
+        
         const avatars = rows.map((r: any) => {
-            // Use presigned URLs from lambda (private bucket); fall back to cloud_*_url
-            const imageUrl = r.presigned_image_url || r.cloud_image_url || '';
-            const videoUrl = r.presigned_video_url || r.cloud_video_url || '';
+            // Use presigned URLs from lambda (private bucket); fall back to cloud_*_url or local paths
+            const imageUrl = r.presigned_image_url || r.cloud_image_url || r.imageUrl || r.image_url || '';
+            const videoUrl = r.presigned_video_url || r.cloud_video_url || r.videoUrl || r.video_url || '';
+            
             return {
                 type: r.is_public ? 'system' : type,
                 id: r.id,
@@ -1788,6 +1818,55 @@ export class IPCAPI {
     );
     }
 
+    /**
+     * Rename a skill folder
+     * @param oldName - Current skill name (without _skill suffix)
+     * @param newName - New skill name (without _skill suffix)
+     * @returns API response with skillRoot path
+     */
+    public async renameSkill(oldName: string, newName: string): Promise<APIResponse<{ skillRoot: string }>> {
+        return apiRouter.execute<{ skillRoot: string }>(
+            { method: 'skills.rename' },
+            { oldName, newName }
+        );
+    }
+
+    /**
+     * Run skill via IPC (simplified version without username)
+     * Used by canvas-controller for local skill execution
+     */
+    public async runSkillViaIPC(skillData: any): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'run_skill' }, { skill: skillData });
+    }
+
+    /**
+     * Step run skill via IPC
+     */
+    public async stepRunSkillViaIPC(): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'step_run_skill' }, {});
+    }
+
+    /**
+     * Pause running skill via IPC
+     */
+    public async pauseRunSkillViaIPC(): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'pause_run_skill' }, {});
+    }
+
+    /**
+     * Resume running skill via IPC
+     */
+    public async resumeRunSkillViaIPC(): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'resume_run_skill' }, {});
+    }
+
+    /**
+     * Cancel running skill via IPC
+     */
+    public async cancelRunSkillViaIPC(): Promise<APIResponse<any>> {
+        return apiRouter.execute({ method: 'cancel_run_skill' }, {});
+    }
+
     public async newAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
         // GraphQL mutation expects input: [SkillInput!]!
         // NOTE: AWSJSON fields must be JSON strings for AppSync.
@@ -2235,12 +2314,9 @@ export class IPCAPI {
       { owner: username, userId: username }
     );
 
-        // Transform getAllMine response to initialization progress format
-        // Respect the backend's actual progress values — do NOT override ui_ready/fully_ready.
-        // The backend returns accurate progress (e.g., ui_ready: false when MainWindow isn't created).
-        // Only set defaults for fields that are missing from the response.
+        // api-router 已自动解包 GraphQL 响应，直接使用即可
         if (response.success && response.data) {
-            const data = response.data;
+            const data = response.data as any;
             const initProgress = {
                 ui_ready: data.ui_ready ?? false,
                 critical_services_ready: data.critical_services_ready ?? false,
@@ -2248,7 +2324,6 @@ export class IPCAPI {
                 fully_ready: data.fully_ready ?? false,
                 sync_init_complete: data.sync_init_complete ?? false,
                 message: data.message ?? 'Checking initialization...',
-                ...data,  // Preserve any extra fields from backend
             };
             return {
                 success: true,

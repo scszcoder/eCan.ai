@@ -6,10 +6,8 @@ from PySide6.QtWidgets import (QMainWindow, QApplication)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
 from PySide6.QtCore import QUrl, Qt, Slot, Signal
-from PySide6.QtWebChannel import QWebChannel
 from utils.logger_helper import logger_helper as logger
 from gui.core.request_interceptor import RequestInterceptor
-from gui.ipc.wc_service import IPCWCService
 from gui.ipc.api import IPCAPI
 from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
@@ -374,9 +372,6 @@ class WebEngineView(QWebEngineView):
             self._interceptor: Optional[RequestInterceptor] = None
             self._is_loading: bool = False
             self._last_error: Optional[str] = None
-            self._channel: Optional[QWebChannel] = None
-            self._ipc_wc_service: Optional[IPCWCService] = None
-            self._webchannel_script: Optional[QWebEngineScript] = None
 
             # 1. Initialize engine
             self.init_engine()
@@ -387,14 +382,8 @@ class WebEngineView(QWebEngineView):
             # 3. Setup interceptor
             self.setup_interceptor()
 
-            # 4. Create IPC service (after page initialization)
-            self._ipc_wc_service = IPCWCService()
-
-            # 5. Setup WebChannel (before page loading)
-            self.setup_webchannel()
-
-            # # 6. Initialize IPCAPI singleton
-            self._ipc_api = IPCAPI(self._ipc_wc_service)
+            # 4. Initialize IPCAPI singleton
+            self._ipc_api = IPCAPI()
 
             logger.info("WebEngineView initialization completed successfully")
         except Exception as e:
@@ -428,113 +417,6 @@ class WebEngineView(QWebEngineView):
         except Exception as e:
             logger.error(f"Failed to initialize web engine: {str(e)}")
             raise
-
-    def setup_webchannel(self):
-        """Setup WebChannel"""
-        try:
-            # If WebChannel is already setup, clean it up first
-            if self._channel:
-                self._cleanup_webchannel()
-
-            # Get qwebchannel.js content
-            qwc_js = self._get_qwebchannel_js()
-            if not qwc_js:
-                raise RuntimeError("Failed to get qwebchannel.js content")
-
-            # Create WebChannel
-            self._channel = QWebChannel()
-            self.page().setWebChannel(self._channel)
-
-            # Register IPC service
-            self._channel.registerObject('ipc', self._ipc_wc_service)
-
-            # Inject initialization script
-            init_js = f'''
-            {qwc_js}
-
-            // Wait for DOM to load
-            if (document.readyState === 'loading') {{
-                document.addEventListener('DOMContentLoaded', initWebChannel);
-            }} else {{
-                initWebChannel();
-            }}
-
-            function initWebChannel() {{
-                console.log('Initializing WebChannel...');
-                new QWebChannel(qt.webChannelTransport, channel => {{
-                    console.log('WebChannel initialized, creating IPC object...');
-                    window.ipc = channel.objects.ipc;
-                    console.log('IPC object created:', window.ipc);
-                    // Trigger custom event to notify frontend that WebChannel is ready
-                    window.dispatchEvent(new CustomEvent('webchannel-ready'));
-                }});
-            }}
-            '''
-
-            # Create and inject script
-            self._webchannel_script = QWebEngineScript()
-            self._webchannel_script.setName('init-webchannel')
-            # Use Deferred instead of DocumentCreation to prevent multiple executions
-            # Deferred runs after DOM is loaded, once per page load
-            # This prevents duplicate IPC connections when page refreshes or HMR occurs
-            self._webchannel_script.setInjectionPoint(QWebEngineScript.Deferred)
-            self._webchannel_script.setWorldId(QWebEngineScript.MainWorld)
-            self._webchannel_script.setSourceCode(init_js)
-            self.page().scripts().insert(self._webchannel_script)
-
-            logger.info("WebChannel setup completed with Deferred injection point")
-        except Exception as e:
-            logger.error(f"Failed to setup WebChannel: {str(e)}")
-            raise
-
-    def _cleanup_webchannel(self):
-        """Cleanup WebChannel related resources"""
-        try:
-            # Remove script
-            if self._webchannel_script:
-                self.page().scripts().remove(self._webchannel_script)
-                self._webchannel_script = None
-
-            # Cleanup WebChannel
-            if self._channel:
-                self._channel.deleteLater()
-                self._channel = None
-
-            # Cleanup IPC service
-            if self._ipc_wc_service:
-                self._ipc_wc_service.deleteLater()
-                self._ipc_wc_service = None
-
-            logger.info("WebChannel cleanup completed")
-        except Exception as e:
-            logger.error(f"Failed to cleanup WebChannel: {str(e)}")
-
-    def _get_qwebchannel_js(self) -> Optional[str]:
-        """Get qwebchannel.js content"""
-        try:
-            # Get from project resource directory
-            resource_path = os.path.join(os.path.dirname(__file__), 'resources', 'qwebchannel.js')
-            if os.path.exists(resource_path):
-                with open(resource_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-
-            # If not found, try to get from PySide6 installation directory
-            import PySide6
-            pyside_path = os.path.dirname(PySide6.__file__)
-            src_qwc = os.path.join(pyside_path, 'qtwebchannel', 'qwebchannel.js')
-
-            if os.path.exists(src_qwc):
-                # If found, copy to project resource directory
-                os.makedirs(os.path.dirname(resource_path), exist_ok=True)
-                shutil.copy2(src_qwc, resource_path)
-                with open(src_qwc, 'r', encoding='utf-8') as f:
-                    return f.read()
-
-            logger.error("qwebchannel.js not found in any location")
-            return None
-        except Exception as e:
-            logger.error(f"Error getting qwebchannel.js: {str(e)}")
-            return None
 
     def setup_interceptor(self):
         """Setup request interceptor"""
@@ -668,8 +550,3 @@ class WebEngineView(QWebEngineView):
     def interceptor(self) -> Optional[RequestInterceptor]:
         """Get request interceptor"""
         return self._interceptor
-
-    @property
-    def ipc_wc_service(self) -> Optional[IPCWCService]:
-        """Get IPC service"""
-        return self._ipc_wc_service

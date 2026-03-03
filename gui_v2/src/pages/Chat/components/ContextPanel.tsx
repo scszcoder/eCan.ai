@@ -4,7 +4,6 @@ import { SearchOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useContextStore } from '@/stores/contextStore';
 import { ContextCard } from './ContextCard';
-import { ipcInvoke } from '@/services/ipc/ipcWCClient';
 
 const Container = styled.div`
   display: block;
