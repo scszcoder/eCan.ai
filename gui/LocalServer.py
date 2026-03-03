@@ -659,7 +659,10 @@ async def test_ocr(request):
         logger.info(f"[TestOCR] log_user={log_user}, session={type(session).__name__}, "
                      f"token_len={len(token) if isinstance(token, str) and token else 0}, mission={type(mission).__name__}")
 
-        result = await readRandomWindow8(mission, win_title_kw, log_user, session, token)
+        # Serialize with MCP _screen_read calls to prevent concurrent OCR requests
+        from agent.mcp.server.server import _ocr_semaphore
+        async with _ocr_semaphore:
+            result = await readRandomWindow8(mission, win_title_kw, log_user, session, token)
 
         logger.info(f"[TestOCR] OCR completed. Result type={type(result).__name__}, "
                      f"items={len(result) if isinstance(result, list) else 'N/A'}")
