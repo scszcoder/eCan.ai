@@ -1019,7 +1019,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
 
 # Threshold for OCR data simplification (in characters)
 # Only simplify when serialized data exceeds this limit
-OCR_SIMPLIFY_THRESHOLD = 8000
+OCR_SIMPLIFY_THRESHOLD = 20000
 
 
 def simplify_ocr_result(ocr_data: list, force: bool = False) -> list:

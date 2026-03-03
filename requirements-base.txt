@@ -70,6 +70,7 @@ pillow==12.1.0
 pdf2image==1.17.0
 imutils==0.5.4
 pytesseract==0.3.13
+paddleocr==3.4.0
 
 # ============================================================================
 # WEB SCRAPING & AUTOMATION

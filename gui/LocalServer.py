@@ -686,6 +686,76 @@ async def test_ocr(request):
         return JSONResponse({"status": "error", "error": str(e), "traceback": tb.format_exc()}, status_code=500)
 
 
+async def test_ocr_local(request):
+    """Test endpoint: runs PaddleOCR locally on an image file.
+    Accepts optional JSON body: {"image_path": "..."}.
+    Defaults to ocr/test_image0.PNG relative to project root."""
+    import traceback as tb
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        # Default image: <project_root>/ocr/test_image0.PNG
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        default_image = os.path.join(project_root, "ocr", "test_image0.PNG")
+        image_path = body.get("image_path", default_image)
+
+        max_long_side = int(body.get("max_long_side", 1500))
+        logger.info(f"[TestOCRLocal] Running local PaddleOCR on: {image_path}, max_long_side={max_long_side}")
+
+        import time as _time
+        from PIL import Image as _PILImage
+        from agent.mcp.server.local_ocr.paddle_ocr import run_ocr_on_image, scale_ocr_coordinates
+
+        img = _PILImage.open(image_path)
+        orig_w, orig_h = img.size
+        scale_x, scale_y = 1.0, 1.0
+        resized = False
+
+        long_side = max(orig_w, orig_h)
+        if max_long_side and long_side > max_long_side:
+            ratio = max_long_side / long_side
+            new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+            img = img.resize((new_w, new_h))
+            scale_x = orig_w / new_w
+            scale_y = orig_h / new_h
+            resized = True
+            # Save resized image to temp file
+            import tempfile
+            tmp_path = os.path.join(tempfile.gettempdir(), "test_ocr_local_resized.png")
+            img.save(tmp_path)
+            logger.info(f"[TestOCRLocal] Resized: ({orig_w},{orig_h}) -> ({new_w},{new_h}), "
+                        f"scale=({scale_x:.3f},{scale_y:.3f})")
+            image_path = tmp_path
+
+        t0 = _time.perf_counter()
+        result = run_ocr_on_image(image_path)
+        elapsed_s = _time.perf_counter() - t0
+
+        # Scale coordinates back to original resolution if resized
+        if resized and result.get("status") == "success" and result.get("ocr_data"):
+            result["ocr_data"] = scale_ocr_coordinates(result["ocr_data"], scale_x, scale_y)
+
+        result["resize_info"] = {
+            "original_size": [orig_w, orig_h],
+            "resized": resized,
+            "max_long_side": max_long_side,
+            "scale": [round(scale_x, 3), round(scale_y, 3)] if resized else [1.0, 1.0],
+            "ocr_elapsed_s": round(elapsed_s, 2),
+        }
+
+        logger.info(f"[TestOCRLocal] Done. status={result.get('status')}, "
+                     f"items={len(result.get('results', []))}, elapsed={elapsed_s:.2f}s, resized={resized}")
+
+        return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"[TestOCRLocal] Error: {e}\n{tb.format_exc()}")
+        return JSONResponse({"status": "error", "error": str(e), "traceback": tb.format_exc()}, status_code=500)
+
+
 async def test_hybrid_cloud(request):
     """Test endpoint: directly calls launch_agent_task for test_hybrid_worker.
     Bypasses the LLM to test the hybrid cloud task plumbing end-to-end."""
@@ -932,6 +1002,7 @@ class RouteBuilder:
             Route("/healthz", health_check),
             Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
             Route("/api/test-ocr", test_ocr, methods=['GET', 'POST']),
+            Route("/api/test-ocr-local", test_ocr_local, methods=['GET', 'POST']),
             Route("/api/test-hybrid-cloud", test_hybrid_cloud, methods=['GET', 'POST']),
             Route("/api/c2l-ws-test", c2l_ws_test, methods=['GET', 'POST']),
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
