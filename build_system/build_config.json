@@ -54,16 +54,6 @@
       "upx_compression": true,
       "strip_debug": true,
       "onefile": false
-    },
-    "ci": {
-      "optimization": "balanced",
-      "debug": false,
-      "console": false,
-      "compression": true,
-      "upx_compression": false,
-      "strip_debug": true,
-      "onefile": true,
-      "parallel": true
     }
   },
   "cache": {
