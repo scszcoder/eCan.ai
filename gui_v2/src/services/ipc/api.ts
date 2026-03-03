@@ -187,9 +187,18 @@ export class IPCAPI {
                                 // Try to show Ant Design message if available
                                 try {
                                     const { message } = await import('antd');
-                                    message.warning('Your session has expired. Please log in again.');
-                                } catch {
-                                    // Fallback to console if Ant Design not available
+                                    // Get i18n translation
+                                    const i18nModule = await import('@/i18n');
+                                    const i18n = i18nModule.default;
+                                    const messageText = i18n.t('auth.sessionInvalidated');
+                                    
+                                    message.warning({
+                                        content: messageText,
+                                        duration: 5,
+                                        key: 'session-invalidated'
+                                    });
+                                } catch (error) {
+                                    // Fallback to console if Ant Design or i18n not available
                                     console.warn('Session expired. Please log in again.');
                                 }
                             }
@@ -197,11 +206,17 @@ export class IPCAPI {
                             // Redirect to login page if not already there
                             if (window.location.hash !== '#/login') {
                                 logger.info('[IPCAPI] Redirecting to login due to invalid token');
-                                // Small delay to allow notification to show
+                                // Force full page reload to login to ensure React Router responds
                                 setTimeout(() => {
-                                    window.location.hash = '#/login';
+                                    window.location.replace(window.location.origin + '/#/login');
                                 }, 500);
                             }
+                            
+                            // Return empty success response to prevent error display in UI
+                            return {
+                                success: true,
+                                data: null as any
+                            };
                         }
                     } catch (error) {
                         logger.error('[IPCAPI] Error clearing invalid token:', error);

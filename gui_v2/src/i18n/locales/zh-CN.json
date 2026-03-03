@@ -2481,6 +2481,7 @@
     "lastError": "上次错误：",
     "retryHint": "请检查您的凭据并重试。",
     "sessionExpired": "会话已过期，请重新登录",
+    "sessionInvalidated": "您的会话已失效。这可能是因为您在其他设备上重新登录。请重新登录。",
     "passwordFormatHint": "密码至少8位，需包含大写字母、小写字母、数字和特殊字符（如 !@#$%^&*）",
     "passwordMinLength": "密码长度至少8位",
     "passwordNeedUppercase": "需包含至少一个大写字母",
