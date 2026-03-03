@@ -212,7 +212,7 @@ class URLSchemeRegistrar:
 
                 # Verify registration by reading back the key
                 try:
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software\\Classes\\ecan\\shell\\open\\command", 0,
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\ecan\shell\open\command", 0,
                                       winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as verify_key:
                         command_value, _ = winreg.QueryValueEx(verify_key, "")
                         if app_path in command_value:
@@ -229,14 +229,14 @@ class URLSchemeRegistrar:
             if not registered and is_admin():
                 try:
                     # Open or create HKLM key
-                    key = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, "Software\\Classes\\ecan", 0, 
+                    key = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r"Software\Classes\ecan", 0, 
                                           winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
                     try:
                         winreg.SetValue(key, "", winreg.REG_SZ, f"URL:{app_name} Protocol")
                         winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
                         
                         # Set command
-                        cmd_key = winreg.CreateKeyEx(key, "shell\\open\\command", 0, 
+                        cmd_key = winreg.CreateKeyEx(key, r"shell\open\command", 0, 
                                                   winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
                         winreg.SetValue(cmd_key, "", winreg.REG_SZ, f'"{app_path}" "%1"')
                         winreg.CloseKey(cmd_key)

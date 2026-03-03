@@ -97,14 +97,51 @@ def quick_celebrate():
     """Handler for Help > Test: simple test dialog"""
     try:
         # Lazy imports to avoid heavy deps
-        from PySide6.QtWidgets import QInputDialog
+        from PySide6.QtWidgets import QInputDialog, QApplication
+        from PySide6.QtCore import QThread, QObject, Signal, Qt
         from agent.ec_skills.story.scene_utils import update_scene
+        import threading
 
-        # Ask for agent id (prefilled)
-        # agent_id, ok = QInputDialog.getText(self.main_window, "Update Scene Test", "Agent ID:", text="a1")
+        # NOTE: If you need to uncomment the QInputDialog call below, use this thread-safe pattern:
+        # 
+        # app = QApplication.instance()
+        # if app and QThread.currentThread() != app.thread():
+        #     # Not on main thread, use signal/slot with threading.Event
+        #     class DialogHelper(QObject):
+        #         show_dialog = Signal()
+        #         
+        #         def __init__(self):
+        #             super().__init__()
+        #             self.result = (None, False)
+        #             self.done_event = threading.Event()
+        #             self.show_dialog.connect(self._show_dialog_slot, Qt.ConnectionType.QueuedConnection)
+        #             
+        #         def _show_dialog_slot(self):
+        #             try:
+        #                 agent_id, ok = QInputDialog.getText(None, "Update Scene Test", "Agent ID:", text="a1")
+        #                 self.result = (agent_id, ok)
+        #             except Exception as e:
+        #                 logger.error(f"Error in dialog: {e}")
+        #                 self.result = (None, False)
+        #             finally:
+        #                 self.done_event.set()
+        #     
+        #     helper = DialogHelper()
+        #     helper.moveToThread(app.thread())
+        #     helper.show_dialog.emit()
+        #     if not helper.done_event.wait(timeout=60):
+        #         logger.error("Dialog timeout")
+        #         return
+        #     agent_id, ok = helper.result
+        # else:
+        #     # Already on main thread, call directly
+        #     agent_id, ok = QInputDialog.getText(None, "Update Scene Test", "Agent ID:", text="a1")
+        # 
         # if not ok or not agent_id.strip():
         #     return
         # agent_id = agent_id.strip()
+        
+        # Currently using hardcoded agent_id for testing
         agent_id = "6d5ea546c995bbdf679ca88dbe83371c"
 
         # Demo scenes (use natural media length; no duration field)

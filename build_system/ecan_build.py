@@ -404,11 +404,19 @@ class InstallerBuilder:
             default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
             privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
 
-            # Build Registry section for URL scheme
+            # Build Registry section for URL scheme and InstallLocation
             registry_entries = windows_config.get('registry_entries', [])
-            registry_section = ""
+            registry_section = "[Registry]\n"
+            
+            # CRITICAL: Write InstallLocation to registry for OTA path preservation
+            # This allows OTA updates to read the current installation directory and preserve custom paths
+            # Without this, OTA updates would always use the default location
+            registry_section += (
+                f'Root: HKCU; Subkey: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{{{{{app_id}}}}}_is1"; '
+                f'ValueType: string; ValueName: "InstallLocation"; ValueData: "{{app}}\\"; Flags: uninsdeletevalue\n'
+            )
+            
             if registry_entries:
-                registry_section = "[Registry]\n"
                 for entry in registry_entries:
                     root = entry.get('root', 'HKCU')
                     subkey = entry.get('subkey', '')
