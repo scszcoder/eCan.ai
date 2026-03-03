@@ -97,7 +97,8 @@ class InstallationManager:
             # Try to read from Inno Setup's uninstall registry key
             # AppId from build_config.json: 6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1
             app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
-            uninstall_key = f"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id}}}_is1"
+            # Use raw string to avoid Unicode escape errors with \U in Uninstall path
+            uninstall_key = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id}}}_is1"
             
             # Try HKEY_CURRENT_USER first (per-user install)
             for root_key in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
@@ -246,8 +247,13 @@ class InstallationManager:
         exe_path = cmd[0]
         args_str = ' '.join(cmd[1:])
 
-        # Write a small .bat launcher next to the downloaded installer
-        bat_path = os.path.join(tempfile.gettempdir(), "ecan_ota_launcher.bat")
+        # Use fixed user directory instead of temporary directory
+        from config.app_info import app_info
+        user_data_root = Path(app_info.appdata_path)
+        scripts_dir = user_data_root / "ota_scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        
+        bat_path = str(scripts_dir / "ecan_ota_launcher.bat")
         bat_content = (
             "@echo off\r\n"
             f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
@@ -437,8 +443,16 @@ class InstallationManager:
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
                     
+                    # Read current installation directory from registry (preserve custom paths)
+                    current_install_dir = self._get_current_windows_install_dir()
+                    if current_install_dir:
+                        install_dir = current_install_dir
+                        logger.info(f"[OTA Dev] Preserving custom installation directory: {install_dir}")
+                    else:
+                        install_dir = self._get_windows_standard_install_dir()
+                        logger.info(f"[OTA Dev] Using standard installation directory: {install_dir}")
+                    
                     # Development OTA command - silent mode with progress
-                    # Note: Skip /DIR parameter in dev mode to let Inno Setup use default location
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
@@ -446,11 +460,11 @@ class InstallationManager:
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
                         '/CLOSEAPPLICATIONS',    # Force close running instances
+                        f'/DIR="{install_dir}"'  # Preserve installation directory
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     logger.info(f"Development OTA command: {' '.join(cmd)}")
-                    logger.info("Note: /DIR parameter omitted in dev mode - installer will use default location")
 
                     if sys.platform == 'win32':
                         creation_flags = (
@@ -514,7 +528,22 @@ class InstallationManager:
                 
                 # If in packaged environment, specify installation directory
                 if getattr(sys, 'frozen', False):
-                    install_dir = Path(sys.executable).parent
+                    # Priority 1: Explicit install_dir from install_options (rarely set)
+                    configured_install_dir = install_options.get('install_dir')
+                    if configured_install_dir:
+                        install_dir = Path(str(configured_install_dir)).expanduser()
+                    else:
+                        # Priority 2: Read current installation directory from registry (OTA upgrade)
+                        # This preserves custom installation paths like D:\MyApps\eCan
+                        current_install_dir = self._get_current_windows_install_dir()
+                        if current_install_dir:
+                            install_dir = current_install_dir
+                            logger.info(f"[OTA MSI] Preserving custom installation directory: {install_dir}")
+                        else:
+                            # Priority 3: Fallback to current executable directory
+                            install_dir = Path(sys.executable).parent
+                            logger.info(f"[OTA MSI] Using current executable directory: {install_dir}")
+                    
                     cmd.append(f'INSTALLDIR="{install_dir}"')
                     cmd.append('REINSTALLMODE=vamus')  # Reinstall all files
                     cmd.append('REINSTALL=ALL')  # Reinstall all features
@@ -879,8 +908,11 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
     def _create_restart_script(self, app_executable: str, delay_seconds: int) -> Optional[str]:
         """Create restart script"""
         try:
-            script_dir = Path(tempfile.gettempdir()) / "ecan_restart"
-            script_dir.mkdir(exist_ok=True)
+            # Use fixed user directory instead of temporary directory
+            from config.app_info import app_info
+            user_data_root = Path(app_info.appdata_path)
+            script_dir = user_data_root / "ota_scripts"
+            script_dir.mkdir(parents=True, exist_ok=True)
             
             if self.platform.startswith('win'):
                 # Windows batch script

@@ -658,6 +658,8 @@ def handle_select_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     
     try:
         from PySide6.QtWidgets import QFileDialog, QApplication
+        from PySide6.QtCore import QThread, QObject, Signal, Qt
+        import threading
         
         multiple = params.get('multiple', False) if params else False
         filters = params.get('filters', []) if params else []
@@ -674,32 +676,97 @@ def handle_select_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             filter_strings = ['All Files (*.*)']
         
         filter_str = ';;'.join(filter_strings)
+        start_dir = os.path.expanduser("~")
         
-        # Show dialog
+        # Check if we're already on the main thread
         app = QApplication.instance()
-        if app is None:
-            app = QApplication([])
+        if app and QThread.currentThread() == app.thread():
+            # Already on main thread, call directly
+            if multiple:
+                file_paths, _ = QFileDialog.getOpenFileNames(
+                    None,
+                    "Select Files",
+                    start_dir,
+                    filter_str
+                )
+                result = file_paths if file_paths else []
+            else:
+                file_path, _ = QFileDialog.getOpenFileName(
+                    None,
+                    "Select File",
+                    start_dir,
+                    filter_str
+                )
+                result = file_path if file_path else ''
+        else:
+            # Not on main thread, use signal/slot with threading.Event
+            if not app:
+                logger.error("[FS] No QApplication instance available")
+                return create_error_response(
+                    request,
+                    'NO_QAPPLICATION',
+                    'Qt application not initialized'
+                )
+            
+            # Helper class for cross-thread dialog
+            class DialogHelper(QObject):
+                show_dialog = Signal(str, str, bool)
+                
+                def __init__(self):
+                    super().__init__()
+                    self.result = None
+                    self.done_event = threading.Event()
+                    self.show_dialog.connect(self._show_dialog_slot, Qt.ConnectionType.QueuedConnection)
+                    
+                def _show_dialog_slot(self, directory, filters, is_multiple):
+                    try:
+                        if is_multiple:
+                            file_paths, _ = QFileDialog.getOpenFileNames(
+                                None,
+                                "Select Files",
+                                directory,
+                                filters
+                            )
+                            self.result = file_paths if file_paths else []
+                        else:
+                            file_path, _ = QFileDialog.getOpenFileName(
+                                None,
+                                "Select File",
+                                directory,
+                                filters
+                            )
+                            self.result = file_path if file_path else ''
+                    except Exception as e:
+                        logger.error(f"[FS] Error in dialog: {e}", exc_info=True)
+                        self.result = [] if is_multiple else ''
+                    finally:
+                        self.done_event.set()
+            
+            # Create helper and move to main thread
+            helper = DialogHelper()
+            helper.moveToThread(app.thread())
+            
+            # Emit signal and wait for result
+            helper.show_dialog.emit(start_dir, filter_str, multiple)
+            if not helper.done_event.wait(timeout=60):  # 60 second timeout
+                logger.error("[FS] Dialog timeout")
+                return create_error_response(
+                    request,
+                    'DIALOG_TIMEOUT',
+                    'File dialog timed out'
+                )
+            
+            result = helper.result
         
+        # Return result
         if multiple:
-            file_paths, _ = QFileDialog.getOpenFileNames(
-                None,
-                "Select Files",
-                os.path.expanduser("~"),
-                filter_str
-            )
-            if file_paths:
-                return create_success_response(request, {'paths': file_paths})
+            if result:
+                return create_success_response(request, {'paths': result})
             else:
                 return create_success_response(request, {'paths': [], 'cancelled': True})
         else:
-            file_path, _ = QFileDialog.getOpenFileName(
-                None,
-                "Select File",
-                os.path.expanduser("~"),
-                filter_str
-            )
-            if file_path:
-                return create_success_response(request, {'path': file_path})
+            if result:
+                return create_success_response(request, {'path': result})
             else:
                 return create_success_response(request, {'path': '', 'cancelled': True})
         
@@ -723,21 +790,76 @@ def handle_select_directory(request: IPCRequest, params: Optional[Dict[str, Any]
     
     try:
         from PySide6.QtWidgets import QFileDialog, QApplication
+        from PySide6.QtCore import QThread, QObject, Signal, Qt
+        import threading
         
-        # Show dialog
+        start_dir = os.path.expanduser("~")
+        
+        # Check if we're already on the main thread
         app = QApplication.instance()
-        if app is None:
-            app = QApplication([])
+        if app and QThread.currentThread() == app.thread():
+            # Already on main thread, call directly
+            dir_path = QFileDialog.getExistingDirectory(
+                None,
+                "Select Directory",
+                start_dir,
+                QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+            )
+            result = dir_path if dir_path else ''
+        else:
+            # Not on main thread, use signal/slot with threading.Event
+            if not app:
+                logger.error("[FS] No QApplication instance available")
+                return create_error_response(
+                    request,
+                    'NO_QAPPLICATION',
+                    'Qt application not initialized'
+                )
+            
+            # Helper class for cross-thread dialog
+            class DialogHelper(QObject):
+                show_dialog = Signal(str)
+                
+                def __init__(self):
+                    super().__init__()
+                    self.result = None
+                    self.done_event = threading.Event()
+                    self.show_dialog.connect(self._show_dialog_slot, Qt.ConnectionType.QueuedConnection)
+                    
+                def _show_dialog_slot(self, directory):
+                    try:
+                        dir_path = QFileDialog.getExistingDirectory(
+                            None,
+                            "Select Directory",
+                            directory,
+                            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+                        )
+                        self.result = dir_path if dir_path else ''
+                    except Exception as e:
+                        logger.error(f"[FS] Error in directory dialog: {e}", exc_info=True)
+                        self.result = ''
+                    finally:
+                        self.done_event.set()
+            
+            # Create helper and move to main thread
+            helper = DialogHelper()
+            helper.moveToThread(app.thread())
+            
+            # Emit signal and wait for result
+            helper.show_dialog.emit(start_dir)
+            if not helper.done_event.wait(timeout=60):  # 60 second timeout
+                logger.error("[FS] Directory dialog timeout")
+                return create_error_response(
+                    request,
+                    'DIALOG_TIMEOUT',
+                    'Directory dialog timed out'
+                )
+            
+            result = helper.result
         
-        dir_path = QFileDialog.getExistingDirectory(
-            None,
-            "Select Directory",
-            os.path.expanduser("~"),
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
-        )
-        
-        if dir_path:
-            return create_success_response(request, {'path': dir_path})
+        # Return result
+        if result:
+            return create_success_response(request, {'path': result})
         else:
             return create_success_response(request, {'path': '', 'cancelled': True})
         

@@ -157,7 +157,7 @@ class MainWindow:
         # ============================================================================
         # PHASE 1: CRITICAL SYNCHRONOUS INITIALIZATION (UI-blocking, keep minimal)
         # ============================================================================
-        logger.info("[MainWindow] ðŸ“‹ Phase 1: Critical synchronous initialization...")
+        logger.info("[MainWindow] 📋 Phase 1: Critical synchronous initialization...")
 
         # 1. Core system (essential for basic functionality)
         self._init_core_system(auth_manager, mainloop, ip, user, homepath, machine_role, schedule_mode)
