@@ -57,7 +57,7 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         logger.debug(f"Show open dialog handler called with request: {request}")
 
         from PySide6.QtWidgets import QFileDialog, QApplication
-        from PySide6.QtCore import QThread
+        from PySide6.QtCore import QThread, QObject, Signal, QMetaObject, Qt
         import threading
 
         # Build file type filters
@@ -86,39 +86,73 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             logger.error(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Failed to get skills root: {e}", exc_info=True)
             initial_dir = ""
 
-        # Ensure we're on the main thread for Qt dialogs
-        def show_dialog():
-            app = QApplication.instance()
-            if app is None:
-                # If no QApplication exists, create a temporary one
-                app = QApplication([])
-                temp_app = True
-            else:
-                temp_app = False
-
-            try:
-                # 允许用户选择文件或文件夹
-                start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else os.getcwd()
-                logger.info(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Opening dialog with directory: {start_dir}")
-                
-                # 使用文件选择对话框，允许选择 JSON 文件
-                file_path, _ = QFileDialog.getOpenFileName(
-                    None,  # parent
-                    "Select Skill File",  # caption
-                    start_dir,  # directory
-                    "Skill Files (*.json);;All Files (*.*)"  # filter
-                )
-                return file_path
-            finally:
-                if temp_app:
-                    app.quit()
-
-        # Execute dialog on main thread if needed
-        if QThread.currentThread() == QApplication.instance().thread() if QApplication.instance() else False:
-            folder_path = show_dialog()
+        # Prepare dialog parameters
+        start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else os.getcwd()
+        logger.info(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Opening dialog with directory: {start_dir}")
+        
+        # Check if we're already on the main thread
+        app = QApplication.instance()
+        if app and QThread.currentThread() == app.thread():
+            # Already on main thread, call directly
+            file_path, _ = QFileDialog.getOpenFileName(
+                None,
+                "Select Skill File",
+                start_dir,
+                "Skill Files (*.json);;All Files (*.*)"
+            )
+            folder_path = file_path
         else:
-            # Use a simple approach for cross-thread dialog
-            folder_path = show_dialog()
+            # Not on main thread, use signal/slot with threading.Event
+            if not app:
+                logger.error("[SKILL_IO][BACKEND][OPEN_DIALOG] No QApplication instance available")
+                return create_error_response(
+                    request,
+                    'NO_QAPPLICATION',
+                    'Qt application not initialized'
+                )
+            
+            # Helper class for cross-thread dialog
+            class DialogHelper(QObject):
+                show_dialog = Signal(str)
+                
+                def __init__(self):
+                    super().__init__()
+                    self.result = None
+                    self.done_event = threading.Event()
+                    self.show_dialog.connect(self._show_dialog_slot, Qt.ConnectionType.QueuedConnection)
+                    
+                def _show_dialog_slot(self, directory):
+                    try:
+                        file_path, _ = QFileDialog.getOpenFileName(
+                            None,
+                            "Select Skill File",
+                            directory,
+                            "Skill Files (*.json);;All Files (*.*)"
+                        )
+                        self.result = file_path
+                    except Exception as e:
+                        logger.error(f"[SKILL_IO][BACKEND][OPEN_DIALOG] Error in dialog: {e}", exc_info=True)
+                        self.result = None
+                    finally:
+                        self.done_event.set()
+            
+            # Create helper and move to main thread
+            helper = DialogHelper()
+            helper.moveToThread(app.thread())
+            
+            # Emit signal and wait for result
+            helper.show_dialog.emit(start_dir)
+            if not helper.done_event.wait(timeout=60):  # 60 second timeout
+                logger.error("[SKILL_IO][BACKEND][OPEN_DIALOG] Dialog timeout")
+                return create_error_response(
+                    request,
+                    'DIALOG_TIMEOUT',
+                    'File dialog timed out'
+                )
+            
+            folder_path = helper.result
+        
+        folder_path = folder_path if folder_path else None
         
         if folder_path:
             # 用户选择了文件
@@ -188,7 +222,8 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         logger.debug(f"Show save dialog handler called with request: {request}")
 
         from PySide6.QtWidgets import QFileDialog, QApplication
-        from PySide6.QtCore import QThread
+        from PySide6.QtCore import QThread, QObject, Signal, Qt
+        import threading
 
         # Resolve parameters
         default_filename = params.get('defaultFilename', 'untitled.json') if params else 'untitled.json'
@@ -209,50 +244,88 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             logger.error(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Failed to get skills root: {e}", exc_info=True)
             initial_dir = ""
 
-        # Ensure we're on the main thread for Qt dialogs
-        def show_dialog():
-            app = QApplication.instance()
-            if app is None:
-                # If no QApplication exists, create a temporary one
-                app = QApplication([])
-                temp_app = True
-            else:
-                temp_app = False
-
-            try:
-                start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else os.getcwd()
-                os.makedirs(start_dir, exist_ok=True)
-                
-                # Use the original filename with .json extension
-                # This prevents macOS from entering a directory with the same name
-                filename_with_ext = display_name + '.json' if not display_name.endswith('.json') else display_name
-                dialog_path = os.path.join(start_dir, filename_with_ext)
-                
-                file_path, _ = QFileDialog.getSaveFileName(
-                    None,
-                    "Save Skill",
-                    dialog_path,
-                    "JSON Files (*.json)",
-                    None,
-                    QFileDialog.Option.DontConfirmOverwrite
-                )
-                
-                # Add .json suffix if not present
-                if file_path and not file_path.endswith('.json'):
-                    file_path = file_path + '.json'
-                
-                logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Selected: {file_path or 'cancelled'}")
-                return file_path
-            finally:
-                if temp_app:
-                    app.quit()
-
-        # Execute dialog on main thread if needed
-        if QThread.currentThread() == QApplication.instance().thread() if QApplication.instance() else False:
-            file_path = show_dialog()
+        # Prepare dialog parameters
+        start_dir = initial_dir if initial_dir and os.path.exists(initial_dir) else os.getcwd()
+        os.makedirs(start_dir, exist_ok=True)
+        
+        # Use the original filename with .json extension
+        filename_with_ext = display_name + '.json' if not display_name.endswith('.json') else display_name
+        dialog_path = os.path.join(start_dir, filename_with_ext)
+        
+        # Check if we're already on the main thread
+        app = QApplication.instance()
+        if app and QThread.currentThread() == app.thread():
+            # Already on main thread, call directly
+            file_path, _ = QFileDialog.getSaveFileName(
+                None,
+                "Save Skill",
+                dialog_path,
+                "JSON Files (*.json)",
+                None,
+                QFileDialog.Option.DontConfirmOverwrite
+            )
+            
+            # Add .json suffix if not present
+            if file_path and not file_path.endswith('.json'):
+                file_path = file_path + '.json'
         else:
-            # Use a simple approach for cross-thread dialog
-            file_path = show_dialog()
+            # Not on main thread, use signal/slot with threading.Event
+            if not app:
+                logger.error("[SKILL_IO][BACKEND][SAVE_DIALOG] No QApplication instance available")
+                return create_error_response(
+                    request,
+                    'NO_QAPPLICATION',
+                    'Qt application not initialized'
+                )
+            
+            # Helper class for cross-thread dialog
+            class DialogHelper(QObject):
+                show_dialog = Signal(str)
+                
+                def __init__(self):
+                    super().__init__()
+                    self.result = None
+                    self.done_event = threading.Event()
+                    self.show_dialog.connect(self._show_dialog_slot, Qt.ConnectionType.QueuedConnection)
+                    
+                def _show_dialog_slot(self, path):
+                    try:
+                        file_path, _ = QFileDialog.getSaveFileName(
+                            None,
+                            "Save Skill",
+                            path,
+                            "JSON Files (*.json)",
+                            None,
+                            QFileDialog.Option.DontConfirmOverwrite
+                        )
+                        
+                        # Add .json suffix if not present
+                        if file_path and not file_path.endswith('.json'):
+                            file_path = file_path + '.json'
+                        
+                        logger.info(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Selected: {file_path or 'cancelled'}")
+                        self.result = file_path
+                    except Exception as e:
+                        logger.error(f"[SKILL_IO][BACKEND][SAVE_DIALOG] Error in dialog: {e}", exc_info=True)
+                        self.result = None
+                    finally:
+                        self.done_event.set()
+            
+            # Create helper and move to main thread
+            helper = DialogHelper()
+            helper.moveToThread(app.thread())
+            
+            # Emit signal and wait for result
+            helper.show_dialog.emit(dialog_path)
+            if not helper.done_event.wait(timeout=60):  # 60 second timeout
+                logger.error("[SKILL_IO][BACKEND][SAVE_DIALOG] Dialog timeout")
+                return create_error_response(
+                    request,
+                    'DIALOG_TIMEOUT',
+                    'File dialog timed out'
+                )
+            
+            file_path = helper.result
         
         if file_path:
             return create_success_response(request, {
