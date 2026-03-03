@@ -1,100 +1,80 @@
 /**
  * Platform Configuration
  * Manages platform-specific behavior for desktop vs web deployment
+ * 
+ * Architecture:
+ * - Desktop: Runs on localhost (Qt WebEngine or browser), uses local GraphQL (/graphql)
+ * - Web: Runs on cloud domain, uses AppSync (AWS GraphQL)
  */
 
 export type PlatformType = 'desktop' | 'web';
 
-export interface PlatformConfig {
-  type: PlatformType;
-  features: {
-    ipcAvailable: boolean;
-    fileSystemAccess: boolean;
-    nativeDialogs: boolean;
-    fullFilePaths: boolean;
-  };
-}
-
-/**
- * Safe environment variable access
- */
-function getEnvVar(key: string, defaultValue: string = 'desktop'): string {
-  try {
-    return (typeof process !== 'undefined' && process.env && process.env[key]) || defaultValue;
-  } catch {
-    return defaultValue;
-  }
-}
-
-/**
- * Global platform configuration
- * Default to desktop mode with full IPC capabilities
- */
-export const PLATFORM_CONFIG: PlatformConfig = {
-  type: getEnvVar('REACT_APP_PLATFORM') as PlatformType,
-  features: {
-    ipcAvailable: getEnvVar('REACT_APP_PLATFORM') === 'desktop',
-    fileSystemAccess: getEnvVar('REACT_APP_PLATFORM') === 'desktop',
-    nativeDialogs: getEnvVar('REACT_APP_PLATFORM') === 'desktop',
-    fullFilePaths: getEnvVar('REACT_APP_PLATFORM') === 'desktop',
-  },
-};
-
 /**
  * Platform detection utilities
+ * All based on runtime detection for reliability
  */
-export const isDesktopPlatform = () => PLATFORM_CONFIG.type === 'desktop';
-export const isWebPlatform = () => PLATFORM_CONFIG.type === 'web';
-export const hasIPCSupport = () => PLATFORM_CONFIG.features.ipcAvailable;
-export const hasFileSystemAccess = () => PLATFORM_CONFIG.features.fileSystemAccess;
-export const hasNativeDialogs = () => PLATFORM_CONFIG.features.nativeDialogs;
-export const hasFullFilePaths = () => PLATFORM_CONFIG.features.fullFilePaths;
+export const isDesktopPlatform = () => detectPlatform() === 'desktop';
+export const isWebPlatform = () => detectPlatform() === 'web';
 
 /**
- * Runtime platform detection (fallback)
+ * Feature detection based on platform
+ * Desktop mode has full local file system access
+ * Web mode is sandboxed
+ */
+export const hasIPCSupport = () => isDesktopPlatform();
+export const hasFileSystemAccess = () => isDesktopPlatform();
+export const hasNativeDialogs = () => isDesktopPlatform();
+export const hasFullFilePaths = () => isDesktopPlatform();
+
+/**
+ * Runtime platform detection
+ * 
+ * Detection strategy:
+ * 1. Check if running on localhost/127.0.0.1 → Desktop mode
+ * 2. Otherwise → Web mode (cloud deployment)
+ * 
+ * This is reliable because:
+ * - Desktop app always runs on localhost (Qt WebEngine serves local server)
+ * - Web app always runs on cloud domain (e.g., app.ecan.ai)
  */
 export const detectPlatform = (): PlatformType => {
-  // Check if we're in a desktop environment with IPC
-  if (typeof window !== 'undefined') {
-    // Check for window.ipc (Qt WebChannel) FIRST as indicator of desktop mode
-    // This takes priority over protocol check because desktop app serves over http://localhost
-    try {
-      // Primary check: window.ipc from Qt WebChannel
-      if ((window as any).ipc) {
-        return 'desktop';
-      }
-      // Secondary check: webchannel-ready event listener exists
-      if ((window as any).__WEBCHANNEL_READY__) {
-        return 'desktop';
-      }
-    } catch (error) {
-      console.debug('[Platform] IPC check failed:', error);
-    }
-    // If no IPC detected, treat as web
+  if (typeof window === 'undefined') {
     return 'web';
   }
-  return 'web';
+
+  try {
+    const hostname = window.location.hostname;
+    
+    // Desktop mode: localhost or 127.0.0.1
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.')) {
+      return 'desktop';
+    }
+    
+    // Web mode: any other domain
+    return 'web';
+  } catch (error) {
+    console.debug('[Platform] Detection failed, defaulting to web:', error);
+    return 'web';
+  }
 };
 
 /**
  * Initialize platform configuration
  * Call this early in app initialization
+ * 
+ * Note: With pure runtime detection, this is now just a logging function
  */
 export const initializePlatform = () => {
-  const detectedPlatform = detectPlatform();
+  const platform = detectPlatform();
+  const features = {
+    ipcAvailable: platform === 'desktop',
+    fileSystemAccess: platform === 'desktop',
+    nativeDialogs: platform === 'desktop',
+    fullFilePaths: platform === 'desktop',
+  };
   
-  // Override config if detection differs from environment
-  if (detectedPlatform !== PLATFORM_CONFIG.type) {
-    console.info(`[Platform] Auto-correcting platform: configured as ${PLATFORM_CONFIG.type}, detected as ${detectedPlatform}. This is normal during development.`);
-    
-    // Update features based on detected platform
-    const isDesktop = detectedPlatform === 'desktop';
-    PLATFORM_CONFIG.type = detectedPlatform;
-    PLATFORM_CONFIG.features.ipcAvailable = isDesktop;
-    PLATFORM_CONFIG.features.fileSystemAccess = isDesktop;
-    PLATFORM_CONFIG.features.nativeDialogs = isDesktop;
-    PLATFORM_CONFIG.features.fullFilePaths = isDesktop;
-  }
-  
-  console.log(`Platform initialized: ${PLATFORM_CONFIG.type}`, PLATFORM_CONFIG.features);
+  console.log(`[Platform] Detected: ${platform}`, {
+    hostname: typeof window !== 'undefined' ? window.location.hostname : 'N/A',
+    features
+  });
 };

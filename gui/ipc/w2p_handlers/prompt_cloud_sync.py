@@ -196,6 +196,79 @@ def delete_prompt_from_cloud(prompt_id: str) -> None:
     t.start()
 
 
+def fetch_cloud_prompts() -> List[Dict[str, Any]]:
+    """Download all prompts for the current user from cloud DynamoDB.
+
+    Returns a list of normalized prompt dicts (same shape as local prompts).
+    Returns an empty list on any failure so callers can safely merge.
+    This is a **synchronous** call — intended to be used inside get_prompts
+    before the IPC response is sent so the UI gets the full superset.
+    """
+    try:
+        ctx = _get_cloud_context()
+        if ctx is None:
+            return []
+
+        owner = ctx["owner"]
+
+        query = """
+            query QueryPrompts($input: PromptQueryInput) {
+                queryPrompts(input: $input) {
+                    id
+                    owner
+                    version
+                    prompt
+                }
+            }
+        """
+
+        resp = _appsync_request(query, ctx, variables={"input": {"owner": owner}})
+
+        errors = resp.get("errors")
+        if errors:
+            logger.warning(f"[prompt_sync] queryPrompts error: {errors}")
+            return []
+
+        raw_items = resp.get("data", {}).get("queryPrompts") or []
+        logger.info(f"[prompt_sync] Fetched {len(raw_items)} prompts from cloud")
+
+        prompts: List[Dict[str, Any]] = []
+        for item in raw_items:
+            try:
+                prompt_id = item.get("id", "")
+                prompt_json = item.get("prompt", "{}")
+                if isinstance(prompt_json, str):
+                    prompt_data = json.loads(prompt_json)
+                elif isinstance(prompt_json, dict):
+                    prompt_data = prompt_json
+                else:
+                    prompt_data = {}
+
+                # Build a normalized prompt dict matching local format
+                normalized: Dict[str, Any] = {
+                    "id": prompt_id,
+                    "title": prompt_data.get("title", ""),
+                    "topic": prompt_data.get("topic", ""),
+                    "usageCount": prompt_data.get("usageCount", 0),
+                    "sections": prompt_data.get("sections", []),
+                    "userSections": prompt_data.get("userSections", []),
+                    "humanInputs": prompt_data.get("humanInputs", []),
+                    "lastModified": prompt_data.get("lastModified", ""),
+                    "source": "cloud",
+                    "readOnly": False,
+                }
+                if prompt_id:
+                    prompts.append(normalized)
+            except Exception as parse_exc:
+                logger.warning(f"[prompt_sync] Failed to parse cloud prompt {item.get('id', '?')}: {parse_exc}")
+                continue
+
+        return prompts
+    except Exception as exc:
+        logger.warning(f"[prompt_sync] fetch_cloud_prompts failed: {exc}")
+        return []
+
+
 def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
     """Bulk-push all local prompts to cloud. Skips read-only/sample prompts.
     Runs in background thread so it doesn't block the IPC response."""

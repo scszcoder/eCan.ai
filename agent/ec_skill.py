@@ -911,9 +911,14 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         try:
             from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             log_state = truncate_screenshot_for_logging(state)
+            # Further truncate if still too long (limit to 1000 chars)
+            log_state_str = str(log_state)
+            if len(log_state_str) > 1000:
+                log_state_str = log_state_str[:1000] + "..."
+            logger.debug(f"[node_builder]returning state... {log_state_str}")
         except Exception:
-            log_state = str(state)[:500] + "..." if len(str(state)) > 500 else state
-        logger.debug(f"[node_builder]returning state... {log_state}")
+            log_state_str = str(state)[:1000] + "..." if len(str(state)) > 1000 else str(state)
+            logger.debug(f"[node_builder]returning state... {log_state_str}")
         return state
     # The node_builder itself returns the wrapper function
     return wrapper

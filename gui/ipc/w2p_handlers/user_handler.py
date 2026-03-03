@@ -131,51 +131,81 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
                 'SYSTEM_NOT_READY',
                 'System not ready - please try again')
         
-        result = login.handleLogin(username, password, machine_role)
-
-        if result.get('success'):
-            from gui.ipc.token_manager import token_manager
+        # Check if this is a session replacement (user already logged in from another device)
+        # NOTE: This optimization only applies to desktop/local environment, not web cloud
+        from gui.ipc.token_manager import token_manager
+        import os
+        
+        existing_token = token_manager._user_tokens.get(username)
+        # Check if running in web cloud mode (ECAN_MODE=cloud)
+        ecan_mode = os.getenv('ECAN_MODE', 'desktop').lower()
+        is_session_replacement = existing_token is not None and ecan_mode != 'cloud'
+        
+        if is_session_replacement:
+            # Session replacement: Skip full login flow, just validate credentials and replace token
+            logger.info(f"[user_handler] 🔄 Session replacement detected for user: {username}")
+            
+            # Validate credentials directly via auth_manager (skip handleLogin to avoid re-initialization)
+            auth_result = login.auth_manager.login(username, password, machine_role)
+            
+            if not auth_result.get('success'):
+                error_code = auth_result.get('error', 'login_failed')
+                message = get_message_from_cognito_error(error_code, 'login_failed')
+                logger.warning(f"Login failed for user {username}: {error_code}")
+                return create_error_response(request, 'INVALID_CREDENTIALS', message)
+            
+            # Generate new token (this will invalidate the old one)
             token = token_manager.generate_token(username, machine_role)
-            
-            # Trigger onboarding check after successful login
-            try:
-                config_manager = AppContext.get_config_manager()
-                if config_manager and hasattr(config_manager, 'llm_manager'):
-                    # Reset onboarding flag so it can be shown again for this user
-                    config_manager.llm_manager.reset_onboarding_flag()
-                    # Schedule onboarding check (will run after a delay)
-                    import asyncio
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.create_task(config_manager.llm_manager.check_and_show_onboarding(
-                            delay_seconds=3.0,
-                            force_check=False
-                        ))
-                        logger.debug("[user_handler] Scheduled onboarding check after login")
-                    except RuntimeError:
-                        logger.debug("[user_handler] No event loop available for onboarding check")
-            except Exception as e:
-                logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
-            
-            # Get user profile from AuthManager (populated during login)
-            user_profile = login.auth_manager.get_user_profile()
-            
-            # Create web session if in web mode (no-op in desktop mode)
-            user_email = user_profile.get('email') or username
-            session_id = _create_web_session(username, {
-                'email': user_email,
-                'role': machine_role,
-                'login_type': 'password'
-            }, auth_token=token)
-            
-            return _build_user_info_response(
-                request, token, user_profile, username, machine_role, 'password', 'login_success', session_id
-            )
+            logger.info(f"[user_handler] ✅ Token replaced for user: {username} (skipped full initialization)")
         else:
-            error_code = result.get('error', 'login_failed')
-            message = get_message_from_cognito_error(error_code, 'login_failed')
-            logger.warning(f"Login failed for user {username}: {error_code}")
-            return create_error_response(request, 'INVALID_CREDENTIALS', message)
+            # First login: Execute full login flow with initialization
+            logger.info(f"[user_handler] 🆕 First login for user: {username}")
+            result = login.handleLogin(username, password, machine_role)
+
+            if not result.get('success'):
+                error_code = result.get('error', 'login_failed')
+                message = get_message_from_cognito_error(error_code, 'login_failed')
+                logger.warning(f"Login failed for user {username}: {error_code}")
+                return create_error_response(request, 'INVALID_CREDENTIALS', message)
+            
+            # Generate token for first login
+            token = token_manager.generate_token(username, machine_role)
+        
+        # Common logic for both scenarios
+        # Trigger onboarding check after successful login
+        try:
+            config_manager = AppContext.get_config_manager()
+            if config_manager and hasattr(config_manager, 'llm_manager'):
+                # Reset onboarding flag so it can be shown again for this user
+                config_manager.llm_manager.reset_onboarding_flag()
+                # Schedule onboarding check (will run after a delay)
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(config_manager.llm_manager.check_and_show_onboarding(
+                        delay_seconds=3.0,
+                        force_check=False
+                    ))
+                    logger.debug("[user_handler] Scheduled onboarding check after login")
+                except RuntimeError:
+                    logger.debug("[user_handler] No event loop available for onboarding check")
+        except Exception as e:
+            logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
+        
+        # Get user profile from AuthManager (populated during login)
+        user_profile = login.auth_manager.get_user_profile()
+        
+        # Create web session if in web mode (no-op in desktop mode)
+        user_email = user_profile.get('email') or username
+        session_id = _create_web_session(username, {
+            'email': user_email,
+            'role': machine_role,
+            'login_type': 'password'
+        }, auth_token=token)
+        
+        return _build_user_info_response(
+            request, token, user_profile, username, machine_role, 'password', 'login_success', session_id
+        )
 
     except Exception as e:
         logger.error(f"Error in login handler: {e} {traceback.format_exc()}")
@@ -221,9 +251,13 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         auth_messages.set_language(lang)
         return create_error_response(request, 'LOGIN_ERROR', f"Error during get_last_login: {str(e)}")
 
-@IPCHandlerRegistry.handler('logout')
+@IPCHandlerRegistry.background_handler('logout')
 def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """Handles logout requests with internationalized responses."""
+    """Handles logout requests with internationalized responses.
+    
+    Note: This is a background handler because logout triggers async cleanup.
+    We need to wait for the cleanup to complete before returning to the frontend.
+    """
     lang = auth_messages.DEFAULT_LANG
     try:
         if params and 'lang' in params:
@@ -237,7 +271,27 @@ def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
                 'message': auth_messages.get_message('logout_success')
             })
         
+        # Call handleLogout which triggers async cleanup
+        logger.info("[user_handler] Starting logout process...")
         result = login.handleLogout()
+        
+        # Wait for async cleanup to complete
+        # The cleanup task is created in logout() method, we need to give it time to finish
+        import asyncio
+        import time
+        
+        # Wait up to 3 seconds for cleanup to complete
+        max_wait = 3.0
+        start_time = time.time()
+        while time.time() - start_time < max_wait:
+            # Check if cleanup is done by looking for the completion log
+            # In practice, we just wait a reasonable amount of time
+            time.sleep(0.5)
+            if time.time() - start_time >= 1.5:
+                # Most cleanup should be done by now
+                break
+        
+        logger.info("[user_handler] Logout cleanup wait completed")
         
         # Destroy web session if in web mode (no-op in desktop mode)
         session_id = params.get('session_id') if params else None

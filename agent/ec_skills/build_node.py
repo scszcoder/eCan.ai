@@ -3066,6 +3066,26 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         _actual_tool_name = actual_tool_name
         _actual_tool_input = actual_tool_input
 
+        def _extract_tool_result_text(result) -> str:
+            """Extract readable text from MCP CallToolResult object.
+
+            MCP CallToolResult has .content = [TextContent(text=...), ...]
+            Stringifying the object via f-string only shows the repr, which
+            truncates the actual text.  This helper pulls out the real text
+            so the LLM can see the full tool output in its conversation history.
+            """
+            try:
+                if hasattr(result, 'content') and isinstance(result.content, list):
+                    text_parts = []
+                    for c in result.content:
+                        if hasattr(c, 'text'):
+                            text_parts.append(c.text)
+                    if text_parts:
+                        return "\n".join(text_parts)
+            except Exception:
+                pass
+            return str(result)
+
         async def run_tool_call():
             """A local async function to perform the actual tool call."""
             log_msg = f"Calling MCP tool '{_actual_tool_name}' with input: {_actual_tool_input}"
@@ -3167,7 +3187,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     })
                     
                     tool_call_summary = ActionMessage(
-                        content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; initial_result: {tool_result}"
+                        content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; initial_result: {_extract_tool_result_text(tool_result)}"
                     )
                     add_to_history(state, tool_call_summary)
                     
@@ -3407,7 +3427,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     add_to_history(state, tool_call_summary)
                 else:
                     _safe_inc_steps(state)
-                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}")
+                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
                     add_to_history(state, tool_call_summary)
                 
                 return state
@@ -3458,7 +3478,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 add_to_history(state, tool_call_summary)
             else:
                 _safe_inc_steps(state)
-                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
+                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
                 add_to_history(state, tool_call_summary)
 
                 # Also update attributes for easier access by subsequent nodes

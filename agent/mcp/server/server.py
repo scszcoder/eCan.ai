@@ -168,14 +168,84 @@ from .event_store import InMemoryEventStore
 
 server_main_win = None
 
+# Semaphore to serialize OCR calls — the OCR server drops connections under
+# concurrent load, causing ReadError / RemoteProtocolError cascades.
+_ocr_semaphore = asyncio.Semaphore(1)
+
+
+# Alias table: maps alternative names to canonical app_name used in ocr_app_cfg.json
+_OCR_APP_ALIASES: dict = {
+    "weixin": "wechat",
+    "微信": "wechat",
+    "wechat": "wechat",
+    "dingtalk": "dingtalk",
+    "钉钉": "dingtalk",
+    "feishu": "feishu",
+    "飞书": "feishu",
+    "lark": "feishu",
+}
+
+
+def _load_ocr_app_cfg(win_title_kw: str) -> dict:
+    """Look up win_title_kw against app_name in ocr_app_cfg.json.
+    Also checks _OCR_APP_ALIASES so 'Weixin'/'微信' resolve to 'wechat' config.
+    Returns matching entry or {}."""
+    if not win_title_kw:
+        return {}
+    try:
+        from pathlib import Path as _Path
+        project_root = _Path(__file__).resolve().parents[3]
+        cfg_path = project_root / "ocr" / "ocr_app_cfg.json"
+        if not cfg_path.exists():
+            logger.debug(f"[OCR_APP_CFG] No ocr_app_cfg.json found at {cfg_path}")
+            return {}
+        import json as _json
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            configs = _json.load(f)
+        kw = win_title_kw.lower()
+        # Resolve alias to canonical name
+        canonical = _OCR_APP_ALIASES.get(kw, kw)
+        if canonical != kw:
+            logger.debug(f"[OCR_APP_CFG] Alias '{win_title_kw}' -> '{canonical}'")
+        for entry in configs:
+            if entry.get("app_name", "").lower() == canonical:
+                logger.info(f"[OCR_APP_CFG] Found config for '{win_title_kw}' (canonical='{canonical}'): {entry}")
+                return entry
+        logger.debug(f"[OCR_APP_CFG] No config match for '{win_title_kw}' (canonical='{canonical}') in {cfg_path}")
+        return {}
+    except Exception as e:
+        logger.warning(f"[OCR_APP_CFG] Error loading config: {e}")
+        return {}
+
 
 async def _screen_read(mainwin, win_title_kw: str):
-    """Helper: extract mission/log_user/session/token from mainwin and call readRandomWindow8."""
-    log_user = mainwin.user.replace("@", "_").replace(".", "_")
-    session = mainwin.session
-    token = mainwin.get_auth_token()
-    mission = mainwin.getTrialRunMission()
-    return await readRandomWindow8(mission, win_title_kw, log_user, session, token)
+    """Capture screen and run OCR. If win_title_kw matches an app config in ocr_app_cfg.json,
+    uses app-specific OCR with anchors/icons via cloudAnalyzeImage8.
+    Otherwise uses generic cloudAnalyzeRandomImage8.
+    All returned coords are absolute screen coordinates."""
+    async with _ocr_semaphore:
+        log_user = mainwin.user.replace("@", "_").replace(".", "_")
+        session = mainwin.session
+        token = mainwin.get_auth_token()
+        mission = mainwin.getTrialRunMission()
+
+        app_cfg = _load_ocr_app_cfg(win_title_kw)
+
+        if app_cfg:
+            from agent.ec_skills.ocr.image_prep import readAppWindow8
+            logger.info(f"[_screen_read] Using app-specific OCR for '{win_title_kw}'")
+            try:
+                result = await readAppWindow8(mission, win_title_kw, log_user, session, token, app_cfg)
+                if result:  # non-empty list means success
+                    return result
+                logger.warning(f"[_screen_read] App-specific OCR returned empty for '{win_title_kw}', falling back to generic OCR")
+            except Exception as e:
+                import traceback as _tb
+                logger.warning(f"[_screen_read] App-specific OCR failed for '{win_title_kw}': {e}, falling back to generic OCR")
+                logger.warning(f"[_screen_read] Traceback: {_tb.format_exc()}")
+
+        logger.debug(f"[_screen_read] Using generic OCR for '{win_title_kw}'")
+        return await readRandomWindow8(mission, win_title_kw, log_user, session, token)
 
 # ---- Module-level alias table for well-known apps ----
 _APP_ALIASES: dict = {
@@ -218,16 +288,22 @@ def _find_and_bring_to_front_window(app_name: str):
     if not candidates:
         return None
 
+    # Prefer exact title matches over substring matches to avoid picking
+    # wrong windows (e.g. "wechat_chat.csk - VS Code" matching "WeChat")
+    exact = [w for w in candidates if w.title.lower().strip() in
+             {t.lower() for t in search_titles + [app_name]}]
+    pool = exact if exact else candidates
+
     # Sort: prefer larger windows (real app window vs tray icon)
     # A tray/notification window is typically very small (< 200px wide)
     MIN_WIDTH = 200
-    real_wins = [w for w in candidates if w.width >= MIN_WIDTH]
+    real_wins = [w for w in pool if w.width >= MIN_WIDTH]
     if real_wins:
         # Pick the largest by area
         best = max(real_wins, key=lambda w: w.width * w.height)
     else:
         # All tiny — just pick the first
-        best = candidates[0]
+        best = pool[0]
 
     logger.info(f"[_find_and_bring_to_front_window] Found window: title='{best.title}', "
                 f"size={best.width}x{best.height}, minimized={best.isMinimized}")
@@ -245,7 +321,7 @@ def _find_and_bring_to_front_window(app_name: str):
     return best
 
 
-mouse = Controller()
+# pynput Controller must be created inline — browser_use Tools proxy corrupts module-level instances
 
 # meca_mcp_server = FastMCP("E-Commerce Agents Service")
 meca_mcp_server = Server("E-Commerce Agents Service")
@@ -1375,8 +1451,8 @@ async def in_browser_scroll(mainwin, args):
             if browser_session:
                 page = await _get_current_page(browser_session)
                 if page:
-                    mouse = await page.mouse
-                    await mouse.scroll(x=0, y=0, delta_x=0, delta_y=scroll_y)
+                    _page_mouse = await page.mouse
+                    await _page_mouse.scroll(x=0, y=0, delta_x=0, delta_y=scroll_y)
                     if post_wait:
                         await asyncio.sleep(post_wait)
 
@@ -1622,12 +1698,12 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
                     else:
                         # Coordinate-based drag and drop using mouse operations
                         if source_x is not None and source_y is not None:
-                            mouse = await page.mouse
-                            await mouse.move(source_x, source_y)
-                            await mouse.down()
+                            _page_mouse = await page.mouse
+                            await _page_mouse.move(source_x, source_y)
+                            await _page_mouse.down()
                             if target_x is not None and target_y is not None:
-                                await mouse.move(target_x, target_y)
-                            await mouse.up()
+                                await _page_mouse.move(target_x, target_y)
+                            await _page_mouse.up()
 
         # Build result message
         if use_element_mode:
@@ -1756,14 +1832,13 @@ async def mouse_click(mainwin, args):
         time.sleep(args["input"]["post_click_delay"])
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse click"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
-
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseClick")
@@ -1783,14 +1858,13 @@ async def mouse_press_hold(mainwin, args):
         time.sleep(args["input"]["post_delay"])
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse press and hold"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
-
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMousePressHold")
@@ -1801,19 +1875,20 @@ async def mouse_press_hold(mainwin, args):
 async def mouse_move(mainwin, args):
     try:
         logger.debug(f"MOUSE HOVER INPUT: {args}")
-        pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+        loc = args["input"].get("loc") or args["input"].get("location")
+        pyautogui.moveTo(loc[0], loc[1])
         # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
-        time.sleep(args["input"]["post_delay"])
+        time.sleep(args["input"].get("post_delay", args["input"].get("post_wait", 0)))
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse move"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
-        return result
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
+        return [result]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseMove")
@@ -1828,13 +1903,13 @@ async def mouse_drag_drop(mainwin, args):
         logger.debug(f'dragNdrop: {args["input"]["pick_loc"][0]}, {args["input"]["pick_loc"][1]} to {args["input"]["drop_loc"][0]}, {args["input"]["drop_loc"][1]}')
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse drag and drop"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseDragDrop")
@@ -1847,16 +1922,17 @@ async def mouse_scroll(mainwin, args):
             scroll_amount = 0 - args["input"]["amount"]
         else:
             scroll_amount = args["input"]["amount"]
-        mouse.scroll(0, scroll_amount)
+        from pynput.mouse import Controller as _MouseCtrl
+        _MouseCtrl().scroll(0, scroll_amount)
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed mouse scroll"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseScroll")
@@ -1883,8 +1959,7 @@ async def mouse_act_on_screen(mainwin, args):
 
         time.sleep(args["input"].get("post_delay", 0))
         msg = "completed action on screen."
-        result = [TextContent(type="text", text=msg)]
-        return [result]
+        return [TextContent(type="text", text=msg)]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseActOnScreen")
         logger.error(err_trace)
@@ -1899,13 +1974,13 @@ async def keyboard_text_input(mainwin, args):
             time.sleep(args['input']["post_wait"])
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed text input"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardTextInput")
@@ -1920,13 +1995,13 @@ async def keyboard_keys_input(mainwin, args):
             time.sleep(args['input']["post_wait"])
 
         screen_content = {}
-        if True:
+        if args["input"].get("read_screen", False):
             win_title_kw = args["input"].get("win_title_kw", "")
             screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed keys press"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorKeyboardKeysInput")
@@ -1937,8 +2012,7 @@ async def http_call_api(mainwin, args):
     try:
 
         msg = "completed calling API"
-        result = [TextContent(type="text", text=msg)]
-        return [result]
+        return [TextContent(type="text", text=msg)]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorHttpCallApi")
         logger.error(err_trace)
@@ -2233,35 +2307,63 @@ async def os_open_app(mainwin, args):
         search_titles = alias["titles"] if alias else [app_name]
         target_exe = alias["exe"] if alias else None  # e.g. "WeChat.exe"
 
+        def _force_bring_to_front(win):
+            """Bring window to front using win32gui for reliability."""
+            try:
+                import win32gui, win32con
+                hwnd = win._hWnd
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    time.sleep(0.3)
+                win32gui.SetForegroundWindow(hwnd)
+                logger.info(f"[os_open_app] win32gui: restored/activated hwnd={hwnd}")
+            except Exception as e1:
+                logger.debug(f"[os_open_app] win32gui failed: {e1}, trying pygetwindow fallback")
+                try:
+                    if win.isMinimized:
+                        win.restore()
+                        time.sleep(0.3)
+                    win.activate()
+                except Exception:
+                    try:
+                        win.minimize()
+                        time.sleep(0.2)
+                        win.restore()
+                    except Exception:
+                        pass
+
         # ---- Step 1: Check if a matching window is already open ----
         def _find_window():
-            """Return the first matching window or None."""
-            for title_query in search_titles:
+            """Return the best matching window or None.
+            Prefers exact title matches over substring to avoid picking
+            wrong windows (e.g. VS Code with 'wechat_chat.csk' in title)."""
+            all_candidates = []
+            for title_query in search_titles + [app_name]:
                 try:
                     wins = gw.getWindowsWithTitle(title_query)
-                    if wins:
-                        return wins[0], title_query
+                    for w in wins:
+                        all_candidates.append((w, title_query))
                 except Exception:
                     pass
-            # Also try the raw app_name as-is
-            try:
-                wins = gw.getWindowsWithTitle(app_name)
-                if wins:
-                    return wins[0], app_name
-            except Exception:
-                pass
-            return None, None
+            if not all_candidates:
+                return None, None
+            # Pass 1: exact title match
+            known_titles = {t.lower() for t in search_titles + [app_name]}
+            for w, tq in all_candidates:
+                if w.title.lower().strip() in known_titles:
+                    return w, tq
+            # Pass 2: starts-with match
+            for w, tq in all_candidates:
+                wt = w.title.lower().strip()
+                for kt in known_titles:
+                    if wt.startswith(kt):
+                        return w, tq
+            # Pass 3: fallback to first candidate (substring match)
+            return all_candidates[0]
 
         win, matched_title = _find_window()
         if win:
-            try:
-                win.activate()
-            except Exception:
-                try:
-                    win.minimize()
-                    win.restore()
-                except Exception:
-                    pass
+            _force_bring_to_front(win)
             msg = f"App already open (window '{matched_title}' found). Brought to front."
             logger.info(f"[os_open_app] {msg}")
             return [TextContent(type="text", text=msg)]
@@ -2292,14 +2394,7 @@ async def os_open_app(mainwin, args):
             await asyncio.sleep(1)
             win, matched_title = _find_window()
             if win:
-                try:
-                    win.activate()
-                except Exception:
-                    try:
-                        win.minimize()
-                        win.restore()
-                    except Exception:
-                        pass
+                _force_bring_to_front(win)
                 msg = f"App process was running. Window '{matched_title}' brought to front."
                 logger.info(f"[os_open_app] {msg}")
                 return [TextContent(type="text", text=msg)]
@@ -2572,8 +2667,8 @@ async def os_screen_analyze(mainwin, args):
         screen_content = await _screen_read(mainwin, win_title_kw)
 
         msg = "completed screen analysis"
-        result = TextContent(type="text", text=msg)
-        result.meta = screen_content
+        result = TextContent(type="text", text=f"{msg}\n{screen_content}")
+        result.meta = {"screen_content": screen_content} if isinstance(screen_content, dict) else {"screen_content": screen_content}
         return [result]
 
     except Exception as e:
@@ -3058,7 +3153,8 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
 
         mission = mainwin.getTrialRunMission()
 
-        screen_data = await readRandomWindow8(mission, args["input"]["win_title_keyword"], log_user, session, token)
+        async with _ocr_semaphore:
+            screen_data = await readRandomWindow8(mission, args["input"]["win_title_keyword"], log_user, session, token)
 
         msg = "completed rpa operator report work results"
         result = TextContent(type="text", text=msg)

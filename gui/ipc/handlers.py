@@ -389,8 +389,11 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
         # logger.debug(f"Get initialization progress handler called with request: {request}")
 
         main_window = AppContext.get_main_window()
+        logger.info(f"[InitProgress] MainWindow instance: {main_window is not None}, ECAN_MODE: {os.getenv('ECAN_MODE', 'desktop')}")
+        
         if main_window is None and os.getenv("ECAN_MODE", "desktop") == "web":
             # In web mode we don't create a Qt MainWindow; report ready so the frontend can proceed
+            logger.info("[InitProgress] Web mode detected, returning ready status")
             return create_success_response(request, {
                 'ui_ready': True,
                 'critical_services_ready': True,
@@ -400,7 +403,7 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
                 'message': 'Web mode: backend ready'
             })
         if main_window is None:
-            logger.info("MainWindow not yet created")
+            logger.warning("[InitProgress] ⚠️ MainWindow not yet created - returning not ready")
             # MainWindow not yet created
             return create_success_response(request, {
                 'ui_ready': False,
@@ -415,7 +418,7 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
         progress = main_window.get_initialization_progress()
         progress['message'] = 'Initialization progress retrieved successfully'
 
-        logger.debug(f"Initialization progress: {progress}")
+        logger.info(f"[InitProgress] ✅ Returning progress: ui_ready={progress.get('ui_ready')}, fully_ready={progress.get('fully_ready')}")
         return create_success_response(request, progress)
 
     except Exception as e:
