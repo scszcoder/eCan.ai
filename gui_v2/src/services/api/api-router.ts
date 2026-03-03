@@ -8,30 +8,11 @@
  */
 
 import { APIDefinition, Channel } from './api-config';
-import { ipcClient } from '../ipc/ipcClient';
 import { appSyncRequest } from '../web/appSyncClient';
 import { logger } from '../../utils/logger';
 import type { APIResponse } from '../ipc/api';
 import { detectPlatform } from '@/config/platform';
-
-const getEnv = () => {
-  try {
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-      return (import.meta as any).env as Record<string, any>;
-    }
-  } catch {}
-  try {
-    if (typeof process !== 'undefined' && (process as any).env) {
-      return (process as any).env as Record<string, any>;
-    }
-  } catch {}
-  return {} as Record<string, any>;
-};
-
-const isTruthyEnvValue = (value: unknown): boolean => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
-};
+import { userStorageManager } from '../storage/UserStorageManager';
 
 /**
  * API 路由器配置
@@ -50,9 +31,22 @@ export interface APIRouterConfig {
  * 
  * 负责根据 API 定义和运行环境，自动选择合适的通信通道执行请求
  */
+/**
+ * 请求队列项
+ */
+interface QueuedRequest<T> {
+  execute: () => Promise<APIResponse<T>>;
+  resolve: (value: APIResponse<T>) => void;
+  reject: (error: any) => void;
+}
+
 export class APIRouter {
   private static instance: APIRouter;
   private config: Required<APIRouterConfig>;
+  
+  // 请求队列相关
+  private requestQueue: QueuedRequest<any>[] = [];
+  private isProcessingQueue = false;
 
   private constructor(config: APIRouterConfig = {}) {
     this.config = {
@@ -77,6 +71,15 @@ export class APIRouter {
    */
   public updateConfig(config: Partial<APIRouterConfig>): void {
     this.config = { ...this.config, ...config };
+  }
+
+  /**
+   * 获取认证 token
+   */
+  private getAuthToken(): string | null {
+    const token = userStorageManager.getToken();
+    console.log('[APIRouter] getAuthToken:', token ? `${token.substring(0, 20)}...` : 'null');
+    return token;
   }
 
   /**
@@ -111,12 +114,12 @@ export class APIRouter {
       let response: APIResponse<T>;
       
       switch (channel) {
-        case Channel.IPC:
-          response = await this.executeViaIPC<T>(method, params, options);
+        case Channel.LOCAL:
+          response = await this.executeViaLocalGraphQL<T>(method, params, options);
           break;
         
-        case Channel.GRAPHQL:
-          response = await this.executeViaGraphQL<T>(definition, params);
+        case Channel.CLOUD:
+          response = await this.executeViaCloudGraphQL<T>(definition, params);
           break;
         
         default:
@@ -140,19 +143,25 @@ export class APIRouter {
       const duration = Date.now() - startTime;
       logger.error(`[APIRouter] Failed: ${method} after ${duration}ms`, error);
       
+      // 检查是否是 token 错误
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (this.isTokenError(errorMessage)) {
+        await this.handleTokenExpired();
+      }
+      
       return this.createErrorResponse(
         'EXECUTION_ERROR',
-        error instanceof Error ? error.message : String(error),
+        errorMessage,
         error
       );
     }
   }
 
   /**
-   * 通过 IPC 执行请求
-   * 复制自 ipcApi.executeRequest 的 IPC 执行逻辑
+   * 通过本地 GraphQL 执行请求
+   * 使用本地 /graphql 端点与 Python 后端通信
    */
-  private async executeViaIPC<T>(
+  private async executeViaLocalGraphQL<T>(
     method: string,
     params?: any,
     options?: { timeout?: number }
@@ -161,103 +170,165 @@ export class APIRouter {
     const timeout = options?.timeout || this.config.defaultTimeout;
     
     try {
-      // 确保 IPC 客户端已初始化
-      if (!ipcClient.isInitialized()) {
-        await ipcClient.initialize();
+      // 动态获取本地服务器地址
+      const baseUrl = this.getLocalServerUrl();
+      const url = `${baseUrl}/graphql`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      // 获取 token 并添加到 headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      const token = this.getAuthToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          query: `query ${method} { ${method} }`,
+          operationName: method,
+          variables: params || {},  // 使用标准 GraphQL variables 字段
+          extensions: {
+            method  // 保留 method 用于后端路由
+          }
+        }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      // 调用 IPC
-      const response = await ipcClient.invoke(method, params, { timeout });
+      const result = await response.json();
 
       if (this.config.enableLogging) {
-        console.log(`[APIRouter] IPC response for ${method} (${Date.now() - startTs}ms):`, response);
+        console.log(`[APIRouter] Local GraphQL response for ${method} (${Date.now() - startTs}ms):`, result);
       }
 
-      if (response.status === 'success') {
-        return {
-          success: true,
-          data: response.result as T
-        };
-      } else {
-        const errorCode = String(response.error?.code || 'UNKNOWN_ERROR');
+      // 处理 GraphQL 响应格式
+      if (result.errors && result.errors.length > 0) {
+        const error = result.errors[0];
+        const errorCode = String(error.extensions?.code || 'GRAPHQL_ERROR');
         
         // Handle INVALID_TOKEN error by clearing stored token and redirecting to login
         if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
           logger.warn(`[APIRouter] Authentication failed for ${method}: ${errorCode}`);
           
-          // During the post-login grace period the backend (MainWindow) may still
-          // be initializing.  Suppress the aggressive token-clear + redirect so the
-          // IPC retry loop can handle transient failures instead of bouncing the
-          // user back to the login page (the "double login" bug).
+          // IMPORTANT: INVALID_TOKEN means the token is truly invalid (e.g., session replaced by new login)
+          // This is different from SYSTEM_NOT_READY which is a transient initialization issue.
+          // We should ALWAYS handle INVALID_TOKEN immediately, regardless of grace period.
           try {
             const { userStorageManager } = await import('../storage/UserStorageManager');
             
-            if (userStorageManager.isInPostLoginGracePeriod()) {
-              logger.info(`[APIRouter] Within post-login grace period, suppressing redirect for ${method}: ${errorCode}`);
-              // Fall through — return the error to the caller without clearing
-              // the token or redirecting.  The caller / retry loop will handle it.
-            } else {
-              // Clear the invalid token from storage
-              userStorageManager.removeToken();
-              logger.info('[APIRouter] Cleared invalid token from storage');
+            // Clear the invalid token from storage
+            userStorageManager.removeToken();
+            logger.info('[APIRouter] Cleared invalid token from storage');
+            
+            // Show user notification (only once)
+            if (!sessionStorage.getItem('token_expired_notification_shown')) {
+              sessionStorage.setItem('token_expired_notification_shown', 'true');
               
-              // Show user notification (only once)
-              if (!sessionStorage.getItem('token_expired_notification_shown')) {
-                sessionStorage.setItem('token_expired_notification_shown', 'true');
+              // Try to show Ant Design message if available
+              try {
+                const { message } = await import('antd');
+                // Get i18n translation
+                const i18nModule = await import('@/i18n');
+                const i18n = i18nModule.default;
+                const messageText = i18n.t('auth.sessionInvalidated');
                 
-                // Try to show Ant Design message if available
-                try {
-                  const { message } = await import('antd');
-                  message.warning('Your session has expired. Please log in again.');
-                } catch {
-                  // Fallback to console if Ant Design not available
-                  console.warn('Session expired. Please log in again.');
-                }
+                message.warning({
+                  content: messageText,
+                  duration: 5,
+                  key: 'session-invalidated'
+                });
+              } catch (error) {
+                // Fallback to console if Ant Design or i18n not available
+                console.warn('Session invalidated. You may have logged in from another device. Please log in again.');
               }
-              
-              // Redirect to login page if not already there
-              if (window.location.hash !== '#/login') {
-                logger.info('[APIRouter] Redirecting to login due to invalid token');
-                // Small delay to allow notification to show
-                setTimeout(() => {
-                  window.location.hash = '#/login';
-                }, 500);
-              }
+            }
+            
+            // Redirect to login page if not already there
+            if (window.location.hash !== '#/login') {
+              logger.info('[APIRouter] Redirecting to login due to invalid token');
+              // Force full page reload to login to ensure React Router responds
+              setTimeout(() => {
+                window.location.replace(window.location.origin + '/#/login');
+              }, 500);
             }
           } catch (error) {
             logger.error('[APIRouter] Error clearing invalid token:', error);
           }
+          
+          // Return empty success response to prevent error display in UI
+          // The redirect will happen shortly, so we don't want to show error messages
+          // This prevents the error from being displayed while the redirect is in progress
+          return {
+            success: true,
+            data: null as any  // Empty data to prevent UI errors
+          };
         }
         
         return {
           success: false,
           error: {
             code: errorCode,
-            message: response.error?.message || 'Unknown error occurred',
-            details: response.error?.details
+            message: error.message || 'GraphQL error occurred',
+            details: error.extensions
           }
         };
       }
+      
+      // 成功响应 - 自动解包 GraphQL 包装
+      // GraphQL 响应格式: { data: { method_name: actual_data } }
+      // 我们需要提取 actual_data
+      let responseData = result.data;
+      
+      // 如果 data 是对象且只有一个键（method name），自动解包
+      if (responseData && typeof responseData === 'object' && !Array.isArray(responseData)) {
+        const keys = Object.keys(responseData);
+        if (keys.length === 1) {
+          const methodKey = keys[0];
+          // 解包：data.method_name -> data
+          responseData = responseData[methodKey];
+          if (this.config.enableLogging) {
+            console.log(`[APIRouter] Auto-unwrapped GraphQL response from '${methodKey}'`);
+          }
+        }
+      }
+      
+      return {
+        success: true,
+        data: responseData as T
+      };
     } catch (error) {
       if (this.config.enableLogging) {
-        logger.error(`[APIRouter] IPC error for ${method}`, { 
+        logger.error(`[APIRouter] Local GraphQL error for ${method}`, { 
           error, 
           durationMs: Date.now() - startTs 
         });
       }
       
       return this.createErrorResponse(
-        'IPC_ERROR',
-        error instanceof Error ? error.message : 'IPC request failed',
+        'LOCAL_GRAPHQL_ERROR',
+        error instanceof Error ? error.message : 'Local GraphQL request failed',
         error
       );
     }
   }
 
   /**
-   * 通过 GraphQL 执行请求
+   * 通过云端 GraphQL 执行请求
+   * 使用 AppSync 与 AWS 云端通信
    */
-  private async executeViaGraphQL<T>(
+  private async executeViaCloudGraphQL<T>(
     definition: APIDefinition,
     params?: any
   ): Promise<APIResponse<T>> {
@@ -318,9 +389,16 @@ export class APIRouter {
       };
     } catch (error) {
       console.error(`[APIRouter] GraphQL error (${definition.method}):`, error);
+      
+      // 检查是否是 token 错误
+      const errorMessage = error instanceof Error ? error.message : 'GraphQL request failed';
+      if (this.isTokenError(errorMessage)) {
+        await this.handleTokenExpired();
+      }
+      
       return this.createErrorResponse(
         'GRAPHQL_ERROR',
-        error instanceof Error ? error.message : 'GraphQL request failed',
+        errorMessage,
         error
       );
     }
@@ -346,30 +424,51 @@ export class APIRouter {
   }
 
   /**
-   * 选择通信通道
-   * 根据 VITE_IPC_MODE 环境变量和 GraphQL 配置自动判断
+   * 获取本地服务器 URL
+   * 根据运行环境动态构建正确的服务器地址
    */
-  private selectChannel(_definition: APIDefinition): Channel {
-    const env = getEnv();
-    
-    // 如果 VITE_IPC_MODE 为 true，使用 IPC
-    if (isTruthyEnvValue(env.VITE_IPC_MODE)) {
-      return Channel.IPC;
+  private getLocalServerUrl(): string {
+    // 1. 优先使用配置的 baseUrl
+    if (this.config.localServerBaseUrl) {
+      return this.config.localServerBaseUrl;
     }
 
-    // Default behavior: use IPC on desktop (Qt/WebChannel), GraphQL on web.
-    // This keeps desktop builds working even when VITE_IPC_MODE is not set.
+    // 2. 根据当前页面 URL 动态构建
+    if (typeof window !== 'undefined') {
+      const currentHost = window.location.hostname;
+      const protocol = window.location.protocol;
+      
+      // Desktop 模式：使用 localhost
+      if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+        return `${protocol}//localhost:4668`;
+      }
+      
+      // Web 模式：使用当前页面的 IP 地址
+      // 例如：http://192.168.1.100:3000 → http://192.168.1.100:4668
+      return `${protocol}//${currentHost}:4668`;
+    }
+
+    // 3. 降级到默认值
+    return 'http://localhost:4668';
+  }
+
+  /**
+   * 选择通信通道
+   * Desktop 平台使用本地 GraphQL (/graphql)
+   * Web 平台使用云端 GraphQL (AppSync)
+   */
+  private selectChannel(_definition: APIDefinition): Channel {
     try {
       const platform = detectPlatform();
       if (platform === 'desktop') {
-        return Channel.IPC;
+        return Channel.LOCAL;
       }
     } catch {
-      // ignore and fall through
+      // 如果检测失败，默认使用云端
     }
 
-    // 否则默认使用 GraphQL/AppSync
-    return Channel.GRAPHQL;
+    // Web 平台使用云端 GraphQL/AppSync
+    return Channel.CLOUD;
   }
 
   /**
@@ -377,6 +476,168 @@ export class APIRouter {
    */
   public getConfig(): Readonly<Required<APIRouterConfig>> {
     return { ...this.config };
+  }
+
+  /**
+   * 处理请求队列
+   * 从队列中取出请求并顺序执行
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.requestQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
+    while (this.requestQueue.length > 0) {
+      const item = this.requestQueue.shift();
+      if (!item) break;
+
+      try {
+        const result = await item.execute();
+        item.resolve(result);
+      } catch (error) {
+        item.reject(error);
+      }
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  /**
+   * 顺序执行 API 请求（加入队列）
+   * 适用于需要严格顺序执行的场景，如有状态的操作或有依赖关系的请求
+   * 
+   * @param definition - API 定义
+   * @param params - 请求参数
+   * @param options - 请求选项
+   * @returns API 响应
+   */
+  public async executeSequential<T = any>(
+    definition: APIDefinition,
+    params?: any,
+    options?: { timeout?: number }
+  ): Promise<APIResponse<T>> {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({
+        execute: () => this.execute<T>(definition, params, options),
+        resolve,
+        reject
+      });
+
+      // 触发队列处理
+      this.processQueue();
+    });
+  }
+
+  /**
+   * 清空请求队列
+   * 用于取消所有待处理的顺序请求
+   */
+  public clearQueue(): void {
+    // 拒绝所有待处理的请求
+    this.requestQueue.forEach(item => {
+      item.reject(new Error('Request queue cleared'));
+    });
+    this.requestQueue = [];
+  }
+
+  /**
+   * Toggle window fullscreen state
+   * 这是一个便捷方法，不需要 GraphQL 定义
+   */
+  public async windowToggleFullscreen(): Promise<boolean> {
+    const response = await this.execute<{ is_fullscreen: boolean }>(
+      { method: 'window_toggle_fullscreen' },
+      {}
+    );
+    return response?.data?.is_fullscreen ?? false;
+  }
+
+  /**
+   * Get window fullscreen state
+   * 这是一个便捷方法，不需要 GraphQL 定义
+   */
+  public async windowGetFullscreenState(): Promise<boolean> {
+    const response = await this.execute<{ is_fullscreen: boolean }>(
+      { method: 'window_get_fullscreen_state' },
+      {}
+    );
+    return response?.data?.is_fullscreen ?? false;
+  }
+
+  /**
+   * 检查是否是 token 相关错误
+   */
+  private isTokenError(errorMessage: string): boolean {
+    const tokenErrorPatterns = [
+      'Token validation failed',
+      'Token is invalid',
+      'Token expired',
+      'INVALID_TOKEN',
+      'TOKEN_REQUIRED',
+      'TOKEN_VALIDATION_ERROR',
+      'Authentication failed',
+      'Unauthorized'
+    ];
+    
+    return tokenErrorPatterns.some(pattern => 
+      errorMessage.includes(pattern)
+    );
+  }
+
+  /**
+   * 处理 token 过期/失效
+   * 清除 token 并跳转到登录页面
+   */
+  private async handleTokenExpired(): Promise<void> {
+    // 避免重复触发
+    if ((window as any).__tokenExpiredHandling) {
+      return;
+    }
+    (window as any).__tokenExpiredHandling = true;
+    
+    try {
+      const { userStorageManager } = await import('../storage/UserStorageManager');
+      
+      // 检查是否在登录后宽限期内
+      if (userStorageManager.isInPostLoginGracePeriod()) {
+        logger.info('[APIRouter] Within post-login grace period, suppressing token expired handling');
+        (window as any).__tokenExpiredHandling = false;
+        return;
+      }
+      
+      // 清除无效的 token
+      userStorageManager.removeToken();
+      logger.info('[APIRouter] Cleared invalid token from storage');
+      
+      // 显示用户通知（只显示一次）
+      if (!sessionStorage.getItem('token_expired_notification_shown')) {
+        sessionStorage.setItem('token_expired_notification_shown', 'true');
+        
+        try {
+          const { message } = await import('antd');
+          message.warning('您的登录已过期，请重新登录', 3);
+        } catch {
+          console.warn('Session expired. Please log in again.');
+        }
+      }
+      
+      // 跳转到登录页面（如果不在登录页面）
+      if (window.location.hash !== '#/login') {
+        logger.info('[APIRouter] Redirecting to login due to token expired');
+        setTimeout(() => {
+          window.location.hash = '#/login';
+          // 重置标志，允许下次再次处理
+          (window as any).__tokenExpiredHandling = false;
+        }, 500);
+      } else {
+        (window as any).__tokenExpiredHandling = false;
+      }
+    } catch (error) {
+      logger.error('[APIRouter] Error handling token expired:', error);
+      (window as any).__tokenExpiredHandling = false;
+    }
   }
 }
 

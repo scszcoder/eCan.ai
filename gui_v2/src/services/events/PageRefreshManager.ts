@@ -75,7 +75,7 @@ export class PageRefreshManager {
     // Initialize the manager
     public initialize(): void {
         if (this.isInitialized) {
-            logger.warn('PageRefreshManager has already been initialized');
+            logger.debug('PageRefreshManager has already been initialized (React Strict Mode duplicate call)');
             return;
         }
 

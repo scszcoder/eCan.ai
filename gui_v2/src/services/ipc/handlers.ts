@@ -1,9 +1,9 @@
 /**
  * IPC Process?
  * Implementation?? Python Backend???RequestProcess?
+ * WebChannel removed - handlers now receive push events via WebSocket
  */
 import { IPCRequest } from './types';
-import { IPCWCClient } from './ipcWCClient';
 import { useNodeStatusStore } from '@/modules/skill-editor/stores/node-status-store';
 import { useSheetsStore } from '@/modules/skill-editor/stores/sheets-store';
 import { useSkillInfoStore } from '@/modules/skill-editor/stores/skill-info-store';
@@ -783,16 +783,6 @@ export class IPCHandlers {
     }
 
     /**
-     * Toggle window fullscreen state
-     */
-    async windowToggleFullscreen(): Promise<boolean> {
-        logger.debug('[IPC] Window toggle fullscreen called');
-        const response = await IPCWCClient.getInstance().invoke('window_toggle_fullscreen', {});
-        logger.debug('[IPC] Window toggle fullscreen response:', response);
-        return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
-    }
-
-    /**
      * Handle ad push from backend
      */
     async pushAd(request: IPCRequest): Promise<{ success: boolean }> {
@@ -848,9 +838,6 @@ export class IPCHandlers {
     }
 
     /**
-     * Get window fullscreen state
-     */
-    /**
      * Handle skill editor events from backend (canvas commands, etc.)
      */
     async handleSkillEditorEvent(request: IPCRequest): Promise<{ success: boolean }> {
@@ -871,12 +858,6 @@ export class IPCHandlers {
         });
         
         return { success: true };
-    }
-    async windowGetFullscreenState(): Promise<boolean> {
-        logger.debug('[IPC] Window get fullscreen state called');
-        const response = await IPCWCClient.getInstance().invoke('window_get_fullscreen_state', {});
-        logger.debug('[IPC] Window get fullscreen state response:', response);
-        return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
     }
 
 }

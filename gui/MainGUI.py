@@ -2760,11 +2760,11 @@ class MainWindow:
             # Define agent configurations based on role
             agent_configs = []
             
-            # Basic Agent — twin agent removed, chat routes directly to recipient agent
-            # agent_configs.append({
-            #     'name': 'My Twin',
-            #     'builder': set_up_my_twin_agent
-            # })
+            # Basic Agent — My Twin Agent (required for chat functionality)
+            agent_configs.append({
+                'name': 'My Twin',
+                'builder': set_up_my_twin_agent
+            })
             
             # Add other agents based on role
             # if "Platoon" in self.machine_role:
@@ -3673,8 +3673,26 @@ class MainWindow:
         self._cleanup_in_progress = True
         self.showMsg("logging out (graceful shutdown)........")
         try:
-            # Run async cleanup without blocking the UI thread
-            self.mainLoop.create_task(self._async_cleanup_and_logout())
+            # Run async cleanup and WAIT for it to complete
+            # This is critical - we must wait for cleanup to finish before the app exits
+            import asyncio
+            import concurrent.futures
+            
+            # Schedule the cleanup task in the event loop and wait for it
+            future = asyncio.run_coroutine_threadsafe(
+                self._async_cleanup_and_logout(), 
+                self.mainLoop
+            )
+            
+            # Wait for cleanup to complete (max 5 seconds)
+            try:
+                future.result(timeout=5.0)
+                logger.info("[MainWindow] ✅ Logout cleanup completed successfully")
+            except concurrent.futures.TimeoutError:
+                logger.warning("[MainWindow] ⚠️ Logout cleanup timed out after 5 seconds")
+            except Exception as e:
+                logger.error(f"[MainWindow] ❌ Error during logout cleanup: {e}")
+                
         except Exception as e:
             logger.warning(f"Failed to schedule async cleanup: {e}")
 
@@ -3963,7 +3981,106 @@ class MainWindow:
 
         logger.info("[MainWindow] ðŸŽ‰ Comprehensive cleanup completed - logged out successfully")
 
-
+    def reload_user_data(self):
+        """Reload user-specific data when switching users (without recreating MainWindow).
+        
+        This method is called when a new user logs in while MainWindow already exists.
+        It reloads only user-specific data (agents, tasks, etc.) without reinitializing
+        the entire system (servers, database connections, etc.).
+        """
+        try:
+            logger.info(f"[MainWindow] 🔄 Reloading user data for: {self.user}")
+            
+            # Clear current user data
+            if hasattr(self, 'agents') and isinstance(self.agents, list):
+                self.agents.clear()
+            if hasattr(self, 'todays_work') and isinstance(self.todays_work, list):
+                self.todays_work.clear()
+            if hasattr(self, 'reactive_work') and isinstance(self.reactive_work, list):
+                self.reactive_work.clear()
+            
+            # Reload database manager for new user
+            if hasattr(self, 'ec_db_mgr') and self.ec_db_mgr:
+                try:
+                    # Close existing database connections
+                    self.ec_db_mgr.close()
+                    logger.info("[MainWindow] 🔄 Closed previous user's database connections")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] ⚠️ Error closing database: {e}")
+                
+                # Reinitialize database manager for new user
+                try:
+                    from common.db_init import initialize_database_manager
+                    self.ec_db_mgr = initialize_database_manager(self.log_user)
+                    self.db_chat_service = self.ec_db_mgr.get_chat_service()
+                    logger.info("[MainWindow] ✅ Database manager reinitialized for new user")
+                except Exception as e:
+                    logger.error(f"[MainWindow] ❌ Error reinitializing database: {e}")
+            
+            # Reload agents from database
+            if hasattr(self, 'mainLoop') and self.mainLoop:
+                try:
+                    import asyncio
+                    # Schedule async reload in the event loop
+                    asyncio.run_coroutine_threadsafe(
+                        self._reload_agents_async(),
+                        self.mainLoop
+                    )
+                    logger.info("[MainWindow] 🔄 Scheduled agent reload for new user")
+                except Exception as e:
+                    logger.error(f"[MainWindow] ❌ Error scheduling agent reload: {e}")
+            
+            logger.info(f"[MainWindow] ✅ User data reload completed for: {self.user}")
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Error reloading user data: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    async def _reload_agents_async(self):
+        """Asynchronously reload agents for the new user."""
+        try:
+            logger.info("[MainWindow] 🔄 Loading agents from database for new user...")
+            
+            # Load agents from database
+            agents_data = await self._load_local_db_agents()
+            
+            if agents_data:
+                logger.info(f"[MainWindow] 📦 Found {len(agents_data)} agents for user: {self.user}")
+                
+                # Initialize agents from loaded data
+                from agent.ec_agent import ECAgent
+                
+                for agent_dict in agents_data:
+                    try:
+                        # Create ECAgent instance from database data
+                        agent = ECAgent.from_dict(agent_dict, self)
+                        
+                        # Add to agents list
+                        if not hasattr(self, 'agents'):
+                            self.agents = []
+                        self.agents.append(agent)
+                        
+                        logger.debug(f"[MainWindow] ✅ Initialized agent: {agent_dict.get('name', 'Unknown')}")
+                    except Exception as e:
+                        logger.error(f"[MainWindow] ❌ Failed to initialize agent {agent_dict.get('name', 'Unknown')}: {e}")
+                
+                logger.info(f"[MainWindow] ✅ Successfully initialized {len(self.agents)} agents for user: {self.user}")
+                
+                # Merge agent tasks to memory
+                try:
+                    merged, skipped, total = self._merge_agent_tasks_to_memory()
+                    logger.info(f"[MainWindow] 📋 Merged agent tasks: {merged} merged, {skipped} skipped, {total} total")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] ⚠️ Failed to merge agent tasks: {e}")
+                
+            else:
+                logger.info(f"[MainWindow] ℹ️ No agents found for user: {self.user}")
+                
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Error in async agent reload: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def addConnectingVehicle(self, vname, vip):
         try:
