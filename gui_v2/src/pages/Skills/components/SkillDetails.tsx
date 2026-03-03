@@ -25,7 +25,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSkillStore } from '@/stores/domain/skillStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
-import { IPCWCClient } from '@/services/ipc/ipcWCClient';
+import { IPCAPI } from '@/services/ipc/api';
 import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 
@@ -398,9 +398,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 const oldName = oldNameMatch?.[1];
                 const newName = payload.name;
                 if (!isNew && currentPath && oldName && newName && oldName !== newName) {
-                    const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', { oldName, newName });
-                    if (resp?.status === 'success' && resp.result?.skillRoot) {
-                        const newRoot: string = String(resp.result.skillRoot).replace(/\\/g, '/');
+                    const api = IPCAPI.getInstance();
+                    const resp = await api.renameSkill(oldName, newName);
+                    if (resp.success && resp.data?.skillRoot) {
+                        const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
                         // update diagram path in payload to reflect rename
                         payload.path = `${newRoot}/diagram_dir/${newName}_skill.json`;
                     }

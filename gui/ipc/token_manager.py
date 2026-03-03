@@ -21,11 +21,27 @@ class TokenManager:
         self._cleanup_thread: Optional[threading.Thread] = None
 
     def generate_token(self, username: str, role: str = 'user', permissions: Set[str] = None) -> str:
-        """Generate new token"""
-        # Clean up user's old token
-        if username in self._user_tokens:
+        """Generate new token and invalidate any existing session for this user
+        
+        This implements a 'single active session' policy in desktop mode:
+        - Desktop mode: When a user logs in on a new device/session, their old session is invalidated
+        - Cloud mode: Supports multi-device login, old sessions remain valid
+        - The old client will receive INVALID_TOKEN errors and should redirect to login (desktop only)
+        """
+        import os
+        
+        # Check if running in cloud mode (supports multi-device login)
+        ecan_mode = os.getenv('ECAN_MODE', 'desktop').lower()
+        is_cloud_mode = ecan_mode == 'cloud'
+        
+        # Clean up user's old token (implements single active session in desktop mode only)
+        session_replaced = False
+        if not is_cloud_mode and username in self._user_tokens:
             old_token = self._user_tokens[username]
             if old_token in self._tokens:
+                session_replaced = True
+                logger.warning(f"[TokenManager] 🔄 Session replacement: User '{username}' logged in from new location. "
+                             f"Old session (token: {old_token[:8]}...) will be invalidated.")
                 del self._tokens[old_token]
 
         # Generate new token
@@ -44,7 +60,10 @@ class TokenManager:
         self._tokens[token] = token_info
         self._user_tokens[username] = token
 
-        logger.info(f"[TokenManager] Generated token for user: {username}, role: {role}")
+        if session_replaced:
+            logger.info(f"[TokenManager] ✅ New session created for user: {username}, role: {role}. Old session invalidated.")
+        else:
+            logger.info(f"[TokenManager] ✅ Generated token for user: {username}, role: {role}")
         return token
 
     def validate_token(self, token: str, auto_extend: bool = True) -> Optional[Dict]:

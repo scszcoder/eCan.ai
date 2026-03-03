@@ -454,16 +454,22 @@ class Login:
             def create_main_window():
                 try:
                     from gui.MainGUI import MainWindow
+                    
+                    current_user = self.auth_manager.get_current_user()
+                    
+                    # Always create new MainWindow
+                    # After logout, self.main_win is set to None, so we always get a fresh instance
+                    logger.info(f"[AsyncLogin] 🆕 Creating new MainWindow for user: {current_user}")
                     self.main_win = MainWindow(
                         self.auth_manager, AppContext.main_loop, self.ip,
-                        self.auth_manager.get_current_user(), ecbhomepath,
+                        current_user, ecbhomepath,
                         self.auth_manager.get_role(), schedule_mode
                     )
                     AppContext().set_main_window(self.main_win)
-                    logger.info(f"[AsyncLogin] Main window launched for user: {self.auth_manager.get_current_user()}")
+                    logger.info(f"[AsyncLogin] ✅ Main window created for user: {current_user}")
                     return True
                 except Exception as e:
-                    logger.error(f"[AsyncLogin] Error creating main window: {e}")
+                    logger.error(f"[AsyncLogin] ❌ Error creating main window: {e}")
                     import traceback
                     logger.error(traceback.format_exc())
                     return False
@@ -519,9 +525,17 @@ class Login:
             if self.main_win:
                 # Delegate to MainWindow's graceful logout which cleans tasks/servers and closes window
                 self.main_win.logout()
+                
+                # Clear main_win reference so a fresh MainWindow is created on next login
+                # This is critical because logout clears all data, so we need full re-initialization
+                self.main_win = None
+                logger.info("LoginoutGUI: Cleared main_win reference after logout")
+                
                 return True
         except Exception as e:
             logger.warning(f"handleLogout fallback due to error: {e}")
+            # Clear main_win even if logout failed
+            self.main_win = None
 
         # Fallback to direct auth logout if main window missing
         # Clear IPC registry system ready cache in fallback case

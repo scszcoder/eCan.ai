@@ -395,7 +395,7 @@ class AppSyncSubscriptionClient:
 
     def _relay_to_frontend(self, event: Dict[str, Any]) -> None:
         """Push the AppSync event to the desktop frontend through the local
-        WebSocket and Qt WebChannel (IPCAPI + AppWebSocketManager)."""
+        WebSocket (IPCAPI + AppWebSocketManager)."""
         event_type = (event.get("eventType") or "").strip()
         session_id = (event.get("sessionId") or "").strip()
         payload = event.get("payload") or {}

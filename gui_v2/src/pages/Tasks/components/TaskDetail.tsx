@@ -228,8 +228,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       try {
         let uname = username;
         if (!uname) {
-          const loginInfo = await api.getLastLoginInfo<{ last_login: { username: string } }>();
-          if (loginInfo?.success) uname = loginInfo.data?.last_login?.username || '';
+          const loginInfo = await api.getLastLoginInfo<any>();
+          uname = (loginInfo?.success && (loginInfo.data as any)?.last_login?.username) || '';
         }
         if (uname) {
           const res = await api.getAgentSkills<any[]>(uname, []);
@@ -374,7 +374,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
       // Set current trigger for validation
       setCurrentTrigger(taskTrigger);
-      form.setFieldValue('trigger', taskTrigger);
     } else {
       form.resetFields();
       setEditMode(false);

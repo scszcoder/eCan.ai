@@ -767,7 +767,8 @@
       "weekday5": "Weekday5",
       "weekday6": "Weekday6",
       "zoomIn": "Zoom In",
-      "zoomOut": "Zoom Out"
+      "zoomOut": "Zoom Out",
+      "refreshFromCloud": "Refresh from Cloud"
     },
     "console": {
       "activate": "Activate",
@@ -2499,6 +2500,7 @@
     "lastError": "Last error:",
     "retryHint": "Please check your credentials and try again.",
     "sessionExpired": "Session expired, please login again",
+    "sessionInvalidated": "Your session has been invalidated. This may be because you logged in from another device. Please log in again.",
     "passwordFormatHint": "Password must be at least 8 characters, including uppercase, lowercase, number, and special character (e.g. !@#$%^&*)",
     "passwordMinLength": "Password must be at least 8 characters",
     "passwordNeedUppercase": "Must contain at least one uppercase letter",
