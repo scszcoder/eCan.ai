@@ -199,21 +199,22 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
     }
     logger.info(f"endpoint: {LAN_API_ENDPOINT_URL}, headers: {headers}")
 
-    # Increased read timeout to handle slow server responses
-    timeout = httpx.Timeout(connect=60.0, read=180.0, write=60.0, pool=60.0)
-    limits = httpx.Limits(max_keepalive_connections=0, max_connections=20)
+    # Tuned timeouts: connect fast, read allows for OCR processing, pool prevents hanging
+    timeout = httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=10.0)
+    limits = httpx.Limits(max_keepalive_connections=1, max_connections=5)
     async with httpx.AsyncClient(timeout=timeout, limits=limits, http2=False) as client:
         try:
             logger.debug(f"preparing multipart files for upload... {len(imgs or [])}")
-            # Build multipart parts exactly like requests test: ("files", (filename, bytes, "image/png"))
-            files = []
+            # Pre-read all images into (name, bytes) pairs so we can rebuild
+            # the multipart form for each retry attempt (httpx consumes streams).
+            raw_file_parts = []  # [(filename, bytes_content), ...]
             for i, img in enumerate(imgs or []):
                 fname = os.path.basename(img.get("file_name") or f"file_{i}.png")
                 content = img.get("bytes")
 
                 # 1) Already bytes
                 if isinstance(content, (bytes, bytearray)):
-                    files.append(("files", (fname, content, "image/png")))
+                    raw_file_parts.append((fname, content))
                     continue
 
                 # 2) File-like: read into bytes
@@ -222,7 +223,7 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
                         if hasattr(content, "seek"):
                             content.seek(0)
                         buf_bytes = content.read()
-                        files.append(("files", (fname, buf_bytes, "image/png")))
+                        raw_file_parts.append((fname, buf_bytes))
                         continue
                     except Exception:
                         pass
@@ -231,7 +232,7 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
                 if isinstance(content, Image.Image):
                     buf = io.BytesIO()
                     content.save(buf, format="PNG")
-                    files.append(("files", (fname, buf.getvalue(), "image/png")))
+                    raw_file_parts.append((fname, buf.getvalue()))
                     continue
 
                 # 4) Fallback to file path
@@ -239,29 +240,31 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
                 if fpath and os.path.exists(fpath):
                     with open(fpath, "rb") as fobj:
                         file_bytes = fobj.read()
-                    files.append(("files", (os.path.basename(fpath), file_bytes, "image/png")))
+                    raw_file_parts.append((os.path.basename(fpath), file_bytes))
                     continue
 
                 logger.warning(f"Warning: image #{i} has unsupported content type; skipping.")
 
-            if not files:
+            if not raw_file_parts:
                 raise ValueError("No valid images provided to upload.")
 
             payload = {"data": json.dumps(query_js)}
 
             # Calculate total request size for logging
             total_size = len(json.dumps(query_js))
-            for _, (fname, content, _) in files:
-                total_size += len(content) if isinstance(content, (bytes, bytearray)) else 0
-            logger.info(f"Request size: {total_size / 1024 / 1024:.2f} MB ({len(files)} files)")
+            for fname, content in raw_file_parts:
+                total_size += len(content)
+            logger.info(f"Request size: {total_size / 1024 / 1024:.2f} MB ({len(raw_file_parts)} files)")
 
             # Send with retry on transient network errors
             max_retries = 3
-            retry_delay = 1.0  # seconds
+            retry_delay = 2.0  # seconds
             last_error = None
 
             for attempt in range(max_retries):
                 try:
+                    # Rebuild files list each attempt (httpx may consume stream data)
+                    files = [("files", (fname, content, "image/png")) for fname, content in raw_file_parts]
                     logger.info(f"Sending request to {LAN_API_ENDPOINT_URL} (attempt {attempt + 1}/{max_retries})...")
                     response = await client.post(
                         LAN_API_ENDPOINT_URL,
