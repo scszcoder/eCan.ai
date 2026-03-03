@@ -3,7 +3,7 @@
  * Automatically refreshes authentication tokens before they expire
  */
 
-import { ipcClient } from '../ipc/ipcWCClient';
+import { IPCAPI } from '../ipc/api';
 import { isWebPlatform } from '../../config/platform';
 import { webAuthSession } from './webAuthSession';
 import { cognitoAuth } from './cognitoAuth';
@@ -211,24 +211,23 @@ class TokenRefreshService {
         tokenPrefix: token.substring(0, 8)
       });
       
-      const response = await ipcClient.invoke('auth.getTokenInfo', { token });
+      const api = IPCAPI.getInstance();
+      const response = await api.getTokenInfo(token);
       
       logger.debug('[TokenRefresh] Received response from backend', {
-        status: response.status,
-        hasData: !!response.result,
+        success: response.success,
+        hasData: !!response.data,
         hasError: !!response.error
       });
       
-      if (response.status === 'success') {
+      if (response.success) {
         logger.debug('[TokenRefresh] Token info retrieved successfully', {
-          username: (response.result as any)?.username,
-          timeRemaining: (response.result as any)?.time_remaining_hours
+          username: response.data?.username,
+          timeRemaining: response.data?.time_remaining_hours
         });
-        return response.result as TokenInfo;
+        return response.data as TokenInfo;
       } else {
         logger.error('[TokenRefresh] Backend returned error response', {
-          status: response.status,
-          message: response.message,
           error: response.error,
           errorCode: response.error?.code,
           fullResponse: JSON.stringify(response)
@@ -259,25 +258,24 @@ class TokenRefreshService {
     });
 
     try {
-      const response = await ipcClient.invoke('auth.refreshToken', { 
-        token: this.currentToken 
-      });
+      const api = IPCAPI.getInstance();
+      const response = await api.refreshToken(this.currentToken);
       
       logger.debug('[TokenRefresh] Refresh response received', {
-        status: response.status,
-        hasData: !!response.result
+        success: response.success,
+        hasData: !!response.data
       });
       
-      if (response.status === 'success') {
-        const newToken = (response.result as any).token;
+      if (response.success && response.data?.token) {
+        const newToken = response.data.token;
         const oldTokenPrefix = this.currentToken.substring(0, 8);
         this.currentToken = newToken;
         
         logger.info('[TokenRefresh] Token refreshed successfully', {
-          username: (response.result as any).username,
+          username: (response.data as any).username,
           oldTokenPrefix,
           newTokenPrefix: newToken.substring(0, 8),
-          expiresAt: (response.result as any).expires_at ? new Date((response.result as any).expires_at * 1000).toISOString() : 'unknown'
+          expiresAt: (response.data as any).expires_at ? new Date((response.data as any).expires_at * 1000).toISOString() : 'unknown'
         });
 
         // Notify callback
@@ -289,8 +287,6 @@ class TokenRefreshService {
         return newToken;
       } else {
         logger.error('[TokenRefresh] Failed to refresh token', {
-          status: response.status,
-          message: response.message,
           error: response.error,
           fullResponse: JSON.stringify(response)
         });
@@ -318,18 +314,16 @@ class TokenRefreshService {
     }
 
     try {
-      const response = await ipcClient.invoke('auth.extendToken', { 
-        token: this.currentToken,
-        seconds 
-      });
+      const api = IPCAPI.getInstance();
+      const response = await api.extendToken(this.currentToken, seconds);
       
-      if (response.status === 'success') {
+      if (response.success) {
         logger.info('[TokenRefresh] Token extended successfully', {
-          time_remaining_hours: (response.result as any).time_remaining_hours
+          time_remaining_hours: response.data?.time_remaining_hours
         });
         return true;
       } else {
-        logger.error('[TokenRefresh] Failed to extend token:', response.message);
+        logger.error('[TokenRefresh] Failed to extend token:', response.error?.message);
         return false;
       }
     } catch (error) {

@@ -561,8 +561,20 @@ class IPCHandlerRegistry:
             else:
                 error_info = ipc_response.get('error', {})
                 error_message = error_info.get('message', 'Request failed')
-                raise RuntimeError(error_message)
+                error_code = error_info.get('code', 'UNKNOWN_ERROR')
+                
+                # Create exception with error code for proper handling
+                error = RuntimeError(error_message)
+                error.error_code = error_code  # type: ignore
+                raise error
                 
         except Exception as e:
-            logger.error(f"[registry] Error handling GraphQL request for {method}: {e}", exc_info=True)
+            # Use warning level for expected auth errors, error level for unexpected errors
+            error_code = getattr(e, 'error_code', None)
+            if error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY'):
+                # Expected auth/initialization errors - log as warning without stack trace
+                logger.warning(f"[registry] {error_code} for method {method}: {e}")
+            else:
+                # Unexpected errors - log as error with full stack trace
+                logger.error(f"[registry] Error handling GraphQL request for {method}: {e}", exc_info=True)
             raise

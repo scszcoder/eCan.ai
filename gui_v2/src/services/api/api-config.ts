@@ -7,10 +7,12 @@
 
 /**
  * 通信通道枚举
+ * - LOCAL: 本地 GraphQL 端点 (/graphql)，与本地 Python 后端通信
+ * - CLOUD: 云端 GraphQL 端点 (AppSync)，与 AWS 云端通信
  */
 export enum Channel {
-  IPC = 'ipc',
-  GRAPHQL = 'graphql'
+  LOCAL = 'local',
+  CLOUD = 'cloud'
 }
 
 /**

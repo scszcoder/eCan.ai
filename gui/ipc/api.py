@@ -9,7 +9,6 @@ from typing import Optional, Dict, Any, Callable, TypeVar, Generic, List
 from dataclasses import dataclass
 import os
 from .types import IPCResponse
-from .wc_service import IPCWCService
 from utils.logger_helper import logger_helper as logger
 import gui.ipc.w2p_handlers
 # Ensure context handlers are registered
@@ -52,33 +51,27 @@ class IPCAPI:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, ipc_wc_service: Optional[IPCWCService] = None):
+    def __init__(self, ipc_wc_service=None):
         """
-        Initialize IPC API
+        Initialize IPC API (WebSocket-only mode)
 
         Args:
-            ipc_wc_service: IPC service instance (optional, ignored if already initialized)
+            ipc_wc_service: Deprecated, ignored. Kept for signature compatibility.
         """
         if not self._initialized:
-            if ipc_wc_service is None:
-                raise ValueError("IPC service must be provided for first initialization")
-            self._ipc_wc_service: IPCWCService = ipc_wc_service
             self._initialized = True
             logger.info("IPC API initialized")
 
     @classmethod
     def get_instance(cls) -> 'IPCAPI':
         """
-        Get IPCAPI singleton instance
+        Get IPCAPI singleton instance. Auto-initializes if needed.
 
         Returns:
             IPCAPI: IPCAPI instance
-
-        Raises:
-            RuntimeError: If instance has not been initialized yet
         """
         if cls._instance is None:
-            raise RuntimeError("IPCAPI has not been initialized. Call IPCAPI(ipc_webchannel_service) first.")
+            cls._instance = cls()
         return cls._instance
 
     def _convert_response(
@@ -116,24 +109,18 @@ class IPCAPI:
         channel_id: Optional[str] = None
     ) -> None:
         """
-        Send request - broadcasts via both IPC (Qt WebChannel) and WebSocket
-        to ensure the frontend receives the push regardless of connection mode.
+        Send request - broadcasts via WebSocket.
+        Push events from backend to frontend are delivered via the local WebSocket.
 
         Args:
             method: Method name
             params: Request parameters
             data: Request data (for some methods)
             meta: Metadata
-            callback: Callback function
+            callback: Callback function (called with success response immediately since WS is fire-and-forget)
             channel_id: Optional WebSocket channel ID for targeted broadcasting
         """
-        # Always send via IPC (Qt WebChannel) — this is the primary path for desktop mode
-        def ipc_response_callback(response: IPCResponse) -> None:
-            self._convert_response(response, callback)
-
-        self._ipc_wc_service.send_request(method, params, meta, ipc_response_callback)
-
-        # Also broadcast via WebSocket for any connected WS clients (HTTP+WS mode)
+        # Broadcast via WebSocket to all connected clients
         try:
             ws_mgr = _get_ws_manager()
             if ws_mgr:
@@ -141,8 +128,17 @@ class IPCAPI:
                 if data is not None:
                     payload = data if isinstance(data, dict) else {'data': data}
                 ws_mgr.broadcast_sync(method, payload, channel_id=channel_id)
-        except Exception:
-            pass
+                # Invoke callback with success since WS broadcast is fire-and-forget
+                if callback:
+                    callback(APIResponse(success=True, data=True))
+            else:
+                logger.warning(f"[IPCAPI] No WebSocket manager available, dropping push: {method}")
+                if callback:
+                    callback(APIResponse(success=False, error='No WebSocket manager available'))
+        except Exception as e:
+            logger.error(f"[IPCAPI] Error broadcasting push event {method}: {e}")
+            if callback:
+                callback(APIResponse(success=False, error=str(e)))
 
     def update_org_agents(
             self,

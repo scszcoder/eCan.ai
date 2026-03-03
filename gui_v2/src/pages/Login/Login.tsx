@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ipcClient } from '../../services/ipc/ipcClient';
 import { APIResponse, IPCAPI } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
@@ -71,15 +70,19 @@ const Login: React.FC = () => {
 
 	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
 	useEffect(() => {
+		console.log('[Login] Navigation check:', { 
+			ui_ready: initProgress?.ui_ready, 
+			loginSuccessful, 
+			hasNavigated,
+			initProgress 
+		});
+		
 		if (!initProgress?.ui_ready) return;
 		if (!loginSuccessful) return;
 		if (hasNavigated) return;
 
 		setHasNavigated(true);
-		console.log('[Login] ui_ready && loginSuccessful, navigating to main page');
-		// Navigate first — do NOT reset loading/showInitProgress before navigation,
-		// otherwise the login form flashes briefly before the route change takes effect.
-		// The component will unmount after navigation, cleaning up state automatically.
+		console.log('[Login] ✅ Navigating to /agents');
 		navigate('/agents');
 	}, [initProgress, loginSuccessful, hasNavigated, navigate]);
 
@@ -92,37 +95,24 @@ const Login: React.FC = () => {
 					setTimeout(() => reject(new Error('IPC initialization timeout')), 15000);
 				});
 
-				// LoadLoginInformation
 				const api = get_ipc_api();
-				if (!api) {
-					console.warn('[Login] IPC API not available, skipping login info load');
-					return;
-				}
+				if (!api) return;
 
-				// Load login info (includes language and theme preferences)
-				console.log('[Login] Calling getLastLoginInfo...');
 				const response = await Promise.race([
 					api.getLastLoginInfo(),
 					timeoutPromise
 				]) as APIResponse<any>;
 
-				console.log('[Login] Last login info response:', response);
-				console.log('[Login] Last login info data:', response?.data);
-				if (response?.data?.last_login) {
-					const { username, password, machine_role, language } = response.data.last_login;
-					console.log('[Login] last_login user:', username, 'role:', machine_role);
+				// api-router 已自动解包 GraphQL 响应，直接访问 last_login
+				const loginData = (response?.data as any)?.last_login;
+				if (loginData) {
+					const { username, password, machine_role, language } = loginData;
 
-					// Apply saved language preference if available
 					if (language && i18n.language !== language) {
-						console.log('[Login] Applying saved language:', language);
 						await i18n.changeLanguage(language);
 						localStorage.setItem('i18nextLng', language);
 					}
 
-					// TODO: Theme preference will be handled by ThemeContext
-
-					// Update form with login credentials
-					// Use default role 'Commander' if machine_role is not available
 					updateFormWithRole(username, password, machine_role || 'Commander');
 				}
 			} catch (error) {
@@ -235,7 +225,6 @@ const Login: React.FC = () => {
 				if (session_id) {
 					loginSession.sessionId = session_id;
 					userStorageManager.setSessionId(session_id);
-					ipcClient.setSessionId(session_id);
 				}
 
 				userStorageManager.saveLoginSession(loginSession);
@@ -525,7 +514,6 @@ const Login: React.FC = () => {
 		if (session_id) {
 			loginSession.sessionId = session_id;
 			userStorageManager.setSessionId(session_id);
-			ipcClient.setSessionId(session_id);
 		}
 
 		userStorageManager.saveLoginSession(loginSession);

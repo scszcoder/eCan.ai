@@ -60,9 +60,13 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
       const api = get_ipc_api();
       const response = await api.getSystemAvatars<AvatarData[]>(username);
       
+      console.log('[AvatarSelector] getSystemAvatars response:', response);
+      
       if (response.success && response.data) {
+        console.log('[AvatarSelector] System avatars data:', response.data);
         setSystemAvatars(response.data);
       } else {
+        console.error('[AvatarSelector] System avatars failed:', response);
         message.error(t('avatar.load_system_failed') || 'Failed to load system avatars');
       }
     } catch (error) {
