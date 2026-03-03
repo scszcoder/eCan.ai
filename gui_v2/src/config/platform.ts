@@ -43,7 +43,13 @@ export const detectPlatform = (): PlatformType => {
   }
 
   try {
+    const protocol = window.location.protocol;
     const hostname = window.location.hostname;
+    
+    // Desktop mode: file:// protocol (production build opened directly)
+    if (protocol === 'file:') {
+      return 'desktop';
+    }
     
     // Desktop mode: localhost or 127.0.0.1
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.')) {

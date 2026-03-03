@@ -42,7 +42,14 @@ const getEnv = () => {
  */
 const isLocalhost = (): boolean => {
   try {
+    const protocol = window?.location?.protocol || '';
     const hostname = window?.location?.hostname || '';
+    
+    // Desktop mode: file:// protocol (production build opened directly)
+    if (protocol === 'file:') {
+      return true;
+    }
+    
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
   } catch {
     return false;

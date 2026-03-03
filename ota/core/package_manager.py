@@ -55,7 +55,16 @@ class PackageManager:
     """Update package manager"""
     
     def __init__(self, download_dir: Optional[str] = None):
-        self.download_dir = Path(download_dir) if download_dir else Path(tempfile.gettempdir()) / "ecan_updates"
+        # Use fixed user directory instead of temporary directory
+        # This avoids Windows Defender scanning on every download
+        if download_dir:
+            self.download_dir = Path(download_dir)
+        else:
+            # Get user data directory (persistent, not temporary)
+            from config.app_info import app_info
+            user_data_root = Path(app_info.appdata_path)
+            self.download_dir = user_data_root / "ota_downloads"
+        
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.current_package: Optional[UpdatePackage] = None
         self._downloaded_files = []  # Track downloaded files
