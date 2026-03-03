@@ -1,4 +1,8 @@
 import mcp.types as types
+from agent.mcp.server.wechat.wechat_tools import (
+    add_wechat_send_tool_schema,
+    add_wechat_receive_tool_schema,
+)
 from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import (
     add_get_amazon_summary_tool_schema,
     add_amazon_fullfill_next_order_tool_schema,
@@ -2310,6 +2314,10 @@ def build_agent_mcp_tools_schemas():
         },
     )
     add_tool_schema(tool_schema)
+
+    # WeChat automation tools
+    add_wechat_send_tool_schema(tool_schemas)
+    add_wechat_receive_tool_schema(tool_schemas)
 
     # Azure cost monitoring and emergency shutdown tools
     add_azure_read_billing_tool_schema(tool_schemas)
