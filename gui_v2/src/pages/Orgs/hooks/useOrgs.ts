@@ -108,7 +108,8 @@ export const useOrgs = () => {
             status: node.status,
             created_at: node.created_at,
             updated_at: node.updated_at,
-            children: []
+            children: [],
+            agents: node.agents || []  // ✅ 保留 agents 字段
           };
           
           // 递归转换子组织
@@ -150,31 +151,61 @@ export const useOrgs = () => {
     if (!username) return;
 
     const companyName = dataStateRef.current.companyName.trim();
-    if (!companyName) return;
+    
+    // 警告：companyName 为空时也允许加载，但记录日志方便排查
+    if (!companyName) {
+      console.warn('[useOrgs] ⚠️ loadOrgAgents called with empty companyName, will load all organizations');
+      console.warn('[useOrgs] If agents are not displayed, check if companyName should be set');
+    }
 
     updateDataState({ loading: true });
     try {
       const api = get_ipc_api();
       
       // 使用 getAllOrgAgents 获取完整的组织和代理树结构
-      const response = await api.getAllOrgAgents(username, companyName);
+      // companyName 可以为空，后端会返回所有组织
+      const response = await api.getAllOrgAgents(username, companyName || undefined);
       
       if (response.success && response.data) {
         const data = response.data as any;
         
-        // 从树形数据中找到对应组织的代理
-        const findOrgAgents = (node: any, targetOrgId: string): any[] => {
+        // 递归收集所有子部门的代理
+        const collectAllAgents = (node: any): any[] => {
           if (!node) return [];
           
-          // 如果找到目标组织（包括根节点）
+          // 收集当前节点的代理
+          const currentAgents = node.agents || [];
+          
+          // 递归收集所有子节点的代理
+          let childAgents: any[] = [];
+          if (node.children && node.children.length > 0) {
+            for (const child of node.children) {
+              childAgents = childAgents.concat(collectAllAgents(child));
+            }
+          }
+          
+          const totalAgents = [...currentAgents, ...childAgents];
+          return totalAgents;
+        };
+        
+        // 从树形数据中找到对应组织并收集所有代理
+        const findOrgAndCollectAgents = (node: any, targetOrgId: string): any[] => {
+          if (!node) {
+            return [];
+          }
+          
+          // 如果找到目标组织
           if (node.id === targetOrgId) {
-            return node.agents || [];
+            // 对于任何组织（包括根组织），都递归收集该组织及其所有子组织的代理
+            // 这样根组织会显示所有子部门的代理，子部门也会显示其下属部门的代理
+            const collectedAgents = collectAllAgents(node);
+            return collectedAgents;
           }
           
           // 递归查找子组织
           if (node.children && node.children.length > 0) {
             for (const child of node.children) {
-              const agents = findOrgAgents(child, targetOrgId);
+              const agents = findOrgAndCollectAgents(child, targetOrgId);
               if (agents.length > 0) {
                 return agents;
               }
@@ -184,7 +215,8 @@ export const useOrgs = () => {
           return [];
         };
         
-        const agents = findOrgAgents(data.orgs, orgId);
+        const agents = findOrgAndCollectAgents(data.orgs, orgId);
+        
         const validAgents = agents.filter((agent: any) => agent && agent.id && agent.name);
         
         updateDataState({ orgAgents: validAgents, loading: false });
