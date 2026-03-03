@@ -41,65 +41,55 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     Returns:
         Path to the directory containing Playwright browsers.
 
-    The function follows this logic:
-    - Frozen runtime: <_MEIPASS>/third_party/ms-playwright
-    - Dev runtime: <repo>/third_party/ms-playwright
-    - If found, copy to <app_data_root>/ms-playwright when missing or incomplete.
-    - Finally set PLAYWRIGHT_BROWSERS_PATH to the writable directory and return it.
+    Strategy (optimized for Windows performance):
+    1. Always prefer user data directory over temporary directory
+    2. First run: copy from PyInstaller bundle to user directory
+    3. Subsequent runs: use cached user directory (fast, no Windows Defender scan)
+    4. This avoids Windows Defender scanning temporary directory on every startup
     """
-    # PyInstaller special handling: use bundled browsers directly
-    if getattr(sys, 'frozen', False):
-        bundled_path = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
-        if bundled_path.exists() and _validate_browser_installation(bundled_path):
-            logger.info(f"Using bundled Playwright browsers in PyInstaller: {bundled_path}")
-            core_utils.set_environment_variables(bundled_path)
-            # Install browser extensions from bundled resources (first run)
-            core_utils.install_browser_extensions()
-            return bundled_path
-        else:
-            logger.warning(f"Bundled browsers not found or invalid at: {bundled_path}")
-
-    # Check if valid environment variables are already set
-    existing_path = core_utils.get_environment_browsers_path()
-    if existing_path and not force_refresh:
-        if _validate_browser_installation(existing_path):
-            logger.info(f"Using existing PLAYWRIGHT_BROWSERS_PATH: {existing_path}")
-            return existing_path
-    
-    # Simplified: no longer read paths from config files to avoid over-implementation
-    
+    # Get app data root (user directory, not temporary directory)
     if app_data_root is None:
         app_data_root = _default_app_data_root()
-
-    # Target directory in app data
+    
+    # Target directory in user data (persistent across runs)
     target = app_data_root / 'ms-playwright'
-
-    # Determine bundled browsers path
-    if getattr(sys, 'frozen', False):
-        bundled = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
-    else:
-        bundled = Path.cwd() / 'third_party' / 'ms-playwright'
-
-    # If target already has a valid installation, prefer reusing it but allow version update from bundled
+    
+    # Check if user directory already has valid browsers (fast path for subsequent runs)
     if not force_refresh and _validate_browser_installation(target):
-        if bundled.exists() and _validate_browser_installation(bundled):
-            logger.info(f"Checking for Playwright browser updates from bundled path: {bundled}")
-            # copy_playwright_browsers() will perform version comparison and only update when needed
-            core_utils.copy_playwright_browsers(bundled, target)
-
-        logger.info(f"Browser installation already exists and is valid at: {target}")
+        logger.info(f"✅ Using cached Playwright browsers from user directory: {target}")
         core_utils.set_environment_variables(target)
-        return target
-
-    # Copy from bundled if available (target missing or invalid, or force_refresh=True)
-    if bundled.exists() and _validate_browser_installation(bundled):
-        logger.info(f"Copying browsers from {bundled}")
-        core_utils.copy_playwright_browsers(bundled, target)
-        core_utils.set_environment_variables(target)
-        logger.info(f"Playwright browsers ready at: {target}")
         return target
     
-    # Fallback: runtime installation
+    # Determine bundled browsers path
+    if getattr(sys, 'frozen', False):
+        # PyInstaller: browsers in temporary directory
+        bundled = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
+    else:
+        # Development: browsers in repo directory
+        bundled = Path.cwd() / 'third_party' / 'ms-playwright'
+    
+    # First run or force refresh: copy from bundled to user directory
+    if bundled.exists() and _validate_browser_installation(bundled):
+        if getattr(sys, 'frozen', False):
+            logger.info(f"🔄 First run: copying Playwright browsers to user directory...")
+            logger.info(f"   From: {bundled} (temporary)")
+            logger.info(f"   To:   {target} (persistent)")
+            logger.info(f"   This improves startup speed on subsequent runs (Windows Defender optimization)")
+        else:
+            logger.info(f"Copying browsers from {bundled}")
+        
+        core_utils.copy_playwright_browsers(bundled, target)
+        core_utils.set_environment_variables(target)
+        
+        # Install browser extensions from bundled resources
+        if getattr(sys, 'frozen', False):
+            core_utils.install_browser_extensions()
+        
+        logger.info(f"✅ Playwright browsers ready at: {target}")
+        return target
+    
+    # Fallback: runtime installation (should rarely happen)
+    logger.warning("Bundled browsers not found, attempting runtime installation...")
     logger.info("Starting runtime installation of Playwright browsers...")
     core_utils.install_playwright_browsers(target)
     

@@ -117,6 +117,7 @@ class AuthManager:
         # 1. Try extracting from ID Token
         if id_token:
             claims = self.cognito_service.verify_token(id_token, 'id')
+            logger.debug(f"[_fetch_user_profile] verify_token result: success={claims.get('success')}, error={claims.get('error')}")
             if claims.get('success'):
                 claim_data = claims['data']
                 logger.debug(f"ID Token Claims: {claim_data}")
@@ -148,6 +149,9 @@ class AuthManager:
                     'picture': claim_data.get('picture', ''),
                     'email_verified': claim_data.get('email_verified', False),
                 }
+                logger.info(f"[_fetch_user_profile] Constructed user_profile: {user_profile}")
+            else:
+                logger.warning(f"[_fetch_user_profile] verify_token failed: {claims.get('error')}")
 
         # 2. OPTIMIZATION: Skip UserInfo endpoint to avoid additional 90+ second network delay
         # ID Token already contains all necessary user information (email, name, given_name, family_name, picture)
@@ -156,6 +160,7 @@ class AuthManager:
         # By relying solely on ID Token claims, we reduce login time from ~180s to ~92s
         
         logger.info(f"[AuthManager] User profile fetched from ID Token (skipped UserInfo endpoint for performance)")
+        logger.info(f"[_fetch_user_profile] Returning user_profile: {user_profile}, email: {email}")
 
         return user_profile, email
 

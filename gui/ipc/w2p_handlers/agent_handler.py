@@ -35,8 +35,9 @@ def _json_safe(value, depth: int = 0):
     - Fallback: str(value)
     """
     try:
-        # Prevent extremely deep recursion
-        if depth > 8:
+        # Prevent extremely deep recursion - increased limit for complex agent objects
+        if depth > 15:
+            logger.warning(f"[agent_handler] _json_safe depth limit reached at depth {depth}, converting to string")
             return str(value)
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
@@ -156,7 +157,18 @@ def build_org_agent_tree(organizations, agents):
 
     # Build tree structure recursively
     def build_tree_node(org_data: Dict[str, Any]):
-        """Build a single tree node with its children and agents"""
+        """Build a single tree node with its children and agents
+        
+        Each node contains:
+        - agents: Direct agents assigned to this organization only
+        - children: Child organizations (each with their own agents)
+        
+        The frontend will recursively collect agents from all descendants.
+        """
+        # Get direct agents for this organization
+        org_normalized_id = org_data.get('_normalized_id')
+        direct_agents = agents_by_org.get(org_normalized_id, [])
+        
         node = {
             'id': org_data.get('id'),
             'name': org_data.get('name'),
@@ -169,9 +181,10 @@ def build_org_agent_tree(organizations, agents):
             'created_at': org_data.get('created_at'),
             'updated_at': org_data.get('updated_at'),
             'children': [],
-            'agents': agents_by_org.get(org_data.get('_normalized_id'), [])
+            'agents': direct_agents  # Only direct agents
         }
 
+        # Build children recursively
         child_orgs_list = sorted(
             children_map.get(org_data.get('_normalized_id'), []),
             key=sort_key,
@@ -210,15 +223,20 @@ def build_org_agent_tree(organizations, agents):
     # Debug: detailed tree structure logging
     def log_tree_structure(node, indent=0):
         prefix = "  " * indent
-        logger.info(f"{prefix}- {node['name']} (id: {node['id']}) - {len(node.get('agents', []))} agents, {len(node.get('children', []))} children")
+        agent_ids = [a.get('id', 'unknown') for a in node.get('agents', [])]
+        logger.info(f"{prefix}- {node['name']} (id: {node['id']}) - {len(node.get('agents', []))} agents {agent_ids}, {len(node.get('children', []))} children")
         for child in node.get('children', []):
             log_tree_structure(child, indent + 1)
     
     logger.info(f"[agent_handler] Built integrated tree structure:")
     logger.info(f"  - Total organizations processed: {len(organizations)}")
+    logger.info(f"  - Total agents: {len(agents)}")
     logger.info(f"  - Unassigned agents: {len(unassigned_agents)}")
+    logger.info(f"  - Agents by org_id distribution:")
+    for org_id, org_agents in agents_by_org.items():
+        logger.info(f"    - org_id={org_id}: {len(org_agents)} agents")
     logger.info(f"Tree structure:")
-    # log_tree_structure(tree_root)
+    log_tree_structure(tree_root)
     
     return tree_root
 
@@ -293,10 +311,6 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             'message': 'Get all successful'
         }
         
-        # Debug: log the first agent's data to verify serialization
-        if agents_data and len(agents_data) > 0:
-            sample_agent = agents_data[0]
-            logger.info(f"[agent_handler] Sample agent data: id={sample_agent.get('id')}, name={sample_agent.get('name')}, owner={sample_agent.get('owner')}, skills={len(sample_agent.get('skills', []))}, tasks={len(sample_agent.get('tasks', []))}")
         
         # Sanitize for JSON serialization safety (handles Pydantic objects like TaskSendParams)
         safe_result = _json_safe(resultJS)
@@ -514,9 +528,6 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
         str: JSON formatted response message
     """
     try:
-        # 🔍 DEBUG: Log received parameters
-        logger.info(f"[agent_handler] delete_agent called with params: {params}")
-        logger.info(f"[agent_handler] params type: {type(params)}")
         
         # Get username
         username = params.get('username') if params else None
@@ -937,7 +948,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         safe_result = _json_safe(result_data)
         if safe_result is not result_data:
             logger.debug("[agent_handler] Applied JSON-safe sanitation to get_all_org_agents result")
-
+        
         logger.info(f"[agent_handler] Successfully retrieved integrated data for user: {username}")
         return create_success_response(request, safe_result)
         
@@ -1355,3 +1366,198 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
         import traceback
         logger.debug(traceback.format_exc())
         return False
+
+
+@IPCHandlerRegistry.handler('query_agent_org_rels')
+def handle_query_agent_org_rels(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+    """Query agent-organization relationships
+    
+    Args:
+        request: IPC request
+        params: Optional parameters containing input JSON with agent_id, limit, offset
+        
+    Returns:
+        IPCResponse with list of agent-org relationships
+    """
+    try:
+        request_params = request.get('params', {})
+        input_str = request_params.get('input', '{}')
+        
+        # Parse input JSON
+        import json
+        input_data = json.loads(input_str) if isinstance(input_str, str) else input_str
+        
+        agent_id = input_data.get('agent_id')
+        limit = input_data.get('limit', 500)
+        offset = input_data.get('offset', 0)
+        
+        logger.debug(f"[agent_handler] query_agent_org_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
+        
+        # Get database manager
+        ec_db_mgr = get_handler_context().get('ec_db_mgr')
+        if not ec_db_mgr:
+            return create_error_response(request, 'DB_NOT_AVAILABLE', 'Database manager not available')
+        
+        # Query relationships from database
+        from agent.db.models.association_models import DBAgentOrgRel
+        db_session = ec_db_mgr.get_session()
+        
+        query = db_session.query(DBAgentOrgRel)
+        if agent_id:
+            query = query.filter(DBAgentOrgRel.agent_id == agent_id)
+        
+        # Apply pagination
+        total_count = query.count()
+        rels = query.offset(offset).limit(limit).all()
+        
+        # Convert to dict
+        result = []
+        for rel in rels:
+            result.append({
+                'id': rel.id,
+                'agent_id': rel.agent_id,
+                'org_id': rel.org_id,
+                'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
+                'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
+            })
+        
+        logger.info(f"[agent_handler] Retrieved {len(result)} agent-org relationships (total: {total_count})")
+        
+        # Return as JSON string for GraphQL compatibility
+        import json
+        return create_success_response(request, json.dumps(result))
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error querying agent-org relationships: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'QUERY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('query_agent_skill_rels')
+def handle_query_agent_skill_rels(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+    """Query agent-skill relationships
+    
+    Args:
+        request: IPC request
+        params: Optional parameters containing input JSON with agent_id, limit, offset
+        
+    Returns:
+        IPCResponse with list of agent-skill relationships
+    """
+    try:
+        request_params = request.get('params', {})
+        input_str = request_params.get('input', '{}')
+        
+        # Parse input JSON
+        import json
+        input_data = json.loads(input_str) if isinstance(input_str, str) else input_str
+        
+        agent_id = input_data.get('agent_id')
+        limit = input_data.get('limit', 500)
+        offset = input_data.get('offset', 0)
+        
+        logger.debug(f"[agent_handler] query_agent_skill_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
+        
+        # Get database manager
+        ec_db_mgr = get_handler_context().get('ec_db_mgr')
+        if not ec_db_mgr:
+            return create_error_response(request, 'DB_NOT_AVAILABLE', 'Database manager not available')
+        
+        # Query relationships from database
+        from agent.db.models.association_models import DBAgentSkillRel
+        db_session = ec_db_mgr.get_session()
+        
+        query = db_session.query(DBAgentSkillRel)
+        if agent_id:
+            query = query.filter(DBAgentSkillRel.agent_id == agent_id)
+        
+        # Apply pagination
+        total_count = query.count()
+        rels = query.offset(offset).limit(limit).all()
+        
+        # Convert to dict
+        result = []
+        for rel in rels:
+            result.append({
+                'id': rel.id,
+                'agent_id': rel.agent_id,
+                'skill_id': rel.skill_id,
+                'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
+                'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
+            })
+        
+        logger.info(f"[agent_handler] Retrieved {len(result)} agent-skill relationships (total: {total_count})")
+        
+        # Return as JSON string for GraphQL compatibility
+        import json
+        return create_success_response(request, json.dumps(result))
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error querying agent-skill relationships: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'QUERY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('query_agent_task_rels')
+def handle_query_agent_task_rels(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
+    """Query agent-task relationships
+    
+    Args:
+        request: IPC request
+        params: Optional parameters containing input JSON with agent_id, limit, offset
+        
+    Returns:
+        IPCResponse with list of agent-task relationships
+    """
+    try:
+        request_params = request.get('params', {})
+        input_str = request_params.get('input', '{}')
+        
+        # Parse input JSON
+        import json
+        input_data = json.loads(input_str) if isinstance(input_str, str) else input_str
+        
+        agent_id = input_data.get('agent_id')
+        limit = input_data.get('limit', 500)
+        offset = input_data.get('offset', 0)
+        
+        logger.debug(f"[agent_handler] query_agent_task_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
+        
+        # Get database manager
+        ec_db_mgr = get_handler_context().get('ec_db_mgr')
+        if not ec_db_mgr:
+            return create_error_response(request, 'DB_NOT_AVAILABLE', 'Database manager not available')
+        
+        # Query relationships from database
+        from agent.db.models.association_models import DBAgentTaskRel
+        db_session = ec_db_mgr.get_session()
+        
+        query = db_session.query(DBAgentTaskRel)
+        if agent_id:
+            query = query.filter(DBAgentTaskRel.agent_id == agent_id)
+        
+        # Apply pagination
+        total_count = query.count()
+        rels = query.offset(offset).limit(limit).all()
+        
+        # Convert to dict
+        result = []
+        for rel in rels:
+            result.append({
+                'id': rel.id,
+                'agent_id': rel.agent_id,
+                'task_id': rel.task_id,
+                'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
+                'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
+            })
+        
+        logger.info(f"[agent_handler] Retrieved {len(result)} agent-task relationships (total: {total_count})")
+        
+        # Return as JSON string for GraphQL compatibility
+        import json
+        return create_success_response(request, json.dumps(result))
+        
+    except Exception as e:
+        logger.error(f"[agent_handler] Error querying agent-task relationships: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'QUERY_ERROR', str(e))
