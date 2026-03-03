@@ -4229,8 +4229,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             # Patch navigation timeout to reduce "Page readiness timeout" warnings
             # browser_use hardcodes 4s cross-domain / 2s same-domain, which is too short for many sites
-            from agent.ec_skills.browser_use_extension.session_patch import patch_navigation_timeout
-            patch_navigation_timeout(cross_domain_timeout=10.0, same_domain_timeout=5.0)
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
