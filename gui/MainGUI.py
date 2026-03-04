@@ -488,9 +488,17 @@ class MainWindow:
             )
 
             # Phase 2F: Start offline sync on startup (non-blocking)
-            logger.info("[MainWindow] ðŸ”„ Starting offline sync on startup (non-blocking)...")
+            logger.info("[MainWindow] 🔄 Starting offline sync on startup (non-blocking)...")
             asyncio.get_event_loop().run_in_executor(
                 None, self._startup_sync_offline_cloud_cache
+            )
+            
+            # Auto-refresh provider models on startup (non-blocking, runs in background)
+            # This ensures we always have the latest model info (context_length, etc.)
+            # Only runs if RyoAIS or Ollama providers are configured
+            logger.info("[MainWindow] 🔄 Starting provider models auto-refresh (non-blocking)...")
+            asyncio.get_event_loop().run_in_executor(
+                None, self._auto_refresh_provider_models
             )
             
             # Initialize async tasks
@@ -1481,6 +1489,32 @@ class MainWindow:
             logger.error(f"[MainWindow] âŒ Background cloud sync failed: {e}")
             logger.error(f"[MainWindow] Cloud sync error details: {traceback.format_exc()}")
             logger.error(f"[MainWindow] Cloud sync failed: {str(e)}")
+
+    def _auto_refresh_provider_models(self):
+        """
+        Auto-refresh RyoAIS and Ollama models on startup to get latest context_length and model info.
+
+        This delegates to ProviderManager which handles:
+        1. Fetching latest model information from provider APIs
+        2. Updating both cache files and llm_providers.json configuration
+        3. Ensuring context_length is correctly saved for message compaction
+
+        This runs in background thread (via run_in_executor) and doesn't block startup.
+        """
+        try:
+            from gui.manager.provider_manager import get_provider_manager
+            
+            # Get username for user-specific operations
+            username = self.log_user if hasattr(self, 'log_user') else None
+            
+            # Delegate to ProviderManager for all provider refresh operations
+            provider_manager = get_provider_manager()
+            provider_manager.auto_refresh_all_providers(username, main_window=self)
+                
+        except Exception as e:
+            logger.warning(f"[MainWindow] ⚠️ Error auto-refreshing provider models: {e}")
+            import traceback
+            logger.debug(f"[MainWindow] Auto-refresh error traceback:\n{traceback.format_exc()}")
 
     def _startup_sync_offline_cloud_cache(self):
         """
@@ -4565,14 +4599,15 @@ class MainWindow:
                     logger.warning("Queue unexpectedly empty when trying to get message.")
                 except Exception as e:
                     logger.error(f"Error processing Commander message: {e}")
-
             else:
                 # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
                 for v in self.vehicles:
                     if "connecting" in v.getStatus():
                         logger.debug("pinging platoon: " + v.getIP())
                         self.sendToVehicleByVip(v.getIP())
-            await asyncio.sleep(1)  # Short sleep to avoid busy-waiting
+            
+            # CRITICAL: Always sleep to prevent CPU blocking in infinite loop
+            await asyncio.sleep(0.1)  # Release event loop, prevent busy-waiting
 
 
     # msg in json format

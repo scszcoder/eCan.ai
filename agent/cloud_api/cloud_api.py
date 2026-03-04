@@ -133,11 +133,38 @@ def get_appsync_endpoint() -> str:
 # resp is the response from requesting the presigned_url
 def send_file_with_presigned_url(src_file, resp):
     # Upload file to S3 using presigned URL
+    # Calculate dynamic timeout based on file size
+    file_size = os.path.getsize(src_file)
+    timeout = _calculate_upload_timeout(file_size)
+    file_size_mb = file_size / (1024 * 1024)
+    logger_helper.info(f"[S3Upload] Uploading {os.path.basename(src_file)}: {file_size_mb:.2f} MB, timeout: {timeout}s")
+    
     with open(src_file, 'rb') as f:
         files = {'file': f}
-        r = requests.post(resp['url'], data=resp['fields'], files=files, timeout=60)
+        r = requests.post(resp['url'], data=resp['fields'], files=files, timeout=timeout)
     # r = requests.post(resp['body'][0], files=files)
     logger_helper.debug(str(r.status_code))
+
+
+def _calculate_upload_timeout(file_size_bytes, min_speed_kbps=50):
+    """
+    Calculate dynamic timeout based on file size and minimum acceptable speed.
+    
+    Args:
+        file_size_bytes: File size in bytes
+        min_speed_kbps: Minimum acceptable upload speed in KB/s (default: 50 KB/s)
+    
+    Returns:
+        Timeout in seconds (minimum 30s, maximum 600s)
+    """
+    # Calculate base timeout: file_size / min_speed
+    base_timeout = file_size_bytes / (min_speed_kbps * 1024)
+    
+    # Add 20% buffer for network fluctuations
+    timeout_with_buffer = base_timeout * 1.2
+    
+    # Clamp between 30s and 600s (10 minutes)
+    return max(30, min(600, int(timeout_with_buffer)))
 
 
 # Upload file to S3 using PUT presigned URL (for avatar uploads)
@@ -161,6 +188,14 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
         return {"success": False, "error": f"File not found: {file_path}"}
     
     try:
+        # Get file size for dynamic timeout calculation
+        file_size = os.path.getsize(file_path)
+        file_size_mb = file_size / (1024 * 1024)
+        
+        # Calculate dynamic timeout based on file size
+        timeout = _calculate_upload_timeout(file_size)
+        logger.info(f"[S3Upload] File: {os.path.basename(file_path)}, Size: {file_size_mb:.2f} MB, Timeout: {timeout}s")
+        
         with open(file_path, 'rb') as f:
             file_data = f.read()
         
@@ -196,21 +231,57 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
         if not content_type or content_type != auto_content_type:
             attempts.append(('auto-detected', {'Content-Type': auto_content_type}))
         
+        # Retry logic: up to 3 attempts with exponential backoff
+        max_retries = 3
         last_error = None
-        for attempt_name, headers in attempts:
-            logger.debug(f"[S3Upload] Trying upload with {attempt_name}: headers={headers}")
-            response = requests.put(presigned_url, data=file_data, headers=headers, timeout=300)
-            
-            if response.status_code in [200, 204]:
-                logger.info(f"✅ Successfully uploaded {file_path} to S3 (attempt: {attempt_name})")
-                return {"success": True}
-            else:
-                last_error = f"{response.status_code} - {response.text[:200]}"
-                logger.debug(f"[S3Upload] Attempt {attempt_name} failed: {response.status_code}")
         
-        # All attempts failed
-        logger.error(f"❌ Failed to upload {file_path}: {last_error}")
-        return {"success": False, "error": f"Upload failed: {last_error}"}
+        for retry in range(max_retries):
+            for attempt_name, headers in attempts:
+                try:
+                    if retry > 0:
+                        logger.info(f"[S3Upload] Retry {retry}/{max_retries-1} for {attempt_name}")
+                    else:
+                        logger.debug(f"[S3Upload] Trying upload with {attempt_name}: headers={headers}")
+                    
+                    response = requests.put(presigned_url, data=file_data, headers=headers, timeout=timeout)
+                    
+                    if response.status_code in [200, 204]:
+                        logger.info(f"✅ Successfully uploaded {file_path} to S3 (attempt: {attempt_name}, retry: {retry})")
+                        return {"success": True}
+                    else:
+                        last_error = f"{response.status_code} - {response.text[:200]}"
+                        logger.debug(f"[S3Upload] Attempt {attempt_name} failed: {response.status_code}")
+                        
+                except requests.Timeout:
+                    last_error = f"Timeout after {timeout}s (file: {file_size_mb:.2f} MB)"
+                    if retry < max_retries - 1:
+                        wait_time = 2 ** retry  # 1s, 2s, 4s
+                        logger.warning(f"⏱️  Upload timeout, retrying in {wait_time}s... (attempt: {attempt_name})")
+                        import time
+                        time.sleep(wait_time)
+                        break  # Break inner loop to retry all attempts
+                    else:
+                        logger.error(f"❌ Upload timeout after {max_retries} retries")
+                        
+                except Exception as e:
+                    last_error = str(e)
+                    logger.error(f"❌ Upload error: {e}")
+                    if retry == max_retries - 1:
+                        break
+            else:
+                # Inner loop completed without break (all attempts failed)
+                if retry < max_retries - 1:
+                    wait_time = 2 ** retry
+                    logger.warning(f"All content-type attempts failed, retrying in {wait_time}s...")
+                    import time
+                    time.sleep(wait_time)
+                continue
+            break  # Break outer loop if inner loop was broken (timeout occurred)
+        
+        # All retries exhausted
+        logger.error(f"❌ Failed to upload {file_path} after {max_retries} retries: {last_error}")
+        return {"success": False, "error": f"Upload failed after {max_retries} retries: {last_error}"}
+        
     except Exception as e:
         logger.error(f"❌ Exception uploading {file_path}: {e}")
         return {"success": False, "error": str(e)}
@@ -218,9 +289,25 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
 
 # resp is the response from requesting the presigned_url
 def get_file_with_presigned_url(dest_file, url):
-    # Download file to S3 using presigned URL
-    # POST to S3 presigned url
-    http_response = requests.get(url, stream=True, timeout=60)
+    # Download file to S3 using presigned URL with dynamic timeout
+    # First get headers to determine file size
+    try:
+        head_response = requests.head(url, timeout=10)
+        content_length = head_response.headers.get('Content-Length')
+        if content_length:
+            file_size = int(content_length)
+            timeout = _calculate_upload_timeout(file_size, min_speed_kbps=100)  # Assume faster download
+            file_size_mb = file_size / (1024 * 1024)
+            logger_helper.info(f"[S3Download] File size: {file_size_mb:.2f} MB, timeout: {timeout}s")
+        else:
+            timeout = 300  # Default 5 minutes
+            logger_helper.info(f"[S3Download] File size unknown, using default timeout: {timeout}s")
+    except:
+        timeout = 300  # Default if HEAD request fails
+        logger_helper.debug(f"[S3Download] Could not determine file size, using default timeout: {timeout}s")
+    
+    # Download file with calculated timeout
+    http_response = requests.get(url, stream=True, timeout=timeout)
     print("DL presigned:", http_response)
     if http_response.status_code == 200:
         dest_dir = os.path.dirname(dest_file)
@@ -5309,9 +5396,55 @@ def handle_scene_complete(scene_result: dict, download_dir: str = "generated_med
                 
                 local_path = os.path.join(download_dir, filename)
                 
-                # Download the file
-                response = requests.get(url, stream=True, timeout=120)
-                response.raise_for_status()
+                # Download the file with retry mechanism
+                max_retries = 3
+                download_success = False
+                last_error = None
+                
+                for retry in range(max_retries):
+                    try:
+                        # Use streaming download with dynamic timeout
+                        # Estimate file size from Content-Length if available, otherwise use conservative timeout
+                        response = requests.get(url, stream=True, timeout=60)  # Initial connection timeout
+                        response.raise_for_status()
+                        
+                        # Get file size from Content-Length header
+                        content_length = response.headers.get('Content-Length')
+                        if content_length:
+                            file_size = int(content_length)
+                            file_size_mb = file_size / (1024 * 1024)
+                            # Calculate read timeout based on file size (min 30s, max 600s)
+                            read_timeout = _calculate_upload_timeout(file_size, min_speed_kbps=100)  # Assume faster download
+                            logger.info(f"[Download] File size: {file_size_mb:.2f} MB, timeout: {read_timeout}s")
+                        else:
+                            read_timeout = 300  # Default 5 minutes if size unknown
+                            logger.info(f"[Download] File size unknown, using default timeout: {read_timeout}s")
+                        
+                        download_success = True
+                        break
+                        
+                    except requests.Timeout:
+                        last_error = f"Timeout during download"
+                        if retry < max_retries - 1:
+                            wait_time = 2 ** retry
+                            logger.warning(f"⏱️  Download timeout, retrying in {wait_time}s...")
+                            import time
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"❌ Download failed after {max_retries} retries")
+                    except Exception as e:
+                        last_error = str(e)
+                        logger.error(f"❌ Download error: {e}")
+                        if retry < max_retries - 1:
+                            wait_time = 2 ** retry
+                            import time
+                            time.sleep(wait_time)
+                        else:
+                            raise
+                
+                if not download_success:
+                    logger.error(f"Failed to download {file_type}: {last_error}")
+                    continue
                 
                 # Get content type to determine extension if needed
                 content_type = response.headers.get("Content-Type", "")
