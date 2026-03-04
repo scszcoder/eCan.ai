@@ -3482,9 +3482,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 add_to_history(state, tool_call_summary)
 
                 # Also update attributes for easier access by subsequent nodes
-                log_msg = f"state tool_result: {state['tool_result']}"
-                logger.debug(log_msg)
+                log_msg = f"state tool_result: meta={getattr(tool_result, 'meta', None)} content={[c.text[:200] + '...' if hasattr(c, 'text') and len(getattr(c, 'text', '')) > 200 else c for c in getattr(tool_result, 'content', [])]!r} structuredContent={getattr(tool_result, 'structuredContent', None)} isError={getattr(tool_result, 'isError', None)}"
+                logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
+
+                # Trim large tool_result to reduce state serialization overhead.
+                # Full data is already in history (via add_to_history above).
+                try:
+                    _tr = state.get("tool_result")
+                    if _tr and hasattr(_tr, "content") and isinstance(_tr.content, list):
+                        _total_len = sum(len(getattr(c, "text", "") or "") for c in _tr.content)
+                        if _total_len > 2000:
+                            from mcp.types import TextContent as _TC
+                            _tr.content = [_TC(type="text", text=f"[trimmed {_total_len} chars, see history]")]
+                            if hasattr(_tr, "meta"):
+                                _tr.meta = None
+                            logger.debug(f"Trimmed tool_result from {_total_len} chars to save state serialization")
+                except Exception:
+                    pass
 
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorMCPToolCallable({_actual_tool_name})")
