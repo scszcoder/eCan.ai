@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import {get_ipc_api} from '../../services/ipc_api';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { isDesktopPlatform } from '../../config/platform';
 import {
     downloadWithPresignedUrl,
     uploadWithPresignedUrl,
@@ -37,11 +38,11 @@ const Tests: React.FC = () => {
 
     // Debug: Ping IPC
     const handlePingIPC = async () => {
-        const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
-        console.log('[Tests] PingIPC: hasIPC?', hasIPC);
-        message.info(`Ping IPC: hasIPC=${hasIPC}`);
-        if (!hasIPC) {
-            setTestOutput('PingIPC: window.ipc missing');
+        const isDesktop = isDesktopPlatform();
+        console.log('[Tests] PingIPC: isDesktop?', isDesktop);
+        message.info(`Ping IPC: isDesktop=${isDesktop}`);
+        if (!isDesktop) {
+            setTestOutput('PingIPC: Web mode (no IPC support)');
             return;
         }
         try {
@@ -154,8 +155,8 @@ const Tests: React.FC = () => {
 
     // Handle test execution (STEP7: deferred IPC with then/catch/finally)
     const handleRunTest = async () => {
-        const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
-        console.log('[Tests] STEP7: start run (deferred IPC)', { selectedTest, hasIPC });
+        const isDesktop = isDesktopPlatform();
+        console.log('[Tests] STEP7: start run (deferred IPC)', { selectedTest, isDesktop });
         setIsTestRunning(true);
         setTestOutput(t('pages.tests.runningTest'));
 
@@ -1467,8 +1468,8 @@ const Tests: React.FC = () => {
                         <Button
                             onClick={async () => {
                                 // Direct array-form run_tests without changing component state
-                                const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
-                                console.log('[Tests] Direct API: run_tests array (5s)', { hasIPC, selectedTest });
+                                const isDesktop = isDesktopPlatform();
+                                console.log('[Tests] Direct API: run_tests array (5s)', { isDesktop, selectedTest });
                                 let parsedArgs: any = {};
                                 try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch {}
                                 const testConfig = { test_id: selectedTest || 'default_test', args: parsedArgs };
@@ -1491,8 +1492,8 @@ const Tests: React.FC = () => {
                         <Button
                             onClick={async () => {
                                 // Direct single-form run_tests without changing component state
-                                const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
-                                console.log('[Tests] Direct API: runSingleTest (3s)', { hasIPC, selectedTest });
+                                const isDesktop = isDesktopPlatform();
+                                console.log('[Tests] Direct API: runSingleTest (3s)', { isDesktop, selectedTest });
                                 let parsedArgs: any = {};
                                 try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch {}
                                 const testConfig = { test_id: selectedTest || 'default_test', args: parsedArgs };
