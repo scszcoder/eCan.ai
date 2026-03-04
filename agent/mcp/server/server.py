@@ -10,6 +10,7 @@ import traceback
 # Configure browser_use timeouts BEFORE importing browser_use modules
 # Increase screenshot timeout from default 8s to 30s for complex pages
 os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')
+os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
 
 # Third-party library imports
 import pyautogui

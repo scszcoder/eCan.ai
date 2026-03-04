@@ -1207,9 +1207,12 @@ def _update_recent_files(file_path: str, skill_name: str = None) -> list:
     return recent_files
 
 
-@IPCHandlerRegistry.handler('save_editor_cache')
+@IPCHandlerRegistry.background_handler('save_editor_cache')
 def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Save skill directly to file (NEW: no cache layer, direct file save).
+    """Save skill directly to file (runs in background thread to avoid blocking UI).
+    
+    File I/O operations (rename, write) can be slow, especially with large skills
+    or slow disks. Running in background prevents UI freezing during auto-save.
     
     Args:
         request: IPC request object
@@ -1488,9 +1491,9 @@ def _build_bundle_data(sheets_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@IPCHandlerRegistry.handler('load_editor_cache')
+@IPCHandlerRegistry.background_handler('load_editor_cache')
 def handle_load_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Load editor state including recent files list.
+    """Load editor state including recent files list (runs in background thread).
     
     Args:
         request: IPC request object

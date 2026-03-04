@@ -109,8 +109,14 @@ class SchemaVersion:
     transformers: List[FieldTransformer] = field(default_factory=list)  # Field transformers
     deprecated_fields: List[str] = field(default_factory=list)  # Deprecated fields
     
-    def to_cloud(self, local_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert local data to cloud format"""
+    def to_cloud(self, local_data: Dict[str, Any], operation: str = None) -> Dict[str, Any]:
+        """
+        Convert local data to cloud format
+        
+        Args:
+            local_data: Local data dictionary
+            operation: Operation type ('add', 'update', 'delete') for operation-specific transformations
+        """
         from utils.logger_helper import logger_helper as logger
         
         cloud_data = {}
@@ -133,10 +139,13 @@ class SchemaVersion:
         
         # Extract ID for logging (try different ID fields)
         record_id = cloud_data.get('agid') or cloud_data.get('askid') or cloud_data.get('ataskid') or cloud_data.get('toolid') or cloud_data.get('id', 'UNKNOWN')
-        logger.debug(f"[Schema] Before transformers (ID: {record_id}): {list(cloud_data.keys())}")
+        logger.debug(f"[Schema] Before transformers (ID: {record_id}, operation: {operation}): {list(cloud_data.keys())}")
 
-        # 4. Apply transformers
+        # 4. Apply transformers (pass operation context)
         for transformer in self.transformers:
+            # Pass operation context to transformer if it supports it
+            if hasattr(transformer, 'operation_context'):
+                transformer.operation_context = operation
             cloud_data = transformer.apply(cloud_data, direction='to_cloud')
 
         logger.debug(f"[Schema] After transformers (ID: {record_id}): {list(cloud_data.keys())}")

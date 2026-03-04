@@ -359,13 +359,21 @@ class DevRunner:
                 logger.debug(log_msg)
                 _send_skill_editor_log("log", log_msg)
                 
+                # Cancel the ManagedTask
+                # This will:
+                # 1. Set cancellation_event (for execution loops to check)
+                # 2. Try to cancel the Future (if not yet started)
+                # 3. Cancel asyncio Task (if applicable)
                 try:
                     if hasattr(self._dev_task, "cancel"):
                         self._dev_task.cancel()
+                        logger.info(f"[DevRunner] ✅ Cancellation signal sent to ManagedTask")
+                    
+                    # Also call exit() for additional cleanup
                     if hasattr(self._dev_task, "exit"):
                         self._dev_task.exit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"[DevRunner] ⚠️ Error calling cancel/exit on ManagedTask: {e}")
                 
                 self._dev_task = None
             
