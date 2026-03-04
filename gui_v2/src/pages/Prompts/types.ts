@@ -30,4 +30,6 @@ export interface Prompt {
   lastModified?: string;
   source?: 'my_prompts' | 'sample_prompts';
   readOnly?: boolean;
+  owner?: string;
+  rawContent?: string;
 }

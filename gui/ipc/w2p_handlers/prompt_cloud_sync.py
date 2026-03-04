@@ -110,6 +110,16 @@ def _prompt_to_graphql_input(prompt: Dict[str, Any], owner: str) -> Dict[str, An
     The *prompt* field is a JSON-encoded string containing the full prompt content.
     """
     prompt_id = prompt.get("id", "")
+    # If this prompt has rawContent (plain-text, not structured JSON), send it as-is
+    raw_content = prompt.get("rawContent")
+    if raw_content:
+        return {
+            "id": prompt_id,
+            "owner": owner,
+            "prompt": json.dumps(raw_content, ensure_ascii=False),
+            "version": prompt.get("version", "0.1"),
+        }
+
     prompt_content = {
         "title": prompt.get("title", ""),
         "topic": prompt.get("topic", ""),
@@ -238,25 +248,45 @@ def fetch_cloud_prompts() -> List[Dict[str, Any]]:
                 prompt_id = item.get("id", "")
                 prompt_json = item.get("prompt", "{}")
                 if isinstance(prompt_json, str):
-                    prompt_data = json.loads(prompt_json)
+                    try:
+                        prompt_data = json.loads(prompt_json)
+                    except (json.JSONDecodeError, ValueError):
+                        # Raw text prompt (not JSON) — preserve as-is
+                        prompt_data = prompt_json  # will be handled as non-dict below
                 elif isinstance(prompt_json, dict):
                     prompt_data = prompt_json
                 else:
                     prompt_data = {}
 
                 # Build a normalized prompt dict matching local format
-                normalized: Dict[str, Any] = {
-                    "id": prompt_id,
-                    "title": prompt_data.get("title", ""),
-                    "topic": prompt_data.get("topic", ""),
-                    "usageCount": prompt_data.get("usageCount", 0),
-                    "sections": prompt_data.get("sections", []),
-                    "userSections": prompt_data.get("userSections", []),
-                    "humanInputs": prompt_data.get("humanInputs", []),
-                    "lastModified": prompt_data.get("lastModified", ""),
-                    "source": "cloud",
-                    "readOnly": False,
-                }
+                if isinstance(prompt_data, dict):
+                    normalized: Dict[str, Any] = {
+                        "id": prompt_id,
+                        "title": prompt_data.get("title", ""),
+                        "topic": prompt_data.get("topic", ""),
+                        "usageCount": prompt_data.get("usageCount", 0),
+                        "sections": prompt_data.get("sections", []),
+                        "userSections": prompt_data.get("userSections", []),
+                        "humanInputs": prompt_data.get("humanInputs", []),
+                        "lastModified": prompt_data.get("lastModified", ""),
+                        "source": "cloud",
+                        "readOnly": False,
+                    }
+                else:
+                    # prompt_data is a raw string (not structured JSON) — preserve as rawContent
+                    normalized: Dict[str, Any] = {
+                        "id": prompt_id,
+                        "title": prompt_id,
+                        "topic": prompt_id,
+                        "usageCount": 0,
+                        "sections": [],
+                        "userSections": [],
+                        "humanInputs": [],
+                        "lastModified": "",
+                        "source": "cloud",
+                        "readOnly": False,
+                        "rawContent": str(prompt_data),
+                    }
                 if prompt_id:
                     prompts.append(normalized)
             except Exception as parse_exc:
@@ -280,8 +310,8 @@ def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
 
             owner = ctx["owner"]
 
-            # Only sync user-owned prompts (not sample/read-only)
-            to_sync = [p for p in prompts if not p.get("readOnly") and p.get("id")]
+            # Only sync user-owned prompts (not sample/read-only, not system)
+            to_sync = [p for p in prompts if not p.get("readOnly") and p.get("id") and p.get("owner") != "system"]
             if not to_sync:
                 logger.debug("[prompt_sync] No user prompts to sync to cloud")
                 return

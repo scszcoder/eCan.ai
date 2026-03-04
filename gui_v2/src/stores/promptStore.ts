@@ -48,8 +48,22 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
           try {
             nested = JSON.parse(nested);
           } catch (e) {
+            // Not JSON-parsable — preserve the raw string for preview display
             console.warn('[promptStore] Failed to parse prompt AWSJSON:', e);
-            nested = null;
+            const { prompt: _, ...rest } = p;
+            return {
+              ...rest,
+              id: rest.id || p.id,
+              owner: rest.owner,
+              title: rest.title || rest.id || 'Untitled',
+              topic: rest.topic || '',
+              usageCount: rest.usageCount || 0,
+              sections: [],
+              userSections: [],
+              humanInputs: [],
+              rawContent: nested, // the original non-JSON string
+              readOnly: true,
+            };
           }
         }
         // If prompt has nested 'prompt' field (GraphQL format), flatten it
