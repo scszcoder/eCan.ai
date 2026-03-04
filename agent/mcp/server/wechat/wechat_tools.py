@@ -22,9 +22,11 @@ from agent.mcp.server.wechat.platform_utils import (
     find_windows_by_title,
     bring_window_to_front,
     clipboard_set_text,
+    clipboard_get_text,
     clipboard_set_file,
     paste_hotkey,
     WindowInfo,
+    PLATFORM,
 )
 from agent.mcp.server.wechat.scroll_calibration import calibrate_scroll
 
@@ -39,6 +41,20 @@ _POST_ACTION_DELAY = 0.6
 _POST_CLICK_DELAY = 0.8
 _POST_TYPE_DELAY = 0.5
 _POST_SCROLL_DELAY = 0.8
+_MSG_VERTICAL_GAP = 30         # px — OCR items closer than this vertically are same message
+_MAX_SCROLL_ATTEMPTS = 15      # max scroll-up attempts to find last_sent_msg
+_FILE_EXT_RE = re.compile(
+    r"\.\w{1,5}$"              # line ending with .ext (1-5 char extension)
+)
+_FILE_SIZE_RE = re.compile(
+    r"^\d+(\.\d+)?\s*[KMGkmg][Bb]?$"  # e.g. "3.2MB", "128K", "1.5 GB"
+)
+_AUDIO_DURATION_RE = re.compile(
+    r"^\d{1,3}'\d{2}\"$|^\d{1,3}\"$"  # audio: mm'ss" or ss"  e.g. 1'23" or 5"
+)
+_VIDEO_DURATION_RE = re.compile(
+    r"^\d{1,3}:\d{2}$"                  # video: mm:ss  e.g. 1:23 or 0:05
+)
 
 
 # ---------------------------------------------------------------------------
@@ -556,21 +572,375 @@ def _find_chat_panel_bounds(ocr_data, win):
     return bounds
 
 
-def _extract_chat_messages(ocr_data):
-    """Extract visible chat messages from OCR data.
-    Returns a list of message strings (order: top to bottom on screen)."""
+def _ocr_item_coords(item):
+    """Extract (cx, cy, x1, y1, x2, y2) from an OCR item dict.
+    Tries txt_struct box first, then paragraph-level loc.
+    Returns None if no coordinates found.
+    """
+    for ts in item.get("txt_struct", []):
+        if not isinstance(ts, dict):
+            continue
+        box = ts.get("box")  # [x1, y1, x2, y2]
+        if box and len(box) == 4:
+            cx = (box[0] + box[2]) // 2
+            cy = (box[1] + box[3]) // 2
+            return cx, cy, box[0], box[1], box[2], box[3]
+    loc = item.get("loc")  # [y1, x1, y2, x2]
+    if loc and len(loc) == 4:
+        cx = (loc[1] + loc[3]) // 2
+        cy = (loc[0] + loc[2]) // 2
+        return cx, cy, loc[1], loc[0], loc[3], loc[2]
+    return None
+
+
+def _is_system_text(text):
+    """Return True if text looks like a WeChat system/UI element rather than a chat message."""
+    t = text.strip().lower()
+    # WeChat UI labels
+    ui_labels = {"search", "搜索", "send(s)", "发送(s)", "send", "发送",
+                 "file transfer", "文件传输助手", "mini programs", "小程序",
+                 "contacts", "通讯录", "discover", "发现", "me", "我",
+                 "chats", "聊天", "weixin", "wechat"}
+    if t in ui_labels:
+        return True
+    # Date headers like "Yesterday", "Monday", "2025-03-01" etc.
+    if re.match(r"^(yesterday|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+                r"昨天|今天|星期[一二三四五六日]|周[一二三四五六日]|\d{4}[-/]\d{1,2}[-/]\d{1,2})$", t):
+        return True
+    return False
+
+
+def _extract_chat_messages(ocr_data, bounds=None):
+    """Extract structured chat messages from OCR data within the chat panel.
+
+    Args:
+        ocr_data: OCR result list
+        bounds: dict(top, bottom, left, right) — chat panel region.
+                If None, all OCR items are considered.
+
+    Returns:
+        list of dicts, top-to-bottom, each with:
+            - sender: "me" | "them" | "system"
+            - text: str (concatenated if multi-line)
+            - cy: int (center Y for positioning)
+            - cx: int (center X)
+            - type: "text" | "timestamp" | "file" | "audio" | "video"
+            - box: [x1, y1, x2, y2] of the first OCR line in the group
+    """
     if not ocr_data or not isinstance(ocr_data, list):
         logger.debug("[wechat] _extract_chat_messages: no OCR data")
         return []
-    messages = []
+
+    # Step 1: Collect all OCR text items with coordinates, filtered to bounds
+    items = []
     for item in ocr_data:
         if not isinstance(item, dict):
             continue
         text = (item.get("text") or "").strip()
-        if text:
-            messages.append(text)
-    logger.debug(f"[wechat] _extract_chat_messages: extracted {len(messages)} messages")
+        if not text:
+            continue
+        coords = _ocr_item_coords(item)
+        if coords is None:
+            continue
+        cx, cy, x1, y1, x2, y2 = coords
+
+        # Filter to chat panel bounds if provided
+        if bounds:
+            if cy < bounds["top"] or cy > bounds["bottom"]:
+                continue
+            if cx < bounds["left"] or cx > bounds["right"]:
+                continue
+
+        # Skip WeChat UI / system labels
+        if _is_system_text(text):
+            continue
+
+        items.append({
+            "text": text, "cx": cx, "cy": cy,
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+        })
+
+    if not items:
+        logger.debug("[wechat] _extract_chat_messages: no items in bounds")
+        return []
+
+    # Sort by Y position (top to bottom)
+    items.sort(key=lambda it: it["cy"])
+
+    # Step 2: Determine the left/right split for sent vs. received
+    # In WeChat, the chat panel has a center line. Messages to the left of
+    # center are from the other party; messages to the right are ours.
+    if bounds:
+        panel_center_x = (bounds["left"] + bounds["right"]) // 2
+    else:
+        all_cx = [it["cx"] for it in items]
+        panel_center_x = (min(all_cx) + max(all_cx)) // 2
+
+    logger.debug(f"[wechat] _extract_chat_messages: {len(items)} items, panel_center_x={panel_center_x}")
+
+    # Step 3: Classify each item and group vertically close items of the same alignment
+    messages = []
+    prev_cy = None  # track previous OCR item's Y for gap-based heuristics
+    for it in items:
+        text = it["text"]
+        cx = it["cx"]
+        cy = it["cy"]
+
+        # Classify type
+        # Note: _TIMESTAMP_RE (hh:mm) overlaps with _VIDEO_DURATION_RE (mm:ss).
+        # Disambiguation: WeChat timestamps are horizontally centered in the
+        # chat panel, while video durations overlay a left/right-aligned thumbnail.
+        _center_tolerance = (bounds["right"] - bounds["left"]) // 6 if bounds else 80
+        if _TIMESTAMP_RE.match(text) and abs(cx - panel_center_x) < _center_tolerance:
+            msg_type = "timestamp"
+            sender = "system"
+        elif _AUDIO_DURATION_RE.match(text):
+            msg_type = "audio"
+            sender = "them" if cx < panel_center_x else "me"
+        elif _VIDEO_DURATION_RE.match(text):
+            msg_type = "video"
+            sender = "them" if cx < panel_center_x else "me"
+        elif _FILE_SIZE_RE.match(text):
+            # Size line — attach to the file message above (handled in grouping)
+            msg_type = "file_size"
+            sender = "them" if cx < panel_center_x else "me"
+        elif _FILE_EXT_RE.search(text):
+            msg_type = "file"
+            sender = "them" if cx < panel_center_x else "me"
+        else:
+            msg_type = "text"
+            sender = "them" if cx < panel_center_x else "me"
+
+        # Try to merge with the previous message if:
+        # - same sender/alignment
+        # - vertically close (within _MSG_VERTICAL_GAP)
+        # - previous message is not a timestamp
+        if (messages
+                and messages[-1]["sender"] == sender
+                and messages[-1]["type"] not in ("timestamp",)
+                and abs(cy - messages[-1]["cy"]) < _MSG_VERTICAL_GAP):
+            # Special: if this is a file_size line, mark previous as file
+            if msg_type == "file_size" and messages[-1]["type"] in ("text", "file"):
+                messages[-1]["type"] = "file"
+                messages[-1]["text"] += f" ({text})"
+                messages[-1]["cy"] = cy  # update cy to the bottom of the group
+            else:
+                messages[-1]["text"] += "\n" + text
+                messages[-1]["cy"] = cy
+        else:
+            if msg_type == "file_size":
+                # Orphan size line — still a file indicator
+                msg_type = "file"
+            messages.append({
+                "sender": sender,
+                "text": text,
+                "cy": cy,
+                "cx": cx,
+                "type": msg_type,
+                "box": [it["x1"], it["y1"], it["x2"], it["y2"]],
+            })
+
+        prev_cy = cy
+
+    logger.debug(f"[wechat] _extract_chat_messages: grouped into {len(messages)} messages "
+                 f"(me={sum(1 for m in messages if m['sender']=='me')}, "
+                 f"them={sum(1 for m in messages if m['sender']=='them')}, "
+                 f"system={sum(1 for m in messages if m['sender']=='system')})")
     return messages
+
+
+def _extract_chat_messages_flat(ocr_data, bounds=None):
+    """Legacy wrapper — returns flat list of message strings (backward compatible)."""
+    structured = _extract_chat_messages(ocr_data, bounds)
+    return [m["text"] for m in structured]
+
+
+# ---------------------------------------------------------------------------
+# Double-click + copy: read full message text via clipboard
+# ---------------------------------------------------------------------------
+
+def _read_full_message_via_clipboard(msg):
+    """Double-click a message bubble to select it, then Ctrl+C to get the full text.
+
+    This handles long messages that may be truncated in OCR.
+    Args:
+        msg: structured message dict with 'cx', 'cy', 'box'
+    Returns:
+        str — the full message text, or '' if it failed
+    """
+    cx, cy = msg["cx"], msg["cy"]
+    # Use the center of the first line's box for targeting
+    box = msg.get("box")
+    if box and len(box) == 4:
+        target_x = (box[0] + box[2]) // 2
+        target_y = (box[1] + box[3]) // 2
+    else:
+        target_x, target_y = cx, cy
+
+    logger.debug(f"[wechat] _read_full_message_via_clipboard: double-clicking ({target_x},{target_y})")
+
+    # Double-click to select (in WeChat, double-clicking a text message opens selection)
+    pyautogui.moveTo(target_x, target_y)
+    time.sleep(0.2)
+    pyautogui.doubleClick(target_x, target_y)
+    time.sleep(0.5)
+
+    # Select all text in the selection popup (Ctrl+A) then copy (Ctrl+C)
+    if PLATFORM == "darwin":
+        pyautogui.hotkey("command", "a")
+        time.sleep(0.2)
+        pyautogui.hotkey("command", "c")
+    else:
+        pyautogui.hotkey("ctrl", "a")
+        time.sleep(0.2)
+        pyautogui.hotkey("ctrl", "c")
+    time.sleep(0.3)
+
+    # Read clipboard
+    full_text = clipboard_get_text().strip()
+
+    # Dismiss the selection popup
+    pyautogui.press("escape")
+    time.sleep(0.3)
+
+    if full_text:
+        logger.debug(f"[wechat] _read_full_message_via_clipboard: got {len(full_text)} chars")
+    else:
+        logger.warning("[wechat] _read_full_message_via_clipboard: clipboard was empty")
+    return full_text
+
+
+# ---------------------------------------------------------------------------
+# Right-click probe: identify content type from context menu
+# ---------------------------------------------------------------------------
+
+async def _probe_content_type_via_rightclick(mainwin, msg):
+    """Right-click a message bubble and OCR the context menu to determine content type.
+
+    Known WeChat context menu signatures:
+        - "Silent Play" / "静音播放"   → forwarded video
+        - "Save As" / "另存为"         → file attachment
+        - "Speech to Text" / "转文字"  → audio message
+
+    Args:
+        mainwin: main window reference for OCR
+        msg: structured message dict with 'cx', 'cy', 'box'
+    Returns:
+        str — detected type: "video", "file", "audio", or "unknown"
+    """
+    box = msg.get("box")
+    if box and len(box) == 4:
+        target_x = (box[0] + box[2]) // 2
+        target_y = (box[1] + box[3]) // 2
+    else:
+        target_x, target_y = msg["cx"], msg["cy"]
+
+    logger.debug(f"[wechat] _probe_content_type: right-clicking ({target_x},{target_y})")
+
+    pyautogui.moveTo(target_x, target_y)
+    time.sleep(0.2)
+    pyautogui.rightClick(target_x, target_y)
+    time.sleep(_POST_CLICK_DELAY)
+
+    ocr_data = await _do_ocr(mainwin)
+
+    # Check menu items for type signatures
+    menu_signatures = {
+        "video": ["silent play", "静音播放"],
+        "file":  ["save as", "另存为"],
+        "audio": ["speech to text", "转文字"],
+    }
+    detected = "unknown"
+    for content_type, keywords in menu_signatures.items():
+        for kw in keywords:
+            if _find_text_in_ocr(ocr_data, kw):
+                detected = content_type
+                break
+        if detected != "unknown":
+            break
+
+    # Dismiss context menu
+    pyautogui.press("escape")
+    time.sleep(0.3)
+
+    logger.debug(f"[wechat] _probe_content_type: detected '{detected}'")
+    return detected
+
+
+# ---------------------------------------------------------------------------
+# File attachment: right-click → Save As
+# ---------------------------------------------------------------------------
+
+async def _save_file_attachment(mainwin, msg, save_dir=None):
+    """Right-click a file attachment and select 'Save As...' to save it.
+
+    Args:
+        mainwin: main window reference for OCR
+        msg: structured message dict (type="file") with 'cx', 'cy', 'box'
+        save_dir: directory to save to. If None, uses Downloads folder.
+    Returns:
+        dict with 'saved': bool, 'path': str, 'error': str
+    """
+    cx, cy = msg["cx"], msg["cy"]
+    box = msg.get("box")
+    if box and len(box) == 4:
+        target_x = (box[0] + box[2]) // 2
+        target_y = (box[1] + box[3]) // 2
+    else:
+        target_x, target_y = cx, cy
+
+    logger.info(f"[wechat] _save_file_attachment: right-clicking ({target_x},{target_y})")
+
+    # Right-click to open context menu
+    pyautogui.moveTo(target_x, target_y)
+    time.sleep(0.2)
+    pyautogui.rightClick(target_x, target_y)
+    time.sleep(_POST_CLICK_DELAY)
+
+    # OCR the context menu to find "Save As..." / "另存为..."
+    ocr_data = await _do_ocr(mainwin)
+    save_as_keywords = ["save as", "另存为"]
+    save_pos = None
+    for kw in save_as_keywords:
+        pos = _find_text_in_ocr(ocr_data, kw)
+        if pos:
+            save_pos = pos
+            break
+
+    if not save_pos:
+        logger.warning("[wechat] _save_file_attachment: 'Save As' not found in context menu — "
+                       "this may not be a file attachment")
+        pyautogui.press("escape")
+        time.sleep(0.3)
+        return {"saved": False, "path": "", "error": "Save As not found in context menu"}
+
+    # Click "Save As..."
+    _click(save_pos[0], save_pos[1])
+    time.sleep(1.0)
+
+    # The Save dialog should now be open.
+    # Type the save directory if specified.
+    if save_dir:
+        # In Windows Save dialog, the address bar can be activated with Alt+D
+        # then type the path and press Enter
+        if PLATFORM == "win32":
+            pyautogui.hotkey("alt", "d")
+            time.sleep(0.3)
+            _type_text(save_dir)
+            time.sleep(0.3)
+            pyautogui.press("enter")
+            time.sleep(0.5)
+
+    # Press Enter / click Save to confirm
+    pyautogui.press("enter")
+    time.sleep(1.0)
+
+    # Check for overwrite confirmation dialog (just press Enter again)
+    pyautogui.press("enter")
+    time.sleep(0.5)
+
+    logger.info(f"[wechat] _save_file_attachment: save dialog confirmed, dir={save_dir or 'default'}")
+    return {"saved": True, "path": save_dir or "(default downloads)", "error": ""}
 
 
 def _click(x, y, clicks=1, interval=0.1):
@@ -671,12 +1041,17 @@ async def _navigate_to_chat(mainwin, chatter_name: str, pixel_per_scroll: int = 
     return False, ocr_data, f"Could not verify chat '{chatter_name}' opened (Send button not found)", pps
 
 
-async def _smart_scroll_chat(mainwin, ocr_data, win, pixel_per_scroll, scroll_units=None):
+async def _smart_scroll_chat(mainwin, ocr_data, win, pixel_per_scroll,
+                             scroll_units=None, direction="down"):
     """Scroll the chat thread panel, calibrating first if pixel_per_scroll == 0.
+
+    Args:
+        direction: "down" (scroll toward newer messages) or "up" (toward older)
 
     Returns (ocr_data_after, pixel_per_scroll).
     """
     pps = pixel_per_scroll
+    sign = -1 if direction == "down" else 1  # pynput: negative = scroll down
 
     # Detect chat panel bounds for scroll targeting
     bounds = _find_chat_panel_bounds(ocr_data, win)
@@ -697,7 +1072,7 @@ async def _smart_scroll_chat(mainwin, ocr_data, win, pixel_per_scroll, scroll_un
             from pynput.mouse import Controller as _MouseCtrl
             pyautogui.moveTo(scroll_xy[0], scroll_xy[1])
             time.sleep(0.2)
-            _MouseCtrl().scroll(0, -_SCROLL_UNITS)
+            _MouseCtrl().scroll(0, sign * _SCROLL_UNITS)
             time.sleep(_POST_SCROLL_DELAY)
             ocr_data = await _do_ocr(mainwin)
             return ocr_data, 0
@@ -707,14 +1082,14 @@ async def _smart_scroll_chat(mainwin, ocr_data, win, pixel_per_scroll, scroll_un
 
     # Known pps — scroll precisely
     units = scroll_units if scroll_units else _SCROLL_UNITS
-    logger.debug(f"[wechat] _smart_scroll_chat: scrolling {units} units (pps={pps}, "
+    logger.debug(f"[wechat] _smart_scroll_chat: scrolling {direction} {units} units (pps={pps}, "
                  f"expected ~{units * pps}px)")
     scroll_xy = ((bounds["left"] + bounds["right"]) // 2,
                  (bounds["top"] + bounds["bottom"]) // 2)
     pyautogui.moveTo(scroll_xy[0], scroll_xy[1])
     time.sleep(0.2)
     from pynput.mouse import Controller as _MouseCtrl
-    _MouseCtrl().scroll(0, -units)
+    _MouseCtrl().scroll(0, sign * units)
     time.sleep(_POST_SCROLL_DELAY)
     ocr_data = await _do_ocr(mainwin)
     return ocr_data, pps
@@ -818,16 +1193,153 @@ async def wechat_send(mainwin, args):
 # wechat_receive
 # ---------------------------------------------------------------------------
 
+def _find_msg_in_structured(messages, target_text):
+    """Find a structured message whose text contains target_text (case-insensitive).
+    Searches from the bottom (newest) upward.
+    Returns the index or -1.
+    """
+    target_lower = target_text.strip().lower()
+    # Search bottom-up to find the most recent match
+    for i in range(len(messages) - 1, -1, -1):
+        if target_lower in messages[i]["text"].lower():
+            return i
+    return -1
+
+
+async def _scroll_up_to_find(mainwin, ocr_data, win, pps, target_text):
+    """Scroll the chat UP repeatedly until we find target_text in the visible messages.
+
+    Strategy:
+      - On each scroll, extract structured messages and search for the target.
+      - Stop when found, or after _MAX_SCROLL_ATTEMPTS.
+
+    Returns (found_idx, messages, ocr_data, pps, bounds).
+    found_idx is -1 if not found after exhausting attempts.
+    """
+    bounds = _find_chat_panel_bounds(ocr_data, win)
+    messages = _extract_chat_messages(ocr_data, bounds)
+    found_idx = _find_msg_in_structured(messages, target_text)
+    if found_idx >= 0:
+        return found_idx, messages, ocr_data, pps, bounds
+
+    for attempt in range(1, _MAX_SCROLL_ATTEMPTS + 1):
+        logger.info(f"[wechat_receive] Scroll UP attempt {attempt}/{_MAX_SCROLL_ATTEMPTS} "
+                    f"to find: '{target_text[:30]}...'")
+        ocr_data, pps = await _smart_scroll_chat(mainwin, ocr_data, win, pps, direction="up")
+        bounds = _find_chat_panel_bounds(ocr_data, win)
+        messages = _extract_chat_messages(ocr_data, bounds)
+        found_idx = _find_msg_in_structured(messages, target_text)
+        if found_idx >= 0:
+            logger.info(f"[wechat_receive] Found target at index {found_idx} after {attempt} scroll(s)")
+            return found_idx, messages, ocr_data, pps, bounds
+
+    logger.warning(f"[wechat_receive] Target not found after {_MAX_SCROLL_ATTEMPTS} scrolls")
+    return -1, messages, ocr_data, pps, bounds
+
+
+async def _scroll_down_collect(mainwin, ocr_data, win, pps, collected,
+                                last_cy_seen, bounds):
+    """Scroll DOWN to collect all new messages below what's currently visible.
+
+    Keeps scrolling until no new messages appear (we've reached the bottom).
+
+    Args:
+        collected: list of structured messages accumulated so far
+        last_cy_seen: the cy of the bottom-most message we already captured
+        bounds: chat panel bounds
+
+    Returns (collected, ocr_data, pps).
+    """
+    prev_bottom_text = None
+    stale_count = 0
+
+    for attempt in range(1, _MAX_SCROLL_ATTEMPTS + 1):
+        logger.debug(f"[wechat_receive] Scroll DOWN attempt {attempt} to collect more messages")
+        ocr_data, pps = await _smart_scroll_chat(mainwin, ocr_data, win, pps, direction="down")
+        bounds = _find_chat_panel_bounds(ocr_data, win)
+        messages = _extract_chat_messages(ocr_data, bounds)
+
+        if not messages:
+            logger.debug("[wechat_receive] No messages after scroll-down, likely at bottom")
+            break
+
+        # Collect messages we haven't seen (avoid duplication by checking text+sender)
+        seen_keys = {(m["sender"], m["text"]) for m in collected}
+        new_count = 0
+        for m in messages:
+            key = (m["sender"], m["text"])
+            if key not in seen_keys:
+                collected.append(m)
+                seen_keys.add(key)
+                new_count += 1
+
+        logger.debug(f"[wechat_receive] Scroll-down: {new_count} new messages collected")
+
+        # Detect if we've hit the bottom (same bottom message as last scroll)
+        bottom_text = messages[-1]["text"] if messages else None
+        if bottom_text == prev_bottom_text:
+            stale_count += 1
+            if stale_count >= 2:
+                logger.debug("[wechat_receive] Bottom reached (same content 2x), stopping")
+                break
+        else:
+            stale_count = 0
+            prev_bottom_text = bottom_text
+
+    return collected, ocr_data, pps
+
+
+def _format_structured_messages(messages, include_types=None):
+    """Format structured messages into a readable list for the LLM.
+
+    Args:
+        messages: list of structured message dicts
+        include_types: set of types to include, or None for all except timestamps
+
+    Returns:
+        list of dicts with keys: sender, text, type
+    """
+    result = []
+    for m in messages:
+        if m["type"] == "timestamp":
+            continue  # skip timestamp dividers
+        if include_types and m["type"] not in include_types:
+            continue
+        result.append({
+            "sender": m["sender"],
+            "text": m["text"],
+            "type": m["type"],
+        })
+    return result
+
+
 async def wechat_receive(mainwin, args):
     """Read new messages from a WeChat contact since a known last-sent message.
 
+    Strategy:
+      1. Navigate to the chat (Search + Enter).
+      2. OCR the visible chat panel and extract structured messages
+         (sender="me"/"them", type="text"/"file"/"audio").
+      3. If last_sent_msg is provided:
+         a. Search visible messages for it.
+         b. If not found, scroll UP repeatedly (up to 15 attempts) to find it.
+         c. Once found, collect everything AFTER it on this screen.
+         d. Scroll DOWN to collect any additional new messages below.
+      4. If last_sent_msg is empty: return all visible messages.
+      5. For each text message from "them": double-click → Ctrl+A → Ctrl+C
+         to capture the full text (handles long messages truncated by OCR).
+      6. For file attachments: include metadata (filename, size) in output.
+
     Input:
         chatter_name: str   — display name of the contact/group
-        last_sent_msg: str  — your last sent message (to identify new messages after it)
-        pixel_per_scroll: int — pixels per scroll unit (0 = unknown, will calibrate on first scroll)
+        last_sent_msg: str  — your last sent message text (anchor to find new msgs after it).
+                              Leave empty to return all visible messages.
+        save_files_to: str  — directory to save file attachments to (optional).
+                              If provided, file attachments will be right-click → Save As'd.
+        pixel_per_scroll: int — pixels per scroll unit (0 = auto-calibrate)
 
     Output (JSON):
-        new_msgs: [str]
+        new_msgs: list of {sender, text, type}
         pixel_per_scroll: int
         error: str
         last_ocr_raw_result: dict/list
@@ -835,61 +1347,97 @@ async def wechat_receive(mainwin, args):
     try:
         inp = args.get("input", args)
         chatter_name = inp.get("chatter_name", "")
-        last_sent_msg = inp.get("last_sent_msg", "")
+        last_sent_msg = inp.get("last_sent_msg", "").strip()
+        save_files_to = inp.get("save_files_to", "").strip()
         pps = int(inp.get("pixel_per_scroll", 0))
 
         if not chatter_name:
             return _recv_result([], "chatter_name is required", [], pps)
 
         logger.info(f"[wechat_receive] Reading from '{chatter_name}', "
-                     f"last_sent='{last_sent_msg[:30]}...', pixel_per_scroll={pps}")
+                     f"last_sent='{last_sent_msg[:40]}', pixel_per_scroll={pps}")
 
-        # Navigate to the chat
-        logger.debug(f"[wechat_receive] Navigating to chat '{chatter_name}'")
+        # Step 1: Navigate to the chat
         success, ocr_data, error, pps = await _navigate_to_chat(mainwin, chatter_name, pps)
         if not success:
             logger.warning(f"[wechat_receive] Navigation failed: {error}")
             return _recv_result([], error, ocr_data, pps)
-        logger.debug("[wechat_receive] Navigation succeeded, extracting messages")
 
-        # Extract all visible messages
-        all_messages = _extract_chat_messages(ocr_data)
-        logger.debug(f"[wechat_receive] Total visible messages: {len(all_messages)}")
+        win = _find_wechat_window()
+        bounds = _find_chat_panel_bounds(ocr_data, win)
 
-        # If we have a last_sent_msg, find it and return everything after it
-        new_msgs = []
+        # Step 2: Extract structured messages from current view
+        all_messages = _extract_chat_messages(ocr_data, bounds)
+        logger.info(f"[wechat_receive] Visible: {len(all_messages)} messages "
+                    f"(me={sum(1 for m in all_messages if m['sender']=='me')}, "
+                    f"them={sum(1 for m in all_messages if m['sender']=='them')})")
+
+        new_msgs_structured = []
+
         if last_sent_msg:
-            last_sent_lower = last_sent_msg.strip().lower()
-            found_idx = -1
-            for i, msg in enumerate(all_messages):
-                if last_sent_lower in msg.lower():
-                    found_idx = i
+            # Step 3a: Find last_sent_msg in visible messages
+            found_idx = _find_msg_in_structured(all_messages, last_sent_msg)
+
+            if found_idx < 0:
+                # Step 3b: Scroll UP to find it
+                found_idx, all_messages, ocr_data, pps, bounds = await _scroll_up_to_find(
+                    mainwin, ocr_data, win, pps, last_sent_msg
+                )
+
             if found_idx >= 0:
-                new_msgs = all_messages[found_idx + 1:]
-                logger.debug(f"[wechat_receive] last_sent_msg matched at index {found_idx}, returning {len(new_msgs)} new msgs")
-            else:
-                # last_sent_msg not visible — try scrolling up in chat to find it
-                logger.info("[wechat_receive] last_sent_msg not visible, scrolling chat panel to find it")
-                win = _find_wechat_window()
-                ocr_data, pps = await _smart_scroll_chat(mainwin, ocr_data, win, pps)
-                all_messages_after_scroll = _extract_chat_messages(ocr_data)
-                # Re-check for last_sent_msg
-                found_idx = -1
-                for i, msg in enumerate(all_messages_after_scroll):
-                    if last_sent_lower in msg.lower():
-                        found_idx = i
-                if found_idx >= 0:
-                    new_msgs = all_messages_after_scroll[found_idx + 1:]
-                    logger.debug(f"[wechat_receive] After scroll: last_sent_msg at index {found_idx}, {len(new_msgs)} new msgs")
+                # Step 3c: Collect everything after the anchor on this screen
+                new_msgs_structured = [m for m in all_messages[found_idx + 1:]
+                                       if m["type"] != "timestamp"]
+                logger.info(f"[wechat_receive] Found anchor at idx={found_idx}, "
+                            f"{len(new_msgs_structured)} new msgs on screen")
+
+                # Step 3d: Scroll DOWN to collect any more new messages
+                if new_msgs_structured:
+                    last_cy = new_msgs_structured[-1]["cy"]
                 else:
-                    new_msgs = all_messages_after_scroll
-                    logger.debug(f"[wechat_receive] After scroll: last_sent_msg still NOT found, returning all {len(new_msgs)} msgs")
+                    last_cy = all_messages[found_idx]["cy"]
+
+                new_msgs_structured, ocr_data, pps = await _scroll_down_collect(
+                    mainwin, ocr_data, win, pps, new_msgs_structured, last_cy, bounds
+                )
+                logger.info(f"[wechat_receive] After scroll-down collect: "
+                            f"{len(new_msgs_structured)} total new messages")
+            else:
+                # Anchor not found at all — return everything visible as fallback
+                logger.warning("[wechat_receive] last_sent_msg not found after scrolling, "
+                               "returning all visible messages")
+                new_msgs_structured = [m for m in all_messages if m["type"] != "timestamp"]
         else:
-            new_msgs = all_messages
-            logger.debug(f"[wechat_receive] No last_sent_msg filter, returning all {len(new_msgs)} msgs")
+            # No anchor — return all visible messages
+            new_msgs_structured = [m for m in all_messages if m["type"] != "timestamp"]
+            logger.info(f"[wechat_receive] No anchor, returning {len(new_msgs_structured)} visible msgs")
+
+        # Step 5: For text messages from "them", use double-click+copy to get full text
+        for msg in new_msgs_structured:
+            if msg["type"] == "text" and msg["sender"] == "them":
+                full_text = _read_full_message_via_clipboard(msg)
+                if full_text and len(full_text) > len(msg["text"]):
+                    logger.debug(f"[wechat_receive] Clipboard expanded msg from "
+                                 f"{len(msg['text'])} to {len(full_text)} chars")
+                    msg["text"] = full_text
+
+        # Step 6: Handle file attachments
+        file_msgs = [m for m in new_msgs_structured if m["type"] == "file"]
+        if file_msgs and save_files_to:
+            for fm in file_msgs:
+                logger.info(f"[wechat_receive] Saving file attachment: '{fm['text']}'")
+                save_result = await _save_file_attachment(mainwin, fm, save_files_to)
+                fm["file_saved"] = save_result.get("saved", False)
+                fm["file_save_path"] = save_result.get("path", "")
+                if save_result.get("error"):
+                    fm["file_save_error"] = save_result["error"]
+
+        # Format output
+        output_msgs = _format_structured_messages(new_msgs_structured)
 
         result_payload = {
-            "new_msgs": new_msgs,
+            "new_msgs": output_msgs,
+            "msg_count": len(output_msgs),
             "pixel_per_scroll": pps,
             "error": "",
             "last_ocr_raw_result": ocr_data,
@@ -988,10 +1536,15 @@ def add_wechat_receive_tool_schema(tool_schemas):
         description=(
             "<category>WeChat</category><sub-category>Messaging</sub-category>"
             "Read new messages from a WeChat contact or group. "
-            "Opens WeChat, navigates to the specified chat, runs OCR, and returns "
-            "messages that appeared after your last_sent_msg. "
-            "If last_sent_msg is not visible, scrolls the chat panel (calibrating scroll "
-            "resolution if pixel_per_scroll is 0). Returns pixel_per_scroll in output."
+            "Opens WeChat, navigates to the specified chat, and extracts structured messages "
+            "with sender identification (me/them) and type detection (text/file/audio). "
+            "If last_sent_msg is provided, scrolls UP to find it as an anchor, then collects "
+            "everything after it (scrolling DOWN as needed). Long text messages are read via "
+            "double-click + clipboard copy for full accuracy. "
+            "File attachments are detected by extension + size pattern and can optionally be "
+            "saved via right-click → Save As. "
+            "Returns new_msgs as [{sender, text, type}, ...]. "
+            "Returns pixel_per_scroll in output — pass it back on subsequent calls."
         ),
         inputSchema={
             "type": "object",
@@ -1007,8 +1560,15 @@ def add_wechat_receive_tool_schema(tool_schemas):
                         },
                         "last_sent_msg": {
                             "type": "string",
-                            "description": "Your last sent message text — new messages after this will be returned. "
+                            "description": "Your last sent message text — used as an anchor. "
+                                           "The tool scrolls up to find this message, then returns everything after it. "
                                            "Leave empty to return all visible messages.",
+                        },
+                        "save_files_to": {
+                            "type": "string",
+                            "description": "Optional directory path to save incoming file attachments to. "
+                                           "If provided, detected file attachments will be right-click → Save As'd "
+                                           "to this directory. Leave empty to skip file saving.",
                         },
                         "pixel_per_scroll": {
                             "type": "integer",

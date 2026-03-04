@@ -252,9 +252,9 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
     """Normalize heterogeneous incoming message into a unified event envelope."""
     if event_type == "":
         if isinstance(msg, dict):
-            event_type = msg.get("method", "")
+            event_type = msg.get("method", "") or msg.get("type", "")
         else:
-            event_type = getattr(msg, "method", "")
+            event_type = getattr(msg, "method", "") or getattr(msg, "type", "")
 
     # Start with a minimal envelope
     event: Dict[str, Any] = {
