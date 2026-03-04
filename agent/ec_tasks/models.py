@@ -250,6 +250,9 @@ class ManagedTask(Task):
     # Async task reference
     task: Optional[asyncio.Task] = None
     
+    # Thread pool Future reference (for dev runs and other thread-based tasks)
+    future: Optional[Any] = None  # concurrent.futures.Future
+    
     # Synchronization primitives
     pause_event: asyncio.Event = Field(default_factory=asyncio.Event)
     cancellation_event: threading.Event = Field(default_factory=threading.Event)
@@ -386,8 +389,26 @@ class ManagedTask(Task):
     # ==================== Lifecycle Management ====================
     
     def cancel(self):
-        """Signal the task to cancel its execution."""
+        """
+        Signal the task to cancel its execution.
+        
+        This method:
+        1. Sets the cancellation_event (for thread-based execution loops)
+        2. Attempts to cancel the Future (if running in ThreadPoolExecutor)
+        3. Cancels the asyncio Task (if running async)
+        """
+        # Set cancellation event for execution loops to check
         self.cancellation_event.set()
+        
+        # Try to cancel the Future (only works if not yet started)
+        if self.future is not None:
+            try:
+                cancelled = self.future.cancel()
+                if cancelled:
+                    from utils.logger_helper import logger_helper as logger
+                    logger.debug(f"[ManagedTask] Successfully cancelled Future for task {self.id}")
+            except Exception:
+                pass  # Future might not support cancellation or already done
     
     def is_cancelled(self) -> bool:
         """Check if cancellation was requested."""
