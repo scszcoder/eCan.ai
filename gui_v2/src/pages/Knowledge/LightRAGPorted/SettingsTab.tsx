@@ -793,7 +793,32 @@ const SettingsTab: React.FC = () => {
         }
       }
       
-      // Check dimension conflict when EMBEDDING_DIM changes
+      // Check dimension conflict when EMBEDDING_BINDING or EMBEDDING_MODEL changes
+      if (key === 'EMBEDDING_BINDING' || key === 'EMBEDDING_MODEL') {
+        // Get the new dimension from provider metadata
+        const embeddingProvider = embeddingProviders.find(p => p.id === (key === 'EMBEDDING_BINDING' ? value : newSettings['EMBEDDING_BINDING']));
+        if (embeddingProvider && embeddingProvider.modelMetadata) {
+          const modelId = key === 'EMBEDDING_MODEL' ? value : newSettings['EMBEDDING_MODEL'];
+          const modelMeta = embeddingProvider.modelMetadata[modelId];
+          if (modelMeta && modelMeta.dimensions) {
+            const newDim = modelMeta.dimensions;
+            const currentDim = parseInt(prev['EMBEDDING_DIM'] || '0');
+            
+            // Only check if dimension actually changed and not initial load
+            if (!initialLoadRef.current && newDim !== currentDim && lastCheckedDimRef.current !== newDim) {
+              lastCheckedDimRef.current = newDim;
+              // Store the new settings to apply after workspace switch
+              const pendingChanges = { ...newSettings, 'EMBEDDING_DIM': newDim.toString() };
+              // Use setTimeout to avoid blocking the state update
+              setTimeout(() => {
+                checkDimensionConflict(newDim, pendingChanges);
+              }, 100);
+            }
+          }
+        }
+      }
+      
+      // Check dimension conflict when EMBEDDING_DIM changes directly
       if (key === 'EMBEDDING_DIM') {
         const newDim = parseInt(value);
         if (!isNaN(newDim) && newDim > 0) {
@@ -802,7 +827,7 @@ const SettingsTab: React.FC = () => {
             lastCheckedDimRef.current = newDim;
             // Use setTimeout to avoid blocking the state update
             setTimeout(() => {
-              checkDimensionConflict(newDim);
+              checkDimensionConflict(newDim, newSettings);
             }, 100);
           }
         }
@@ -875,6 +900,41 @@ const SettingsTab: React.FC = () => {
   const handleSave = async () => {
     try {
       setLoading(true);
+      
+      // Check for embedding dimension conflict before saving
+      const embeddingDim = settings['EMBEDDING_DIM'];
+      if (embeddingDim) {
+        const newDim = parseInt(embeddingDim);
+        if (!isNaN(newDim) && newDim > 0) {
+          const currentWorkspace = settings['WORKSPACE'] || 'default';
+          const api = get_ipc_api();
+          
+          try {
+            const result = await api.executeRequest<{
+              hasConflict: boolean;
+              currentDimension: number | null;
+              newDimension: number;
+              vectorStorage: string;
+              workspaceName: string;
+              workspaces: Workspace[];
+            }>('lightrag.checkEmbeddingDimension', {
+              newDimension: newDim,
+              workspaceName: currentWorkspace
+            });
+            
+            if (result.success && result.data?.hasConflict) {
+              // Has conflict, show warning and ask user to switch workspace
+              setLoading(false);
+              await checkDimensionConflict(newDim, settings);
+              return; // Don't save yet, wait for user to switch workspace
+            }
+          } catch (error) {
+            console.error('Failed to check dimension conflict:', error);
+            // Continue with save even if check fails
+          }
+        }
+      }
+      
       const response = await get_ipc_api().lightragApi.saveSettings(settings);
       if (response.success) {
         message.success(t('pages.knowledge.settings.saveSuccess'));
