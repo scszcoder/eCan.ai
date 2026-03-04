@@ -5377,6 +5377,7 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "updatePrompts":
             {
+              const isSuperUser0 = process.env.SUPER_USER0 && owner === process.env.SUPER_USER0;
               const promptsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const updated = [];
               for (const prompt of promptsInput) {
@@ -5389,7 +5390,10 @@ async function processEvent(event, context, callback, test_stub) {
                   const fields = { ...prompt };
                   delete fields.id;
                   delete fields.prompt_id;
-                  const res = await promptService.updatePrompt(pid, owner, fields);
+                  // Super user can update system prompts (owner stays "system")
+                  const effectiveOwner = (isSuperUser0 && prompt.owner === "system") ? "system" : owner;
+                  delete fields.owner;
+                  const res = await promptService.updatePrompt(pid, effectiveOwner, fields);
                   updated.push({ id: pid, success: res.success !== false, error: res.error });
                 } catch (err) {
                   updated.push({ id: pid, success: false, error: err.message });
@@ -6987,6 +6991,17 @@ async function processEvent(event, context, callback, test_stub) {
               const requestedOwner = event.arguments?.owner;
               const ownerFilter = requestedOwner === owner ? requestedOwner : owner;
               const prompts = await promptService.listPrompts(ownerFilter);
+              // If the caller is the super user, also include prompts owned by "system"
+              if (process.env.SUPER_USER0 && owner === process.env.SUPER_USER0) {
+                const systemPrompts = await promptService.listPromptsByOwnerOnly("system");
+                // Avoid duplicates by checking IDs already present
+                const existingIds = new Set(prompts.map(p => p.id));
+                for (const sp of systemPrompts) {
+                  if (!existingIds.has(sp.id)) {
+                    prompts.push(sp);
+                  }
+                }
+              }
               returnData = prompts;
             }
             break;
@@ -7015,7 +7030,18 @@ async function processEvent(event, context, callback, test_stub) {
                   version: qArg.version,
                   search: qArg.search
                 });
-                returnData = Array.isArray(result) ? result : [];
+                const prompts = Array.isArray(result) ? result : [];
+                // If the caller is the super user, also include prompts owned by "system"
+                if (process.env.SUPER_USER0 && owner === process.env.SUPER_USER0) {
+                  const systemPrompts = await promptService.listPromptsByOwnerOnly("system");
+                  const existingIds = new Set(prompts.map(p => p.id));
+                  for (const sp of systemPrompts) {
+                    if (!existingIds.has(sp.id)) {
+                      prompts.push(sp);
+                    }
+                  }
+                }
+                returnData = prompts;
               } catch (err) {
                 util.log("ERROR", "queryPrompts failed: " + err.message, api_caller, "processEvent", logFlag);
                 // Return empty list to satisfy non-nullable list return type
@@ -7364,7 +7390,20 @@ async function processEvent(event, context, callback, test_stub) {
               const tasks = await safeList("tasks", () => taskService.getTasksByOwners(ownerEmail, ownerSub, owner));
               const tools = await safeList("tools", () => toolService.getToolsByOwner(owner));
               const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(owner));
-              const prompts = await safeList("prompts", () => promptService.listPrompts(owner));
+              const prompts = await safeList("prompts", async () => {
+                const list = await promptService.listPrompts(owner);
+                // If the caller is the super user, also include prompts owned by "system"
+                if (process.env.SUPER_USER0 && owner === process.env.SUPER_USER0) {
+                  const systemPrompts = await promptService.listPromptsByOwnerOnly("system");
+                  const existingIds = new Set(list.map(p => p.id));
+                  for (const sp of systemPrompts) {
+                    if (!existingIds.has(sp.id)) {
+                      list.push(sp);
+                    }
+                  }
+                }
+                return list;
+              });
               
               // Get or create the user's org tree (using Cognito sub as owner identifier)
               // This ensures each user has their own organization hierarchy

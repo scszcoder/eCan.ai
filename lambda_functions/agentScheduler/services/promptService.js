@@ -260,12 +260,13 @@ async function updatePrompt(id, owner, fields = {}) {
   }
   
   // Merge prompt content
+  const isSystemPrompt = owner === "system";
   const mergedPromptContent = {
     ...existingPromptContent,
     ...newPromptContent,
     ...fields,
-    source: 'my_prompts',
-    readOnly: false
+    source: isSystemPrompt ? (existingPromptContent.source || 'system') : 'my_prompts',
+    readOnly: isSystemPrompt ? (existingPromptContent.readOnly !== undefined ? existingPromptContent.readOnly : false) : false
   };
   delete mergedPromptContent.prompt; // Remove nested prompt field
   
@@ -440,11 +441,48 @@ async function queryPrompts({ id, owner, version, search } = {}) {
   return prompts;
 }
 
+/**
+ * List prompts for a specific owner only (no public/sample prompts appended).
+ * Queries by owner_id without filtering on agent_id prefix, since different
+ * owners may use different agent_id formats (e.g. "any~" vs "skill_editor~").
+ */
+async function listPromptsByOwnerOnly(owner) {
+  if (!owner) return [];
+  console.log(`[promptService] listPromptsByOwnerOnly called with owner: '${owner}'`);
+  const prompts = [];
+  let lastEvaluatedKey;
+
+  do {
+    const params = {
+      TableName: PROMPTS_TABLE,
+      KeyConditionExpression: "owner_id = :ownerId",
+      ExpressionAttributeValues: marshall({ ":ownerId": owner }),
+      ExclusiveStartKey: lastEvaluatedKey
+    };
+    const response = await dynamodb.send(new QueryCommand(params));
+    console.log(`[promptService] listPromptsByOwnerOnly response: Count=${response.Count}`);
+    if (response.Items) {
+      for (const item of response.Items) {
+        const unmarshalled = unmarshall(item);
+        const prompt = dbItemToPrompt(unmarshalled, { readOnly: false });
+        if (prompt) {
+          prompts.push(prompt);
+        }
+      }
+    }
+    lastEvaluatedKey = response.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  console.log(`[promptService] listPromptsByOwnerOnly: loaded ${prompts.length} prompts for owner=${owner}`);
+  return prompts;
+}
+
 module.exports = {
   addPrompt,
   updatePrompt,
   deletePrompt,
   getPromptById,
   listPrompts,
+  listPromptsByOwnerOnly,
   queryPrompts
 };
