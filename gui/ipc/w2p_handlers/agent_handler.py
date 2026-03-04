@@ -241,9 +241,12 @@ def build_org_agent_tree(organizations, agents):
     return tree_root
 
 
-@IPCHandlerRegistry.handler('get_agents')
+@IPCHandlerRegistry.background_handler('get_agents')
 def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """Handle get agents request
+    """Handle get agents request (runs in background thread to avoid blocking UI).
+    
+    Database queries with relations (JOIN operations) can be slow when there are
+    many agents with tasks/skills. Running in background prevents UI freezing.
 
     Retrieve agents for the specified user.
 

@@ -4973,7 +4973,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Debug: Log the actual message_compaction settings
             if 'message_compaction' in agent_kwargs:
                 mc = agent_kwargs['message_compaction']
-                logger.error(
+                logger.debug(
                     f"[DEBUG] message_compaction settings:\n"
                     f"  enabled={mc.enabled}\n"
                     f"  compact_every_n_steps={mc.compact_every_n_steps}\n"

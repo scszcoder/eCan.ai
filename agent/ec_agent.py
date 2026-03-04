@@ -1017,6 +1017,8 @@ class EC_Agent(Agent):
 			# Launch the new dev run task
 			thread_pool_executor = self.mainwin.threadPoolExecutor
 			future = thread_pool_executor.submit(self.runner.launch_dev_run, init_state, dev_task_template)
+			# Associate the Future with the ManagedTask for unified cancellation
+			dev_task_template.future = future
 			with self.task_lock:
 				self.active_tasks[DEV_RUN_ID] = future
 			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_ID, f))

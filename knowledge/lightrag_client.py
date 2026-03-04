@@ -83,10 +83,11 @@ class LightragClient:
             # Send files to the server using the correct endpoint
             # Note: options are not supported in multipart upload, they should be query params if needed
             # Important: Set Content-Type to None to let requests library generate the correct multipart/form-data header with boundary
+            # Reduced timeout from 300s to 60s - large files should be handled by backend async processing
             r = self.session.post(
                 f"{self.base_url}/documents/upload", 
                 files=files, 
-                timeout=300,
+                timeout=60,
                 headers={"Content-Type": None}
             )
             
@@ -310,7 +311,8 @@ class LightragClient:
             
             # Use JSON content type
             headers = {'Content-Type': 'application/json'}
-            r = self.session.post(f"{self.base_url}/query", json=payload, headers=headers, timeout=180)
+            # Reduced timeout from 180s to 30s to prevent long UI blocking
+            r = self.session.post(f"{self.base_url}/query", json=payload, headers=headers, timeout=30)
 
             if r.status_code >= 400:
                 # Log full error body to help debug FastAPI validation errors

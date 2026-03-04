@@ -20,7 +20,7 @@ try:
     _CLOUD_SYNC_AVAILABLE = True
 except Exception as _sync_import_err:
     import logging as _logging
-    _logging.getLogger(__name__).warning(f"[prompts] Cloud sync not available: {_sync_import_err}")
+    logger.warning(f"[prompts] Cloud sync not available: {_sync_import_err}")
     _CLOUD_SYNC_AVAILABLE = False
     def sync_prompt_to_cloud(*a, **kw): pass
     def delete_prompt_from_cloud(*a, **kw): pass

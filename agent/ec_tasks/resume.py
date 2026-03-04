@@ -15,12 +15,8 @@ Key concepts:
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-# Minimal logger fallback to avoid import cycles if any
-try:
-    from utils.logger_helper import logger_helper as logger
-except Exception:  # pragma: no cover
-    import logging
-    logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
+
 
 Json = Dict[str, Any]
 

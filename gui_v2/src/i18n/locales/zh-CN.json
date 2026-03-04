@@ -1945,7 +1945,8 @@
       "save": "保存",
       "cancel": "取消",
       "new_skill": "新建技能",
-      "edit_skill": "编辑技能"
+      "edit_skill": "编辑技能",
+      "loading": "加载技能编辑器..."
     },
     "knowledge": {
       "addKnowledge": "添加知识",
@@ -2378,7 +2379,8 @@
         "downloadFailed": "下载失败: {{error}}",
         "referenceDocs": "参考文档：",
         "noReferencesFound": "(没有检索到相关文档引用)",
-        "clickToDownload": "点击下载: {{filePath}}"
+        "clickToDownload": "点击下载: {{filePath}}",
+        "waitingForServer": "等待 LightRAG 服务器启动... (尝试 {{defaultValue}})"
       }
     },
     "shippingLabel": {

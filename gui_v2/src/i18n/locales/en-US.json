@@ -1964,7 +1964,8 @@
       "save": "Save",
       "cancel": "Cancel",
       "new_skill": "New Skill",
-      "edit_skill": "Edit Skill"
+      "edit_skill": "Edit Skill",
+      "loading": "Loading Skill Editor..."
     },
     "knowledge": {
       "addKnowledge": "Add Knowledge",
@@ -2397,7 +2398,8 @@
         "downloadFailed": "Download failed: {{error}}",
         "referenceDocs": "References:",
         "noReferencesFound": "(No relevant document references found)",
-        "clickToDownload": "Click to download: {{filePath}}"
+        "clickToDownload": "Click to download: {{filePath}}",
+        "waitingForServer": "Waiting for LightRAG server to start... (attempt {{defaultValue}})"
       }
     },
     "shippingLabel": {
