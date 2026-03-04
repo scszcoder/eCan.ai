@@ -41,7 +41,7 @@ def _get_resource_skills_root() -> Path:
     return Path(app_info.app_resources_path).joinpath("my_skills")
 
 
-async def build_agent_skills_parallel(mainwin):
+async def build_agent_skills_parallel(mainwin, db_skill_names: set = None):
     """Optimized batch parallel skill creation"""
     logger.info("[build_agent_skills] Building skills with optimized batching...")
 
@@ -61,9 +61,9 @@ async def build_agent_skills_parallel(mainwin):
     # ]
     rpa_skills = []
 
-    # Batch 3: Advanced skills - auto-scan resource/my_skills directory
-    # This automatically discovers all skill folders in resource/my_skills/
-    resource_skill_names = scan_resource_skills()
+    # Batch 3: Advanced skills - auto-scan resource/my_skills and appdata/my_skills
+    # Passes db_skill_names so appdata scan skips skills already loaded from DB
+    resource_skill_names = scan_resource_skills(exclude_names=db_skill_names)
     
     # Create async wrapper for each discovered skill
     async def create_resource_skill_wrapper(skill_name: str):
@@ -164,33 +164,79 @@ def _create_skill_from_workflow(
         return None
 
 
-def scan_resource_skills() -> List[str]:
-    """Scan resource/my_skills directory and return list of skill names.
+def _get_appdata_skills_root() -> Path:
+    """Get the root path for appdata/my_skills directory (user-created skills).
     
-    Looks for directories matching pattern *_skill/ that contain diagram_dir/.
+    In dev mode this is <project_root>/my_skills.
+    In prod mode this is <appdata>/my_skills.
+    """
+    return Path(app_info.appdata_path).joinpath("my_skills")
+
+
+def _scan_skills_in_dir(skills_root: Path, label: str) -> List[str]:
+    """Scan a directory for skill folders matching *_skill/ with diagram_dir/ or code_dir/.
     
     Returns:
         List of skill names (without _skill suffix)
     """
+    if not skills_root.exists():
+        logger.debug(f"[scan_resource_skills] {label} not found: {skills_root}")
+        return []
+    
+    skill_names = []
+    for item in skills_root.iterdir():
+        if item.is_dir() and item.name.endswith('_skill'):
+            has_diagram = (item / 'diagram_dir').exists()
+            has_code = (item / 'code_dir').exists() or (item / 'code_skill').exists()
+            
+            if has_diagram or has_code:
+                skill_name = item.name[:-6]  # Remove '_skill' suffix
+                skill_names.append(skill_name)
+                logger.debug(f"[scan_resource_skills] Found skill in {label}: {skill_name}")
+    
+    return skill_names
+
+
+def scan_resource_skills(exclude_names: set = None) -> List[str]:
+    """Scan resource/my_skills and appdata/my_skills directories for skill names.
+    
+    Looks for directories matching pattern *_skill/ that contain diagram_dir/.
+    Scans both resource/my_skills (built-in examples) and appdata/my_skills
+    (user-created skills that may not be in DB yet, e.g. basic_chatter).
+    
+    Args:
+        exclude_names: Optional set of skill names to exclude (e.g. DB skill names
+                       already loaded). Only applied to appdata scan to avoid
+                       redundant compilation.
+    
+    Returns:
+        List of unique skill names (without _skill suffix)
+    """
     try:
-        skills_root = _get_resource_skills_root()
-        if not skills_root.exists():
-            logger.warning(f"[scan_resource_skills] resource/my_skills not found: {skills_root}")
-            return []
+        # Scan resource/my_skills (built-in examples — always included)
+        resource_names = _scan_skills_in_dir(_get_resource_skills_root(), "resource/my_skills")
         
+        # Also scan appdata/my_skills (user-created skills on disk)
+        appdata_root = _get_appdata_skills_root()
+        appdata_names = _scan_skills_in_dir(appdata_root, "appdata/my_skills")
+        
+        # Merge, deduplicate; exclude DB skills from appdata to avoid redundant compilation
+        seen = set()
+        _excl = exclude_names or set()
         skill_names = []
-        for item in skills_root.iterdir():
-            if item.is_dir() and item.name.endswith('_skill'):
-                # Check if it has diagram_dir or code_dir/code_skill
-                has_diagram = (item / 'diagram_dir').exists()
-                has_code = (item / 'code_dir').exists() or (item / 'code_skill').exists()
-                
-                if has_diagram or has_code:
-                    skill_name = item.name[:-6]  # Remove '_skill' suffix
-                    skill_names.append(skill_name)
-                    logger.debug(f"[scan_resource_skills] Found skill: {skill_name}")
+        for name in resource_names:
+            if name not in seen:
+                seen.add(name)
+                skill_names.append(name)
+        for name in appdata_names:
+            if name not in seen and name not in _excl:
+                seen.add(name)
+                skill_names.append(name)
         
-        logger.info(f"[scan_resource_skills] Found {len(skill_names)} skills in resource/my_skills: {skill_names}")
+        skipped = len(appdata_names) - len([n for n in appdata_names if n not in _excl and n not in set(resource_names)])
+        logger.info(f"[scan_resource_skills] Found {len(skill_names)} skills to compile "
+                     f"(resource={len(resource_names)}, appdata_new={len(skill_names) - len(resource_names)}, "
+                     f"appdata_skipped_db={skipped}): {skill_names}")
         return skill_names
         
     except Exception as e:
@@ -220,13 +266,12 @@ def create_skill_from_resource(
         create_skill_from_resource("passive0")  # Loads from resource/my_skills/passive0_skill/
     """
     try:
-        # Get root directory
-        skills_root = _get_resource_skills_root()
-        
-        # Construct skill folder path: <skill_name>_skill/
-        skill_folder = skills_root / f"{skill_name}_skill"
+        # Get root directory — check resource/my_skills first, then appdata/my_skills
+        skill_folder = _get_resource_skills_root() / f"{skill_name}_skill"
         if not skill_folder.exists():
-            logger.error(f"[create_skill_from_resource] Skill folder not found: {skill_folder}")
+            skill_folder = _get_appdata_skills_root() / f"{skill_name}_skill"
+        if not skill_folder.exists():
+            logger.error(f"[create_skill_from_resource] Skill folder not found in resource or appdata: {skill_name}_skill")
             return None
         
         # Use load_skill_from_folder which handles both diagram_dir and code_dir
@@ -407,9 +452,11 @@ async def build_agent_skills(mainwin, skill_path=""):
         logger.info(f"[build_agent_skills] ✅ Converted {len(memory_skills)} DB skills to objects")
 
         # Step 5: Build local code-based skills (built-in + resource/my_skills examples)
+        # Pass DB skill names so appdata scan skips skills already loaded from DB
+        db_skill_names = {getattr(sk, 'name', '') for sk in memory_skills if sk}
         logger.info("[build_agent_skills] Step 5: Building local code skills...")
         try:
-            code_skills = await _build_local_skills_async(mainwin, skill_path)
+            code_skills = await _build_local_skills_async(mainwin, skill_path, db_skill_names=db_skill_names)
             logger.info(f"[build_agent_skills] ✅ Built {len(code_skills or [])} code skills")
         except Exception as e:
             logger.error(f"[build_agent_skills] ❌ Local build failed: {e}")
@@ -829,7 +876,7 @@ async def _load_skills_from_cloud_async(mainwin):
         return []
 
 
-async def _build_local_skills_async(mainwin, skill_path=""):
+async def _build_local_skills_async(mainwin, skill_path="", db_skill_names: set = None):
     """Build local skills asynchronously
     
     Returns:
@@ -839,7 +886,7 @@ async def _build_local_skills_async(mainwin, skill_path=""):
         logger.info("[_build_local_skills_async] Building local skills...")
         
         # Build all code-based skills (built-in + resource/my_skills examples)
-        code_skills = await build_agent_skills_parallel(mainwin)
+        code_skills = await build_agent_skills_parallel(mainwin, db_skill_names=db_skill_names)
         logger.info(f"[_build_local_skills_async] Built {len(code_skills)} code skills")
         
         return code_skills

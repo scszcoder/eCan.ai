@@ -2795,10 +2795,10 @@ class MainWindow:
             agent_configs = []
             
             # Basic Agent — My Twin Agent (required for chat functionality)
-            agent_configs.append({
-                'name': 'My Twin',
-                'builder': set_up_my_twin_agent
-            })
+            # agent_configs.append({
+            #     'name': 'My Twin',
+            #     'builder': set_up_my_twin_agent
+            # })
             
             # Add other agents based on role
             # if "Platoon" in self.machine_role:

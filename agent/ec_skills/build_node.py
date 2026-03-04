@@ -3834,6 +3834,9 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                         pass
                 sender = ChatMessageSender(agent_obj)
                 sender.send_text(chat_id, response)
+                # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
+                if isinstance(state.get("attributes"), dict):
+                    state["attributes"]["chat_response_sent"] = True
                 logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(response)}")
                 send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
             elif not response or not str(response).strip():
