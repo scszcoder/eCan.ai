@@ -5351,19 +5351,20 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "addPrompts":
             {
-              console.log(`[agentScheduler] addPrompts: owner='${owner}', input=`, JSON.stringify(event.arguments.input));
+              // Use ownerEmail (actual email) for storing prompts in DynamoDB
+              const effectivePromptOwner = ownerEmail || owner;
+              console.log(`[agentScheduler] addPrompts: owner='${owner}', ownerEmail='${ownerEmail}', effectivePromptOwner='${effectivePromptOwner}', input=`, JSON.stringify(event.arguments.input));
               const promptsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const created = [];
               for (const prompt of promptsInput) {
-                const effectiveOwner = owner;
-                if (!effectiveOwner) {
+                if (!effectivePromptOwner) {
                   console.warn(`[agentScheduler] addPrompts: Missing owner for prompt`);
                   created.push({ id: prompt.id || null, success: false, error: "Missing owner" });
                   continue;
                 }
                 try {
-                  console.log(`[agentScheduler] addPrompts: calling promptService.addPrompt for owner='${effectiveOwner}'`);
-                  const res = await promptService.addPrompt({ ...prompt, owner: effectiveOwner });
+                  console.log(`[agentScheduler] addPrompts: calling promptService.addPrompt for owner='${effectivePromptOwner}'`);
+                  const res = await promptService.addPrompt({ ...prompt, owner: effectivePromptOwner });
                   console.log(`[agentScheduler] addPrompts: result=`, JSON.stringify(res));
                   created.push({ id: res.id || prompt.id, success: res.success !== false, error: res.error || null });
                 } catch (err) {
@@ -5377,7 +5378,8 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "updatePrompts":
             {
-              const isSuperUser0 = process.env.SUPER_USER0 && owner === process.env.SUPER_USER0;
+              const isSuperUser0 = process.env.SUPER_USER0 && (ownerEmail === process.env.SUPER_USER0 || owner === process.env.SUPER_USER0);
+              const effectivePromptOwner = ownerEmail || owner;
               const promptsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const updated = [];
               for (const prompt of promptsInput) {
@@ -5391,9 +5393,9 @@ async function processEvent(event, context, callback, test_stub) {
                   delete fields.id;
                   delete fields.prompt_id;
                   // Super user can update system prompts (owner stays "system")
-                  const effectiveOwner = (isSuperUser0 && prompt.owner === "system") ? "system" : owner;
+                  const promptOwner = (isSuperUser0 && prompt.owner === "system") ? "system" : effectivePromptOwner;
                   delete fields.owner;
-                  const res = await promptService.updatePrompt(pid, effectiveOwner, fields);
+                  const res = await promptService.updatePrompt(pid, promptOwner, fields);
                   updated.push({ id: pid, success: res.success !== false, error: res.error });
                 } catch (err) {
                   updated.push({ id: pid, success: false, error: err.message });
@@ -5404,6 +5406,7 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "removePrompts":
             {
+              const effectivePromptOwner = ownerEmail || owner;
               const promptsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const deleted = [];
               for (const prompt of promptsInput) {
@@ -5413,7 +5416,7 @@ async function processEvent(event, context, callback, test_stub) {
                   continue;
                 }
                 try {
-                  const res = await promptService.deletePrompt(pid, owner);
+                  const res = await promptService.deletePrompt(pid, effectivePromptOwner);
                   deleted.push({ id: pid, success: res.success !== false, error: res.error });
                 } catch (err) {
                   deleted.push({ id: pid, success: false, error: err.message });
@@ -5432,59 +5435,66 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "addAgents":
             {
+              const effectiveAgentOwner = ownerEmail || owner;
               const agentsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const created = [];
               for (const agent of agentsInput) {
-                const res = await agentService.addAgent({ ...agent, owner });
-                if (res.success !== false) {
-                  const agentId = res.id;
-                  // Extract relationship data from extra_data
-                  let extraData = agent.extra_data || {};
-                  if (typeof extraData === 'string') {
-                    try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
-                  }
-                  // Populate agent_org_rels
-                  const orgIds = extraData.org_ids || [];
-                  for (const orgId of orgIds) {
-                    if (orgId) {
-                      try {
-                        await agentService.assignAgentToOrg(agentId, orgId, { role: 'member', status: 'active' });
-                      } catch (e) {
-                        console.error(`[addAgents] Failed to assign org ${orgId} to agent ${agentId}:`, e.message);
+                try {
+                  const res = await agentService.addAgent({ ...agent, owner: effectiveAgentOwner });
+                  if (res.success !== false) {
+                    const agentId = res.id;
+                    // Extract relationship data from extra_data
+                    let extraData = agent.extra_data || {};
+                    if (typeof extraData === 'string') {
+                      try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
+                    }
+                    // Populate agent_org_rels
+                    const orgIds = extraData.org_ids || [];
+                    for (const orgId of orgIds) {
+                      if (orgId) {
+                        try {
+                          await agentService.assignAgentToOrg(agentId, orgId, { role: 'member', status: 'active' });
+                        } catch (e) {
+                          console.error(`[addAgents] Failed to assign org ${orgId} to agent ${agentId}:`, e.message);
+                        }
+                      }
+                    }
+                    // Populate agent_skill_rels
+                    const skillIds = extraData.skills || [];
+                    for (const skillId of skillIds) {
+                      if (skillId) {
+                        try {
+                          await agentService.assignSkillToAgent(agentId, skillId, { status: 'active' });
+                        } catch (e) {
+                          console.error(`[addAgents] Failed to assign skill ${skillId} to agent ${agentId}:`, e.message);
+                        }
+                      }
+                    }
+                    // Populate agent_task_rels (vehicleId can be null or from agent.vehicle_id)
+                    const taskIds = extraData.tasks || [];
+                    const vehicleId = agent.vehicle_id || null;
+                    for (const taskId of taskIds) {
+                      if (taskId) {
+                        try {
+                          await agentService.assignTaskToAgent(agentId, taskId, vehicleId, { status: 'pending' });
+                        } catch (e) {
+                          console.error(`[addAgents] Failed to assign task ${taskId} to agent ${agentId}:`, e.message);
+                        }
                       }
                     }
                   }
-                  // Populate agent_skill_rels
-                  const skillIds = extraData.skills || [];
-                  for (const skillId of skillIds) {
-                    if (skillId) {
-                      try {
-                        await agentService.assignSkillToAgent(agentId, skillId, { status: 'active' });
-                      } catch (e) {
-                        console.error(`[addAgents] Failed to assign skill ${skillId} to agent ${agentId}:`, e.message);
-                      }
-                    }
-                  }
-                  // Populate agent_task_rels (vehicleId can be null or from agent.vehicle_id)
-                  const taskIds = extraData.tasks || [];
-                  const vehicleId = agent.vehicle_id || null;
-                  for (const taskId of taskIds) {
-                    if (taskId) {
-                      try {
-                        await agentService.assignTaskToAgent(agentId, taskId, vehicleId, { status: 'pending' });
-                      } catch (e) {
-                        console.error(`[addAgents] Failed to assign task ${taskId} to agent ${agentId}:`, e.message);
-                      }
-                    }
-                  }
+                  created.push({ id: res.id, success: res.success !== false, error: res.error });
+                } catch (err) {
+                  console.error(`[addAgents] Unhandled error for agent:`, err.message);
+                  created.push({ id: agent.id || null, success: false, error: err.message });
                 }
-                created.push({ id: res.id, success: res.success !== false, error: res.error });
               }
               returnData = created;
             }
             break;
           case "removeAgents":
               {
+                const agentOwnerFormats = [ownerEmail, ownerSub, owner].filter(Boolean);
                 const agentsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
                 const deleted = [];
                 for (const agent of agentsInput) {
@@ -5493,14 +5503,21 @@ async function processEvent(event, context, callback, test_stub) {
                     deleted.push({ success: false, error: "Missing agent id" });
                     continue;
                   }
-                  const res = await agentService.deleteAgent(agentId, owner);
-                  deleted.push({ id: agentId, success: res.success !== false, error: res.error });
+                  try {
+                    const res = await agentService.deleteAgent(agentId, agentOwnerFormats);
+                    deleted.push({ id: agentId, success: res.success !== false, error: res.error });
+                  } catch (err) {
+                    console.error(`[removeAgents] Unhandled error for agent ${agentId}:`, err.message);
+                    deleted.push({ id: agentId, success: false, error: err.message });
+                  }
                 }
                 returnData = deleted;
               }
               break;
           case "updateAgents":
             {
+              const agentOwnerFormats = [ownerEmail, ownerSub, owner].filter(Boolean);
+              const effectiveAgentOwner = ownerEmail || owner;
               const agentsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const updated = [];
               for (const agent of agentsInput) {
@@ -5509,68 +5526,69 @@ async function processEvent(event, context, callback, test_stub) {
                   updated.push({ success: false, error: "Missing agent id" });
                   continue;
                 }
-                const fields = { ...agent };
-                delete fields.id;
-                delete fields.agid;
-                const res = await agentService.updateAgent(agentId, owner, fields);
-                
-                if (res.success !== false) {
-                  // Extract relationship data from extra_data and sync relationship tables
-                  let extraData = agent.extra_data || fields.extra_data || {};
-                  if (typeof extraData === 'string') {
-                    try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
-                  }
+                try {
+                  const fields = { ...agent };
+                  delete fields.id;
+                  delete fields.agid;
+                  const res = await agentService.updateAgent(agentId, agentOwnerFormats, fields);
                   
-                  // Sync agent_org_rels - clear old and add new
-                  if (extraData.org_ids !== undefined) {
-                    // Clear existing org relationships for this agent
-                    try {
-                      const { execute } = require("./db/rdsClient");
-                      await execute("DELETE FROM agent_org_rels WHERE agent_id = :agent_id", [
-                        { name: "agent_id", value: { stringValue: agentId } }
-                      ]);
-                    } catch (e) {
-                      console.error(`[updateAgents] Failed to clear org rels for agent ${agentId}:`, e.message);
+                  if (res.success !== false) {
+                    // Extract relationship data from extra_data and sync relationship tables
+                    let extraData = agent.extra_data || fields.extra_data || {};
+                    if (typeof extraData === 'string') {
+                      try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
                     }
-                    // Add new org relationships
-                    const orgIds = extraData.org_ids || [];
-                    for (const orgId of orgIds) {
-                      if (orgId) {
-                        try {
-                          await agentService.assignAgentToOrg(agentId, orgId, { role: 'member', status: 'active' });
-                        } catch (e) {
-                          console.error(`[updateAgents] Failed to assign org ${orgId} to agent ${agentId}:`, e.message);
+                    
+                    // Sync agent_org_rels - clear old and add new
+                    if (extraData.org_ids !== undefined) {
+                      // Clear existing org relationships for this agent
+                      try {
+                        const { execute } = require("./db/rdsClient");
+                        await execute("DELETE FROM agent_org_rels WHERE agent_id = :agent_id", [
+                          { name: "agent_id", value: { stringValue: agentId } }
+                        ]);
+                      } catch (e) {
+                        console.error(`[updateAgents] Failed to clear org rels for agent ${agentId}:`, e.message);
+                      }
+                      // Add new org relationships
+                      const orgIds = extraData.org_ids || [];
+                      for (const orgId of orgIds) {
+                        if (orgId) {
+                          try {
+                            await agentService.assignAgentToOrg(agentId, orgId, { role: 'member', status: 'active' });
+                          } catch (e) {
+                            console.error(`[updateAgents] Failed to assign org ${orgId} to agent ${agentId}:`, e.message);
+                          }
                         }
                       }
                     }
-                  }
-                  
-                  // Sync agent_skill_rels - clear old and add new
-                  if (extraData.skills !== undefined) {
-                    try {
-                      const { execute } = require("./db/rdsClient");
-                      await execute("DELETE FROM agent_skill_rels WHERE agent_id = :agent_id", [
-                        { name: "agent_id", value: { stringValue: agentId } }
-                      ]);
-                    } catch (e) {
-                      console.error(`[updateAgents] Failed to clear skill rels for agent ${agentId}:`, e.message);
-                    }
-                    const skillIds = extraData.skills || [];
-                    for (const skillId of skillIds) {
-                      if (skillId) {
-                        try {
-                          await agentService.assignSkillToAgent(agentId, skillId, { status: 'active' });
-                        } catch (e) {
-                          console.error(`[updateAgents] Failed to assign skill ${skillId} to agent ${agentId}:`, e.message);
+                    
+                    // Sync agent_skill_rels - clear old and add new
+                    if (extraData.skills !== undefined) {
+                      try {
+                        const { execute } = require("./db/rdsClient");
+                        await execute("DELETE FROM agent_skill_rels WHERE agent_id = :agent_id", [
+                          { name: "agent_id", value: { stringValue: agentId } }
+                        ]);
+                      } catch (e) {
+                        console.error(`[updateAgents] Failed to clear skill rels for agent ${agentId}:`, e.message);
+                      }
+                      const skillIds = extraData.skills || [];
+                      for (const skillId of skillIds) {
+                        if (skillId) {
+                          try {
+                            await agentService.assignSkillToAgent(agentId, skillId, { status: 'active' });
+                          } catch (e) {
+                            console.error(`[updateAgents] Failed to assign skill ${skillId} to agent ${agentId}:`, e.message);
+                          }
                         }
                       }
                     }
-                  }
-                  
-                  // Sync agent_task_rels - clear old and add new
-                  if (extraData.tasks !== undefined) {
-                    try {
-                      const { execute } = require("./db/rdsClient");
+                    
+                    // Sync agent_task_rels - clear old and add new
+                    if (extraData.tasks !== undefined) {
+                      try {
+                        const { execute } = require("./db/rdsClient");
                       await execute("DELETE FROM agent_task_rels WHERE agent_id = :agent_id", [
                         { name: "agent_id", value: { stringValue: agentId } }
                       ]);
@@ -5591,7 +5609,11 @@ async function processEvent(event, context, callback, test_stub) {
                   }
                 }
                 
-                updated.push({ id: agentId, success: res.success !== false, error: res.error });
+                  updated.push({ id: agentId, success: res.success !== false, error: res.error });
+                } catch (err) {
+                  console.error(`[updateAgents] Unhandled error for agent ${agentId}:`, err.message);
+                  updated.push({ id: agentId, success: false, error: err.message });
+                }
               }
               returnData = updated;
             }
@@ -6988,13 +7010,20 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getPrompts":
             {
-              const requestedOwner = event.arguments?.owner;
-              const ownerFilter = requestedOwner === owner ? requestedOwner : owner;
-              const prompts = await promptService.listPrompts(ownerFilter);
+              // Use ownerEmail (actual email) for DynamoDB query since prompts are stored under email format
+              const effectivePromptOwner = ownerEmail || owner;
+              const prompts = await promptService.listPrompts(effectivePromptOwner);
+              // Also query by sanitized owner in case some prompts were stored under that format
+              if (owner && owner !== effectivePromptOwner) {
+                const extraPrompts = await promptService.listPrompts(owner);
+                const existingIds = new Set(prompts.map(p => p.id));
+                for (const ep of extraPrompts) {
+                  if (!existingIds.has(ep.id)) prompts.push(ep);
+                }
+              }
               // If the caller is the super user, also include prompts owned by "system"
-              if (process.env.SUPER_USER0 && owner === process.env.SUPER_USER0) {
+              if (process.env.SUPER_USER0 && (ownerEmail === process.env.SUPER_USER0 || owner === process.env.SUPER_USER0)) {
                 const systemPrompts = await promptService.listPromptsByOwnerOnly("system");
-                // Avoid duplicates by checking IDs already present
                 const existingIds = new Set(prompts.map(p => p.id));
                 for (const sp of systemPrompts) {
                   if (!existingIds.has(sp.id)) {
@@ -7020,19 +7049,32 @@ async function processEvent(event, context, callback, test_stub) {
           case "queryPrompts":
             {
               const qArg = event.arguments?.input || {};
-              const requestedOwner = qArg.owner;
-              // Only allow querying your own prompts; fall back to caller owner if mismatched
-              const ownerFilter = requestedOwner === owner ? requestedOwner : owner;
+              // Use ownerEmail for DynamoDB query since prompts are stored under email format
+              const effectivePromptOwner = ownerEmail || owner;
               try {
                 const result = await promptService.queryPrompts({
                   id: qArg.id,
-                  owner: ownerFilter,
+                  owner: effectivePromptOwner,
                   version: qArg.version,
                   search: qArg.search
                 });
                 const prompts = Array.isArray(result) ? result : [];
+                // Also query by sanitized owner in case some prompts were stored under that format
+                if (owner && owner !== effectivePromptOwner) {
+                  const extraResult = await promptService.queryPrompts({
+                    id: qArg.id,
+                    owner: owner,
+                    version: qArg.version,
+                    search: qArg.search
+                  });
+                  const extraPrompts = Array.isArray(extraResult) ? extraResult : [];
+                  const existingIds = new Set(prompts.map(p => p.id));
+                  for (const ep of extraPrompts) {
+                    if (!existingIds.has(ep.id)) prompts.push(ep);
+                  }
+                }
                 // If the caller is the super user, also include prompts owned by "system"
-                if (process.env.SUPER_USER0 && owner === process.env.SUPER_USER0) {
+                if (process.env.SUPER_USER0 && (ownerEmail === process.env.SUPER_USER0 || owner === process.env.SUPER_USER0)) {
                   const systemPrompts = await promptService.listPromptsByOwnerOnly("system");
                   const existingIds = new Set(prompts.map(p => p.id));
                   for (const sp of systemPrompts) {
@@ -7391,9 +7433,19 @@ async function processEvent(event, context, callback, test_stub) {
               const tools = await safeList("tools", () => toolService.getToolsByOwner(owner));
               const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(owner));
               const prompts = await safeList("prompts", async () => {
-                const list = await promptService.listPrompts(owner);
+                // Use ownerEmail (actual email) for DynamoDB query since prompts are stored under email format
+                const effectivePromptOwner = ownerEmail || owner;
+                const list = await promptService.listPrompts(effectivePromptOwner);
+                // Also query by sanitized owner in case some prompts were stored under that format
+                if (owner && owner !== effectivePromptOwner) {
+                  const extraPrompts = await promptService.listPrompts(owner);
+                  const existingIds = new Set(list.map(p => p.id));
+                  for (const ep of extraPrompts) {
+                    if (!existingIds.has(ep.id)) list.push(ep);
+                  }
+                }
                 // If the caller is the super user, also include prompts owned by "system"
-                if (process.env.SUPER_USER0 && owner === process.env.SUPER_USER0) {
+                if (process.env.SUPER_USER0 && (ownerEmail === process.env.SUPER_USER0 || owner === process.env.SUPER_USER0)) {
                   const systemPrompts = await promptService.listPromptsByOwnerOnly("system");
                   const existingIds = new Set(list.map(p => p.id));
                   for (const sp of systemPrompts) {
@@ -7910,6 +7962,11 @@ exports.handler = async (event, context, callback) => {
     lamb_result.cause = error.toString();
     console.error('Error occurred:', error.message);
     console.error('Stack trace:', error.stack);
+    // Return a type-safe error instead of undefined/null to prevent
+    // "Cannot return null for non-nullable type" AppSync errors
+    if (!resp) {
+      resp = { success: false, error: error.message || "Internal server error" };
+    }
   }
   
   
