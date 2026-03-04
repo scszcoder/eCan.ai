@@ -3558,6 +3558,24 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
     timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
 
+    # Also extract timer_name from pendingSources items (dicts with type + timerName)
+    if not timer_name and isinstance(additional_events, list):
+        for src in additional_events:
+            if isinstance(src, dict) and src.get("type") == "timer":
+                timer_name = (src.get("timerName") or "").strip()
+                if timer_name:
+                    break
+
+    # Build a flat set of event type strings for easy membership checks
+    _additional_event_types = set()
+    if isinstance(additional_events, list):
+        for src in additional_events:
+            if isinstance(src, str):
+                _additional_event_types.add(src.strip())
+            elif isinstance(src, dict):
+                _additional_event_types.add((src.get("type") or "").strip())
+
+    _listens_for_timer = main_event == "timer" or "timer" in _additional_event_types
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
         log_msg = f"🤖 Executing node pending event node: {node_name}"
@@ -3567,7 +3585,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # Safety net: auto-resume any paused timers when we reach a pend_event
         # node that listens for timer events. This handles the case where the
         # LLM called pause_timer but forgot to call resume_timer.
-        if main_event == "timer" or "timer" in (additional_events or []):
+        if _listens_for_timer:
             try:
                 agent_id = (state.get("attributes") or {}).get("agent_id", "")
                 if agent_id:

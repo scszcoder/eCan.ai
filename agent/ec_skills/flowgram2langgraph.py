@@ -180,6 +180,10 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
     Exposes 'state' and 'attributes' only. Returns False on error.
     """
     try:
+        # Sanitize smart/curly quotes that UI editors may introduce
+        expr = expr.replace('\u201c', '"').replace('\u201d', '"')   # " " → "
+        expr = expr.replace('\u2018', "'").replace('\u2019', "'")   # ' ' → '
+
         log_msg = f"🤖 Executing conditional edge: {expr}"
         logger.info(log_msg)
         send_skill_editor_log("log", log_msg)

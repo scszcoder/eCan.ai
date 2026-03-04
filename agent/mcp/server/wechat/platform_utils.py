@@ -380,6 +380,68 @@ def _clipboard_set_text_linux(text: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# CLIPBOARD — GET TEXT
+# ═══════════════════════════════════════════════════════════════════════════
+
+def clipboard_get_text() -> str:
+    """Read text from the system clipboard (cross-platform). Returns '' on failure."""
+    if PLATFORM == "win32":
+        return _clipboard_get_text_win32()
+    elif PLATFORM == "darwin":
+        return _clipboard_get_text_macos()
+    else:
+        return _clipboard_get_text_linux()
+
+
+def _clipboard_get_text_win32() -> str:
+    try:
+        import pyperclip
+        return pyperclip.paste() or ""
+    except ImportError:
+        pass
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            data = win32clipboard.GetClipboardData()
+            return data or ""
+        finally:
+            win32clipboard.CloseClipboard()
+    except Exception as e:
+        logger.warning(f"[platform_utils] Win32 clipboard get failed: {e}")
+        return ""
+
+
+def _clipboard_get_text_macos() -> str:
+    try:
+        import pyperclip
+        return pyperclip.paste() or ""
+    except ImportError:
+        pass
+    try:
+        out = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+        return out.stdout if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _clipboard_get_text_linux() -> str:
+    try:
+        import pyperclip
+        return pyperclip.paste() or ""
+    except ImportError:
+        pass
+    for cmd in [["xclip", "-selection", "clipboard", "-o"], ["xsel", "--clipboard", "--output"]]:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if out.returncode == 0:
+                return out.stdout
+        except FileNotFoundError:
+            continue
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # CLIPBOARD — FILE
 # ═══════════════════════════════════════════════════════════════════════════
 
