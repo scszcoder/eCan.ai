@@ -1424,6 +1424,54 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleOcrLocalTest = async () => {
+        setTestOutput('');
+        appendTestOutput('OCR Local Test: Starting (PaddleOCR)...');
+
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/test-ocr-local`;
+
+        const imagePath = parsedArgs.image_path || '';
+        appendTestOutput(`OCR Local Test: endpoint=${testUrl}`);
+        appendTestOutput(`OCR Local Test: image_path="${imagePath || '(default: ocr/test_image0.PNG)'}"`);
+        appendTestOutput('OCR Local Test: Running PaddleOCR...');
+
+        try {
+            const bodyPayload: any = {};
+            if (imagePath) bodyPayload.image_path = imagePath;
+
+            const response = await fetch(testUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyPayload),
+            });
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                appendTestOutput(`OCR Local Test: SUCCESS - ${result.results?.length || 0} text items detected`);
+                appendTestOutput(`OCR Local Test: image_path="${result.image_path}"`);
+                if (result.results && result.results.length > 0) {
+                    result.results.forEach((item: any, idx: number) => {
+                        appendTestOutput(`  [${idx}] "${item.text}" (conf=${item.confidence}) box=${JSON.stringify(item.box)}`);
+                    });
+                } else {
+                    appendTestOutput('OCR Local Test: No text detected in image.');
+                }
+            } else {
+                appendTestOutput(`OCR Local Test: FAILED - ${result.error}`);
+                if (result.traceback) {
+                    appendTestOutput(result.traceback);
+                }
+            }
+        } catch (error) {
+            appendTestOutput(`OCR Local Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            appendTestOutput('Make sure the local server is running and paddleocr is installed.');
+        }
+    };
+
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
         const target = e.target as HTMLElement;
         console.log('[Tests] Page click:', {
@@ -1573,6 +1621,19 @@ const Tests: React.FC = () => {
                             }}
                         >
                             OCR Test
+                        </Button>
+                    </Space>
+                    {/* Local OCR & Misc Test Buttons - 4th row */}
+                    <Space style={{ marginBottom: '8px' }}>
+                        <Button
+                            onClick={handleOcrLocalTest}
+                            style={{
+                                background: '#fa8c16',
+                                borderColor: '#fa8c16',
+                                color: '#fff',
+                            }}
+                        >
+                            Test OCR Local
                         </Button>
                     </Space>
                     {/* Test Selection */}

@@ -158,6 +158,10 @@ from agent.mcp.server.gcloud_utils.gcloud_tools import (
     gcloud_read_billing,
     gcloud_shutdown,
 )
+from agent.mcp.server.wechat.wechat_tools import (
+    wechat_send,
+    wechat_receive,
+)
 from agent.ec_skills.label_utils.print_label import reformat_labels, print_labels
 from agent.ec_skills.browser_use_extension.extension_tools_service import *
 from app_context import AppContext
@@ -3343,6 +3347,9 @@ tool_function_mapping = {
         # GCP cost monitoring and emergency shutdown tools
         "gcloud_read_billing": gcloud_read_billing,
         "gcloud_shutdown": gcloud_shutdown,
+        # WeChat automation tools
+        "wechat_send": wechat_send,
+        "wechat_receive": wechat_receive,
     }
 
 def set_server_main_win(mw):
