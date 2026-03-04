@@ -1,3 +1,4 @@
+import re
 import traceback
 import typing
 import uuid
@@ -406,12 +407,13 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
                     break
             if not resolved_skill:
                 logger.warning(f"[create_agent_tasks] ⚠️ Skill '{skill_name}' not found in compiled pool by exact name")
-                # For chat tasks, try any compiled skill with 'chat' in its name
+                # For chat tasks, try any compiled skill with 'chat' as a whole word in its name
+                # Use word-boundary regex to avoid matching 'wechat_bot' etc.
                 task_name_check = db_agent_task_dict.get('name', '')
                 if 'chat' in task_name_check.lower():
                     for sk in compiled_skills:
                         sk_name = (getattr(sk, 'name', '') or '').lower()
-                        if 'chat' in sk_name and getattr(sk, 'runnable', None) is not None:
+                        if re.search(r'(?<![a-z])chat', sk_name) and getattr(sk, 'runnable', None) is not None:
                             resolved_skill = sk
                             logger.info(f"[create_agent_tasks] ✅ Chat fallback: matched task '{task_name_check}' to skill '{getattr(sk, 'name', '')}' (has runnable)")
                             break

@@ -61,6 +61,8 @@ class SchemaBuilder:
         excluded_fields = mapping_data.get('excluded_fields', [])
         aws_date_fields = mapping_data.get('aws_date_fields', [])
         aws_datetime_fields = mapping_data.get('aws_datetime_fields', [])
+        copy_fields = mapping_data.get('copy_fields', {})
+        operation_specific_exclusions = mapping_data.get('operation_specific_exclusions', {})
         
         # 3. Auto-generate transformers
         transformers = SchemaBuilder._build_transformers(
@@ -70,6 +72,8 @@ class SchemaBuilder:
             excluded_fields,
             aws_date_fields,
             aws_datetime_fields,
+            copy_fields,
+            operation_specific_exclusions,
             config.custom_transformers
         )
         
@@ -110,6 +114,8 @@ class SchemaBuilder:
         excluded_fields: List[str],
         aws_date_fields: List[str],
         aws_datetime_fields: List[str],
+        copy_fields: Dict[str, List[str]],
+        operation_specific_exclusions: Dict[str, List[str]],
         custom_transformers: List[FieldTransformer]
     ) -> List[FieldTransformer]:
         """Auto-build transformer list"""
@@ -118,7 +124,53 @@ class SchemaBuilder:
         
         transformers = []
         
-        # 0. Add ID generation transformers for mapped ID fields
+        # 0. Add field copy transformers (copy source field to multiple target fields)
+        # Example: {"id": ["id", "agid"]} - copy id to both id and agid
+        for source_field, target_fields in copy_fields.items():
+            if isinstance(target_fields, list) and len(target_fields) > 1:
+                # Copy to additional fields (first field is the source itself, keep it)
+                for target_field in target_fields[1:]:  # Skip first field (source)
+                    def make_copy_func(src_field):
+                        def copy_field(data):
+                            return data.get(src_field)
+                        return copy_field
+                    
+                    transformers.append(
+                        FieldTransformer(
+                            action=FieldAction.ADD,
+                            target_field=target_field,
+                            transform_func=make_copy_func(source_field)
+                        )
+                    )
+        
+        # 1. Add operation-specific exclusion transformers
+        # These transformers conditionally remove fields based on operation type
+        # Example: {"update": ["agid"]} - remove agid field for update operations
+        
+        # Define OperationSpecificRemover class outside the loop to avoid closure issues
+        class OperationSpecificRemover(FieldTransformer):
+            def __init__(self, field_name, target_operation):
+                super().__init__(
+                    action=FieldAction.REMOVE,
+                    source_field=field_name
+                )
+                self.target_operation = target_operation
+                self.operation_context = None
+            
+            def apply(self, data: Dict[str, Any], direction: str = 'to_cloud') -> Dict[str, Any]:
+                # Only remove if operation matches
+                if direction == 'to_cloud' and self.operation_context == self.target_operation:
+                    result = data.copy()
+                    result.pop(self.source_field, None)
+                    return result
+                return data
+        
+        # Create transformers for each operation-specific exclusion
+        for operation, fields_to_exclude in operation_specific_exclusions.items():
+            for field in fields_to_exclude:
+                transformers.append(OperationSpecificRemover(field, operation))
+        
+        # 2. Add ID generation transformers for mapped ID fields
         # Generate UUID for empty ID fields (agid, askid, ataskid, toolid)
         for local_field, cloud_field in field_mapping.items():
             if local_field == 'id' and cloud_field in ['agid', 'askid', 'ataskid', 'toolid']:
@@ -137,7 +189,7 @@ class SchemaBuilder:
                     )
                 )
         
-        # 1. Add REMOVE transformers for excluded fields
+        # 3. Add REMOVE transformers for excluded fields
         for field in excluded_fields:
             transformers.append(
                 FieldTransformer(
@@ -146,7 +198,7 @@ class SchemaBuilder:
                 )
             )
         
-        # 2. Add AWS Date transformers
+        # 4. Add AWS Date transformers
         for local_field in aws_date_fields:
             cloud_field = field_mapping.get(local_field, local_field)
             
@@ -174,7 +226,7 @@ class SchemaBuilder:
                 )
             )
         
-        # 3. Add AWS DateTime transformers
+        # 5. Add AWS DateTime transformers
         for local_field in aws_datetime_fields:
             cloud_field = field_mapping.get(local_field, local_field)
             
@@ -209,10 +261,10 @@ class SchemaBuilder:
                 )
             )
         
-        # 4. Merge JSON field lists
+        # 6. Merge JSON field lists
         all_json_fields = set(json_fields) | set(json_serialize_fields)
         
-        # 5. Create transformer for each JSON field
+        # 7. Create transformer for each JSON field
         for local_field in all_json_fields:
             # Get cloud field name, use same field name if no explicit mapping
             cloud_field = field_mapping.get(local_field, local_field)
@@ -247,7 +299,7 @@ class SchemaBuilder:
                 )
             )
         
-        # 6. Add custom transformers
+        # 8. Add custom transformers
         transformers.extend(custom_transformers)
         
         return transformers

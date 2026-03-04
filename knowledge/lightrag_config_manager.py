@@ -19,6 +19,7 @@ class LightRAGConfigManager:
     def __init__(self):
         """Initialize the configuration manager."""
         self._config_cache: Optional[Dict[str, str]] = None
+        self._cache_mtime: Optional[float] = None
     
     def get_config_file_path(self) -> Optional[str]:
         """
@@ -30,26 +31,42 @@ class LightRAGConfigManager:
         env_path = ensure_user_env_file()
         return str(env_path) if env_path else None
     
-    def read_config(self, use_cache: bool = False) -> Dict[str, str]:
+    def read_config(self, use_cache: bool = True) -> Dict[str, str]:
         """
         Read configuration from .env file.
         
         Args:
-            use_cache: If True, return cached config if available
+            use_cache: If True (default), return cached config if file hasn't changed
             
         Returns:
             Dictionary of configuration key-value pairs
         """
-        if use_cache and self._config_cache is not None:
-            return self._config_cache.copy()
-        
         config_file = self.get_config_file_path()
         if not config_file:
             logger.warning("[LightRAGConfig] Unable to determine config file path")
             return {}
         
+        # Check if cache is valid (file hasn't been modified)
+        if use_cache and self._config_cache is not None:
+            try:
+                current_mtime = os.path.getmtime(config_file)
+                if self._cache_mtime is not None and current_mtime == self._cache_mtime:
+                    # Cache is still valid, return it without re-reading file
+                    logger.debug(f"[LightRAGConfig] Using cached config ({len(self._config_cache)} entries)")
+                    return self._config_cache.copy()
+            except OSError:
+                pass  # File might not exist, will be handled below
+        
+        # Read config from file
         config = self._read_env_file(config_file)
+        
+        # Update cache
         self._config_cache = config.copy()
+        try:
+            self._cache_mtime = os.path.getmtime(config_file)
+        except OSError:
+            self._cache_mtime = None
+        
         return config
     
     def write_config(self, config: Dict[str, str], merge: bool = True) -> bool:
@@ -434,36 +451,9 @@ class LightRAGConfigManager:
         system_keys = self.get_system_api_keys()
         config.update(system_keys)
         
-        # 3. Synchronize RyoAIS models (if any provider uses RyoAIS)
-        # This ensures we always use the latest running model from RyoAIS
-        try:
-            from knowledge.lightrag_ryoais_sync import sync_ryoais_models_for_lightrag
-            
-            # Check if any provider is using RyoAIS
-            has_ryoais = (
-                config.get('LLM_BINDING', '').lower() == 'ryoais' or
-                config.get('EMBEDDING_BINDING', '').lower() == 'ryoais' or
-                config.get('RERANK_BINDING', '').lower() == 'ryoais'
-            )
-            
-            if has_ryoais:
-                logger.info("[LightRAGConfig] 🔄 RyoAIS provider detected, attempting quick model sync (2s timeout)...")
-                updated, synced_config = sync_ryoais_models_for_lightrag(config)
-                
-                if updated:
-                    # Save the updated configuration back to file
-                    logger.info("[LightRAGConfig] 💾 Saving synchronized RyoAIS models to lightrag.env...")
-                    self.write_config(synced_config, merge=False)
-                    config = synced_config
-                    logger.info("[LightRAGConfig] ✅ RyoAIS model synchronization completed and saved")
-                else:
-                    logger.info("[LightRAGConfig] ✅ RyoAIS models are up-to-date, no changes needed")
-            else:
-                logger.debug("[LightRAGConfig] No RyoAIS providers configured, skipping model synchronization")
-                
-        except Exception as e:
-            logger.warning(f"[LightRAGConfig] ⚠️  RyoAIS model sync failed: {e}")
-            logger.info("[LightRAGConfig] ✅ Using existing configuration to continue startup")
+        # NOTE: RyoAIS/Ollama model synchronization is now handled globally by MainGUI
+        # at startup (_auto_refresh_ryoais_models), so we don't need to do it here.
+        # This avoids duplicate API calls and ensures models are refreshed once per startup.
         
         return config
 
