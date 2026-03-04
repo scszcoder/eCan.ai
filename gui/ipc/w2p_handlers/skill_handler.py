@@ -417,18 +417,23 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Prepare skill data
-        skill_data = _prepare_skill_data(skill_info, username, skill_id)
-
         # Check if skill exists
         existing_skill = skill_service.get_skill_by_id(skill_id)
 
         if existing_skill.get('success') and existing_skill.get('data'):
-            # Update existing skill
+            # Update existing skill — merge incoming fields onto existing DB record
+            # so partial updates (e.g. toggling public/rentable) don't wipe other fields
+            existing_data = existing_skill['data']
+            skill_data = _prepare_skill_data(existing_data, username, skill_id)
+            # Overlay only the fields the caller actually sent
+            for key in skill_info:
+                if key in skill_data:
+                    skill_data[key] = skill_info[key]
             logger.info(f"Updating existing skill: {skill_id}")
             result = skill_service.update_skill(skill_id, skill_data)
         else:
             # Create new skill
+            skill_data = _prepare_skill_data(skill_info, username, skill_id)
             logger.info(f"Creating new skill: {skill_id}")
             result = skill_service.add_skill(skill_data)
 
@@ -1001,16 +1006,28 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     """Trigger cloud synchronization (async, non-blocking)
     
     Async background execution, doesn't block UI operations, ensures eventual consistency.
+    If UPDATE fails with NOT_FOUND, automatically retries with ADD.
     
     Args:
         skill_data: Skill data to sync
         operation: Operation type (Operation enum)
     """
     from agent.cloud_api.offline_sync_manager import get_sync_manager
-    from agent.cloud_api.constants import DataType
+    from agent.cloud_api.constants import DataType, Operation as Op
     
     def _log_result(result: Dict[str, Any]):
-        """Log sync result"""
+        """Log sync result and retry UPDATE→ADD on NOT_FOUND"""
+        # Check per-item errors in the cloud response (transport may succeed but item may fail)
+        cloud_resp = result.get('response')
+        if isinstance(cloud_resp, list):
+            for item in cloud_resp:
+                if isinstance(item, dict) and 'NOT_FOUND' in str(item.get('error', '')):
+                    # Skill doesn't exist in cloud yet — retry with ADD
+                    logger.info(f"[skill_handler] 🔄 Cloud returned NOT_FOUND for UPDATE, retrying with ADD: {skill_data.get('name')}")
+                    manager = get_sync_manager()
+                    manager.sync_to_cloud_async(DataType.SKILL, cloud_data, Op.ADD, callback=_log_result_final)
+                    return
+        
         error_msg = result.get('error')
         if not error_msg:
             errors = result.get('errors')
@@ -1022,6 +1039,18 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
             logger.info(f"[skill_handler] 💾 Skill cached for later sync: {operation} - {skill_data.get('name')}")
         else:
             logger.error(f"[skill_handler] ❌ Failed to sync skill: {error_msg or result}")
+    
+    def _log_result_final(result: Dict[str, Any]):
+        """Log result for the ADD retry (no further retries)"""
+        error_msg = result.get('error')
+        if not error_msg:
+            errors = result.get('errors')
+            if isinstance(errors, list) and errors:
+                error_msg = '; '.join([str(e) for e in errors if e])
+        if result.get('synced'):
+            logger.info(f"[skill_handler] ✅ Skill synced to cloud (ADD retry): {skill_data.get('name')}")
+        else:
+            logger.error(f"[skill_handler] ❌ ADD retry also failed: {error_msg or result}")
     
     # Relativize the 'path' field before sending to cloud.
     # Local DB stores the full filesystem path (e.g. C:\...\my_skills\passive0_skill\diagram_dir\...).

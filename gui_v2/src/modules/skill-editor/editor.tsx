@@ -76,6 +76,7 @@ import { IPCAPI } from '../../services/ipc/api';
 import { isWebPlatform } from '../../config/platform';
 import { useUserStore } from '../../stores/userStore';
 import { eventBus } from '@/utils/eventBus';
+import { useTranslation } from 'react-i18next';
 
 const EditorContainer = styled.div`
   position: relative;
@@ -103,6 +104,7 @@ const MIN_CHAT_WIDTH = 280;
 const MAX_CHAT_WIDTH = 600;
 
 export const Editor = () => {
+  const { t } = useTranslation();
   const emptyData: FlowDocumentJSON = emptyFlowData;
 
   // ProductionEnvironment不Load初始Data，DevelopmentEnvironment根据Configuration决定
@@ -118,6 +120,9 @@ export const Editor = () => {
   // Chat panel state
   const [chatCollapsed, setChatCollapsed] = useState(true);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+  
+  // Auto-loading state
+  const [isAutoLoading, setIsAutoLoading] = useState(true);
 
   const handleChatToggle = useCallback(() => {
     setChatCollapsed(prev => !prev);
@@ -128,6 +133,10 @@ export const Editor = () => {
       const newWidth = prev + delta;
       return Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, newWidth));
     });
+  }, []);
+  
+  const handleLoadingChange = useCallback((loading: boolean) => {
+    setIsAutoLoading(loading);
   }, []);
 
   useEffect(() => {
@@ -310,6 +319,46 @@ export const Editor = () => {
   
   return (
     <EditorContainer>
+      {/* Loading overlay */}
+      {isAutoLoading && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(26, 43, 75, 0.95)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          gap: '20px',
+        }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            border: '4px solid rgba(255, 255, 255, 0.1)',
+            borderTop: '4px solid #0066cc',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }} />
+          <div style={{
+            color: '#ffffff',
+            fontSize: '16px',
+            fontWeight: 500,
+          }}>
+            {t('pages.skill_editor.loading')}
+          </div>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+      
       <SplitLayoutContainer>
         {/* Left side: Collapsible Chat Panel */}
         <ChatPanelErrorBoundary>
@@ -334,7 +383,7 @@ export const Editor = () => {
                 <EditorBridge />
                 <AnchorProbe />
                 {/* Auto-load recent file on startup (must be inside provider for useClientContext) */}
-                <AutoLoadHandler />
+                <AutoLoadHandler onLoadingChange={handleLoadingChange} />
                 {/* Load file from route state if present */}
                 <RouteFileLoader />
                 {/* Sync the active sheet's document with the editor's WorkflowDocument */}
@@ -385,7 +434,7 @@ export const Editor = () => {
 };
 
 // AutoLoadHandler - handles auto-loading recent files (must be inside FreeLayoutEditorProvider)
-const AutoLoadHandler: React.FC = () => {
+const AutoLoadHandler: React.FC<{ onLoadingChange: (loading: boolean) => void }> = ({ onLoadingChange }) => {
   const location = useLocation();
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
 
@@ -395,7 +444,22 @@ const AutoLoadHandler: React.FC = () => {
   const isReloadSkillEditor = PageRefreshManager.isReloadSkillEditor();
 
   const shouldAutoLoad = !currentFilePath && (!hasRouteFile || isReloadSkillEditor);
-  useAutoLoadRecentFile({ enabled: shouldAutoLoad });
+  
+  // Debug: Log auto-load decision
+  console.log('[AutoLoadDecision]', {
+    currentFilePath,
+    hasRouteFile,
+    isReloadSkillEditor,
+    shouldAutoLoad,
+  });
+  
+  const { isAutoLoading } = useAutoLoadRecentFile({ enabled: shouldAutoLoad });
+  
+  // Notify parent component of loading state changes
+  React.useEffect(() => {
+    onLoadingChange(isAutoLoading);
+  }, [isAutoLoading, onLoadingChange]);
+  
   return null;
 };
 

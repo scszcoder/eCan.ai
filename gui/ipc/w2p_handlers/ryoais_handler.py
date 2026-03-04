@@ -159,8 +159,11 @@ def handle_scan_devices(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         # Start browsing for ryoais services
         browser = ServiceBrowser(zeroconf, "_ryoais._tcp.local.", listener)
         
-        # Wait for discovery
-        time.sleep(timeout)
+        # Wait for discovery using Event.wait() instead of time.sleep() for better responsiveness
+        # This allows the wait to be interrupted if needed
+        import threading
+        stop_event = threading.Event()
+        stop_event.wait(timeout)  # More responsive than time.sleep()
         
         # Get discovered devices
         devices = list(listener.devices.values())

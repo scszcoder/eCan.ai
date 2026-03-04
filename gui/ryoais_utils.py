@@ -48,7 +48,14 @@ def save_ryoais_models(models: list, host: str, username: str = None) -> bool:
         True if saved successfully, False otherwise
     """
     try:
+        # Debug: Log the incoming username parameter
+        logger.info(f"[RyoAIS] save_ryoais_models called with username={username!r} (type={type(username).__name__})")
+        
         models_path = get_ryoais_models_path(username)
+        
+        # Debug: Log the generated path
+        logger.info(f"[RyoAIS] Generated models_path: {models_path}")
+        
         data = {
             'host': host,
             'models': models,
@@ -181,6 +188,12 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
         data = response.json()
         models_data = data.get('data', [])
         
+        # Log the raw API response for debugging
+        logger.info(f"[RyoAIS] API returned {len(models_data)} models")
+        if models_data and len(models_data) > 0:
+            # Log the first model's full data to see what fields are available
+            logger.info(f"[RyoAIS] Sample model data (first model): {models_data[0]}")
+        
         # Extract model info
         model_list = []
         embedding_models_to_test = []
@@ -188,6 +201,11 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
         for model in models_data:
             model_id = model.get('id', '')
             if model_id:
+                # Log all available fields for LLM models to debug max_length extraction
+                model_name_lower = model_id.lower()
+                is_llm_candidate = not ('embed' in model_name_lower or 'rerank' in model_name_lower)
+                if is_llm_candidate:
+                    logger.debug(f"[RyoAIS] LLM model {model_id} raw data: {model}")
                 model_info = {
                     'name': model_id,
                     'id': model_id,
@@ -196,9 +214,34 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                     'owned_by': model.get('owned_by', 'ryoais')
                 }
                 
-                # Detect model type based on name
+                # Extract context_length from API response (critical for message compaction)
+                # RyoAIS API may return this as 'context_length', 'max_model_len', or 'max_tokens'
+                context_length = (
+                    model.get('context_length') or 
+                    model.get('max_model_len') or 
+                    model.get('max_tokens') or
+                    model.get('n_ctx')
+                )
+                
+                # Detect model type based on name first (needed for default context_length)
                 model_name_lower = model_id.lower()
-                if 'embed' in model_name_lower:
+                is_embedding = 'embed' in model_name_lower
+                is_rerank = 'rerank' in model_name_lower
+                is_llm = not is_embedding and not is_rerank
+                
+                # Set context_length with fallback to reasonable defaults
+                if context_length:
+                    model_info['context_length'] = int(context_length)
+                    logger.debug(f"[RyoAIS] Model {model_id} context_length from API: {context_length}")
+                elif is_llm:
+                    # For LLM models without context_length, use a conservative default
+                    # Most modern LLMs support at least 8K tokens
+                    default_context = 8192
+                    model_info['context_length'] = default_context
+                    logger.info(f"[RyoAIS] Model {model_id} missing context_length, using default: {default_context}")
+                
+                # Set model type
+                if is_embedding:
                     model_info['type'] = 'embedding'
                     # Try to detect embedding dimension from API response
                     if 'dimensions' in model:
@@ -206,7 +249,7 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                     else:
                         # Mark for dimension detection
                         embedding_models_to_test.append(model_info)
-                elif 'rerank' in model_name_lower:
+                elif is_rerank:
                     model_info['type'] = 'rerank'
                 # BGE models are primarily embedding models, but some can be used for both
                 elif 'bge' in model_name_lower:

@@ -3,7 +3,7 @@
  * Automatically loads the most recent file when the skill editor initializes
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { IPCAPI } from '../../../services/ipc/api';
@@ -45,57 +45,83 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
   const getMostRecentFile = useRecentFilesStore((state) => state.getMostRecentFile);
   
   const hasAutoLoaded = useRef(false);
+  const [isAutoLoading, setIsAutoLoading] = useState(true);
 
   useEffect(() => {
+    // Get IPC API instance once at the start
+    const ipcApi = IPCAPI.getInstance();
+    
+    console.log('[AutoLoad][useEffect] Triggered with:', {
+      enabled,
+      hasAutoLoaded: hasAutoLoaded.current,
+      currentFilePath,
+      hasIPC: !!ipcApi,
+      hasWorkflowDoc: !!workflowDocument,
+    });
+
     // Only auto-load once and if enabled
     if (!enabled || hasAutoLoaded.current) {
+      console.log('[AutoLoad] Skipped: enabled=', enabled, 'hasAutoLoaded=', hasAutoLoaded.current);
+      setIsAutoLoading(false);
       return;
     }
 
     // Skip auto-load if a file is already loaded
     if (currentFilePath) {
+      console.log('[AutoLoad] Skipped: file already loaded:', currentFilePath);
       hasAutoLoaded.current = true;
+      setIsAutoLoading(false);
       return;
     }
 
-    // Only auto-load if we have IPC support (desktop mode)
-    const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
-    if (!hasIPC) {
+    // Check if IPC API is available (more reliable than platform detection)
+    // Platform detection might be unstable during early initialization
+    if (!ipcApi) {
+      console.log('[AutoLoad] Skipped: IPC API not available');
+      setIsAutoLoading(false);
       return;
     }
 
     // Wait for workflow document to be available
     if (!workflowDocument) {
+      console.log('[AutoLoad] Waiting for workflow document...');
       return;
     }
+
+    console.log('[AutoLoad] ✅ Starting auto-load process...');
+    setIsAutoLoading(true);
 
     const autoLoadRecentFile = async () => {
       try {
         PageRefreshManager.consumeSkillEditorReload();
         
         // First, try to get recent files from backend (more reliable than localStorage)
-        const ipcApi = IPCAPI.getInstance();
         
         let fileToLoad: { filePath: string; fileName: string; timestamp?: number } | null = null;
         
         // Try to load recent files from backend
         try {
+          console.log('[AutoLoad] Calling backend loadEditorCache...');
           const cacheResponse = await ipcApi.loadEditorCache<{ 
             cacheData: any; 
             recentFiles?: Array<{ filePath: string; fileName: string; skillName?: string; lastOpened?: string }> 
           }>();
 
+          console.log('[AutoLoad] Backend response:', cacheResponse);
           const recentFiles = cacheResponse.success ? cacheResponse.data?.recentFiles : undefined;
           if (recentFiles && recentFiles.length > 0) {
             const mostRecent = recentFiles[0];
+            console.log('[AutoLoad] Found most recent file from backend:', mostRecent);
             fileToLoad = {
               filePath: mostRecent.filePath,
               fileName: mostRecent.fileName,
               timestamp: mostRecent.lastOpened ? new Date(mostRecent.lastOpened).getTime() : Date.now(),
             };
+          } else {
+            console.log('[AutoLoad] No recent files from backend');
           }
         } catch (e) {
-          // Backend might not have recent files yet
+          console.error('[AutoLoad] Backend error:', e);
         }
         
         // Fallback to localStorage if backend has no recent files
@@ -221,6 +247,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
         onAutoLoadError?.(error as Error);
       } finally {
         hasAutoLoaded.current = true;
+        setIsAutoLoading(false);
         onAutoLoadComplete?.();
       }
     };
@@ -248,6 +275,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
 
   return {
     hasAutoLoaded: hasAutoLoaded.current,
+    isAutoLoading,
   };
 }
 

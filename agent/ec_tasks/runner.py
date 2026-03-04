@@ -12,6 +12,7 @@ import asyncio
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -1134,7 +1135,7 @@ class TaskRunner(Generic[Context]):
             return existing
 
         skills = getattr(self.agent, "skills", []) or []
-        chat_candidates = [sk for sk in skills if sk and "chat" in (getattr(sk, "name", "")).lower()]
+        chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
         if not chat_candidates:
             logger.error("[ensure_chatter_task] No chat skill found; cannot auto-create chatter task")
             return None
@@ -2833,14 +2834,19 @@ class TaskRunner(Generic[Context]):
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
                     # Send the LLM response back to the GUI/opposite agent
+                    # Skip if a chat node already delivered the response (chat_response_sent flag)
                     if current_state and hasattr(current_state, 'values'):
-                        try:
-                            from agent.ec_skills.llm_utils.llm_utils import send_response_back
-                            chatId = current_state.values.get("messages", [None, None])[1]
-                            if chatId:
-                                send_response_back(current_state.values)
-                        except Exception as srb_err:
-                            logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
+                        already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
+                        if already_sent:
+                            logger.debug("[COMPLETE] Skipping send_response_back: chat node already sent response")
+                        else:
+                            try:
+                                from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                                chatId = current_state.values.get("messages", [None, None])[1]
+                                if chatId:
+                                    send_response_back(current_state.values)
+                            except Exception as srb_err:
+                                logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})
