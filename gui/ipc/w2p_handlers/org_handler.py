@@ -16,9 +16,13 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
 
 
-@IPCHandlerRegistry.handler('get_orgs')
+@IPCHandlerRegistry.background_handler('get_orgs')
 def handle_get_orgs(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """
+    """Get all organizations or organization tree (runs in background thread).
+    
+    Organization tree queries can involve recursive operations and multiple
+    database queries. Running in background prevents UI freezing.
+    
     Get all organizations or organization tree
     
     Args:
@@ -69,9 +73,10 @@ def handle_get_orgs(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         return create_error_response(request, 'GET_ORGANIZATIONS_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('create_org')
+@IPCHandlerRegistry.background_handler('create_org')
 def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """
+    """Create a new organization (runs in background thread).
+    
     Create a new organization
     
     Args:
@@ -135,9 +140,10 @@ def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         return create_error_response(request, 'CREATE_ORGANIZATION_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('update_org')
+@IPCHandlerRegistry.background_handler('update_org')
 def handle_update_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """
+    """Update an organization (runs in background thread).
+    
     Update an organization
     
     Args:
@@ -191,9 +197,10 @@ def handle_update_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         return create_error_response(request, 'UPDATE_ORGANIZATION_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('delete_org')
+@IPCHandlerRegistry.background_handler('delete_org')
 def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """
+    """Delete an organization (runs in background thread).
+    
     Delete an organization
     
     Args:
@@ -244,9 +251,10 @@ def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         return create_error_response(request, 'DELETE_ORGANIZATION_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('get_org_agents')
+@IPCHandlerRegistry.background_handler('get_org_agents')
 def handle_get_org_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """
+    """Get agents in an organization (runs in background thread).
+    
     Get agents in an organization
     
     Args:

@@ -25,6 +25,7 @@ os.environ['PYTHONUTF8'] = '1'
 # These environment variables must be set before browser_use.browser.events is imported
 # ============================================================================
 os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30s
+os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
 
 # ============================================================================
 # CRITICAL: Force UTF-8 encoding for browser-use file operations
