@@ -193,8 +193,82 @@ class LLMConfig:
             if provider_name in self._providers:
                 self._providers[provider_name].supported_models = provider_models
 
+        # Load dynamic models from user data directory for RyoAIS and Ollama
+        self._load_dynamic_models(models)
+
         logger.info(f"Initialized models for {len(models)} providers from configuration")
         return models
+    
+    def _load_dynamic_models(self, models: Dict[str, List[LLMModelConfig]]):
+        """Load dynamic models from user data directory for RyoAIS and Ollama"""
+        try:
+            from gui.ryoais_utils import load_ryoais_models
+            from gui.ollama_utils import load_ollama_models
+            
+            # Load RyoAIS models from user data directory
+            ryoais_data = load_ryoais_models(model_type='llm')
+            if ryoais_data and ryoais_data.get('models'):
+                ryoais_models = []
+                for model in ryoais_data['models']:
+                    if model.get('type') == 'llm':
+                        try:
+                            model_config = LLMModelConfig(
+                                name=model.get('name', ''),
+                                display_name=model.get('name', ''),
+                                provider=LLMProvider.RYOAIS,
+                                model_id=model.get('id', model.get('name', '')),
+                                default_temperature=0.7,
+                                max_tokens=model.get('context_length', 32768),
+                                supports_streaming=True,
+                                supports_function_calling=True,
+                                supports_vision=False,
+                                cost_per_1k_tokens=0.0,
+                                description=f"RyoAIS LLM model: {model.get('name', '')}"
+                            )
+                            ryoais_models.append(model_config)
+                        except Exception as e:
+                            logger.debug(f"[LLMConfig] Error loading RyoAIS model {model.get('name')}: {e}")
+                
+                if ryoais_models:
+                    models['RyoAIS'] = ryoais_models
+                    if 'RyoAIS' in self._providers:
+                        self._providers['RyoAIS'].supported_models = ryoais_models
+                    logger.info(f"[LLMConfig] ✅ Loaded {len(ryoais_models)} RyoAIS models from user data directory")
+            
+            # Load Ollama models from user data directory
+            ollama_data = load_ollama_models(model_type='llm')
+            if ollama_data and ollama_data.get('models'):
+                ollama_models = []
+                for model in ollama_data['models']:
+                    if model.get('type') == 'llm':
+                        try:
+                            # Ollama models may not have context_length in the file
+                            context_length = model.get('context_length', 128000)
+                            model_config = LLMModelConfig(
+                                name=model.get('name', ''),
+                                display_name=model.get('name', ''),
+                                provider=LLMProvider.OLLAMA,
+                                model_id=model.get('id', model.get('name', '')),
+                                default_temperature=0.7,
+                                max_tokens=context_length,
+                                supports_streaming=True,
+                                supports_function_calling=True,
+                                supports_vision=False,
+                                cost_per_1k_tokens=0.0,
+                                description=f"Ollama LLM model: {model.get('name', '')}"
+                            )
+                            ollama_models.append(model_config)
+                        except Exception as e:
+                            logger.debug(f"[LLMConfig] Error loading Ollama model {model.get('name')}: {e}")
+                
+                if ollama_models:
+                    models['Ollama'] = ollama_models
+                    if 'Ollama' in self._providers:
+                        self._providers['Ollama'].supported_models = ollama_models
+                    logger.info(f"[LLMConfig] ✅ Loaded {len(ollama_models)} Ollama models from user data directory")
+                    
+        except Exception as e:
+            logger.debug(f"[LLMConfig] Error loading dynamic models: {e}")
 
     # Public API methods
     def get_all_providers(self) -> Dict[str, LLMProviderConfig]:
@@ -388,7 +462,6 @@ class LLMConfig:
 
             logger.info(f"LLM configuration saved to {self.config_file_path}")
             return True
-
         except Exception as e:
             logger.error(f"Error saving LLM configuration: {e}")
             return False
@@ -406,6 +479,15 @@ class LLMConfig:
         except Exception as e:
             logger.error(f"Error reloading LLM configuration: {e}")
             return False
+
+    def reload_dynamic_models(self):
+        """Reload dynamic models from user data directory (RyoAIS, Ollama)"""
+        try:
+            logger.info("[LLMConfig] 🔄 Reloading dynamic models from user data directory...")
+            self._load_dynamic_models(self._models)
+            logger.info("[LLMConfig] ✅ Dynamic models reloaded successfully")
+        except Exception as e:
+            logger.warning(f"[LLMConfig] ⚠️ Failed to reload dynamic models: {e}")
 
     def add_provider(self, provider_data: Dict[str, Any]) -> bool:
         """Add a new provider to the configuration"""

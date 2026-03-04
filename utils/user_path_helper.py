@@ -47,10 +47,17 @@ def get_log_user(user_email: Optional[str] = None) -> str:
     if not user_email:
         return "default_user"
     
+    # Check if user_email is already in sanitized format (e.g., "249511118_qq_com")
+    # If it doesn't contain "@", it's likely already processed, return as-is
+    if "@" not in user_email:
+        # Already sanitized format, return directly to avoid adding "_local" suffix
+        return user_email
+    
     # Sanitize email to filesystem-safe format (same logic as MainWindow)
     try:
         local_part, domain_part = user_email.split("@", 1)
     except ValueError:
+        # This shouldn't happen after the "@" check above, but keep as fallback
         local_part, domain_part = user_email, "local"
     
     domain_part_sanitized = domain_part.replace(".", "_")

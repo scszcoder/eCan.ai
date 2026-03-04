@@ -8,7 +8,7 @@ from ..base_migration import BaseMigration
 import logging
 import json
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 
 class Migration_307_to_308(BaseMigration):
