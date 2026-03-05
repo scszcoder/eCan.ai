@@ -5010,6 +5010,36 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
 
+            # Apply extract patch based on max_input_tokens from agent config
+            # This ensures extract tool respects the model's context length and prevents token overflow
+            # The patch reserves ~24K tokens for system prompt, history, and overhead
+            if 'max_input_tokens' in agent_kwargs:
+                try:
+                    # In development mode, reload the module to ensure we use the latest code
+                    # This helps during development when the patch code is being modified
+                    import sys
+                    if 'agent.ec_skills.browser_use_extension.extract_patch' in sys.modules:
+                        import importlib
+                        extract_patch_module = sys.modules['agent.ec_skills.browser_use_extension.extract_patch']
+                        importlib.reload(extract_patch_module)
+                        logger.debug("[BrowserAutomation] 🔄 Reloaded extract_patch module (dev mode)")
+                    
+                    from agent.ec_skills.browser_use_extension.extract_patch import patch_extract_max_char_limit
+                    
+                    # Apply patch with current model's token capacity
+                    result = patch_extract_max_char_limit(agent_kwargs['max_input_tokens'])
+                    
+                    if result:
+                        logger.debug(
+                            f"[BrowserAutomation] ✅ Extract patch applied/verified "
+                            f"(max_input_tokens={agent_kwargs['max_input_tokens']:,})"
+                        )
+                    else:
+                        logger.warning("[BrowserAutomation] ⚠️ Extract patch returned False")
+                        
+                except Exception as e:
+                    logger.error(f"[BrowserAutomation] ❌ Failed to apply extract patch: {e}", exc_info=True)
+
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
             # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
             try:
