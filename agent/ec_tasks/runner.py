@@ -1033,6 +1033,18 @@ class TaskRunner(Generic[Context]):
             tasks_list = getattr(self.agent, "tasks", []) or []
             logger.info(f"[ROUTING] Routing event '{etype}' — {len(tasks_list)} tasks available")
             
+            # Pre-filter: if task_selector is present, narrow candidate tasks first.
+            # This ensures match_fields and routing_key only consider tasks that
+            # match the selector (e.g. auto-added timer rules target a specific task id).
+            selector = rule.get("task_selector") or ""
+            if selector:
+                candidates = [t for t in tasks_list if t and self._evaluate_selector(selector, t)]
+                if not candidates:
+                    logger.debug(f"[ROUTING] ❌ No task matched selector '{selector}' for event '{etype}'")
+                    return None
+            else:
+                candidates = [t for t in tasks_list if t]
+            
             # 1. match_fields: declarative multi-field matching
             # Uses normalized event envelope so event_path is consistent
             # (e.g. "data.metadata.params.chatId", "context.senderId")
@@ -1041,9 +1053,7 @@ class TaskRunner(Generic[Context]):
                 match_mode = rule.get("match_mode", "all")
                 # Prefer normalized event; fall back to raw request
                 event_data = event if isinstance(event, dict) else request
-                for t in tasks_list:
-                    if not t:
-                        continue
+                for t in candidates:
                     if self._evaluate_match_fields(match_fields, match_mode, event_data, t):
                         logger.info(f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}")
                         return (t, rule)
@@ -1060,9 +1070,7 @@ class TaskRunner(Generic[Context]):
                     key_value = self._extract_nested_value(request, routing_key)
                 if key_value:
                     logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
-                    for t in tasks_list:
-                        if not t:
-                            continue
+                    for t in candidates:
                         # Match by run_id (task.id or cloud_run_id)
                         if "run_id" in routing_key:
                             if str(t.id) == str(key_value):
@@ -1079,19 +1087,15 @@ class TaskRunner(Generic[Context]):
                                 logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
                                 return (t, rule)
             
-            # 3. Static matching via task_selector (fallback)
-            selector = rule.get("task_selector") or ""
-            if selector:
-                for t in tasks_list:
-                    if not t:
-                        continue
-                    if self._evaluate_selector(selector, t):
-                        logger.info(f"[ROUTING] ✅ Matched task via selector '{selector}': {t.name}, id={t.id}")
-                        return (t, rule)
-                logger.debug(f"[ROUTING] ❌ No task matched selector '{selector}' for event '{etype}'")
-            else:
-                if not match_fields and not routing_key:
-                    logger.debug(f"[ROUTING] No matching strategy in rule for event '{etype}'")
+            # 3. If only task_selector was specified (no match_fields/routing_key),
+            #    return the first candidate directly.
+            if selector and not match_fields and not routing_key and candidates:
+                t = candidates[0]
+                logger.info(f"[ROUTING] ✅ Matched task via selector '{selector}': {t.name}, id={t.id}")
+                return (t, rule)
+            
+            if not match_fields and not routing_key and not selector:
+                logger.debug(f"[ROUTING] No matching strategy in rule for event '{etype}'")
                     
         except Exception as e:
             logger.error(get_traceback(e, "ErrorResolveEventRouting"))
@@ -1251,7 +1255,7 @@ class TaskRunner(Generic[Context]):
                             return
                         except Exception as e:
                             logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
-                logger.error(f"[QUEUE] No target task for event: {event_type}")
+                logger.debug(f"[QUEUE] No target task for event: {event_type}")
                 
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
