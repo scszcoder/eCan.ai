@@ -8,15 +8,29 @@
 .promptsTabs :global(.ant-tabs-content) {
   flex: 1;
   min-height: 0;
+  height: 100%;
 }
 
 .promptsTabs :global(.ant-tabs-content-holder) {
-  height: 100%;
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .promptsTabs :global(.ant-tabs-tabpane) {
+  height: 100%;
+}
+
+/* Editor tab: PromptsDetail manages its own header + scroll layout */
+.editorTabWrapper {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Non-editor tabs: add padding and let them scroll */
+.tabContent {
   padding: 16px 24px 40px 24px;
+  height: 100%;
+  overflow: auto;
 }
 
 /* ----------------------------------------------------
