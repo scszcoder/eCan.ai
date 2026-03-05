@@ -1864,8 +1864,8 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
     if not code_source or not isinstance(code_source, str):
         err_msg = "Error: 'code' key is missing or invalid in config_metadata for basic_node."
-        logger.error(err_msg)
-        send_skill_editor_log("error", err_msg)
+        logger.warning(err_msg)
+        send_skill_editor_log("warning", err_msg)
         # Return a no-op function that just passes the state through
         return lambda state, runtime=None, store=None, **kwargs: state
 
@@ -1915,8 +1915,8 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
-            logger.error(err_msg)
-            send_skill_editor_log("error", err_msg)
+            logger.warning(err_msg)
+            send_skill_editor_log("warning", err_msg)
             node_callable = None
 
     # If callable creation failed, return a no-op function

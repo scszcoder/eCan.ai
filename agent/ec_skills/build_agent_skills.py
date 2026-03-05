@@ -126,7 +126,7 @@ def _create_skill_from_workflow(
     """
     try:
         if not workflow:
-            logger.error(f"[_create_skill_from_workflow] Empty workflow for {skill_name}")
+            logger.warning(f"[_create_skill_from_workflow] Empty workflow for {skill_name}")
             return None
         sk = EC_Skill()
         sk.name = core_dict.get("skillName") or core_dict.get("name") or skill_name
@@ -159,7 +159,7 @@ def _create_skill_from_workflow(
 
         return sk
     except Exception as e:
-        logger.error(f"[_create_skill_from_workflow] Failed to create skill {skill_name}: {e}")
+        logger.warning(f"[_create_skill_from_workflow] Failed to create skill {skill_name}: {e}")
         logger.debug(f"[_create_skill_from_workflow] Traceback: {traceback.format_exc()}")
         return None
 
@@ -277,7 +277,7 @@ def create_skill_from_resource(
         # Use load_skill_from_folder which handles both diagram_dir and code_dir
         sk = load_skill_from_folder(skill_folder, mainwin=None)
         if not sk:
-            logger.error(f"[create_skill_from_resource] Failed to load skill from {skill_folder}")
+            logger.warning(f"[create_skill_from_resource] Failed to load skill from {skill_folder}")
             return None
 
         # Treat resource examples as code-based skills (read-only + deterministic id)
@@ -1169,7 +1169,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 except Exception:
                     pass
                 if not workflow:
-                    logger.error(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
+                    logger.warning(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
                     return None
 
                 # Create skill object using common helper (field population only)
@@ -1192,7 +1192,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 skill_root = diagram_dir.parent
                 base = skill_root.name
                 skill_name = base[:-6] if base.endswith("_skill") else base
-                logger.error(f"[build_agent_skills] Diagram load failed for skill '{skill_name}' at {diagram_dir}: {e}")
+                logger.warning(f"[build_agent_skills] Diagram load failed for skill '{skill_name}' at {diagram_dir}: {e}")
                 import traceback
                 logger.debug(f"[build_agent_skills] Full traceback for '{skill_name}':\n{traceback.format_exc()}")
                 return None

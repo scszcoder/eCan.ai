@@ -353,7 +353,7 @@ async def _subscribe(
                                 break
                             elif msg_type == "connection_error":
                                 error_payload = response_data.get('payload', {})
-                                logger.error(f"[AppSync] Connection error: {error_payload}")
+                                logger.warning(f"[AppSync] Connection error: {error_payload}")
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise RuntimeError("connection closed during ack")
 
@@ -414,7 +414,7 @@ async def _subscribe(
         except Exception as e:
             retry += 1
             backoff = min(base_backoff * (2 ** (retry - 1)), 30)
-            logger.error(f"[ec_tasks.appsync_pubsub] subscribe error (attempt {retry}/{max_retries}): {e}")
+            logger.warning(f"[ec_tasks.appsync_pubsub] subscribe error (attempt {retry}/{max_retries}): {e}")
             if retry >= max_retries:
                 raise
             await asyncio.sleep(backoff)
