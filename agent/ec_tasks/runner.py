@@ -618,13 +618,14 @@ class TaskRunner(Generic[Context]):
         """Extract all event types and their match_fields from a skill's pend_event nodes.
         
         Inspects the skill's diagram (flowgram) for pend_event_node type nodes
-        and collects their eventType, pendingSources, matchFields, and timerName.
+        and collects their eventType, pendingSources, matchFields, timerName, and browserEventLabel.
         
         Returns:
             List of dicts, each with:
               - event_type (str): The event type string
               - match_fields (list): Array of {event_path, task_path} from the node config
               - timer_name (str|None): Timer name if event_type is 'timer'
+              - browser_event_label (str|None): Label if event_type is 'browser_event'
         """
         results: List[Dict[str, Any]] = []
         try:
@@ -674,6 +675,8 @@ class TaskRunner(Generic[Context]):
                 
                 # Extract timerName from main event config
                 main_timer_name = ((inputs.get("timerName") or {}).get("content") or "").strip()
+                # Extract browserEventLabel from main event config
+                main_browser_label = ((inputs.get("browserEventLabel") or {}).get("content") or "").strip()
                 
                 # Main event type
                 main_et = (inputs.get("eventType") or {}).get("content")
@@ -681,6 +684,8 @@ class TaskRunner(Generic[Context]):
                     entry = {"event_type": main_et.strip(), "match_fields": match_fields}
                     if main_et.strip() == "timer" and main_timer_name:
                         entry["timer_name"] = main_timer_name
+                    if main_et.strip() == "browser_event" and main_browser_label:
+                        entry["browser_event_label"] = main_browser_label
                     results.append(entry)
                 
                 # Additional pending sources
@@ -697,15 +702,19 @@ class TaskRunner(Generic[Context]):
                                 src_timer = (src.get("timerName") or "").strip()
                                 if st == "timer" and src_timer:
                                     entry["timer_name"] = src_timer
+                                # Extract browserEventLabel from pending source item
+                                src_label = (src.get("browserEventLabel") or "").strip()
+                                if st == "browser_event" and src_label:
+                                    entry["browser_event_label"] = src_label
                                 results.append(entry)
         except Exception as e:
             logger.debug(f"[EventRouting] Error extracting event types from skill: {e}")
         
-        # Deduplicate by (event_type, timer_name) while preserving order
+        # Deduplicate by (event_type, timer_name, browser_event_label) while preserving order
         seen = set()
         unique = []
         for entry in results:
-            key = (entry["event_type"], entry.get("timer_name", ""))
+            key = (entry["event_type"], entry.get("timer_name", ""), entry.get("browser_event_label", ""))
             if key not in seen:
                 seen.add(key)
                 unique.append(entry)
@@ -741,10 +750,17 @@ class TaskRunner(Generic[Context]):
                 et = entry["event_type"]
                 node_match_fields = entry.get("match_fields") or []
                 timer_name = entry.get("timer_name") or ""
+                browser_event_label = entry.get("browser_event_label") or ""
                 
                 # For timer events with a name, use a composite routing key
-                # so multiple tasks can listen for different timer names
-                routing_key_name = f"{et}:{timer_name}" if timer_name else et
+                # so multiple tasks can listen for different timer names.
+                # Same pattern for browser_event with a label.
+                if timer_name:
+                    routing_key_name = f"{et}:{timer_name}"
+                elif browser_event_label:
+                    routing_key_name = f"{et}:{browser_event_label}"
+                else:
+                    routing_key_name = et
                 
                 existing_rule = self._global_event_routing.get(routing_key_name)
                 if isinstance(existing_rule, dict):
@@ -777,6 +793,20 @@ class TaskRunner(Generic[Context]):
                     logger.info(
                         f"[EventRouting] Added timer routing rule: event 'timer' "
                         f"(name='{timer_name}') -> task '{task.name}'"
+                    )
+                elif et == "browser_event" and browser_event_label:
+                    # Auto-generate match_fields for browser events:
+                    # match event.sub_type == configured label (literal)
+                    be_match = list(node_match_fields) if node_match_fields else []
+                    be_match.append({
+                        "event_path": "context.sub_type",
+                        "literal": browser_event_label,
+                    })
+                    rule["match_fields"] = be_match
+                    rule["match_mode"] = "all"
+                    logger.info(
+                        f"[EventRouting] Added browser_event routing rule: event 'browser_event' "
+                        f"(label='{browser_event_label}') -> task '{task.name}'"
                     )
                 elif node_match_fields:
                     # Use match_fields from the node config for declarative matching
@@ -1026,6 +1056,21 @@ class TaskRunner(Generic[Context]):
                     rule = self._global_event_routing.get(composite_key)
                     if isinstance(rule, dict):
                         logger.debug(f"[ROUTING] Resolved timer via composite key '{composite_key}'")
+            if not isinstance(rule, dict) and etype == "browser_event":
+                sub_type = None
+                if isinstance(event, dict):
+                    sub_type = (
+                        event.get("sub_type")
+                        or (event.get("context") or {}).get("sub_type")
+                        or (event.get("data") or {}).get("sub_type")
+                    )
+                if not sub_type and isinstance(request, dict):
+                    sub_type = request.get("sub_type")
+                if sub_type:
+                    composite_key = f"{etype}:{sub_type}"
+                    rule = self._global_event_routing.get(composite_key)
+                    if isinstance(rule, dict):
+                        logger.debug(f"[ROUTING] Resolved browser_event via composite key '{composite_key}'")
             if not isinstance(rule, dict):
                 logger.debug(f"[ROUTING] No global routing rule for event type '{etype}'")
                 return None

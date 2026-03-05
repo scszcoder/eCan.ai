@@ -169,7 +169,7 @@ def run_dev_skill(mainwin, skill):
             history=[],
             attributes={
             },
-            result={},
+            result={"llm_result": {"all_done": False, "work_done": False}},
             tool_input={},
             tool_result={},
             threads = [],

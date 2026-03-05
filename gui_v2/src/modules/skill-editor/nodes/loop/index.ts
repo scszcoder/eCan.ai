@@ -114,9 +114,9 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       data: {
         title: `Loop_${++index}`,
         // loop settings
-        loopMode: 'loopFor', // 'loopFor' | 'loopWhile'
+        loopMode: 'loopWhile', // 'loopFor' | 'loopWhile'
         loopCountExpr: '',   // used when loopMode === 'loopFor'
-        loopWhileExpr: '',   // used when loopMode === 'loopWhile'
+        loopWhileExpr: 'not state["result"]["llm_result"]["all_done"]',   // used when loopMode === 'loopWhile'
       },
       blocks: [
         {

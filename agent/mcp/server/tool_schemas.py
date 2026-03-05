@@ -2315,6 +2315,67 @@ def build_agent_mcp_tools_schemas():
     )
     add_tool_schema(tool_schema)
 
+    # ==================== Browser Event Subscription Tools ====================
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="subscribe_browser_event",
+        description="<category>Browser</category><sub-category>Events</sub-category>Subscribe to a Chrome DevTools Protocol (CDP) event. When the browser fires the specified event, it generates a 'browser_event' message that can resume pend_event nodes configured to listen for browser events. Useful for monitoring network requests, DOM changes, console messages, page navigation, downloads, etc. in real-time without polling.",
+        inputSchema={
+            "type": "object",
+            "required": ["domain", "event_method", "label"],
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "CDP domain to subscribe to. Common domains: 'Network' (requests/responses), 'Page' (navigation/lifecycle), 'DOM' (mutations), 'Runtime' (console/exceptions), 'Console' (console messages).",
+                },
+                "event_method": {
+                    "type": "string",
+                    "description": "Full CDP event method in 'Domain.eventName' format. Examples: 'Network.responseReceived', 'Page.frameNavigated', 'Runtime.consoleAPICalled', 'DOM.attributeModified', 'Page.javascriptDialogOpening'.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "User-friendly label for this subscription, used as routing key (e.g. 'price_api', 'page_loaded', 'dom_change'). Must be unique per agent.",
+                },
+                "filter_expr": {
+                    "type": "string",
+                    "description": "Optional filter expression. Syntax: '<field> <op> <value>' where op is contains/==/!=//startswith/endswith. Nested fields use dots. Examples: \"response.url contains 'api/price'\", \"response.status == 200\", \"type == XHR\". If omitted, all events of this method will match.",
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="unsubscribe_browser_event",
+        description="<category>Browser</category><sub-category>Events</sub-category>Remove a browser event subscription by its sub_id or label. The CDP event handler will stop dispatching events for this subscription.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {
+                "sub_id": {
+                    "type": "string",
+                    "description": "The subscription ID to remove. Either sub_id or label must be provided.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "The label of the subscription to remove. Either sub_id or label must be provided.",
+                },
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="list_browser_event_subscriptions",
+        description="<category>Browser</category><sub-category>Events</sub-category>List all active browser event subscriptions for the current agent. Shows sub_id, label, CDP method, filter, and fire count for each.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {},
+        },
+    )
+    add_tool_schema(tool_schema)
+
     # WeChat automation tools
     add_wechat_send_tool_schema(tool_schemas)
     add_wechat_receive_tool_schema(tool_schemas)
