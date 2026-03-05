@@ -1577,7 +1577,30 @@ def _get_logging_browser_use_class():
                     base_url = getattr(client, 'base_url', 'unknown')
                     timeout = kwargs.get('timeout', 'default')
                     
-                    logger.info(f"[BrowserUse] 🚀 Calling LLM: model={model}, base_url={base_url}, timeout={timeout}")
+                    # Calculate request data size
+                    messages = kwargs.get('messages', [])
+                    total_chars = 0
+                    message_count = len(messages)
+                    
+                    for msg in messages:
+                        if isinstance(msg, dict):
+                            content = msg.get('content', '')
+                            if isinstance(content, str):
+                                total_chars += len(content)
+                            elif isinstance(content, list):
+                                # Handle multi-part content (text + images)
+                                for part in content:
+                                    if isinstance(part, dict) and part.get('type') == 'text':
+                                        total_chars += len(part.get('text', ''))
+                    
+                    # Estimate tokens (conservative: 2.5 chars/token for mixed content)
+                    est_tokens = int(total_chars / 2.5) if total_chars > 0 else 0
+                    
+                    logger.info(
+                        f"[BrowserUse] 🚀 Calling LLM: model={model}, messages={message_count}, "
+                        f"chars={total_chars:,}, est_tokens={est_tokens:,}, "
+                        f"base_url={base_url}, timeout={timeout}"
+                    )
                     
                     try:
                         response = await original_create(*args, **kwargs)

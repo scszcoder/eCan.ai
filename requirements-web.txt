@@ -162,7 +162,7 @@ rsa==4.9
 # SERIALIZATION & DATA FORMATS
 # ============================================================================
 orjson==3.11.5
-PyYAML==6.0.3
+PyYAML==6.0.2
 pydantic==2.12.5
 simplejson==3.20.1
 jsonschema==4.23.0
