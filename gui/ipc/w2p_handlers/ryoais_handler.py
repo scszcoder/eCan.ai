@@ -7,7 +7,14 @@ Handles mDNS/DNS-SD based device discovery for ryoais inference servers.
 import traceback
 import time
 from typing import Any, Optional, Dict, List
-from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+try:
+    from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+    _HAS_ZEROCONF = True
+except ImportError:
+    _HAS_ZEROCONF = False
+    Zeroconf = None  # type: ignore
+    ServiceBrowser = None  # type: ignore
+    ServiceListener = object  # type: ignore – base class fallback
 
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -146,6 +153,8 @@ def handle_scan_devices(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     Returns:
         IPCResponse with discovered devices
     """
+    if not _HAS_ZEROCONF:
+        return create_error_response(request, 'MISSING_DEPENDENCY', 'zeroconf package is not installed')
     try:
         timeout = params.get('timeout', 5) if params else 5
         filter_env = params.get('environment') if params else None
@@ -159,8 +168,11 @@ def handle_scan_devices(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         # Start browsing for ryoais services
         browser = ServiceBrowser(zeroconf, "_ryoais._tcp.local.", listener)
         
-        # Wait for discovery
-        time.sleep(timeout)
+        # Wait for discovery using Event.wait() instead of time.sleep() for better responsiveness
+        # This allows the wait to be interrupted if needed
+        import threading
+        stop_event = threading.Event()
+        stop_event.wait(timeout)  # More responsive than time.sleep()
         
         # Get discovered devices
         devices = list(listener.devices.values())

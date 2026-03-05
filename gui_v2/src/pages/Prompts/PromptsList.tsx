@@ -130,11 +130,17 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                           {t('pages.prompts.uses', { defaultValue: 'uses' })}
                         </Typography.Text>
                       </Space>
-                      <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
-                        {item.source === 'sample_prompts' 
-                          ? t('pages.prompts.sampleLabel', { defaultValue: 'sample' })
-                          : t('pages.prompts.myLabel', { defaultValue: 'my' })}
-                      </Typography.Text>
+                      {(item as any).owner === 'system' ? (
+                        <Typography.Text strong style={{ color: '#ef4444', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
+                          system
+                        </Typography.Text>
+                      ) : (
+                        <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
+                          {item.source === 'sample_prompts' 
+                            ? t('pages.prompts.sampleLabel', { defaultValue: 'sample' })
+                            : t('pages.prompts.myLabel', { defaultValue: 'my' })}
+                        </Typography.Text>
+                      )}
                       <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap', paddingRight: 8 }}>
                         {(() => {
                           if (!item.lastModified) return '';

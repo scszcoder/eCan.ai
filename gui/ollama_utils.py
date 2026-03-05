@@ -88,6 +88,30 @@ def load_ollama_tags(username: str = None) -> dict:
         return {}
 
 
+def load_ollama_models(username: str = None, model_type: str = None) -> dict:
+    """
+    Load Ollama models from ollama_tags.json file, optionally filtered by type.
+    
+    This is an alias for load_ollama_tags with optional type filtering,
+    provided for consistency with ryoais_utils.load_ryoais_models().
+    
+    Args:
+        username: Optional username/email
+        model_type: Optional filter for model type ('llm', 'embedding', etc.)
+    
+    Returns:
+        Dict with 'host' and 'models' keys, or empty dict if file doesn't exist
+    """
+    data = load_ollama_tags(username)
+    
+    # Filter by model type if specified
+    if data and model_type and 'models' in data:
+        filtered_models = [m for m in data['models'] if m.get('type') == model_type]
+        data['models'] = filtered_models
+    
+    return data
+
+
 def fetch_ollama_models(host: str, username: str = None) -> tuple:
     """
     Fetch available models from Ollama API and save to local file.
@@ -252,7 +276,7 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
         
     except requests.exceptions.ConnectionError as e:
         error_msg = f"Cannot connect to Ollama at {host}"
-        logger.warning(f"[Ollama] Connection error: {e}")
+        logger.debug(f"[Ollama] Connection error: {e}")
         return False, [], error_msg
     except requests.exceptions.Timeout:
         error_msg = "Ollama API request timed out"

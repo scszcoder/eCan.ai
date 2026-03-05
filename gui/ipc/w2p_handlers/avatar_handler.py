@@ -803,13 +803,18 @@ def handle_upload_avatar(request: IPCRequest, params: Optional[dict[str, Any]]) 
         if not username or not file_data_b64:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, fileData')
         
-        # Call async method synchronously using asyncio.run
+        # Call async method synchronously using new_event_loop to avoid conflicts
         import asyncio
-        result = asyncio.run(avatar_handler.upload_avatar({
-            'username': username,
-            'fileData': file_data_b64,
-            'filename': filename
-        }))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(avatar_handler.upload_avatar({
+                'username': username,
+                'fileData': file_data_b64,
+                'filename': filename
+            }))
+        finally:
+            loop.close()
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))
@@ -851,12 +856,17 @@ def handle_delete_uploaded_avatar(request: IPCRequest, params: Optional[dict[str
         if not username or not avatar_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, avatarId')
         
-        # Call async method synchronously using asyncio.run
+        # Call async method synchronously using new_event_loop to avoid conflicts
         import asyncio
-        result = asyncio.run(avatar_handler.delete_uploaded_avatar({
-            'username': username,
-            'avatarId': avatar_id
-        }))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(avatar_handler.delete_uploaded_avatar({
+                'username': username,
+                'avatarId': avatar_id
+            }))
+        finally:
+            loop.close()
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))
@@ -884,16 +894,21 @@ def handle_set_agent_avatar(request: IPCRequest, params: Optional[dict[str, Any]
         if not username or not agent_id or not avatar_type or not image_url:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, agentId, avatarType, imageUrl')
         
-        # Call async method synchronously using asyncio.run
+        # Call async method synchronously using new_event_loop to avoid conflicts
         import asyncio
-        result = asyncio.run(avatar_handler.set_agent_avatar({
-            'username': username,
-            'agentId': agent_id,
-            'avatarType': avatar_type,
-            'imageUrl': image_url,
-            'videoUrl': video_url,
-            'metadata': metadata
-        }))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(avatar_handler.set_agent_avatar({
+                'username': username,
+                'agentId': agent_id,
+                'avatarType': avatar_type,
+                'imageUrl': image_url,
+                'videoUrl': video_url,
+                'metadata': metadata
+            }))
+        finally:
+            loop.close()
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))
@@ -919,14 +934,19 @@ def handle_generate_avatar_video(request: IPCRequest, params: Optional[dict[str,
         if not username or not image_path:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: username, imagePath')
         
-        # Call async method synchronously using asyncio.run
+        # Call async method synchronously using new_event_loop to avoid conflicts
         import asyncio
-        result = asyncio.run(avatar_handler.generate_avatar_video({
-            'username': username,
-            'imagePath': image_path,
-            'model': model,
-            'params': gen_params
-        }))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(avatar_handler.generate_avatar_video({
+                'username': username,
+                'imagePath': image_path,
+                'model': model,
+                'params': gen_params
+            }))
+        finally:
+            loop.close()
         
         if result.get('success'):
             return create_success_response(request, result.get('data'))

@@ -694,6 +694,11 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   }, [editing, clonePrompt]);
 
   const previewText = useMemo(() => {
+    // If the prompt has rawContent (non-JSON-parsable), show it directly
+    if (active.rawContent) {
+      return active.rawContent;
+    }
+
     const lines: string[] = [];
 
     // Resolve display values with localization when showing built-in examples (non-editing + exampleSlug)
@@ -860,6 +865,27 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
           </Space>
         </div>
       <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: '60px' }}>
+        {/* Raw content display for non-JSON-parsable prompts */}
+        {active.rawContent ? (
+          <SectionContainer title={t('pages.prompts.rawContent', { defaultValue: 'Prompt Content (plain text)' })}>
+            <pre style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              color: 'rgba(255,255,255,0.85)',
+              fontSize: 13,
+              lineHeight: 1.6,
+              margin: 0,
+              padding: 12,
+              background: 'rgba(0,0,0,0.2)',
+              borderRadius: 6,
+              maxHeight: '70vh',
+              overflow: 'auto',
+            }}>
+              {active.rawContent}
+            </pre>
+          </SectionContainer>
+        ) : (
+        <>
         {/* Top editable area */}
         <SectionContainer
           title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
@@ -1342,6 +1368,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             })}
           </Space>
         </SectionContainer>
+        </>
+        )}
       </div>
         </>
       )}

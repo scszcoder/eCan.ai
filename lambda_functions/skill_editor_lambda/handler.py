@@ -23,6 +23,11 @@ _PROMPT_IDS = [
     "code_gen",
     "edit_flowgram",
     "validator",
+    # Log analysis sub-agents
+    "log_analysis_orchestrator",
+    "log_parser",
+    "flowgram_correlator",
+    "root_cause_analyzer",
 ]
 try:
     prompt_store.preload(_PROMPT_IDS)
@@ -2101,6 +2106,330 @@ def _build_skills_s3_prefix(env: _Env, owner: str, skill_id: str) -> str:
     return _s3_key(prefix, sanitized, "my_skills", skill_dir)
 
 
+# ---------------------------------------------------------------------------
+# Log Analysis
+# ---------------------------------------------------------------------------
+
+_LOG_ANALYSIS_MAX_BYTES = 128 * 1024  # 128 KB cap sent to LLM
+
+
+def _find_log_file_key(env: _Env, owner: str, log_file_name: str) -> Optional[str]:
+    """Search the user's skill tree in S3 for a log file matching *log_file_name*.
+
+    Looks under ``<root>/<owner>/my_skills/`` recursively.
+    If *log_file_name* is already a full S3 key that exists, use it directly.
+    """
+    client = _s3_client()
+    # 1. Exact key check (caller may provide a full S3 key)
+    if log_file_name and "/" in log_file_name:
+        try:
+            client.head_object(Bucket=env.s3_bucket, Key=log_file_name)
+            return log_file_name
+        except Exception:
+            pass
+
+    # 2. Search under the owner's skills prefix
+    prefix = _norm_prefix(env.s3_key_root)
+    sanitized = _sanitize_owner(owner)
+    search_prefix = _s3_key(prefix, sanitized, "my_skills")
+    if search_prefix and not search_prefix.endswith("/"):
+        search_prefix += "/"
+
+    keys = _s3_list_keys(bucket=env.s3_bucket, prefix=search_prefix)
+    target = (log_file_name or "").strip().lower()
+    for k in keys:
+        if k.lower().endswith(target) or k.split("/")[-1].lower() == target:
+            return k
+    return None
+
+
+def _read_s3_text(bucket: str, key: str, max_bytes: int = _LOG_ANALYSIS_MAX_BYTES) -> str:
+    """Read a text object from S3, truncating to *max_bytes*."""
+    resp = _s3_client().get_object(Bucket=bucket, Key=key)
+    raw = resp["Body"].read(max_bytes)
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+def _run_sub_agent(
+    llm: Any,
+    system_prompt: str,
+    user_message: str,
+    *,
+    label: str = "sub-agent",
+) -> str:
+    """Run a sub-agent LLM call with a system prompt and return the text response."""
+    from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM
+
+    logger.info(f"[reqLogAnalysis:{label}] Invoking, user_msg_len={len(user_message)}")
+    resp = llm.invoke([_SM(content=system_prompt), _HM(content=user_message)])
+    text = resp.content if hasattr(resp, "content") else str(resp)
+    logger.info(f"[reqLogAnalysis:{label}] Done, response_len={len(text)}")
+    return text
+
+
+def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle reqLogAnalysis mutation.
+
+    Runs a multi-agent pipeline to analyze a skill-run log against the
+    skill's flowgram and the user's behavioural observations.
+
+    Sub-agents (prompts loaded from Agent_Prompts DynamoDB):
+      1. log_parser          – parse raw log into structured events
+      2. flowgram_correlator – map events onto flowgram nodes/edges
+      3. root_cause_analyzer – diagnose root cause + suggest fixes
+      4. log_analysis_orchestrator – compose the final report
+
+    Input (LogAnalysisInput — extended fields accepted from input object):
+        description: String       – free-form description / question
+        log_file_name: String     – log file name or S3 key
+        flowgram_json: AWSJSON    – the skill's flowgram JSON (optional)
+        user_observation: String  – what the user saw happen
+        expected_behavior: String – what the user expected
+        sessionId: String         – chat session to stream into (optional)
+        flowgramId: String        – flowgram id for pub/sub (optional)
+
+    Returns:
+        logAnalysisResponse { status }
+    """
+    logger.info("[reqLogAnalysis] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+
+    owner = _owner_from_event(event)
+    description = (input_.get("description") or "").strip()
+    log_file_name = (input_.get("log_file_name") or "").strip()
+    flowgram_raw = input_.get("flowgram_json") or input_.get("flowgramJson") or ""
+    user_observation = (input_.get("user_observation") or input_.get("userObservation") or description).strip()
+    expected_behavior = (input_.get("expected_behavior") or input_.get("expectedBehavior") or "").strip()
+
+    logger.info(
+        f"[reqLogAnalysis] owner={owner}, log_file_name={log_file_name}, "
+        f"description_len={len(description)}, observation_len={len(user_observation)}, "
+        f"expected_len={len(expected_behavior)}, has_flowgram={bool(flowgram_raw)}"
+    )
+
+    if not log_file_name:
+        return {"status": "error: log_file_name is required"}
+
+    # --- Locate and read the log file from S3 ---
+    s3_key = _find_log_file_key(env, owner, log_file_name)
+    if not s3_key:
+        logger.warning(f"[reqLogAnalysis] Log file not found: {log_file_name}")
+        return {"status": f"error: log file not found – {log_file_name}"}
+
+    logger.info(f"[reqLogAnalysis] Reading log from s3://{env.s3_bucket}/{s3_key}")
+    try:
+        log_content = _read_s3_text(env.s3_bucket, s3_key)
+    except Exception as e:
+        logger.error(f"[reqLogAnalysis] Failed to read log file: {e}")
+        return {"status": f"error: could not read log file – {e}"}
+
+    if not log_content.strip():
+        return {"status": "error: log file is empty"}
+
+    truncated_note = ""
+    if len(log_content) >= _LOG_ANALYSIS_MAX_BYTES:
+        truncated_note = (
+            f"\n(Note: log truncated to first {_LOG_ANALYSIS_MAX_BYTES // 1024} KB)"
+        )
+
+    # Parse flowgram JSON if provided as string
+    flowgram_json_str = ""
+    if flowgram_raw:
+        if isinstance(flowgram_raw, str):
+            flowgram_json_str = flowgram_raw
+        else:
+            flowgram_json_str = json.dumps(flowgram_raw, ensure_ascii=False)
+    else:
+        flowgram_json_str = "(not provided — analyze from log references only)"
+
+    # --- Setup LLM ---
+    analysis_message_id = str(uuid4())
+    session_id = input_.get("sessionId") or f"log-analysis-{uuid4()}"
+    flowgram_id = input_.get("flowgramId")
+
+    try:
+        from langchain_openai import ChatOpenAI
+
+        api_key = os.environ.get("OPENAI_API_KEY")
+        model_name = os.environ.get("SKILL_EDITOR_MODEL", "gpt-4.1")
+        if not api_key:
+            logger.error("[reqLogAnalysis] OPENAI_API_KEY not set")
+            return {"status": "error: LLM not configured"}
+
+        llm = ChatOpenAI(model=model_name, api_key=api_key, temperature=0.1)
+        logger.info(f"[reqLogAnalysis] LLM ready, model={model_name}")
+
+        # Helper: stream a progress message to the client
+        chunk_index = 0
+
+        def _stream_progress(msg: str) -> None:
+            nonlocal chunk_index
+            try:
+                _publish(
+                    env, owner=owner, session_id=session_id,
+                    flowgram_id=flowgram_id,
+                    event_type="skill_editor.chat.stream_chunk",
+                    payload={"messageId": analysis_message_id, "chunk": msg, "index": chunk_index},
+                )
+            except Exception:
+                pass
+            chunk_index += 1
+
+        # ---- Load prompts from DynamoDB (with defaults) ----
+        from agent.skill_editor.prompt_store import prompt_store as _ps
+
+        log_parser_prompt = _ps.get("log_parser", default="Parse the following log into structured JSON events.")
+        correlator_prompt = _ps.get("flowgram_correlator", default="Correlate parsed events with the flowgram.")
+        rca_prompt = _ps.get("root_cause_analyzer", default="Determine root cause and suggest fixes.")
+        orchestrator_prompt = _ps.get(
+            "log_analysis_orchestrator",
+            default="Analyze the log, correlate with the flowgram, and provide a diagnosis.",
+        )
+
+        # ======================================================
+        # Step 1 — Log Parser sub-agent
+        # ======================================================
+        _stream_progress("**Step 1/4** — Parsing log events…\n\n")
+        parser_input = f"""Parse the following skill-run log into structured events.
+
+--- BEGIN LOG ({log_file_name}) ---
+{log_content}{truncated_note}
+--- END LOG ---"""
+
+        parsed_events_text = _run_sub_agent(llm, log_parser_prompt, parser_input, label="log_parser")
+        _stream_progress("**Step 1 complete** — Log parsed.\n\n")
+
+        # ======================================================
+        # Step 2 — Flowgram Correlator sub-agent
+        # ======================================================
+        _stream_progress("**Step 2/4** — Correlating with flowgram…\n\n")
+        correlator_input = f"""Correlate the following parsed log events with the flowgram.
+
+--- PARSED EVENTS ---
+{parsed_events_text}
+
+--- FLOWGRAM ---
+{flowgram_json_str}"""
+
+        correlation_text = _run_sub_agent(llm, correlator_prompt, correlator_input, label="flowgram_correlator")
+        _stream_progress("**Step 2 complete** — Correlation done.\n\n")
+
+        # ======================================================
+        # Step 3 — Root Cause Analyzer sub-agent
+        # ======================================================
+        _stream_progress("**Step 3/4** — Analyzing root cause…\n\n")
+        rca_input = f"""Determine the root cause based on the following.
+
+--- CORRELATION MAP ---
+{correlation_text}
+
+--- USER OBSERVATION ---
+{user_observation or '(not provided)'}
+
+--- EXPECTED BEHAVIOR ---
+{expected_behavior or '(not provided)'}
+
+--- FLOWGRAM (for reference) ---
+{flowgram_json_str}"""
+
+        rca_text = _run_sub_agent(llm, rca_prompt, rca_input, label="root_cause_analyzer")
+        _stream_progress("**Step 3 complete** — Root cause identified.\n\n")
+
+        # ======================================================
+        # Step 4 — Orchestrator composes final report (streamed)
+        # ======================================================
+        _stream_progress("**Step 4/4** — Composing report…\n\n")
+
+        # Fill runtime variables into the orchestrator prompt
+        final_system = orchestrator_prompt.replace(
+            "{flowgram_json}", flowgram_json_str
+        ).replace(
+            "{run_log}", f"{log_content[:4000]}..." if len(log_content) > 4000 else log_content
+        ).replace(
+            "{user_observation}", user_observation or "(not provided)"
+        ).replace(
+            "{expected_behavior}", expected_behavior or "(not provided)"
+        )
+
+        final_user_msg = f"""Here are the outputs from each analysis sub-agent.
+Synthesize them into a single, clear, actionable report.
+
+--- LOG PARSER OUTPUT ---
+{parsed_events_text}
+
+--- FLOWGRAM CORRELATOR OUTPUT ---
+{correlation_text}
+
+--- ROOT CAUSE ANALYZER OUTPUT ---
+{rca_text}"""
+
+        # Stream the final orchestrator output
+        from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM
+        full_content_parts: List[str] = []
+
+        for chunk in llm.stream([_SM(content=final_system), _HM(content=final_user_msg)]):
+            text = chunk.content if hasattr(chunk, "content") else str(chunk)
+            if not text:
+                continue
+            full_content_parts.append(text)
+            try:
+                _publish(
+                    env, owner=owner, session_id=session_id,
+                    flowgram_id=flowgram_id,
+                    event_type="skill_editor.chat.stream_chunk",
+                    payload={"messageId": analysis_message_id, "chunk": text, "index": chunk_index},
+                )
+            except Exception:
+                pass
+            chunk_index += 1
+
+        full_content = "".join(full_content_parts)
+        logger.info(f"[reqLogAnalysis] Final report complete, length={len(full_content)}")
+
+        # Publish stream_end
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": analysis_message_id,
+                    "fullContent": full_content,
+                    "state": "complete",
+                    "intent": "log_analysis",
+                },
+            )
+        except Exception as pub_err:
+            logger.warning(f"[reqLogAnalysis] Error publishing stream_end: {pub_err}")
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        import traceback
+        logger.error(f"[reqLogAnalysis] Error: {e}")
+        logger.error(f"[reqLogAnalysis] Traceback: {traceback.format_exc()}")
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": analysis_message_id,
+                    "fullContent": f"Error analyzing log: {e}",
+                    "state": "error",
+                    "intent": "log_analysis",
+                },
+            )
+        except Exception:
+            pass
+        return {"status": f"error: {e}"}
+
+
 def _handle_request_skill_file_upload_url(event: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("[requestSkillFileUploadUrl] Starting handler")
     env = _load_env()
@@ -2376,6 +2705,10 @@ def handler(event, context):
             return _handle_resume_run_skill(event)
         if field == "stepRunSkill":
             return _handle_step_run_skill(event)
+
+        # Log Analysis
+        if field == "reqLogAnalysis":
+            return _handle_req_log_analysis(event)
 
         logger.error(f"[handler] Unsupported fieldName: {field}")
         raise RuntimeError(f"Unsupported fieldName: {field}")

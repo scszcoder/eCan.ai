@@ -353,7 +353,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               }}
             />
           </div>
-        ) : (
+        ) : mediaUrl ? (
           <img
             src={mediaUrl}
             alt={t('common.agent_working') || 'agent working'}
@@ -381,6 +381,24 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               }
             }}
           />
+        ) : (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%)',
+              border: '2px solid rgba(59, 130, 246, 0.3)',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'rgba(255, 255, 255, 0.3)',
+              fontSize: '32px'
+            }}
+          >
+            🤖
+          </div>
         )}
       </div>
       

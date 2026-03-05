@@ -33,6 +33,21 @@ def _convert_dict_to_skill(skill_dict: Dict[str, Any]) -> EC_Skill:
         EC_Skill object
     """
     try:
+        # Parse JSON strings for list/dict fields
+        tags = skill_dict.get('tags')
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                tags = None
+        
+        examples = skill_dict.get('examples')
+        if isinstance(examples, str):
+            try:
+                examples = json.loads(examples)
+            except (json.JSONDecodeError, TypeError):
+                examples = None
+        
         return EC_Skill(
             id=skill_dict.get('id'),
             name=skill_dict.get('name', 'Unnamed Skill'),
@@ -44,8 +59,8 @@ def _convert_dict_to_skill(skill_dict: Dict[str, Any]) -> EC_Skill:
             path=skill_dict.get('path', ''),
             run_mode=skill_dict.get('run_mode', 'released'),
             # Optional fields
-            tags=skill_dict.get('tags'),
-            examples=skill_dict.get('examples'),
+            tags=tags,
+            examples=examples,
         )
     except Exception as e:
         logger.error(f"[AgentConverter] Failed to convert skill dict to object: {e}")

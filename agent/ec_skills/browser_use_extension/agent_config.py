@@ -8,10 +8,9 @@ optimization easier.
 
 from browser_use.agent.views import MessageCompactionSettings
 from typing import Optional, Any, List
-import logging
 import re
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 
 # ============================================================================
@@ -250,7 +249,14 @@ def detect_context_length(llm: Optional[Any]) -> int:
         Detected context_length in tokens
     """
     if llm is None:
+        logger.debug("[AgentConfig] detect_context_length: llm is None, using default")
         return CompressionConfig.STANDARD_CONTEXT_THRESHOLD
+    
+    # Debug: Log LLM attributes
+    logger.debug(f"[AgentConfig] detect_context_length: Checking LLM attributes...")
+    for attr in ['context_length', 'max_tokens', 'model_max_length', 'n_ctx']:
+        value = getattr(llm, attr, None)
+        logger.debug(f"[AgentConfig] detect_context_length: llm.{attr} = {value} (type: {type(value).__name__})")
     
     # Strategy 1: Try common attribute names
     for attr in ['context_length', 'max_tokens', 'model_max_length', 'n_ctx']:
@@ -314,13 +320,18 @@ def get_compaction_settings_for_context_size(
     # Use balanced chars_per_token for e-commerce pages
     default_chars_per_token = TokenEstimationConfig.DEFAULT_CHARS_PER_TOKEN
     
+    # IMPORTANT: browser-use 0.12.0 only supports trigger_char_count, not trigger_token_count
+    # We must use trigger_char_count directly to ensure compaction triggers correctly
+    
     if context_length >= CompressionConfig.LARGE_CONTEXT_THRESHOLD:
         # Large context models (128K+): Balanced compaction
         # E-commerce scenario: ~5-8K tokens/step, allow 8-10 steps history
+        # 60000 tokens * 3.5 chars/token = 210000 chars (too high for browser-use default 40000)
+        # Use 25000 chars ≈ 7000 tokens to trigger after ~4 steps
         settings = MessageCompactionSettings(
             enabled=True,
             compact_every_n_steps=CompressionConfig.LARGE_COMPACT_EVERY,
-            trigger_token_count=CompressionConfig.LARGE_TRIGGER_TOKENS,
+            trigger_char_count=25000,  # ~7000 tokens, triggers after 4 steps
             keep_last_items=CompressionConfig.LARGE_KEEP_ITEMS,
             summary_max_chars=CompressionConfig.LARGE_SUMMARY_CHARS,
             chars_per_token=default_chars_per_token,
@@ -328,29 +339,43 @@ def get_compaction_settings_for_context_size(
     elif context_length >= CompressionConfig.MEDIUM_CONTEXT_THRESHOLD:
         # Medium-large context (100K-128K): Moderate compaction
         # E-commerce scenario: allow 6-8 steps history
+        # Use 22000 chars ≈ 6300 tokens to trigger after ~3 steps
         settings = MessageCompactionSettings(
             enabled=True,
             compact_every_n_steps=CompressionConfig.MEDIUM_COMPACT_EVERY,
-            trigger_token_count=CompressionConfig.MEDIUM_TRIGGER_TOKENS,
+            trigger_char_count=22000,  # ~6300 tokens, triggers after 3 steps
             keep_last_items=CompressionConfig.MEDIUM_KEEP_ITEMS,
             summary_max_chars=CompressionConfig.MEDIUM_SUMMARY_CHARS,
             chars_per_token=default_chars_per_token,
         )
-    else:
+    elif context_length >= CompressionConfig.STANDARD_CONTEXT_THRESHOLD:
         # Standard context (65K): Balanced compaction for e-commerce
         # E-commerce scenario: ~5-8K tokens/step, allow 4-5 steps history
+        # Use 18000 chars ≈ 5100 tokens to trigger after ~3 steps
         settings = MessageCompactionSettings(
             enabled=True,
             compact_every_n_steps=CompressionConfig.STANDARD_COMPACT_EVERY,
-            trigger_token_count=CompressionConfig.STANDARD_TRIGGER_TOKENS,
+            trigger_char_count=18000,  # ~5100 tokens, triggers after 3 steps
             keep_last_items=CompressionConfig.STANDARD_KEEP_ITEMS,
             summary_max_chars=CompressionConfig.STANDARD_SUMMARY_CHARS,
             chars_per_token=default_chars_per_token,
         )
+    else:
+        # Small context models (< 65K, e.g., 32K): Ultra-aggressive compaction
+        # E-commerce scenario: ~5-8K tokens/step, context fills up quickly
+        # For 32K context: need to trigger after ~1 step to stay under limit
+        # Use 5000 chars ≈ 1400 tokens to trigger very aggressively
+        # This ensures compaction happens before single large DOM exceeds limit
+        logger.warning(f"[AgentConfig] ⚠️  Small context model detected ({context_length} tokens), using ultra-aggressive compaction")
+        settings = MessageCompactionSettings(
+            enabled=True,
+            compact_every_n_steps=1,           # Compact every step
+            trigger_char_count=5000,           # ~1400 tokens, triggers very aggressively
+            keep_last_items=1,                 # Keep only latest
+            summary_max_chars=1500,            # Very compact summaries
+            chars_per_token=default_chars_per_token,
+        )
 
-    # Keep behavior consistent with get_ultra_aggressive_compaction_settings():
-    # avoid AgentSettings validation conflicts when trigger_char_count is auto-populated.
-    settings.trigger_char_count = None
     return settings
 
 
@@ -388,32 +413,24 @@ def get_ultra_aggressive_compaction_settings() -> MessageCompactionSettings:
     # Use balanced chars_per_token for e-commerce pages
     default_chars_per_token = TokenEstimationConfig.DEFAULT_CHARS_PER_TOKEN
     
+    # IMPORTANT: browser-use 0.12.0 only supports trigger_char_count
+    # Use 15000 chars ≈ 4300 tokens to trigger aggressively
     settings = MessageCompactionSettings(
         enabled=True,
         compact_every_n_steps=CompressionConfig.STANDARD_COMPACT_EVERY,
-        trigger_token_count=15000,       # More aggressive for ultra mode
+        trigger_char_count=15000,        # ~4300 tokens, aggressive triggering
         keep_last_items=2,               # Keep 2 recent items (maintains context)
         summary_max_chars=3000,          # Reasonable summary size
         chars_per_token=default_chars_per_token,
     )
     
-    logger.debug(f"[AGENT_CONFIG] Created settings:")
+    logger.debug(f"[AGENT_CONFIG] Created ultra-aggressive settings:")
     logger.debug(f"  enabled={settings.enabled}")
     logger.debug(f"  compact_every_n_steps={settings.compact_every_n_steps}")
     logger.debug(f"  trigger_char_count={settings.trigger_char_count}")
-    logger.debug(f"  trigger_token_count={settings.trigger_token_count}")
     logger.debug(f"  keep_last_items={settings.keep_last_items}")
     logger.debug(f"  summary_max_chars={settings.summary_max_chars}")
     logger.debug(f"  chars_per_token={settings.chars_per_token}")
-    logger.debug("=" * 80)
-    
-    # CRITICAL FIX: AgentSettings validator checks if BOTH trigger fields are set
-    # MessageCompactionSettings validator auto-calculates trigger_char_count from trigger_token_count
-    # But AgentSettings validator rejects objects with both fields set
-    # Solution: Set trigger_char_count back to None before passing to AgentSettings
-    logger.info("[AGENT_CONFIG] ⚠️  WORKAROUND: Setting trigger_char_count=None to avoid AgentSettings validation error")
-    settings.trigger_char_count = None
-    logger.info(f"[AGENT_CONFIG] After workaround: trigger_char_count={settings.trigger_char_count}, trigger_token_count={settings.trigger_token_count}")
     logger.debug("=" * 80)
     
     return settings
@@ -429,10 +446,10 @@ def get_agent_kwargs_with_compaction(
     **extra_kwargs
 ) -> dict:
     """
-    Get agent kwargs with adaptive compaction settings based on model context size.
+    Get agent kwargs with ultra-aggressive compaction to minimize token usage.
     
-    This function automatically adapts MessageCompaction settings and DOM size limits
-    based on the model's context window (65K, 100K, 128K+).
+    Uses an ultra-aggressive compaction strategy that compresses after every step
+    and keeps only the latest message, effectively minimizing token usage.
     
     Args:
         use_vision: Enable vision capabilities (default: True)
@@ -446,9 +463,13 @@ def get_agent_kwargs_with_compaction(
     Returns:
         Dictionary of agent kwargs ready to pass to Agent constructor
     """
+    logger.info(f"[AgentConfig] 🔧 get_agent_kwargs_with_compaction called: context_length={context_length}, llm={llm is not None}")
+    
     # Auto-detect context_length from LLM if not provided
     if context_length is None:
+        logger.debug(f"[AgentConfig] context_length is None, calling detect_context_length...")
         context_length = detect_context_length(llm)
+        logger.debug(f"[AgentConfig] detect_context_length returned: {context_length}")
     
     # Validate and fix context_length if unreasonable
     if context_length < CompressionConfig.MIN_CONTEXT_LENGTH:
@@ -462,8 +483,17 @@ def get_agent_kwargs_with_compaction(
     
     logger.info(f"[AgentConfig] 🎯 Using context_length={context_length} tokens")
     
-    # Use adaptive compaction settings based on context size
-    compaction_settings = get_compaction_settings_for_context_size(context_length)
+    # Use ULTRA-AGGRESSIVE compaction: compress after every step, keep only latest
+    # This minimizes token usage by keeping only the latest message
+    logger.warning(f"[AgentConfig] 📋 Using ultra-aggressive compaction (compress every step, keep only latest)")
+    compaction_settings = MessageCompactionSettings(
+        enabled=True,  # Enable compaction to actually remove old history
+        compact_every_n_steps=1,  # Compress after EVERY step
+        trigger_char_count=1,  # Always trigger (minimum threshold)
+        keep_last_items=1,  # Keep only the latest item after compaction
+        summary_max_chars=500,  # Minimal summary
+        chars_per_token=3.5,
+    )
     
     # Optionally adjust max_clickable_elements_length based on context size
     # Larger context models can handle more DOM content
@@ -505,6 +535,11 @@ def get_agent_kwargs_with_compaction(
         'max_clickable_elements_length': max_clickable_elements_length,
         **extra_kwargs
     }
+    
+    # Note: We don't set max_history_items because:
+    # 1. browser-use requires it to be None or > 5
+    # 2. We use ultra-aggressive compaction to control history instead
+    # 3. Compaction with keep_last_items=1 effectively keeps only the latest state
     
     # Validate configuration for potential issues
     _validate_agent_config(agent_kwargs, context_length)

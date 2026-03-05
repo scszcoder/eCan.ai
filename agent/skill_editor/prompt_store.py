@@ -36,7 +36,7 @@ import os
 import time
 from typing import Dict, Optional
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 # ---------------------------------------------------------------------------
 # Configuration
