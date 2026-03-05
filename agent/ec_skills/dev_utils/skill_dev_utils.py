@@ -122,6 +122,9 @@ def setup_dev_skill(mainwin, skill):
 
         # Set the workflow on the task
         dev_run_task.skill.set_work_flow(skill_under_dev)
+        # Preserve the original flowgram diagram so _amend_event_routing_for_task
+        # can inspect pend_event nodes (including those nested inside loops/blocks)
+        dev_run_task.skill.diagram = flow_payload or skill
 
         # Set the breakpoints on the runner's breakpoint manager
         if tester_agent and breakpoints:
