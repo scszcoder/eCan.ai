@@ -25,6 +25,7 @@ from __future__ import annotations
 import io
 import os
 import threading
+import time
 import traceback
 import zipfile
 from pathlib import Path
@@ -38,6 +39,9 @@ from utils.logger_helper import logger_helper as logger
 # Constants
 # ---------------------------------------------------------------------------
 MY_SKILLS_DIR = Path("my_skills")
+_MISSING_DOWNLOAD_URL_LOGGED: set[str] = set()
+_MISSING_DOWNLOAD_URL_CACHE: Dict[str, float] = {}
+_MISSING_DOWNLOAD_URL_TTL_SECONDS = 120
 
 # ---------------------------------------------------------------------------
 # Auth helpers (reuse prompt_cloud_sync pattern)
@@ -191,6 +195,16 @@ def _request_download_url(skill_id: str, owner: str, ctx: Dict[str, Any]) -> Opt
 
     Returns dict with {downloadUrl, s3Key, expiresIn} or None.
     """
+    cache_key = f"{owner}:{skill_id}"
+    last_missing_at = _MISSING_DOWNLOAD_URL_CACHE.get(cache_key)
+    if last_missing_at and (time.time() - last_missing_at) < _MISSING_DOWNLOAD_URL_TTL_SECONDS:
+        ttl_left = int(_MISSING_DOWNLOAD_URL_TTL_SECONDS - (time.time() - last_missing_at))
+        logger.info(
+            f"[skill_file_sync] Skip requestSkillFileDownloadUrl via cache hit for skill '{skill_id}' "
+            f"(owner={owner}, ttl_left={max(ttl_left, 0)}s)"
+        )
+        return None
+
     query = """
         query RequestSkillFileDownloadUrl($skillId: ID!, $owner: String!) {
             requestSkillFileDownloadUrl(skillId: $skillId, owner: $owner) {
@@ -202,12 +216,39 @@ def _request_download_url(skill_id: str, owner: str, ctx: Dict[str, Any]) -> Opt
     resp = _appsync_request(query, ctx, variables=variables)
     errors = resp.get("errors")
     if errors:
-        logger.warning(f"[skill_file_sync] requestSkillFileDownloadUrl error: {errors}")
+        # Many skills (especially cloud/public skills) may not have uploaded file archives yet.
+        # AppSync can surface this as non-nullable field errors for downloadUrl/s3Key.
+        # Treat that as expected/missing-file and avoid warning spam.
+        errors_text = str(errors)
+        missing_file_error = (
+            "Cannot return null for non-nullable type" in errors_text
+            and "requestSkillFileDownloadUrl" in errors_text
+        )
+        if missing_file_error:
+            _MISSING_DOWNLOAD_URL_CACHE[cache_key] = time.time()
+            warn_key = cache_key
+            if warn_key not in _MISSING_DOWNLOAD_URL_LOGGED:
+                logger.info(
+                    f"[skill_file_sync] No downloadable archive in cloud yet for skill '{skill_id}' (owner={owner})"
+                )
+                _MISSING_DOWNLOAD_URL_LOGGED.add(warn_key)
+            else:
+                logger.debug(
+                    f"[skill_file_sync] Missing archive detected again for skill '{skill_id}' (owner={owner}); cache refreshed"
+                )
+        else:
+            logger.warning(f"[skill_file_sync] requestSkillFileDownloadUrl error: {errors}")
         return None
     data = resp.get("data", {}).get("requestSkillFileDownloadUrl")
     if not data or not data.get("downloadUrl"):
         logger.warning(f"[skill_file_sync] No downloadUrl in response: {resp}")
         return None
+    _MISSING_DOWNLOAD_URL_CACHE.pop(cache_key, None)
+    if cache_key in _MISSING_DOWNLOAD_URL_LOGGED:
+        logger.info(
+            f"[skill_file_sync] Download URL available again for skill '{skill_id}' (owner={owner}); clearing missing-archive marker"
+        )
+        _MISSING_DOWNLOAD_URL_LOGGED.discard(cache_key)
     return data
 
 
@@ -391,10 +432,15 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
     t.start()
 
 
-def download_skill_files_from_cloud(skill_data: Dict[str, Any], target_dir: Optional[Path] = None) -> None:
+def download_skill_files_from_cloud(
+    skill_data: Dict[str, Any],
+    target_dir: Optional[Path] = None,
+    trace_id: Optional[str] = None,
+) -> None:
     """Download a skill's zip from S3 and extract locally. Runs in background thread."""
     def _do():
         try:
+            trace_prefix = f"[trace={trace_id}] " if trace_id else ""
             ctx = _get_cloud_context()
             if ctx is None:
                 return
@@ -415,11 +461,17 @@ def download_skill_files_from_cloud(skill_data: Dict[str, Any], target_dir: Opti
             # Request presigned download URL
             url_info = _request_download_url(cloud_skill_id, ctx["owner"], ctx)
             if not url_info:
+                logger.info(
+                    f"[skill_file_sync] {trace_prefix}Skip download for skill '{skill_data.get('name', skill_id)}': no download URL available"
+                )
                 return
 
             # Download
             zip_bytes = _download_from_s3(url_info["downloadUrl"])
             if not zip_bytes:
+                logger.warning(
+                    f"[skill_file_sync] {trace_prefix}Download content fetch failed for skill '{skill_data.get('name', skill_id)}'"
+                )
                 return
 
             # Determine target directory
@@ -436,11 +488,13 @@ def download_skill_files_from_cloud(skill_data: Dict[str, Any], target_dir: Opti
 
             ok = _unzip_to_skill_dir(zip_bytes, dest)
             if ok:
-                logger.info(f"[skill_file_sync] ✅ Downloaded skill files to '{dest}'")
+                logger.info(f"[skill_file_sync] {trace_prefix}✅ Downloaded skill files to '{dest}'")
             else:
-                logger.warning(f"[skill_file_sync] ❌ Failed to extract skill files to '{dest}'")
+                logger.warning(f"[skill_file_sync] {trace_prefix}❌ Failed to extract skill files to '{dest}'")
         except Exception as exc:
-            logger.warning(f"[skill_file_sync] Download failed for skill '{skill_data.get('id', '?')}': {exc}\n{traceback.format_exc()}")
+            logger.warning(
+                f"[skill_file_sync] {trace_prefix}Download failed for skill '{skill_data.get('id', '?')}': {exc}\n{traceback.format_exc()}"
+            )
 
     t = threading.Thread(target=_do, daemon=True, name="skill-file-download")
     t.start()

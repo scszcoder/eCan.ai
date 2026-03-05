@@ -2,6 +2,7 @@ import traceback
 import asyncio
 import requests
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
+from uuid import uuid4
 from app_context import AppContext
 from gui.ipc.context_bridge import get_handler_context
 from gui.ipc.handlers import validate_params, resolve_username
@@ -157,14 +158,44 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
             # For cloud-only skills that lack local files, download from S3
             try:
+                download_batch_id = uuid4().hex[:8]
+                download_triggered = 0
+                skip_owner_mismatch = 0
+                skip_local_exists = 0
                 for sk in skills_dicts:
                     if sk.get('_source') == 'cloud':
+                        # Only auto-download files for current user's own cloud skills.
+                        # Public/third-party skills may not have downloadable archives for this user.
+                        if (sk.get('owner') or '').strip().lower() != (username or '').strip().lower():
+                            skip_owner_mismatch += 1
+                            logger.debug(
+                                f"[skill_handler][batch={download_batch_id}] Skip cloud file auto-download for skill '{sk.get('name', sk.get('id', '?'))}': "
+                                f"owner mismatch (skill_owner={sk.get('owner')}, current_user={username})"
+                            )
+                            continue
                         from gui.ipc.w2p_handlers.skill_file_sync import _resolve_skill_dir
                         local_dir = _resolve_skill_dir(sk)
                         if local_dir is None or not local_dir.is_dir():
-                            download_skill_files_from_cloud(sk)
+                            download_triggered += 1
+                            logger.info(
+                                f"[skill_handler][batch={download_batch_id}] Trigger cloud file download for skill '{sk.get('name', sk.get('id', '?'))}' "
+                                f"(owner={sk.get('owner')})"
+                            )
+                            download_skill_files_from_cloud(sk, trace_id=download_batch_id)
+                        else:
+                            skip_local_exists += 1
+                            logger.debug(
+                                f"[skill_handler][batch={download_batch_id}] Skip cloud file auto-download for skill '{sk.get('name', sk.get('id', '?'))}': "
+                                f"local dir exists at '{local_dir}'"
+                            )
+                logger.info(
+                    f"[skill_handler][batch={download_batch_id}] Cloud skill file auto-download decisions: "
+                    f"triggered={download_triggered}, "
+                    f"skip_owner_mismatch={skip_owner_mismatch}, "
+                    f"skip_local_exists={skip_local_exists}"
+                )
             except Exception as fs_exc:
-                logger.debug(f"[skill_handler] cloud skill file download skipped: {fs_exc}")
+                logger.warning(f"[skill_handler] cloud skill file download flow error: {fs_exc}")
 
         resultJS = {
             'skills': skills_dicts,

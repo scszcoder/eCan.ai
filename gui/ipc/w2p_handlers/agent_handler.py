@@ -450,32 +450,17 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     # Step 4: Sync to cloud after memory update succeeds (async, auto-cached if failed)
                     # Use correct operation based on whether agent is new or existing
                     sync_operation = Operation.ADD if is_new_agent else Operation.UPDATE
-                    
-                    # Sync Agent entity
-                    _trigger_cloud_sync(agent_data, sync_operation)
-                    
-                    # Relationship syncs always use ADD (cloud resolver handles upsert).
-                    # UPDATE requires the cloud-side auto-generated relation row 'id' which
-                    # the local client doesn't have.
-                    
-                    # Sync Agent-Skill relationships (if changed)
-                    if 'skills' in agent_data:
-                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), Operation.ADD)
-                    
-                    # Sync Agent-Task relationships (if changed)
-                    if 'tasks' in agent_data:
-                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), Operation.ADD)
-                    
-                    # Sync Agent-Tool relationships (if changed)
-                    if 'tools' in agent_data:
-                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.ADD)
-                    
-                    # Sync Agent-Org relationships (if changed)
-                    if 'org_id' in agent_data or 'org_ids' in agent_data:
-                        org_ids = agent_data.get('org_ids', [])
-                        if not org_ids and agent_data.get('org_id'):
-                            org_ids = [agent_data['org_id']]
-                        _sync_agent_org_relations(updated_agent_data, org_ids, Operation.ADD)
+
+                    # Sync Agent entity first, then sync relations after completion to avoid FK races.
+                    def _after_agent_sync(result: Dict[str, Any]):
+                        if result.get('synced') or result.get('cached'):
+                            _sync_agent_relations_after_entity_sync(updated_agent_data, agent_data)
+                        else:
+                            logger.error(
+                                f"[agent_handler] Skipping relation sync due to agent sync failure: {result.get('error') or result.get('errors') or result}"
+                            )
+
+                    _trigger_cloud_sync(updated_agent_data, sync_operation, callback=_after_agent_sync)
                     
                     # Sync Agent's Avatar resource to cloud (if avatar changed)
                     if 'avatar_id' in agent_data:
@@ -746,23 +731,16 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             logger.debug(f"[agent_handler] Traceback: {traceback.format_exc()}")
 
         # Step 3: Sync to cloud after memory update succeeds (async, auto-cached if failed)
-        # Sync Agent entity
-        _trigger_cloud_sync(created_agent, Operation.ADD)
-        
-        # Sync Agent-Skill relationships
-        _sync_agent_skill_relations(created_agent, agent_data.get('skills', []), Operation.ADD)
-        
-        # Sync Agent-Task relationships
-        _sync_agent_task_relations(created_agent, agent_data.get('tasks', []), Operation.ADD)
-        
-        # Sync Agent-Tool relationships
-        _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
-        
-        # Sync Agent-Org relationships
-        org_ids = agent_data.get('org_ids', [])
-        if not org_ids and agent_data.get('org_id'):
-            org_ids = [agent_data['org_id']]
-        _sync_agent_org_relations(created_agent, org_ids, Operation.ADD)
+        # Sync Agent entity first, then sync relations after completion to avoid FK races.
+        def _after_agent_sync(result: Dict[str, Any]):
+            if result.get('synced') or result.get('cached'):
+                _sync_agent_relations_after_entity_sync(created_agent, agent_data)
+            else:
+                logger.error(
+                    f"[agent_handler] Skipping relation sync due to agent sync failure: {result.get('error') or result.get('errors') or result}"
+                )
+
+        _trigger_cloud_sync(created_agent, Operation.ADD, callback=_after_agent_sync)
         
         # Sync Agent's Avatar resource to cloud (if has custom avatar)
         _sync_agent_avatar_to_cloud(created_agent, Operation.ADD, request, params)
@@ -962,7 +940,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
 # Cloud Synchronization Functions
 # ============================================================================
 
-def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation') -> None:
+def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation', callback: Optional[callable] = None) -> None:
     """Trigger cloud synchronization (async, non-blocking)
     
     Async background execution, doesn't block UI operations, ensures eventual consistency.
@@ -990,8 +968,38 @@ def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation') -> N
             logger.error(f"[agent_handler] ❌ Failed to sync agent: {error_msg or result}")
     
     # Use SyncManager's thread pool for async execution
+    def _callback_chain(result: Dict[str, Any]):
+        _log_result(result)
+        if callback:
+            callback(result)
+
     manager = get_sync_manager()
-    manager.sync_to_cloud_async(DataType.AGENT, agent_data, operation, callback=_log_result)
+    manager.sync_to_cloud_async(DataType.AGENT, agent_data, operation, callback=_callback_chain)
+
+
+def _sync_agent_relations_after_entity_sync(updated_agent_data: Dict[str, Any], input_agent_data: Dict[str, Any]) -> None:
+    """Sync agent relations only after agent entity sync is accepted/cached.
+
+    This prevents cloud FK races where relation rows are written before the
+    corresponding agent row exists on cloud side.
+    """
+    # Relationship syncs always use ADD (cloud resolver handles upsert).
+    # UPDATE requires the cloud-side auto-generated relation row 'id' which
+    # the local client doesn't have.
+    if 'skills' in input_agent_data:
+        _sync_agent_skill_relations(updated_agent_data, input_agent_data.get('skills', []), Operation.ADD)
+
+    if 'tasks' in input_agent_data:
+        _sync_agent_task_relations(updated_agent_data, input_agent_data.get('tasks', []), Operation.ADD)
+
+    if 'tools' in input_agent_data:
+        _sync_agent_tool_relations(updated_agent_data, input_agent_data.get('tools', []), Operation.ADD)
+
+    if 'org_id' in input_agent_data or 'org_ids' in input_agent_data:
+        org_ids = input_agent_data.get('org_ids', [])
+        if not org_ids and input_agent_data.get('org_id'):
+            org_ids = [input_agent_data['org_id']]
+        _sync_agent_org_relations(updated_agent_data, org_ids, Operation.ADD)
 
 
 def _sync_agent_skill_relations(agent_data: Dict[str, Any], skill_ids: list, operation: 'Operation') -> None:
@@ -1198,9 +1206,8 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
         
         # Get avatar resource from database
         from agent.db.models.avatar_model import DBAvatarResource
-        db_session = ec_db_mgr.get_session()
-        
-        avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
+        with ec_db_mgr.get_session() as db_session:
+            avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
         
         if not avatar_resource:
             logger.warning(f"[agent_handler] Avatar resource not found: {avatar_id}")
@@ -1230,8 +1237,10 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
                 logger.info(f"[agent_handler] ✅ Avatar resource synced to cloud: {avatar_id}")
                 # Update cloud_synced flag in database
                 try:
-                    avatar_resource.cloud_synced = True
-                    db_session.commit()
+                    with ec_db_mgr.get_session() as db_session:
+                        avatar_db = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
+                        if avatar_db:
+                            avatar_db.cloud_synced = True
                 except Exception as e:
                     logger.warning(f"[agent_handler] Failed to update cloud_synced flag: {e}")
             elif result.get('cached'):
@@ -1322,9 +1331,8 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
         
         # Delete from database
         from agent.db.models.avatar_model import DBAvatarResource
-        db_session = ec_db_mgr.get_session()
-        
-        avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
+        with ec_db_mgr.get_session() as db_session:
+            avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
         
         if avatar_resource:
             # Delete local files
@@ -1344,8 +1352,10 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
                     logger.warning(f"[agent_handler] Failed to delete local video: {e}")
             
             # Delete from database
-            db_session.delete(avatar_resource)
-            db_session.commit()
+            with ec_db_mgr.get_session() as db_session:
+                avatar_to_delete = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
+                if avatar_to_delete:
+                    db_session.delete(avatar_to_delete)
             logger.info(f"[agent_handler] Deleted avatar resource from database: {avatar_id}")
             
             # Sync deletion to cloud (async)
@@ -1394,32 +1404,35 @@ def handle_query_agent_org_rels(request: IPCRequest, params: Optional[list[Any]]
         logger.debug(f"[agent_handler] query_agent_org_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
         
         # Get database manager
-        ec_db_mgr = get_handler_context().get('ec_db_mgr')
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return create_error_response(request, 'CONTEXT_NOT_AVAILABLE', 'Context not available')
+
+        ec_db_mgr = ctx.get_ec_db_mgr()
         if not ec_db_mgr:
             return create_error_response(request, 'DB_NOT_AVAILABLE', 'Database manager not available')
         
         # Query relationships from database
         from agent.db.models.association_models import DBAgentOrgRel
-        db_session = ec_db_mgr.get_session()
-        
-        query = db_session.query(DBAgentOrgRel)
-        if agent_id:
-            query = query.filter(DBAgentOrgRel.agent_id == agent_id)
-        
-        # Apply pagination
-        total_count = query.count()
-        rels = query.offset(offset).limit(limit).all()
-        
-        # Convert to dict
-        result = []
-        for rel in rels:
-            result.append({
-                'id': rel.id,
-                'agent_id': rel.agent_id,
-                'org_id': rel.org_id,
-                'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
-                'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
-            })
+        with ec_db_mgr.get_session() as db_session:
+            query = db_session.query(DBAgentOrgRel)
+            if agent_id:
+                query = query.filter(DBAgentOrgRel.agent_id == agent_id)
+
+            # Apply pagination
+            total_count = query.count()
+            rels = query.offset(offset).limit(limit).all()
+            
+            # Convert to dict INSIDE session to avoid DetachedInstanceError
+            result = []
+            for rel in rels:
+                result.append({
+                    'id': rel.id,
+                    'agent_id': rel.agent_id,
+                    'org_id': rel.org_id,
+                    'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
+                    'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
+                })
         
         logger.info(f"[agent_handler] Retrieved {len(result)} agent-org relationships (total: {total_count})")
         
@@ -1459,21 +1472,24 @@ def handle_query_agent_skill_rels(request: IPCRequest, params: Optional[list[Any
         logger.debug(f"[agent_handler] query_agent_skill_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
         
         # Get database manager
-        ec_db_mgr = get_handler_context().get('ec_db_mgr')
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return create_error_response(request, 'CONTEXT_NOT_AVAILABLE', 'Context not available')
+
+        ec_db_mgr = ctx.get_ec_db_mgr()
         if not ec_db_mgr:
             return create_error_response(request, 'DB_NOT_AVAILABLE', 'Database manager not available')
         
         # Query relationships from database
         from agent.db.models.association_models import DBAgentSkillRel
-        db_session = ec_db_mgr.get_session()
-        
-        query = db_session.query(DBAgentSkillRel)
-        if agent_id:
-            query = query.filter(DBAgentSkillRel.agent_id == agent_id)
-        
-        # Apply pagination
-        total_count = query.count()
-        rels = query.offset(offset).limit(limit).all()
+        with ec_db_mgr.get_session() as db_session:
+            query = db_session.query(DBAgentSkillRel)
+            if agent_id:
+                query = query.filter(DBAgentSkillRel.agent_id == agent_id)
+
+            # Apply pagination
+            total_count = query.count()
+            rels = query.offset(offset).limit(limit).all()
         
         # Convert to dict
         result = []
@@ -1524,32 +1540,35 @@ def handle_query_agent_task_rels(request: IPCRequest, params: Optional[list[Any]
         logger.debug(f"[agent_handler] query_agent_task_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
         
         # Get database manager
-        ec_db_mgr = get_handler_context().get('ec_db_mgr')
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return create_error_response(request, 'CONTEXT_NOT_AVAILABLE', 'Context not available')
+        
+        ec_db_mgr = ctx.get_ec_db_mgr()
         if not ec_db_mgr:
             return create_error_response(request, 'DB_NOT_AVAILABLE', 'Database manager not available')
         
         # Query relationships from database
         from agent.db.models.association_models import DBAgentTaskRel
-        db_session = ec_db_mgr.get_session()
-        
-        query = db_session.query(DBAgentTaskRel)
-        if agent_id:
-            query = query.filter(DBAgentTaskRel.agent_id == agent_id)
-        
-        # Apply pagination
-        total_count = query.count()
-        rels = query.offset(offset).limit(limit).all()
-        
-        # Convert to dict
-        result = []
-        for rel in rels:
-            result.append({
-                'id': rel.id,
-                'agent_id': rel.agent_id,
-                'task_id': rel.task_id,
-                'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
-                'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
-            })
+        with ec_db_mgr.get_session() as db_session:
+            query = db_session.query(DBAgentTaskRel)
+            if agent_id:
+                query = query.filter(DBAgentTaskRel.agent_id == agent_id)
+
+            # Apply pagination
+            total_count = query.count()
+            rels = query.offset(offset).limit(limit).all()
+            
+            # Convert to dict INSIDE session to avoid DetachedInstanceError
+            result = []
+            for rel in rels:
+                result.append({
+                    'id': rel.id,
+                    'agent_id': rel.agent_id,
+                    'task_id': rel.task_id,
+                    'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
+                    'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
+                })
         
         logger.info(f"[agent_handler] Retrieved {len(result)} agent-task relationships (total: {total_count})")
         
