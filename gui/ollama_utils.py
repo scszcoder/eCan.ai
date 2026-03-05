@@ -276,7 +276,7 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
         
     except requests.exceptions.ConnectionError as e:
         error_msg = f"Cannot connect to Ollama at {host}"
-        logger.warning(f"[Ollama] Connection error: {e}")
+        logger.debug(f"[Ollama] Connection error: {e}")
         return False, [], error_msg
     except requests.exceptions.Timeout:
         error_msg = "Ollama API request timed out"

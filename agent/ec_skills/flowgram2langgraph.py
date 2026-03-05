@@ -685,7 +685,7 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
         return workflow, breakpoints
     except Exception as e_flat:
         err_msg = get_traceback(e_flat, "ErrorFlowgram2LangGraphV1")
-        logger.error(f"{err_msg}")
+        logger.warning(f"{err_msg}")
         return None, []
 
 

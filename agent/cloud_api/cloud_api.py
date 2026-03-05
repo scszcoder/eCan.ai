@@ -992,7 +992,7 @@ def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
-    logger_helper.debug("account info response:" + json.dumps(jresp))
+    logger_helper.debug("account info response:" + json.dumps(jresp)[:500])
     if "errors" in jresp:
         error_obj = jresp["errors"][0]
         error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
@@ -2437,9 +2437,7 @@ def safe_parse_response(jresp, operation_name, data_key):
             # Detect "Cannot return null for non-nullable type" as a known backend schema issue
             is_schema_null_error = "Cannot return null for non-nullable type" in error_message
             if is_schema_null_error:
-                logger.error(f"❌ GraphQL Schema Error: {error_message}")
-                logger.error(f"📋 This is a known backend issue: AppSync resolver returned null for a non-nullable field.")
-                logger.error(f"📋 Action required: Check AppSync Lambda resolver for '{operation_name}' - ensure it returns all required fields.")
+                logger.warning(f"GraphQL schema null error in '{operation_name}': {error_message} (known backend issue)")
             else:
                 logger.error(f"❌ GraphQL Error: {error_message}")
                 logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
