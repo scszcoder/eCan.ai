@@ -52,7 +52,8 @@ const SectionContainer: React.FC<{
 // Available section types - labels will be loaded from translations
 const SECTION_TYPE_KEYS: PromptSectionType[] = [
   'role', 'tone', 'background', 'goals', 'guidelines', 'rules',
-  'instructions', 'examples', 'variables', 'additional', 'tools_to_use', 'custom'
+  'instructions', 'examples', 'variables', 'additional', 'exceptions',
+  'extra_attentions', 'tools_to_use', 'custom'
 ];
 
 const DEFAULT_PROMPT: Prompt = {
