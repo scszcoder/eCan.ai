@@ -13,10 +13,11 @@ from knowledge.lightrag_client import get_client
 from utils.logger_helper import logger_helper as logger
 
 
-@IPCHandlerRegistry.handler('lightrag.ingestFiles')
+@IPCHandlerRegistry.background_handler('lightrag.ingestFiles')
 def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle file ingestion request.
+    Handle file ingestion request (runs in background thread to avoid blocking UI).
+    File uploads can take a long time (up to 300s timeout).
     
     Expected params:
     - paths: List[str] - List of file paths to ingest
@@ -52,10 +53,11 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'INGEST_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.scanDirectory')
+@IPCHandlerRegistry.background_handler('lightrag.scanDirectory')
 def handle_scan_directory(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Scan a directory and return list of files that can be ingested.
+    Scan a directory and return list of files that can be ingested (runs in background thread).
+    Directory scanning can be slow for large directories.
     
     Expected params:
     - dirPath: str - Directory path to scan
@@ -89,10 +91,11 @@ def handle_scan_directory(request: IPCRequest, params: Optional[Dict[str, Any]])
         return create_error_response(request, 'SCAN_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.ingestDirectory')
+@IPCHandlerRegistry.background_handler('lightrag.ingestDirectory')
 def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle directory ingestion request.
+    Handle directory ingestion request (runs in background thread to avoid blocking UI).
+    Directory ingestion can take a very long time.
     
     Expected params:
     - dirPath: str - Directory path to ingest
@@ -552,11 +555,7 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
                     main_window.lightrag_server.stop()
                     logger.info(f"[ClearCache] LightRAG server stopped")
                     
-                    # Wait a moment for cleanup
-                    import time
-                    time.sleep(1)
-                    
-                    # Start the server again
+                    # Start the server again (start() already waits for ready, no need for sleep)
                     success = main_window.lightrag_server.start(wait_ready=True)
                     if success:
                         logger.info(f"[ClearCache] ✅ LightRAG server restarted successfully")
@@ -591,10 +590,11 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         return create_error_response(request, 'CLEAR_CACHE_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.getStatusCounts')
+@IPCHandlerRegistry.background_handler('lightrag.getStatusCounts')
 def handle_get_status_counts(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle get status counts request.
+    Handle get status counts request (runs in background thread to avoid blocking UI).
+    This is called frequently (every 3 seconds) during document processing.
     """
     try:
         # Get LightRAG client
@@ -1046,9 +1046,10 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.getProcessingProgress')
+@IPCHandlerRegistry.background_handler('lightrag.getProcessingProgress')
 def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get document processing progress using LightRAG track_status API.
+    """Get document processing progress using LightRAG track_status API (runs in background thread to avoid blocking UI).
+    This is called frequently (every 3 seconds) during document processing.
     
     Expected params:
     - track_id: Optional track ID to monitor specific batch
@@ -1283,11 +1284,12 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         return create_error_response(request, 'SAVE_SETTINGS_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.restartServer')
+@IPCHandlerRegistry.background_handler('lightrag.restartServer')
 def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Restart LightRAG server to apply new settings."""
+    """Restart LightRAG server to apply new settings (runs in background thread to avoid blocking UI)."""
     try:
         from app_context import AppContext
+        from knowledge.lightrag_server import LightragServer
         
         # Get MainWindow instance
         main_window = AppContext.get_main_window()
@@ -1302,32 +1304,20 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
         logger.info("[LightRAG] Stopping server for restart...")
         main_window.stop_lightrag_server()
         
-        # Restart the server asynchronously
-        import asyncio
-        from knowledge.lightrag_server import LightragServer
+        # Restart the server synchronously (we're already in a background thread)
+        logger.info("[LightRAG] Starting new server instance...")
+        main_window.lightrag_server = LightragServer()
+        success = main_window.lightrag_server.start(wait_ready=True)
         
-        async def restart_server():
-            try:
-                # Create and start new server instance
-                main_window.lightrag_server = LightragServer()
-                success = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: main_window.lightrag_server.start(wait_ready=True)
-                )
-                
-                if success:
-                    logger.info("[LightRAG] ✅ Server restarted successfully")
-                else:
-                    logger.error("[LightRAG] ❌ Server restart failed")
-            except Exception as e:
-                logger.error(f"[LightRAG] ❌ Error restarting server: {e}")
-        
-        # Schedule restart in the event loop
-        asyncio.create_task(restart_server())
-        
-        return create_success_response(request, {'success': True, 'message': 'Server restart initiated'})
+        if success:
+            logger.info("[LightRAG] ✅ Server restarted successfully")
+            return create_success_response(request, {'success': True, 'message': 'Server restarted successfully'})
+        else:
+            logger.error("[LightRAG] ❌ Server restart failed")
+            return create_error_response(request, 'RESTART_FAILED', 'Failed to restart server')
+            
     except Exception as e:
-        logger.error(f"Error restarting LightRAG server: {e}")
+        logger.error(f"Error restarting LightRAG server: {e}", exc_info=True)
         return create_error_response(request, 'RESTART_SERVER_ERROR', str(e))
 
 

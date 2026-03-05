@@ -742,16 +742,21 @@ class LightragServer:
                 if env.get('EMBEDDING_BINDING_API_KEY'):
                     summary.append(f"   Embedding Key:     {self._mask_env_value('EMBEDDING_API_KEY', env['EMBEDDING_BINDING_API_KEY'])}")
                 
-                # Check FAISS index dimension mismatch
+                # Check FAISS index dimension mismatch and auto-fix
                 try:
                     working_dir = env.get('WORKING_DIR')
-                    workspace = env.get('WORKSPACE')
+                    workspace = env.get('WORKSPACE', 'default')
                     if working_dir and workspace:
-                        faiss_index_path = os.path.join(working_dir, workspace, 'vdb_entities.index')
+                        workspace_path = os.path.join(working_dir, workspace)
+                        faiss_index_path = os.path.join(workspace_path, 'vdb_entities.index')
+                        
                         if os.path.exists(faiss_index_path):
                             # Try to read FAISS index dimension
                             try:
                                 import struct
+                                import shutil
+                                from datetime import datetime
+                                
                                 with open(faiss_index_path, 'rb') as f:
                                     # FAISS index format: first 4 bytes are dimension (little-endian int)
                                     f.seek(0)
@@ -760,11 +765,35 @@ class LightragServer:
                                         existing_dim = struct.unpack('<i', header[:4])[0]
                                         if existing_dim > 0 and existing_dim < 100000:  # Sanity check
                                             if str(existing_dim) != str(embed_dim):
-                                                summary.append(f"   ⚠️  WARNING: Dimension mismatch detected!")
+                                                # Dimension mismatch detected - auto-fix
+                                                logger.warning(f"[LightRAG] ⚠️  Dimension mismatch: config={embed_dim}, existing FAISS={existing_dim}")
+                                                summary.append(f"   ⚠️  Dimension mismatch detected!")
                                                 summary.append(f"       Config dimension:   {embed_dim}")
                                                 summary.append(f"       Existing FAISS dim: {existing_dim}")
-                                                summary.append(f"       → Please clear cache to rebuild index with correct dimension")
-                                                logger.warning(f"[LightRAG] Embedding dimension mismatch: config={embed_dim}, existing FAISS={existing_dim}")
+                                                
+                                                # Auto-fix: Backup old workspace and create new one
+                                                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                                backup_name = f"{workspace}_{existing_dim}d_backup_{timestamp}"
+                                                backup_path = os.path.join(working_dir, backup_name)
+                                                
+                                                try:
+                                                    # Backup old workspace
+                                                    logger.info(f"[LightRAG] 🔄 Auto-fixing: Backing up old workspace to '{backup_name}'")
+                                                    shutil.move(workspace_path, backup_path)
+                                                    
+                                                    # Create new workspace directory
+                                                    os.makedirs(workspace_path, exist_ok=True)
+                                                    
+                                                    summary.append(f"   ✅ Auto-fixed: Old workspace backed up")
+                                                    summary.append(f"       Backup: {backup_name}")
+                                                    summary.append(f"       New workspace will use {embed_dim}d")
+                                                    logger.info(f"[LightRAG] ✅ Auto-fix completed: Old data backed up, new workspace created")
+                                                    logger.info(f"[LightRAG] 📁 Backup location: {backup_path}")
+                                                    logger.info(f"[LightRAG] 🔙 To restore: mv '{backup_path}' '{workspace_path}'")
+                                                except Exception as fix_error:
+                                                    logger.error(f"[LightRAG] ❌ Auto-fix failed: {fix_error}")
+                                                    summary.append(f"   ❌ Auto-fix failed: {fix_error}")
+                                                    summary.append(f"       → Manual fix required: delete FAISS index files")
                                             else:
                                                 summary.append(f"   ✅ FAISS index dimension matches config ({existing_dim})")
                             except Exception as e:

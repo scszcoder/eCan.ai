@@ -163,8 +163,12 @@ async function updateAgent(id, owner, fields) {
   if (!current) {
     return { success: false, id, error: "NOT_FOUND: Agent not found" };
   }
-  if (owner && current.owner !== owner) {
-    return { success: false, id, error: "FORBIDDEN: Not the owner" };
+  // owner can be a string or an array of acceptable owner identifiers
+  if (owner) {
+    const acceptableOwners = Array.isArray(owner) ? owner.filter(Boolean) : [owner];
+    if (!acceptableOwners.includes(current.owner)) {
+      return { success: false, id, error: "FORBIDDEN: Not the owner" };
+    }
   }
 
   const allowed = [
@@ -206,8 +210,12 @@ async function deleteAgent(id, owner) {
   if (!current) {
     return { success: false, id, error: "NOT_FOUND: Agent not found" };
   }
-  if (owner && current.owner !== owner) {
-    return { success: false, id, error: "FORBIDDEN: Not the owner" };
+  // owner can be a string or an array of acceptable owner identifiers
+  if (owner) {
+    const acceptableOwners = Array.isArray(owner) ? owner.filter(Boolean) : [owner];
+    if (!acceptableOwners.includes(current.owner)) {
+      return { success: false, id, error: "FORBIDDEN: Not the owner" };
+    }
   }
   // Delete associations first to avoid FK issues
   await execute("DELETE FROM agent_org_rels WHERE agent_id = :id", [toDbParam("id", id)]);

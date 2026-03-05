@@ -224,26 +224,26 @@ def build_org_agent_tree(organizations, agents):
     def log_tree_structure(node, indent=0):
         prefix = "  " * indent
         agent_ids = [a.get('id', 'unknown') for a in node.get('agents', [])]
-        logger.info(f"{prefix}- {node['name']} (id: {node['id']}) - {len(node.get('agents', []))} agents {agent_ids}, {len(node.get('children', []))} children")
+        logger.debug(f"{prefix}- {node['name']} (id: {node['id']}) - {len(node.get('agents', []))} agents {agent_ids}, {len(node.get('children', []))} children")
         for child in node.get('children', []):
             log_tree_structure(child, indent + 1)
     
-    logger.info(f"[agent_handler] Built integrated tree structure:")
-    logger.info(f"  - Total organizations processed: {len(organizations)}")
-    logger.info(f"  - Total agents: {len(agents)}")
-    logger.info(f"  - Unassigned agents: {len(unassigned_agents)}")
-    logger.info(f"  - Agents by org_id distribution:")
+    logger.info(f"[agent_handler] Built integrated tree: {len(organizations)} orgs, {len(agents)} agents ({len(unassigned_agents)} unassigned)")
+    logger.debug(f"[agent_handler] Agents by org_id distribution:")
     for org_id, org_agents in agents_by_org.items():
-        logger.info(f"    - org_id={org_id}: {len(org_agents)} agents")
-    logger.info(f"Tree structure:")
+        logger.debug(f"    - org_id={org_id}: {len(org_agents)} agents")
+    logger.debug(f"Tree structure:")
     log_tree_structure(tree_root)
     
     return tree_root
 
 
-@IPCHandlerRegistry.handler('get_agents')
+@IPCHandlerRegistry.background_handler('get_agents')
 def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """Handle get agents request
+    """Handle get agents request (runs in background thread to avoid blocking UI).
+    
+    Database queries with relations (JOIN operations) can be slow when there are
+    many agents with tasks/skills. Running in background prevents UI freezing.
 
     Retrieve agents for the specified user.
 

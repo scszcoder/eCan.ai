@@ -111,8 +111,10 @@ class CloudAPIService:
             }
         
         # Use Schema to convert data format (simplified: removed Adapter layer)
+        # Pass operation type to schema for operation-specific transformations
         logger.debug(f"[CloudAPIService] Sample local item BEFORE conversion: {local_items[0] if local_items else 'N/A'}")
-        cloud_items = [self.schema.to_cloud(item) for item in local_items]
+        operation_str = operation.value if hasattr(operation, 'value') else str(operation)
+        cloud_items = [self.schema.to_cloud(item, operation=operation_str) for item in local_items]
         logger.debug(f"[CloudAPIService] Sample cloud item AFTER conversion: {cloud_items[0] if cloud_items else 'N/A'}")
         
         try:
@@ -239,8 +241,8 @@ class CloudAPIService:
             
             # This is a real exception, log with traceback
             import traceback
-            logger.error(f"[CloudAPIService] ❌ Exception during sync {self.data_type}(s): {error_msg}")
-            logger.error(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
+            logger.warning(f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg}")
+            logger.debug(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
             
             return {
                 'success': False,
