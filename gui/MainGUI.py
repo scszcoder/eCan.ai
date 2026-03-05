@@ -411,7 +411,7 @@ class MainWindow:
                     except RuntimeError:
                         loop = None
                 
-                if loop and not loop.is_closed():
+                if loop and not loop.is_closed() and loop.is_running():
                     # Use run_coroutine_threadsafe for thread-safe task submission
                     asyncio.run_coroutine_threadsafe(
                         self._update_vehicle_metrics_async(vehicle),
@@ -419,7 +419,7 @@ class MainWindow:
                     )
                     logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
                 else:
-                    raise RuntimeError("Event loop not available or closed")
+                    raise RuntimeError("Event loop not available, closed, or not running")
                     
             except Exception as e:
                 # If event loop is still not available, retry with exponential backoff
@@ -2730,13 +2730,13 @@ class MainWindow:
                         if skills_count > 0:
                             for skill_idx, skill in enumerate(agent.skills):
                                 if skill is None:
-                                    logger.error(f"[AGENT_INVENTORY]   - Skill[{skill_idx}]: None (MISSING!)")
+                                    logger.warning(f"[AGENT_INVENTORY]   - Skill[{skill_idx}]: None (MISSING!)")
                                 else:
                                     skill_name = skill.name if hasattr(skill, 'name') else f"Skill_{skill_idx}"
                                     has_runnable = hasattr(skill, 'runnable') and skill.runnable is not None
                                     logger.info(f"[AGENT_INVENTORY]   - Skill[{skill_idx}]: {skill_name}, has_runnable: {has_runnable}")
                                     if not has_runnable:
-                                        logger.error(f"[AGENT_INVENTORY]     âš ï¸ Skill '{skill_name}' has no runnable!")
+                                        logger.warning(f"[AGENT_INVENTORY]     âš ï¸ Skill '{skill_name}' has no runnable!")
                         else:
                             logger.warning(f"[AGENT_INVENTORY]   - No skills assigned")
                     else:
@@ -2749,7 +2749,7 @@ class MainWindow:
                             task_name = getattr(task, 'name', f'Task_{task_idx}')
                             task_skill = getattr(task, 'skill', None)
                             if task_skill is None:
-                                logger.error(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill=None (MISSING!)")
+                                logger.warning(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill=None (MISSING!)")
                             elif isinstance(task_skill, str):
                                 logger.warning(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{task_skill}' (STRING, not compiled!)")
                             else:
@@ -2758,9 +2758,9 @@ class MainWindow:
                                 if has_run:
                                     logger.info(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{sk_name}', runnable=YES")
                                 else:
-                                    logger.error(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{sk_name}', runnable=NO (WILL FAIL!)")
+                                    logger.warning(f"[AGENT_INVENTORY]   - Task[{task_idx}] '{task_name}': skill='{sk_name}', runnable=NO (WILL FAIL!)")
                 except Exception as e:
-                    logger.error(f"[AGENT_INVENTORY] Error inspecting agent {idx}: {e}")
+                    logger.warning(f"[AGENT_INVENTORY] Error inspecting agent {idx}: {e}")
             logger.info("[AGENT_INVENTORY] =============================================")
             
             # Step 4: Launch agents in background (non-blocking)
@@ -2795,10 +2795,10 @@ class MainWindow:
             agent_configs = []
             
             # Basic Agent — My Twin Agent (required for chat functionality)
-            agent_configs.append({
-                'name': 'My Twin',
-                'builder': set_up_my_twin_agent
-            })
+            # agent_configs.append({
+            #     'name': 'My Twin',
+            #     'builder': set_up_my_twin_agent
+            # })
             
             # Add other agents based on role
             # if "Platoon" in self.machine_role:
@@ -2904,7 +2904,7 @@ class MainWindow:
                 if skills_count > 0:
                     for idx, skill in enumerate(agent.skills):
                         if skill is None:
-                            logger.error(f"[SKILL_MISSING] Agent '{agent_card_name}' skill[{idx}] is None!")
+                            logger.warning(f"[SKILL_MISSING] Agent '{agent_card_name}' skill[{idx}] is None!")
                         else:
                             skill_name = skill.name if hasattr(skill, 'name') else f"Skill_{idx}"
                             has_runnable = hasattr(skill, 'runnable') and skill.runnable is not None
@@ -2912,7 +2912,7 @@ class MainWindow:
                             logger.info(f"[SKILL_CHECK] Agent '{agent_card_name}' skill[{idx}]: {skill_name}, runnable: {runnable_type}")
                             
                             if not has_runnable:
-                                logger.error(f"[SKILL_MISSING] Agent '{agent_card_name}' skill '{skill_name}' has runnable=None!")
+                                logger.warning(f"[SKILL_MISSING] Agent '{agent_card_name}' skill '{skill_name}' has runnable=None!")
                 else:
                     logger.warning(f"[AGENT_SKILLS] Agent '{agent_card_name}' has no skills!")
             else:

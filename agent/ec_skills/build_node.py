@@ -1864,8 +1864,8 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
     if not code_source or not isinstance(code_source, str):
         err_msg = "Error: 'code' key is missing or invalid in config_metadata for basic_node."
-        logger.error(err_msg)
-        send_skill_editor_log("error", err_msg)
+        logger.warning(err_msg)
+        send_skill_editor_log("warning", err_msg)
         # Return a no-op function that just passes the state through
         return lambda state, runtime=None, store=None, **kwargs: state
 
@@ -1915,8 +1915,8 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
-            logger.error(err_msg)
-            send_skill_editor_log("error", err_msg)
+            logger.warning(err_msg)
+            send_skill_editor_log("warning", err_msg)
             node_callable = None
 
     # If callable creation failed, return a no-op function
@@ -3558,6 +3558,24 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
     timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
 
+    # Also extract timer_name from pendingSources items (dicts with type + timerName)
+    if not timer_name and isinstance(additional_events, list):
+        for src in additional_events:
+            if isinstance(src, dict) and src.get("type") == "timer":
+                timer_name = (src.get("timerName") or "").strip()
+                if timer_name:
+                    break
+
+    # Build a flat set of event type strings for easy membership checks
+    _additional_event_types = set()
+    if isinstance(additional_events, list):
+        for src in additional_events:
+            if isinstance(src, str):
+                _additional_event_types.add(src.strip())
+            elif isinstance(src, dict):
+                _additional_event_types.add((src.get("type") or "").strip())
+
+    _listens_for_timer = main_event == "timer" or "timer" in _additional_event_types
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
         log_msg = f"🤖 Executing node pending event node: {node_name}"
@@ -3567,7 +3585,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # Safety net: auto-resume any paused timers when we reach a pend_event
         # node that listens for timer events. This handles the case where the
         # LLM called pause_timer but forgot to call resume_timer.
-        if main_event == "timer" or "timer" in (additional_events or []):
+        if _listens_for_timer:
             try:
                 agent_id = (state.get("attributes") or {}).get("agent_id", "")
                 if agent_id:
@@ -3816,6 +3834,9 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                         pass
                 sender = ChatMessageSender(agent_obj)
                 sender.send_text(chat_id, response)
+                # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
+                if isinstance(state.get("attributes"), dict):
+                    state["attributes"]["chat_response_sent"] = True
                 logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(response)}")
                 send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
             elif not response or not str(response).strip():

@@ -241,8 +241,8 @@ class CloudAPIService:
             
             # This is a real exception, log with traceback
             import traceback
-            logger.error(f"[CloudAPIService] ❌ Exception during sync {self.data_type}(s): {error_msg}")
-            logger.error(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
+            logger.warning(f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg}")
+            logger.debug(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
             
             return {
                 'success': False,

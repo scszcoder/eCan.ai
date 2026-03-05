@@ -154,12 +154,14 @@ const PromptsEnhanced: React.FC = () => {
         </Space>
       ),
       children: (
-        <PromptsDetail
-          prompt={selected}
-          onChange={handleChange}
-          initialEditMode={initialEditMode}
-          onEditModeConsumed={() => setInitialEditMode(false)}
-        />
+        <div className={styles.editorTabWrapper}>
+          <PromptsDetail
+            prompt={selected}
+            onChange={handleChange}
+            initialEditMode={initialEditMode}
+            onEditModeConsumed={() => setInitialEditMode(false)}
+          />
+        </div>
       ),
     },
     {
@@ -170,7 +172,7 @@ const PromptsEnhanced: React.FC = () => {
           {t('pages.prompts.tabs.guide', { defaultValue: '设计指南' })}
         </Space>
       ),
-      children: <PromptGuide />,
+      children: <div className={styles.tabContent}><PromptGuide /></div>,
     },
     {
       key: 'templates',
@@ -180,7 +182,7 @@ const PromptsEnhanced: React.FC = () => {
           {t('pages.prompts.tabs.templates', { defaultValue: '模板库' })}
         </Space>
       ),
-      children: <PromptTemplates onUseTemplate={handleUseTemplate} />,
+      children: <div className={styles.tabContent}><PromptTemplates onUseTemplate={handleUseTemplate} /></div>,
     },
     {
       key: 'examples',
@@ -190,7 +192,7 @@ const PromptsEnhanced: React.FC = () => {
           {t('pages.prompts.tabs.examples', { defaultValue: '示例库' })}
         </Space>
       ),
-      children: <PromptExamples />,
+      children: <div className={styles.tabContent}><PromptExamples /></div>,
     },
   ];
 

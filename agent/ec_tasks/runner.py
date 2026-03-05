@@ -12,6 +12,7 @@ import asyncio
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -726,11 +727,13 @@ class TaskRunner(Generic[Context]):
         """
         skill = getattr(task, "skill", None)
         if not skill:
+            logger.debug(f"[EventRouting] Task '{task.name}' has no skill, skipping routing amendment")
             return
         
         try:
             event_entries = self._extract_event_types_from_skill(skill)
             if not event_entries:
+                logger.debug(f"[EventRouting] No pend_event nodes found in skill for task '{task.name}'")
                 return
             
             amended = False
@@ -743,9 +746,16 @@ class TaskRunner(Generic[Context]):
                 # so multiple tasks can listen for different timer names
                 routing_key_name = f"{et}:{timer_name}" if timer_name else et
                 
-                if routing_key_name in self._global_event_routing:
-                    logger.debug(f"[EventRouting] Event '{routing_key_name}' already has a routing rule, skipping")
-                    continue
+                existing_rule = self._global_event_routing.get(routing_key_name)
+                if isinstance(existing_rule, dict):
+                    # Allow overriding auto-added rules (e.g., dev task overrides
+                    # the background task's timer routing) but never override
+                    # user-defined rules from event_routing.json.
+                    if existing_rule.get("_auto_added_by_task"):
+                        logger.debug(f"[EventRouting] Overriding auto-added rule for '{routing_key_name}' (was task={existing_rule['_auto_added_by_task']})")
+                    else:
+                        logger.debug(f"[EventRouting] Event '{routing_key_name}' already has a routing rule, skipping")
+                        continue
                 
                 rule: Dict[str, Any] = {
                     "task_selector": f"id:{task.id}",
@@ -759,7 +769,7 @@ class TaskRunner(Generic[Context]):
                     # match event.timer_name == configured timer_name (literal)
                     timer_match = list(node_match_fields) if node_match_fields else []
                     timer_match.append({
-                        "event_path": "timer_name",
+                        "event_path": "context.timer_name",
                         "literal": timer_name,
                     })
                     rule["match_fields"] = timer_match
@@ -1004,8 +1014,12 @@ class TaskRunner(Generic[Context]):
             if not isinstance(rule, dict) and etype == "timer":
                 timer_name = None
                 if isinstance(event, dict):
-                    timer_name = event.get("timer_name") or (event.get("data") or {}).get("timer_name")
-                elif isinstance(request, dict):
+                    timer_name = (
+                        event.get("timer_name")
+                        or (event.get("context") or {}).get("timer_name")
+                        or (event.get("data") or {}).get("timer_name")
+                    )
+                if not timer_name and isinstance(request, dict):
                     timer_name = request.get("timer_name")
                 if timer_name:
                     composite_key = f"{etype}:{timer_name}"
@@ -1121,7 +1135,7 @@ class TaskRunner(Generic[Context]):
             return existing
 
         skills = getattr(self.agent, "skills", []) or []
-        chat_candidates = [sk for sk in skills if sk and "chat" in (getattr(sk, "name", "")).lower()]
+        chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
         if not chat_candidates:
             logger.error("[ensure_chatter_task] No chat skill found; cannot auto-create chatter task")
             return None
@@ -2820,14 +2834,19 @@ class TaskRunner(Generic[Context]):
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
                     # Send the LLM response back to the GUI/opposite agent
+                    # Skip if a chat node already delivered the response (chat_response_sent flag)
                     if current_state and hasattr(current_state, 'values'):
-                        try:
-                            from agent.ec_skills.llm_utils.llm_utils import send_response_back
-                            chatId = current_state.values.get("messages", [None, None])[1]
-                            if chatId:
-                                send_response_back(current_state.values)
-                        except Exception as srb_err:
-                            logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
+                        already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
+                        if already_sent:
+                            logger.debug("[COMPLETE] Skipping send_response_back: chat node already sent response")
+                        else:
+                            try:
+                                from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                                chatId = current_state.values.get("messages", [None, None])[1]
+                                if chatId:
+                                    send_response_back(current_state.values)
+                            except Exception as srb_err:
+                                logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})

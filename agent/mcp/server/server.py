@@ -137,15 +137,14 @@ from agent.mcp.server.chat_utils.chat_tools import (
     async_list_chat_agents,
     async_get_chat_history,
 )
-# Timer MCP tools are not implemented yet
-# from agent.ec_tasks.task_mcp_tools import (
-#     async_add_timer,
-#     async_remove_timer,
-#     async_update_timer,
-#     async_list_timers,
-#     async_pause_timer,
-#     async_resume_timer,
-# )
+from agent.ec_tasks.timer_mcp_tools import (
+    async_add_timer,
+    async_remove_timer,
+    async_update_timer,
+    async_list_timers,
+    async_pause_timer,
+    async_resume_timer,
+)
 from agent.mcp.server.aws_utils.aws_tools import (
     aws_read_billing,
     aws_shutdown,
@@ -387,25 +386,16 @@ async def unified_tool_handler(tool_name, args):
     # Debug: Check if login and main_win are available
     if login is None:
         logger.error(f"[unified_tool_handler] AppContext.login is None!")
-        return CallToolResult(
-            content=[TextContent(type="text", text="Error: AppContext.login is None - MCP server not properly initialized")],
-            isError=True
-        )
+        return [TextContent(type="text", text="Error: AppContext.login is None - MCP server not properly initialized")]
     
     if not hasattr(login, 'main_win') or login.main_win is None:
         logger.error(f"[unified_tool_handler] login.main_win is None!")
-        return CallToolResult(
-            content=[TextContent(type="text", text="Error: login.main_win is None - MainGUI not connected to MCP server")],
-            isError=True
-        )
+        return [TextContent(type="text", text="Error: login.main_win is None - MainGUI not connected to MCP server")]
     
     try:
         if tool_name not in tool_function_mapping:
             logger.error(f"[unified_tool_handler] Tool '{tool_name}' not found in tool_function_mapping!")
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Error: Tool '{tool_name}' not registered in tool_function_mapping")],
-                isError=True
-            )
+            return [TextContent(type="text", text=f"Error: Tool '{tool_name}' not registered in tool_function_mapping")]
         
         tool_func = tool_function_mapping[tool_name]
         logger.debug(f"[unified_tool_handler] Calling {tool_name} with args: {args}")
@@ -426,10 +416,7 @@ async def unified_tool_handler(tool_name, args):
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
         logger.error(ex_stat)
-        return CallToolResult(
-                    content=[TextContent(type="text", text=str(ex_stat))],
-                    isError=True
-                )
+        return [TextContent(type="text", text=str(ex_stat))]
 
 # async def unified_tool_handler(tool_name, args):
 #     login = AppContext.login
@@ -3331,13 +3318,13 @@ tool_function_mapping = {
         "send_chat": async_send_chat,
         "list_chat_agents": async_list_chat_agents,
         "get_chat_history": async_get_chat_history,
-        # Timer management tools (not implemented yet)
-        # "add_timer": async_add_timer,
-        # "remove_timer": async_remove_timer,
-        # "update_timer": async_update_timer,
-        # "list_timers": async_list_timers,
-        # "pause_timer": async_pause_timer,
-        # "resume_timer": async_resume_timer,
+        # Timer management tools
+        "add_timer": async_add_timer,
+        "remove_timer": async_remove_timer,
+        "update_timer": async_update_timer,
+        "list_timers": async_list_timers,
+        "pause_timer": async_pause_timer,
+        "resume_timer": async_resume_timer,
         # AWS cost monitoring and emergency shutdown tools
         "aws_read_billing": aws_read_billing,
         "aws_shutdown": aws_shutdown,

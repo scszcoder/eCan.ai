@@ -134,6 +134,92 @@ def _normalize_sections(raw_sections: Any, legacy_data: Dict[str, Any]) -> List[
     return sections
 
 
+# Cache for skill_editor default prompts (loaded once from Python source constants)
+_skill_editor_defaults: Optional[Dict[str, str]] = None
+
+def _get_skill_editor_default_prompt(prompt_id: str, title: str) -> Optional[str]:
+    """Load default prompt text for skill_editor system prompts from Python source constants.
+    
+    These prompts are stored in Agent_Prompts DynamoDB (inaccessible from desktop),
+    but their defaults are hardcoded in the skill_editor agent source files.
+    """
+    global _skill_editor_defaults
+    if _skill_editor_defaults is None:
+        _skill_editor_defaults = {}
+        try:
+            from agent.skill_editor.planner_agent import PLANNER_SYSTEM_PROMPT
+            _skill_editor_defaults["planner"] = PLANNER_SYSTEM_PROMPT
+        except Exception:
+            pass
+        try:
+            from agent.skill_editor.code_agent import CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT
+            _skill_editor_defaults["code_gen"] = CODE_GENERATION_PROMPT
+            _skill_editor_defaults["edit_flowgram"] = EDIT_FLOWGRAM_PROMPT
+        except Exception:
+            pass
+        try:
+            from agent.skill_editor.validator_agent import VALIDATOR_SYSTEM_PROMPT
+            _skill_editor_defaults["validator"] = VALIDATOR_SYSTEM_PROMPT
+        except Exception:
+            pass
+        try:
+            from agent.skill_editor.skill_editor_agent import INTENT_CLASSIFIER_SYSTEM_PROMPT
+            _skill_editor_defaults["intent_classifier"] = INTENT_CLASSIFIER_SYSTEM_PROMPT
+        except Exception:
+            pass
+        # Log-analysis prompts are DynamoDB-only (no Python source constants).
+        # Inline defaults extracted from skill_editor_agent.py and named by purpose.
+        _skill_editor_defaults.setdefault("log_parser", (
+            "You are a Log Parser for eCan.ai, an AI agent / workflow automation platform.\n\n"
+            "Your job is to parse raw log files and extract structured information:\n"
+            "- Timestamps, log levels, component names\n"
+            "- Error messages and stack traces\n"
+            "- Request/response pairs and their status codes\n"
+            "- Node execution timings and outcomes\n\n"
+            "Output a structured summary with categorised log entries."
+        ))
+        _skill_editor_defaults.setdefault("log_analysis_orchestrator", (
+            "You are a Log Analysis Orchestrator for eCan.ai.\n\n"
+            "You coordinate multi-step log analysis by:\n"
+            "1. Dispatching the raw log to the Log Parser for structured extraction\n"
+            "2. Sending parsed data to the Root Cause Analyzer for diagnosis\n"
+            "3. Correlating findings with flowgram execution via the Flowgram Correlator\n"
+            "4. Producing a consolidated analysis report with prioritised recommendations\n\n"
+            "Ensure each sub-agent receives the context it needs and aggregate their outputs."
+        ))
+        _skill_editor_defaults.setdefault("root_cause_analyzer", (
+            "You are a Root Cause Analyzer for eCan.ai.\n\n"
+            "Given parsed log entries (errors, warnings, exceptions), your job is to:\n"
+            "1. Identify the root cause of failures — distinguish setup issues, code bugs, and backend errors\n"
+            "2. Trace cascading failures back to their origin (e.g. an auth failure causing downstream timeouts)\n"
+            "3. Classify each issue: setup issue (customer config), code bug, or backend issue\n"
+            "4. Provide a prioritised list of recommended fixes\n\n"
+            "Be specific — quote relevant log lines when referencing errors."
+        ))
+        _skill_editor_defaults.setdefault("flowgram_correlator", (
+            "You are a Flowgram Correlator for eCan.ai.\n\n"
+            "Given log analysis results and a flowgram (workflow graph), your job is to:\n"
+            "1. Map each log error/warning to the specific flowgram node that produced it\n"
+            "2. Identify which edges (transitions) failed or were never reached\n"
+            "3. Highlight bottleneck nodes (high duration or frequent retries)\n"
+            "4. Suggest flowgram modifications to improve reliability\n\n"
+            "Output a node-by-node status report with correlations to log findings."
+        ))
+        logger.info(f"[prompts] Loaded {len(_skill_editor_defaults)} skill_editor default prompts: {list(_skill_editor_defaults.keys())}")
+
+    # Try prompt_id directly (e.g. "planner")
+    text = _skill_editor_defaults.get(prompt_id)
+    if text:
+        return text
+    # Try stripping "skill_editor_" prefix from title (e.g. "skill_editor_planner" -> "planner")
+    if title.startswith("skill_editor_"):
+        short = title[len("skill_editor_"):]
+        text = _skill_editor_defaults.get(short)
+        if text:
+            return text
+    return None
+
+
 def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_ts: Optional[float]) -> Dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
 
@@ -165,6 +251,26 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
 
     prompt["source"] = source
     prompt["readOnly"] = bool(read_only or data.get("readOnly"))
+
+    # Determine owner: preserve from raw data, or detect system prompts by title/id prefix
+    owner = data.get("owner", "")
+    title = prompt.get("title", "")
+    pid = prompt.get("id", "")
+    is_skill_editor = title.startswith("skill_editor_") or pid.startswith("skill_editor_")
+    if not owner and is_skill_editor:
+        owner = "system"
+    prompt["owner"] = owner
+
+    # Preserve rawContent for prompts that are plain text (not structured JSON sections)
+    raw_content = data.get("rawContent")
+
+    # For skill_editor system prompts with empty sections and no rawContent,
+    # load the default prompt text from the hardcoded Python constants
+    if not raw_content and is_skill_editor and not prompt.get("sections"):
+        raw_content = _get_skill_editor_default_prompt(pid, title)
+
+    if raw_content:
+        prompt["rawContent"] = str(raw_content)
 
     return prompt
 
@@ -390,6 +496,11 @@ def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
 
     data["userSections"] = user_sections
 
+    # Preserve rawContent for plain-text prompts (not yet converted to structured sections)
+    raw_content = prompt.get("rawContent")
+    if raw_content:
+        data["rawContent"] = str(raw_content)
+
     return data
 
 
@@ -484,16 +595,29 @@ def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCRespon
                 logger.info(f"[prompts] Cloud returned {len(cloud_prompts)} prompts, local has {len(local_by_id)}")
                 for cp in cloud_prompts:
                     cid = cp.get("id")
-                    if cid and cid not in local_by_id:
-                        # Cloud-only prompt → save locally so it persists across restarts
+                    if not cid:
+                        continue
+                    # Decide whether to use cloud version:
+                    # 1. Prompt doesn't exist locally
+                    # 2. Local version has empty sections AND no rawContent (lost data),
+                    #    but cloud version has rawContent — prefer cloud
+                    local_prompt = local_by_id.get(cid)
+                    use_cloud = False
+                    if local_prompt is None:
+                        use_cloud = True
+                    elif (not local_prompt.get("sections") and not local_prompt.get("rawContent")
+                          and cp.get("rawContent")):
+                        use_cloud = True
+                        logger.info(f"[prompts] Local prompt '{cid}' has empty content, replacing with cloud version that has rawContent")
+
+                    if use_cloud:
                         try:
                             saved = _write_prompt_to_file(cp)
                             local_by_id[cid] = saved
                             cloud_only_prompts.append(saved)
-                            logger.info(f"[prompts] Downloaded cloud-only prompt '{cid}' ('{cp.get('title')}') to local")
+                            logger.info(f"[prompts] Downloaded cloud prompt '{cid}' ('{cp.get('title')}') to local")
                         except Exception as save_exc:
                             logger.warning(f"[prompts] Failed to save cloud prompt '{cid}' locally: {save_exc}")
-                            # Still include it in the response even if local save fails
                             local_by_id[cid] = cp
                             cloud_only_prompts.append(cp)
             except Exception as fetch_exc:

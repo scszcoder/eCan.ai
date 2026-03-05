@@ -443,8 +443,10 @@ class TimerService:
             if not handle:
                 return None
             
-            # Stop the current loop
-            handle.cancel()
+            # Stop the current loop gracefully (don't use cancel() which
+            # permanently marks the timer as cancelled)
+            handle._stop_event.set()
+            old_thread = handle._thread
             
             # Apply updates
             if period_ms is not None:
@@ -454,8 +456,16 @@ class TimerService:
             
             # Reset state for restart
             handle.cancelled = False
+            handle._paused = False
+
+        # Wait for old thread to finish OUTSIDE the lock to avoid deadlocks
+        if old_thread and old_thread.is_alive():
+            old_thread.join(timeout=2.0)
+        
+        # Now start fresh
+        with self._lock:
             handle._stop_event.clear()
-            
+            handle._thread = None  # force start() to create a new thread
             if handle.repeat_count != 0:
                 handle.start()
             
