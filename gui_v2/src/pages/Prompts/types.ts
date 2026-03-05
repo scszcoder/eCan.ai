@@ -9,6 +9,8 @@ export type PromptSectionType =
   | 'examples'
   | 'variables'
   | 'additional'
+  | 'exceptions'
+  | 'extra_attentions'
   | 'custom'
   | 'tools_to_use';
 

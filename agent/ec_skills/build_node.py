@@ -3557,6 +3557,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
     timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
+    browser_event_label = (config_metadata["inputsValues"].get("browserEventLabel") or {}).get("content", "") or ""
 
     # Also extract timer_name from pendingSources items (dicts with type + timerName)
     if not timer_name and isinstance(additional_events, list):
@@ -3564,6 +3565,14 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             if isinstance(src, dict) and src.get("type") == "timer":
                 timer_name = (src.get("timerName") or "").strip()
                 if timer_name:
+                    break
+
+    # Also extract browser_event_label from pendingSources items
+    if not browser_event_label and isinstance(additional_events, list):
+        for src in additional_events:
+            if isinstance(src, dict) and src.get("type") == "browser_event":
+                browser_event_label = (src.get("browserEventLabel") or "").strip()
+                if browser_event_label:
                     break
 
     # Build a flat set of event type strings for easy membership checks
@@ -3619,6 +3628,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "notification_to_human": notification,
             "event_type": main_event,
             "timer_name": timer_name,
+            "browser_event_label": browser_event_label,
         }
         resume_payload = interrupt(info)
 
@@ -5030,6 +5040,36 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
+
+            # Apply extract patch based on max_input_tokens from agent config
+            # This ensures extract tool respects the model's context length and prevents token overflow
+            # The patch reserves ~24K tokens for system prompt, history, and overhead
+            if 'max_input_tokens' in agent_kwargs:
+                try:
+                    # In development mode, reload the module to ensure we use the latest code
+                    # This helps during development when the patch code is being modified
+                    import sys
+                    if 'agent.ec_skills.browser_use_extension.extract_patch' in sys.modules:
+                        import importlib
+                        extract_patch_module = sys.modules['agent.ec_skills.browser_use_extension.extract_patch']
+                        importlib.reload(extract_patch_module)
+                        logger.debug("[BrowserAutomation] 🔄 Reloaded extract_patch module (dev mode)")
+                    
+                    from agent.ec_skills.browser_use_extension.extract_patch import patch_extract_max_char_limit
+                    
+                    # Apply patch with current model's token capacity
+                    result = patch_extract_max_char_limit(agent_kwargs['max_input_tokens'])
+                    
+                    if result:
+                        logger.debug(
+                            f"[BrowserAutomation] ✅ Extract patch applied/verified "
+                            f"(max_input_tokens={agent_kwargs['max_input_tokens']:,})"
+                        )
+                    else:
+                        logger.warning("[BrowserAutomation] ⚠️ Extract patch returned False")
+                        
+                except Exception as e:
+                    logger.error(f"[BrowserAutomation] ❌ Failed to apply extract patch: {e}", exc_info=True)
 
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
             # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
