@@ -339,7 +339,26 @@ class LoggerHelper:
                 pass
 
 
+class MCPClientDisconnectFilter(logging.Filter):
+    """Filter out benign ClientDisconnect errors from MCP StreamableHTTP transport.
+    
+    These errors occur when clients cancel/disconnect during HTTP requests,
+    which is normal behavior in HTTP/2 streaming scenarios (retries, duplicate requests, etc.).
+    The MCP library logs these at ERROR level, but they don't indicate actual problems.
+    """
+    def filter(self, record):
+        # Filter out ClientDisconnect errors from MCP streamable_http
+        if record.name == 'mcp.server.streamable_http' and record.levelno == logging.ERROR:
+            if 'ClientDisconnect' in record.getMessage():
+                return False
+        return True
+
+
 logger_helper = LoggerHelper()
+
+# Add MCP ClientDisconnect filter to suppress benign errors
+mcp_disconnect_filter = MCPClientDisconnectFilter()
+logger_helper.logger.addFilter(mcp_disconnect_filter)
 
 # ====== Crash logging convenience functions ======
 def install_crash_logger():

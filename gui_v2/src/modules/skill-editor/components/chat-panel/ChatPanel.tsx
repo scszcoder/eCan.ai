@@ -526,7 +526,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     const loadSessions = async () => {
       console.log('[ChatPanel] Loading sessions from backend...');
       try {
-        const backendSessions = await skillEditorChatService.getSessions();
+        // 添加超时保护，避免长时间阻塞
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Session load timeout')), 8000);
+        });
+        
+        const backendSessions = await Promise.race([
+          skillEditorChatService.getSessions(),
+          timeoutPromise
+        ]).catch(err => {
+          console.warn('[ChatPanel] Failed to load sessions (timeout or error):', err);
+          return [];
+        });
+        
         if (backendSessions && backendSessions.length > 0) {
           // Convert backend format to frontend format
           const convertedSessions: ChatSession[] = backendSessions.map(s => ({
