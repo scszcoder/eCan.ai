@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 from gui.ipc.handlers import validate_params, resolve_username
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
+from gui.ipc.context_bridge import get_handler_context
 from agent.cloud_api.constants import Operation
 
 from utils.logger_helper import logger_helper as logger
@@ -280,6 +281,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
         
         agent_task_obj = ManagedTask(
             id=agent_task_id,
+            context_id=agent_task_data.get('context_id', agent_task_id),
             name=agent_task_data['name'],
             description=agent_task_data.get('description', ''),
             owner=agent_task_data['owner'],

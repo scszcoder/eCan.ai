@@ -91,6 +91,8 @@
     "select_supervisor": "选择主管",
     "select_subordinate": "选择下属",
     "select_task": "选择任务",
+    "please_select_task": "请至少选择一个任务",
+    "please_select_skill": "请至少选择一个技能",
     "select_skill": "选择技能",
     "description": "描述",
     "priority": "优先级",

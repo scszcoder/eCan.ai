@@ -1,10 +1,10 @@
 import traceback
 from agent.ec_agents.agent_utils import load_agents_from_cloud
-from agent.ec_agents.ec_helper_agent import set_up_ec_helper_agent
-from agent.ec_agents.ec_procurement_agent import set_up_ec_procurement_agent
-from agent.ec_agents.ec_rpa_operator_agent import set_up_ec_rpa_operator_agent
-from agent.ec_agents.ec_tester_agent import set_up_ec_tester_agent
-from agent.ec_agents.my_twin_agent import set_up_my_twin_agent
+# from agent.ec_agents.ec_helper_agent import set_up_ec_helper_agent
+# from agent.ec_agents.ec_procurement_agent import set_up_ec_procurement_agent
+# from agent.ec_agents.ec_rpa_operator_agent import set_up_ec_rpa_operator_agent
+# from agent.ec_agents.ec_tester_agent import set_up_ec_tester_agent
+# from agent.ec_agents.my_twin_agent import set_up_my_twin_agent
 from utils.logger_helper import logger_helper as logger
 
 def build_agents(main_win):
