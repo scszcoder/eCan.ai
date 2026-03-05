@@ -7,23 +7,23 @@ from typing import List, Optional, Tuple, Any
 import inspect
 import json
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
-from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
-from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill
-from agent.ec_skills.my_twin.my_twin_chatter_skill import create_my_twin_chatter_skill
+# from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
+# from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill
+# from agent.ec_skills.my_twin.my_twin_chatter_skill import create_my_twin_chatter_skill
 # from agent.ec_skills.search_1688.search_1688_skill import create_search_1688_skill
 # from agent.ec_skills.search_digi_key.search_digi_key_skill import create_search_digi_key_skill
 # from agent.ec_skills.search_parts.search_parts_chatter_skill import create_search_parts_chatter_skill
 # from agent.ec_skills.search_parts.search_parts_skill import create_search_parts_skill
-from agent.ec_skills.self_test.self_test_skill import create_self_test_skill
-from agent.ec_skills.self_test.self_test_chatter_skill import create_self_test_chatter_skill
-from agent.ec_skills.dev_utils.skill_dev_utils import create_test_dev_skill
+# from agent.ec_skills.self_test.self_test_skill import create_self_test_skill
+# from agent.ec_skills.self_test.self_test_chatter_skill import create_self_test_chatter_skill
+# from agent.ec_skills.dev_utils.skill_dev_utils import create_test_dev_skill
 
 from agent.mcp.server.tool_schemas import tool_schemas
 from utils.logger_helper import logger_helper as logger
-from agent.ec_skills.extern_skills.extern_skills import user_skills_root, ensure_skill_venv
+from agent.ec_skills.extern_skills.extern_skills import ensure_skill_venv
 from agent.ec_skills.extern_skills.inproc_loader import temp_sys_path, _site_packages
 from agent.ec_skill import EC_Skill
-from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
+# from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
 from langgraph.graph import StateGraph
 from app_context import AppContext
 from config.app_info import app_info
@@ -48,7 +48,7 @@ async def build_agent_skills_parallel(mainwin, db_skill_names: set = None):
     # Group skills by priority and dependencies
     # Batch 1: Core skills (fast creation)
     core_skills = [
-        ("my_twin_chatter", create_my_twin_chatter_skill),  # Required for My Twin Agent chat functionality
+        # ("my_twin_chatter", create_my_twin_chatter_skill),  # Required for My Twin Agent chat functionality
         # ("self_test", create_self_test_skill),
         # ("self_test_chatter", create_self_test_chatter_skill),
         # ("test_dev", create_test_dev_skill)

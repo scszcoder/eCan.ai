@@ -184,7 +184,7 @@ posthog==7.7.0  # Required by browser-use 0.12.0, compatible with mem0ai
 # ============================================================================
 # DATA FORMATS & SERIALIZATION
 # ============================================================================
-PyYAML==6.0.3
+PyYAML==6.0.2
 orjson==3.11.5
 simplejson==3.20.1
 jsonpatch==1.33
