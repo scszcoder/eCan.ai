@@ -205,6 +205,19 @@ class CloudAPIService:
                     'errors': [error_msg],
                     'response': result
                 }
+
+            # Explicit failure shape from some cloud handlers
+            if isinstance(result, dict) and result.get('success') is False:
+                error_msg = result.get('error') or result.get('message') or 'Cloud API returned success=false'
+                logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
+                logger.error(f"[CloudAPIService] Full failure response: {result}")
+                return {
+                    'success': False,
+                    'synced': 0,
+                    'failed': len(local_items),
+                    'errors': [error_msg],
+                    'response': result
+                }
             
             # Check if response is successful (may not have explicit success flag)
             if result is None:
@@ -221,6 +234,27 @@ class CloudAPIService:
             # List responses are valid for batch operations (e.g., removeAgentSkills returns list of results)
             if isinstance(result, list):
                 logger.debug(f"[CloudAPIService] Cloud API returned list response with {len(result)} item(s)")
+                # Some APIs return per-item results like {success: false, error: ...}
+                item_errors = []
+                for item in result:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get('success') is False or item.get('errorType') or item.get('error'):
+                        item_errors.append(item.get('error') or item.get('message') or str(item))
+
+                if item_errors:
+                    logger.error(
+                        f"[CloudAPIService] ❌ Cloud API returned {len(item_errors)} failed item(s) out of {len(result)}"
+                    )
+                    logger.error(f"[CloudAPIService] Item-level errors: {item_errors}")
+                    failed_count = max(len(item_errors), len(local_items) - (len(result) - len(item_errors)))
+                    return {
+                        'success': False,
+                        'synced': max(0, len(local_items) - failed_count),
+                        'failed': failed_count,
+                        'errors': item_errors,
+                        'response': result
+                    }
             elif not isinstance(result, dict):
                 # Only warn for truly unexpected types (not list or dict)
                 logger.warning(f"[CloudAPIService] Unexpected response type: {type(result)}, treating as success")

@@ -295,6 +295,19 @@ class WebEngineView(QWebEngineView):
 
         logger.info("Configuring WebEngine (Chromium) command line arguments...")
 
+        # Resolve optional Qt WebEngine remote debugging (CDP) port.
+        # Priority:
+        # 1) QTWEBENGINE_REMOTE_DEBUGGING / ECAN_QTWEBENGINE_REMOTE_DEBUGGING env
+        # 2) default 9223 in dev mode
+        remote_debugging_port = os.getenv("QTWEBENGINE_REMOTE_DEBUGGING") or os.getenv("ECAN_QTWEBENGINE_REMOTE_DEBUGGING")
+        if not remote_debugging_port:
+            try:
+                from config.app_settings import app_settings
+                if app_settings.is_dev_mode:
+                    remote_debugging_port = "9223"
+            except Exception as e:
+                logger.debug(f"[WebEngine] Failed to evaluate dev mode for remote debugging port: {e}")
+
         # ONLY include arguments that CANNOT be set via QWebEngineSettings
         webengine_args = [
             # === GPU Control (NOT available in QWebEngineSettings) ===
@@ -308,6 +321,11 @@ class WebEngineView(QWebEngineView):
             # '--log-level=0',
         ]
 
+        if remote_debugging_port:
+            # Expose Chromium DevTools Protocol endpoint for external controller connection.
+            webengine_args.append(f"--remote-debugging-port={remote_debugging_port}")
+            os.environ['QTWEBENGINE_REMOTE_DEBUGGING'] = str(remote_debugging_port)
+
         # CRITICAL: Use environment variable to pass arguments to Chromium
         # This is the ONLY reliable way to pass arguments in PySide6/Qt WebEngine
         flags_str = ' '.join(webengine_args)
@@ -318,6 +336,11 @@ class WebEngineView(QWebEngineView):
 
         logger.info(f"✅ Added {len(webengine_args)} Chromium command line arguments (VM-specific)")
         logger.info(f"   QTWEBENGINE_CHROMIUM_FLAGS={flags_str}")
+        if remote_debugging_port:
+            logger.info(
+                f"[WebEngine] CDP remote debugging enabled on port {remote_debugging_port} "
+                f"(check: http://127.0.0.1:{remote_debugging_port}/json/version)"
+            )
         logger.debug(f"WebEngine args: {webengine_args}")
 
         cls._webengine_args_configured = True
