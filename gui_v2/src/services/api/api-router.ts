@@ -13,6 +13,7 @@ import { logger } from '../../utils/logger';
 import type { APIResponse } from '../ipc/api';
 import { detectPlatform } from '@/config/platform';
 import { userStorageManager } from '../storage/UserStorageManager';
+import { networkHealthChecker } from './network-health';
 
 /**
  * API 路由器配置
@@ -52,7 +53,7 @@ export class APIRouter {
     this.config = {
       localServerBaseUrl: config.localServerBaseUrl || 'http://localhost:4668',
       enableLogging: config.enableLogging ?? true,
-      defaultTimeout: config.defaultTimeout || 30000
+      defaultTimeout: config.defaultTimeout || 10000  // 降低到 10 秒，避免长时间阻塞
     };
   }
 
@@ -170,6 +171,15 @@ export class APIRouter {
     const timeout = options?.timeout || this.config.defaultTimeout;
     
     try {
+      // 快速检测网络连接状态
+      if (!networkHealthChecker.isNetworkAvailable()) {
+        logger.warn(`[APIRouter] Network offline, skipping ${method}`);
+        return this.createErrorResponse(
+          'NETWORK_OFFLINE',
+          'Network is offline. Please check your internet connection.'
+        );
+      }
+      
       // 动态获取本地服务器地址
       const baseUrl = this.getLocalServerUrl();
       const url = `${baseUrl}/graphql`;
