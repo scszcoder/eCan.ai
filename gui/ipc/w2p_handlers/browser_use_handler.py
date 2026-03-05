@@ -9,6 +9,8 @@ Handles IPC requests for browser-use settings management including:
 import traceback
 import json
 import os
+import urllib.request
+import urllib.error
 from typing import Any, Optional, Dict
 
 from gui.ipc.context_bridge import get_handler_context
@@ -17,6 +19,53 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from config.envi import getECBotDataHome
 
 from utils.logger_helper import logger_helper as logger
+
+
+def _resolve_qt_webengine_cdp_port(params: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Resolve Qt WebEngine CDP port from params/env/defaults."""
+    port_raw: Any = None
+    if isinstance(params, dict):
+        port_raw = params.get('port')
+
+    if port_raw in (None, ''):
+        port_raw = os.getenv('QTWEBENGINE_REMOTE_DEBUGGING') or os.getenv('ECAN_QTWEBENGINE_REMOTE_DEBUGGING')
+
+    if port_raw in (None, ''):
+        try:
+            from config.app_settings import app_settings
+            if app_settings.is_dev_mode:
+                return 9223
+        except Exception:
+            return None
+        return None
+
+    try:
+        port = int(str(port_raw).strip())
+        if 1 <= port <= 65535:
+            return port
+        return None
+    except Exception:
+        return None
+
+
+def _fetch_cdp_json(url: str, timeout: float = 1.5) -> tuple[bool, Any, Optional[str]]:
+    """Fetch JSON from CDP endpoint.
+
+    Returns:
+        (ok, parsed_json_or_raw_text, error_message)
+    """
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'eCan-CDP-Inspector/1.0'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+        try:
+            return True, json.loads(body), None
+        except Exception:
+            return True, body, None
+    except urllib.error.URLError as e:
+        return False, None, str(e)
+    except Exception as e:
+        return False, None, str(e)
 
 
 def get_browser_use_settings_path() -> str:
@@ -309,3 +358,59 @@ def get_browser_session_settings() -> Dict[str, Any]:
     """Get the current browser session settings."""
     settings = load_browser_use_settings()
     return settings.get('browserSessionSettings', get_default_browser_use_settings()['browserSessionSettings'])
+
+
+@IPCHandlerRegistry.handler('get_qt_webengine_cdp_targets')
+def handle_get_qt_webengine_cdp_targets(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Inspect Qt WebEngine CDP endpoint and return debuggable targets."""
+    try:
+        port = _resolve_qt_webengine_cdp_port(params)
+        if not port:
+            return create_error_response(
+                request,
+                'CDP_NOT_CONFIGURED',
+                'Qt WebEngine CDP port is not configured. Set QTWEBENGINE_REMOTE_DEBUGGING or ECAN_QTWEBENGINE_REMOTE_DEBUGGING.'
+            )
+
+        base = f'http://127.0.0.1:{port}'
+        version_ok, version_data, version_error = _fetch_cdp_json(f'{base}/json/version')
+        targets_ok, targets_data, targets_error = _fetch_cdp_json(f'{base}/json/list')
+
+        # Keep backward-safe behavior: if either endpoint responds, return success with diagnostics.
+        if version_ok or targets_ok:
+            targets = targets_data if isinstance(targets_data, list) else []
+            return create_success_response(request, {
+                'enabled': True,
+                'port': port,
+                'baseUrl': base,
+                'versionUrl': f'{base}/json/version',
+                'listUrl': f'{base}/json/list',
+                'version': version_data,
+                'targets': targets,
+                'targetCount': len(targets),
+                'diagnostics': {
+                    'versionOk': version_ok,
+                    'targetsOk': targets_ok,
+                    'versionError': version_error,
+                    'targetsError': targets_error,
+                }
+            })
+
+        return create_error_response(
+            request,
+            'CDP_UNREACHABLE',
+            f'Qt WebEngine CDP endpoint is unreachable on port {port}.',
+            details={
+                'port': port,
+                'versionError': version_error,
+                'targetsError': targets_error,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_qt_webengine_cdp_targets handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'CDP_QUERY_ERROR',
+            f'Error while querying Qt WebEngine CDP targets: {str(e)}'
+        )

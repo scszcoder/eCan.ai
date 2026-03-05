@@ -485,7 +485,7 @@ def get_agent_kwargs_with_compaction(
     
     # Use ULTRA-AGGRESSIVE compaction: compress after every step, keep only latest
     # This minimizes token usage by keeping only the latest message
-    logger.warning(f"[AgentConfig] 📋 Using ultra-aggressive compaction (compress every step, keep only latest)")
+    logger.info(f"[AgentConfig] 📋 Using ultra-aggressive compaction (compress every step, keep only latest)")
     compaction_settings = MessageCompactionSettings(
         enabled=True,  # Enable compaction to actually remove old history
         compact_every_n_steps=1,  # Compress after EVERY step
@@ -516,15 +516,20 @@ def get_agent_kwargs_with_compaction(
         )
     
     # Log configuration for debugging
-    logger.warning(
-        f"[AgentConfig] 🔧 ULTRA-AGGRESSIVE MessageCompaction: "
-        f"compact_every={compaction_settings.compact_every_n_steps}, "
-        f"trigger={compaction_settings.trigger_token_count}, "
-        f"keep_items={compaction_settings.keep_last_items}"
+    logger.info(
+        f"[AgentConfig] 🔧 Compaction: compact_every={compaction_settings.compact_every_n_steps}, "
+        f"trigger_chars={compaction_settings.trigger_char_count}, "
+        f"keep_items={compaction_settings.keep_last_items}, "
+        f"DOM_limit={max_clickable_elements_length}"
     )
-    logger.warning(
-        f"[AgentConfig] 🔧 Reduced DOM size: "
-        f"max_clickable_elements_length={max_clickable_elements_length}"
+    
+    # Calculate max_input_tokens for extract tool to prevent context overflow
+    # Reserve tokens for: system prompt (5K) + response (4K) + safety (2K) = 11K
+    extraction_reserved = 11000
+    # Ensure max_input_tokens is reasonable (at least 10K, at most 80% of context)
+    max_input_tokens = min(
+        max(context_length - extraction_reserved, 10000),  # At least 10K
+        int(context_length * 0.8)  # At most 80% of context length
     )
     
     agent_kwargs = {
@@ -533,8 +538,14 @@ def get_agent_kwargs_with_compaction(
         'use_judge': use_judge,
         'message_compaction': compaction_settings,
         'max_clickable_elements_length': max_clickable_elements_length,
+        'max_input_tokens': max_input_tokens,  # Limit extract tool input size
         **extra_kwargs
     }
+    
+    logger.info(
+        f"[AgentConfig] 🔧 Extract limit: max_input_tokens={max_input_tokens} "
+        f"(context={context_length}, reserved={extraction_reserved})"
+    )
     
     # Note: We don't set max_history_items because:
     # 1. browser-use requires it to be None or > 5

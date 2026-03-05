@@ -76,7 +76,7 @@ class EC_Agent(Agent):
 		**kwargs
 	):
 		# Core components
-		self.tasks = tasks
+		self.tasks = tasks if tasks is not None else []  # Ensure tasks is never None
 		self.skill_llm = skill_llm
 		self.active_tasks: Dict[str, concurrent.futures.Future] = {}
 		self.task_lock = threading.Lock()
