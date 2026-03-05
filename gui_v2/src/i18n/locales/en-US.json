@@ -90,6 +90,8 @@
     "select_supervisor": "Select supervisors",
     "select_subordinate": "Select subordinates",
     "select_task": "Select tasks",
+    "please_select_task": "Please select at least one task",
+    "please_select_skill": "Please select at least one skill",
     "select_skill": "Select skills",
     "unknown": "Unknown",
     "description": "Description",

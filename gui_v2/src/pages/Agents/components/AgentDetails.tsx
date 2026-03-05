@@ -1867,7 +1867,6 @@ const AgentDetails: React.FC = () => {
                   name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
                   htmlFor="agent-skills"
-                  rules={[{ required: true, message: t('common.please_select_skill') || 'Please select at least one skill' }]}
                 >
                   <TagsEditor
                     id="agent-skills"
@@ -1885,7 +1884,6 @@ const AgentDetails: React.FC = () => {
                   name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
                   htmlFor="agent-tasks"
-                  rules={[{ required: true, message: t('common.please_select_task') || 'Please select at least one task' }]}
                 >
                   <TagsEditor
                     id="agent-tasks"
