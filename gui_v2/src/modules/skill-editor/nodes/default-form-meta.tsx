@@ -14,6 +14,7 @@ import {
   listenRefSchemaChange,
 } from '@flowgram.ai/form-materials';
 import { Divider } from '@douyinfe/semi-ui';
+import i18n from '../../../i18n';
 
 import { FlowNodeJSON } from '../typings';
 import { FormHeader, FormContent, FormInputs } from '../form-components';
@@ -93,7 +94,7 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
       return {};
     }
     return {
-      title: ({ value }: any) => (value ? undefined : 'Title is required'),
+      title: ({ value }: any) => (value ? undefined : i18n.t('nodes.common.titleRequired', { ns: 'skillEditor' })),
       'inputsValues.*': ({ value, context, formValues, name }: any) => {
         const valuePropertyKey = name.replace(/^inputsValues\./, '');
         const required = formValues.inputs?.required || [];
@@ -102,7 +103,7 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
           node: context.node,
           required: required.includes(valuePropertyKey),
           errorMessages: {
-            required: `${valuePropertyKey} is required`,
+            required: i18n.t('nodes.common.fieldRequired', { ns: 'skillEditor', field: valuePropertyKey }),
           },
         });
       },

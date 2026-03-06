@@ -2069,7 +2069,15 @@
           "deleteError": "Failed to delete workspace",
           "loadError": "Failed to load workspace list",
           "newPlaceholder": "Enter new workspace name...",
-          "newHint": "Press Enter to create"
+          "newHint": "Press Enter to create",
+          "switchMode": "Switch Workspace",
+          "createMode": "Create Workspace",
+          "selectPlaceholder": "Select workspace",
+          "empty": "empty",
+          "error": "Error",
+          "nameRequired": "Workspace name cannot be empty",
+          "alreadyExists": "Workspace \"{{name}}\" already exists",
+          "createHint": "Enter workspace name and click create button"
         },
         "tabs": {
           "basic": "Basic Config",

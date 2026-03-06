@@ -1,0 +1,353 @@
+{
+  "toolbar": {
+    "undo": "撤销",
+    "redo": "重做",
+    "help": "帮助",
+    "pauseRun": "暂停运行",
+    "stepRun": "单步运行",
+    "resumeRun": "继续运行",
+    "stopRun": "停止运行",
+    "open": "打开",
+    "save": "保存",
+    "saveAs": "另存为",
+    "newSkill": "新建技能",
+    "info": "信息",
+    "comment": "注释",
+    "fitView": "适应视图",
+    "minimap": "小地图",
+    "autoLayout": "自动布局",
+    "mouseFriendly": "鼠标友好",
+    "touchpadFriendly": "触控板友好",
+    "addNode": "添加节点",
+    "switchLine": "切换连线",
+    "release": "发布（切换到只读）",
+    "develop": "开发（切换到可编辑）",
+    "switchedToReleased": "已切换到发布模式（只读）",
+    "switchedToDevelopment": "已切换到开发模式（可编辑）",
+    "problems": "问题"
+  },
+  "newSkill": {
+    "title": "创建新技能",
+    "namePlaceholder": "例如：shopify_fullfill",
+    "nameLabel": "输入技能名称（不含 _skill 后缀）：",
+    "structureHint": "将创建标准目录结构：",
+    "okText": "创建",
+    "cancelText": "取消",
+    "alreadyExistsTitle": "技能已存在",
+    "alreadyExistsContent": "名为 \"{{name}}\" 的技能已存在，请选择其他名称。",
+    "errorTitle": "错误",
+    "errorCreate": "创建技能失败：{{error}}",
+    "errorStructure": "创建技能目录结构失败：{{error}}",
+    "successTitle": "成功",
+    "successContent": "技能 \"{{name}}\" 创建成功！"
+  },
+  "saveAs": {
+    "title": "技能另存为",
+    "nameLabel": "输入新技能名称（不含 _skill 后缀）：",
+    "namePlaceholder": "例如：shopify_fulfill",
+    "okText": "保存",
+    "cancelText": "取消",
+    "alreadyExistsTitle": "技能已存在",
+    "alreadyExistsContent": "名为 \"{{name}}\" 的技能已存在，请选择其他名称。",
+    "noSkill": "没有可保存的技能。",
+    "savedAs": "技能已另存为 \"{{name}}\"",
+    "saveFailed": "另存为失败：{{error}}"
+  },
+  "save": {
+    "saved": "技能已保存。",
+    "bundleSaved": "Bundle 已保存：{{path}}",
+    "bundleDownloaded": "Bundle 已下载。",
+    "bundleSaveFailed": "Bundle 保存失败。",
+    "invalidMapping": "data_mapping.json 不是有效的 JSON，请修复后再保存。"
+  },
+  "open": {
+    "tooltip": "打开",
+    "failedLoadSkills": "从 S3 加载技能列表失败。",
+    "failedOpenSkill": "打开所选技能失败。",
+    "failedOpenDialog": "打开文件对话框失败。",
+    "failedLoadFile": "加载技能文件失败。",
+    "defaultSkillName": "技能"
+  },
+  "info": {
+    "tooltip": "信息",
+    "title": "编辑技能信息",
+    "skillId": "技能 ID：",
+    "skillName": "技能名称：",
+    "version": "版本：",
+    "lastModified": "最后修改：",
+    "description": "描述：",
+    "codePreview": "代码预览：",
+    "editCode": "编辑代码",
+    "namePlaceholder": "请输入技能名称",
+    "descriptionPlaceholder": "描述此技能的功能..."
+  },
+  "nodeMenu": {
+    "editTitle": "编辑标题",
+    "moveOut": "移出容器",
+    "createCopy": "创建副本",
+    "hFlip": "水平翻转",
+    "setBreakpoint": "设置断点",
+    "clearBreakpoint": "清除断点",
+    "delete": "删除",
+    "ungroup": "取消分组"
+  },
+  "sheetsMenu": {
+    "insertSheetCall": "插入 Sheet 调用…",
+    "newSheet": "新建 Sheet",
+    "registerSkill": "注册技能",
+    "unregisterSkill": "取消注册技能",
+    "openSheetById": "通过 ID 打开 Sheet",
+    "openSheet": "打开 Sheet…",
+    "renameActiveSheet": "重命名当前 Sheet",
+    "clearSheet": "清空 Sheet（空画布）",
+    "closeActiveSheet": "关闭当前 Sheet",
+    "deleteActiveSheet": "删除当前 Sheet",
+    "openSheetPrompt": "通过 ID 打开 Sheet：",
+    "newSheetNamePrompt": "新 Sheet 名称？",
+    "renameSheetPrompt": "重命名为：",
+    "deleteSheetConfirm": "删除 Sheet '{{id}}'？此操作不可撤销。",
+    "deleteMainSheet": "MVP 阶段不能删除主 Sheet。",
+    "clearSheetConfirm": "将当前 Sheet 清空为空白画布？此操作将删除该 Sheet 中所有节点和连线。",
+    "unregisterConfirm": "取消注册技能 \"{{name}}\"？该技能将从代理技能注册表中移除。",
+    "noSkillLoaded": "未加载技能，请先打开或创建一个技能。",
+    "notLoggedIn": "未登录，请先登录。",
+    "registeredSuccess": "技能 \"{{name}}\" 注册成功！",
+    "registerFailed": "注册技能失败：{{error}}",
+    "registerError": "注册技能时出错",
+    "unregisteredSuccess": "技能 \"{{name}}\" 已取消注册！",
+    "unregisterFailed": "取消注册技能失败：{{error}}",
+    "unregisterNotFound": "无法取消注册：注册表中未找到技能 \"{{name}}\"。",
+    "unregisterError": "取消注册技能时出错",
+    "noSkillForUnregister": "未加载技能，请先打开一个技能。",
+    "testExported": "langgraph2flowgram 测试已导出到 test_skill/diagram_dir",
+    "testFailed": "测试失败：{{error}}",
+    "testIpcError": "测试 langgraph2flowgram 时 IPC 出错",
+    "setupStepSimComplete": "Step Sim：初始化完成，后端已移动到 Start。",
+    "setupFailed": "初始化失败：{{error}}",
+    "setupStepSimError": "初始化 step sim 出错",
+    "stepFailed": "单步执行失败：{{error}}",
+    "stepSimError": "step sim 执行出错",
+    "simTimerEventTriggered": "已触发 Sim Timer Event",
+    "simTimerEventFailed": "Sim Timer Event 触发失败：{{error}}",
+    "simTimerEventError": "Sim Timer Event 执行出错",
+    "simWebsocketEventTriggered": "已触发 Sim Websocket Event",
+    "simWebsocketEventFailed": "Sim Websocket Event 触发失败：{{error}}",
+    "simWebsocketEventError": "Sim Websocket Event 执行出错",
+    "simSseEventTriggered": "已触发 Sim SSE Event",
+    "simSseEventFailed": "Sim SSE Event 触发失败：{{error}}",
+    "simSseEventError": "Sim SSE Event 执行出错",
+    "simWebhookEventTriggered": "已触发 Sim Webhook Event",
+    "simWebhookEventFailed": "Sim Webhook Event 触发失败：{{error}}",
+    "simWebhookEventError": "Sim Webhook Event 执行出错",
+    "devSetupStepSim": "[DEV] setup-step-sim",
+    "devStepSim": "[DEV] step-sim",
+    "devTestLanggraph": "[DEV] 测试 langgraph2flowgram",
+    "simTimerEvent": "[SIM] Timer 事件",
+    "simWebsocketEvent": "[SIM] Websocket 事件",
+    "simSseEvent": "[SIM] SSE 事件",
+    "simWebhookEvent": "[SIM] Webhook 事件"
+  },
+  "helpPanel": {
+    "searchPlaceholder": "在帮助中搜索...",
+    "showingResults": "搜索结果：",
+    "toc": {
+      "intro": "简介",
+      "nodes": "节点",
+      "editor": "编辑器基础",
+      "debug": "调试器",
+      "testrun": "测试运行",
+      "shortcuts": "快捷键",
+      "faq": "常见问题"
+    },
+    "sections": {
+      "intro": {
+        "title": "简介",
+        "content": "欢迎使用技能编辑器。本指南将帮助您构建和运行工作流。"
+      },
+      "nodes": {
+        "title": "节点",
+        "content": "每个节点执行一个工作单元。连接节点以构建工作流。"
+      },
+      "editor": {
+        "title": "编辑器基础",
+        "content": "使用工具栏添加节点、设置缩放和管理布局。"
+      },
+      "debug": {
+        "title": "调试器",
+        "content": "设置断点，使用暂停/单步/继续按钮控制执行流程。"
+      },
+      "testrun": {
+        "title": "测试运行",
+        "content": "打开测试运行面板，提供输入并模拟工作流运行。"
+      },
+      "shortcuts": {
+        "title": "快捷键",
+        "navigation": "画布导航",
+        "spaceDrag": "平移画布（按住 Space，然后拖动鼠标）",
+        "mouseWheel": "放大/缩小",
+        "ctrlPlus": "放大",
+        "ctrlMinus": "缩小",
+        "editing": "编辑",
+        "ctrlZ": "撤销",
+        "ctrlY": "重做",
+        "ctrlC": "复制所选节点",
+        "ctrlV": "粘贴节点",
+        "ctrlA": "选择所有节点",
+        "deleteKey": "删除所选节点",
+        "nodeOps": "节点操作",
+        "clickNode": "选择节点",
+        "doubleClickNode": "打开节点编辑器",
+        "dragNode": "移动节点",
+        "shiftClick": "追加到选区"
+      },
+      "faq": {
+        "title": "常见问题",
+        "content": "常见问题和故障排除提示。"
+      }
+    }
+  },
+  "testrun": {
+    "testRun": "测试运行",
+    "cancel": "取消",
+    "cannotRun": "无法运行测试",
+    "missingInfo": "用户或技能信息缺失。",
+    "validationFailed": "验证失败",
+    "backendRunFailed": "后端运行失败",
+    "unknownError": "发生未知错误。",
+    "runError": "运行错误"
+  },
+  "chatPanel": {
+    "title": "智能对话",
+    "newChat": "新对话",
+    "newChatTooltip": "新建对话",
+    "showHistory": "显示历史",
+    "hideHistory": "隐藏历史",
+    "close": "关闭",
+    "openAiChat": "打开 AI 对话",
+    "closeAiChat": "关闭 AI 对话",
+    "sessions": "会话（{{count}}）",
+    "defaultSessionTopic": "对话",
+    "attachments": "附件",
+    "voiceInput": "语音输入",
+    "attachFile": "添加附件",
+    "typeMessage": "输入消息...",
+    "sessionLoadTimeout": "会话加载超时",
+    "today": "今天",
+    "yesterday": "昨天",
+    "daysAgo": "{{count}} 天前",
+    "approvePlan": "批准",
+    "rejectPlan": "修改",
+    "proceedWithPlan": "是的，按计划继续",
+    "rejectPlanMessage": "不，我想修改计划",
+    "generatingWorkflow": "⏳ 正在生成工作流，可能需要一分钟。工作流生成完成后画布将自动更新。",
+    "generatingFlowgram": "正在生成工作流...",
+    "errorGeneratingWorkflow": "生成工作流时出错：{{error}}",
+    "noMessages": "暂无消息",
+    "startNewChat": "开始新对话或从历史记录中选择会话。",
+    "planning": "规划中...",
+    "thinking": "思考中..."
+  },
+  "selectionPopover": {
+    "collapse": "折叠",
+    "expand": "展开",
+    "createGroup": "创建分组",
+    "copy": "复制",
+    "delete": "删除"
+  },
+  "dataViewer": {
+    "copied": "已复制",
+    "value": "值"
+  },
+  "skillName": {
+    "placeholder": "输入技能名称...",
+    "clickToEdit": "点击编辑"
+  },
+  "openPicker": {
+    "title": "从 S3 打开技能",
+    "searchPlaceholder": "搜索技能",
+    "okText": "打开",
+    "cancelText": "取消"
+  },
+  "console": {
+    "title": "控制台",
+    "errors": "错误",
+    "warnings": "警告",
+    "logs": "日志",
+    "closeConsole": "关闭控制台",
+    "clear": "清空",
+    "copy": "复制",
+    "copyAll": "复制所有日志",
+    "all": "全部",
+    "errorsFilter": "错误",
+    "warningsFilter": "警告",
+    "noLogs": "暂无日志"
+  },
+  "problemPanel": {
+    "title": "问题"
+  },
+  "nodes": {
+    "common": {
+      "titleRequired": "标题为必填项",
+      "fieldRequired": "{{field}} 为必填项"
+    },
+    "event": {
+      "title": "事件",
+      "eventTypes": {
+        "timer": "定时器到期",
+        "message": "消息到达",
+        "dataChanged": "数据变更",
+        "hardInterrupt": "硬中断"
+      },
+      "iTagLabel": "中断标签",
+      "iTagPlaceholder": "输入中断标签 (i_tag)",
+      "languages": {
+        "python": "Python",
+        "javascript": "JavaScript",
+        "typescript": "TypeScript"
+      },
+      "resetToTemplate": "重置为模板"
+    },
+    "loop": {
+      "modes": {
+        "loopFor": "计数循环",
+        "loopWhile": "条件循环"
+      },
+      "exitCondition": "退出条件",
+      "exitConditionPlaceholder": "输入退出条件表达式",
+      "exitConditionWhile": "退出条件（条件循环）",
+      "loopCountPlaceholder": "输入循环次数（数字或表达式）"
+    },
+    "http": {
+      "title": "HTTP 请求",
+      "label": "HTTP",
+      "description": "HTTP 请求",
+      "apiKeyPlaceholder": "输入 API 密钥",
+      "urlPlaceholder": "输入 URL，使用 '{' 引用变量",
+      "methods": {
+        "get": "GET",
+        "post": "POST",
+        "put": "PUT",
+        "delete": "DELETE",
+        "patch": "PATCH",
+        "head": "HEAD"
+      },
+      "bodyTypes": {
+        "none": "无",
+        "json": "JSON"
+      }
+    },
+    "condition": {
+      "conditionPlaceholder": "输入条件表达式",
+      "conditionRequired": "条件为必填项",
+      "modes": {
+        "stateCondition": "状态条件",
+        "custom": "自定义表达式"
+      }
+    },
+    "sheetOutputs": {
+      "outputPlaceholder": "输出_{{index}}",
+      "pickNextSheet": "选择下一个表单",
+      "sheetLabel": "{{name}} ({{id}})"
+    }
+  }
+}

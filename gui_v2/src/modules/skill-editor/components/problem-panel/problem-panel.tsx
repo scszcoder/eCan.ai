@@ -6,11 +6,13 @@
 import { useService, WorkflowSelectService } from '@flowgram.ai/free-layout-editor';
 import { IconButton, Spin, Typography, Avatar, Tooltip } from '@douyinfe/semi-ui';
 import { IconUploadError, IconClose } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 import { useProblemPanel, useNodeFormPanel } from '../../plugins/panel-manager-plugin/hooks';
 import { useWatchValidate } from './use-watch-validate';
 
 export const ProblemPanel = () => {
+  const { t } = useTranslation('skillEditor');
   const { results, loading } = useWatchValidate();
 
   const selectService = useService(WorkflowSelectService);
@@ -38,7 +40,7 @@ export const ProblemPanel = () => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', columnGap: '4px', height: '100%' }}>
-          <Typography.Text strong>Problem</Typography.Text>
+          <Typography.Text strong>{t('problemPanel.title')}</Typography.Text>
           {loading && <Spin size="small" style={{ lineHeight: '0' }} />}
         </div>
         <IconButton
@@ -86,9 +88,10 @@ export const ProblemPanel = () => {
 };
 
 export const ProblemButton = () => {
+  const { t } = useTranslation('skillEditor');
   const { open } = useProblemPanel();
   return (
-    <Tooltip content="Problems">
+    <Tooltip content={t('toolbar.problems')}>
       <IconButton
         type="tertiary"
         theme="borderless"

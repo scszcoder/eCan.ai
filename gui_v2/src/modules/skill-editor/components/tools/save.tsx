@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
 import { Tooltip, IconButton, Toast, Modal, Input } from '@douyinfe/semi-ui';
@@ -161,7 +162,8 @@ async function saveBundleFile(
   bundlePath: string,
   diagram: any,
   saveActiveSheetDoc: (doc: any) => void,
-  getAllSheets: () => any
+  getAllSheets: () => any,
+  t: (key: string, options?: Record<string, any>) => string
 ): Promise<void> {
   try {
     saveActiveSheetDoc(diagram);
@@ -170,12 +172,12 @@ async function saveBundleFile(
     const bundleRes = await saveSheetsBundleToPath(bundlePath, bundle);
     console.log('[SKILL_IO][BUNDLE_SAVE_RESULT]', { path: bundlePath, success: true, mode: bundleRes.mode });
     const msg = bundleRes.mode === 'ipc'
-      ? `Bundle saved: ${bundleRes.filePath || bundlePath}`
-      : 'Bundle downloaded.';
+      ? t('save.bundleSaved', { path: bundleRes.filePath || bundlePath })
+      : t('save.bundleDownloaded');
     try { Toast.success({ content: msg }); } catch {}
   } catch (e) {
     console.warn('[SKILL_IO][BUNDLE_SAVE_ERROR]', (e as Error).message);
-    try { Toast.error({ content: 'Bundle save failed.' }); } catch {}
+    try { Toast.error({ content: t('save.bundleSaveFailed') }); } catch {}
   }
 }
 
@@ -500,6 +502,7 @@ async function syncSkillToDBAndStore(
 }
 
 export const Save = ({ disabled }: SaveProps) => {
+  const { t } = useTranslation('skillEditor');
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
@@ -578,7 +581,7 @@ export const Save = ({ disabled }: SaveProps) => {
           dataMappingForSave = JSON.stringify(parsed, null, 2);
         } catch (e) {
           console.error('[Save] data_mapping.json invalid', e);
-          try { Toast.error({ content: 'data_mapping.json is invalid JSON. Fix it before saving.' }); } catch {}
+          try { Toast.error({ content: t('save.invalidMapping') }); } catch {}
           return;
         }
       } else {
@@ -647,7 +650,7 @@ export const Save = ({ disabled }: SaveProps) => {
         }
 
         console.log('[SKILL_IO][SAVE_DONE]');
-        try { Toast.success({ content: 'Skill saved.' }); } catch {}
+        try { Toast.success({ content: t('save.saved') }); } catch {}
 
         // Sync to local DB + cloud DB and update Skills page store
         await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
@@ -655,7 +658,7 @@ export const Save = ({ disabled }: SaveProps) => {
         // 6. Save bundle (web mode batch already handled)
         if (detectPlatform() !== 'web') {
           const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
-          await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets);
+          await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets, t);
         }
       }
     } catch (error) {
@@ -685,7 +688,7 @@ export const Save = ({ disabled }: SaveProps) => {
   ]);
 
   return (
-    <Tooltip content="Save">
+    <Tooltip content={t('toolbar.save')}>
       <IconButton
         type="tertiary"
         theme="borderless"
@@ -698,6 +701,7 @@ export const Save = ({ disabled }: SaveProps) => {
 };
 
 export const SaveAs = ({ disabled }: SaveProps) => {
+  const { t } = useTranslation('skillEditor');
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
@@ -720,7 +724,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
   const handleSaveAs = useCallback(async () => {
     if (!skillInfo) {
-      Toast.warning({ content: 'No skill to save.' });
+      Toast.warning({ content: t('saveAs.noSkill') });
       return;
     }
 
@@ -746,12 +750,12 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           let modalInstance: ReturnType<typeof Modal.confirm> | null = null;
 
           modalInstance = Modal.confirm({
-            title: 'Save Skill As',
+            title: t('saveAs.title'),
             content: (
               <div style={{ marginTop: 16 }}>
-                <p style={{ marginBottom: 8 }}>Enter new skill name (without _skill suffix):</p>
+                <p style={{ marginBottom: 8 }}>{t('saveAs.nameLabel')}</p>
                 <Input
-                  placeholder="e.g., shopify_fulfill"
+                  placeholder={t('saveAs.namePlaceholder')}
                   autoFocus
                   onChange={(value) => { inputValue = value; }}
                   onEnterPress={() => {
@@ -763,8 +767,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
                 />
               </div>
             ),
-            okText: 'Save',
-            cancelText: 'Cancel',
+            okText: t('saveAs.okText'),
+            cancelText: t('saveAs.cancelText'),
             onOk: () => {
               modalInstance?.destroy();
               resolve(inputValue.trim() || null);
@@ -789,8 +793,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           const exists = await ipcApi.checkSkillExists(newSkillName);
           if (exists?.data?.exists) {
             Modal.warning({
-              title: 'Skill Already Exists',
-              content: `A skill named "${newSkillName}" already exists. Please choose a different name.`,
+              title: t('saveAs.alreadyExistsTitle'),
+              content: t('saveAs.alreadyExistsContent', { name: newSkillName }),
             });
             return;
           }
@@ -859,7 +863,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           dataMappingForSave = JSON.stringify(parsed, null, 2);
         } catch (e) {
           console.error('[SaveAs] data_mapping.json invalid', e);
-          Toast.error({ content: 'data_mapping.json is invalid JSON. Fix it before saving.' });
+          Toast.error({ content: t('save.invalidMapping') });
           return;
         }
       } else {
@@ -958,14 +962,14 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       addRecentFile(createRecentFile(finalDiagramPath, newSkillName));
 
       console.log('[SKILL_IO][SAVEAS_DONE]', { finalDiagramPath, newSkillName });
-      Toast.success({ content: `Skill saved as "${newSkillName}"` });
+      Toast.success({ content: t('saveAs.savedAs', { name: newSkillName }) });
 
       // Sync to local DB + cloud DB and update Skills page store
       await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
       
     } catch (error) {
       console.error('Failed to save as:', error);
-      Toast.error({ content: `Save As failed: ${error}` });
+      Toast.error({ content: t('saveAs.saveFailed', { error: String(error) }) });
     }
   }, [
     skillInfo,
@@ -985,7 +989,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   ]);
 
   return (
-    <Tooltip content="Save As">
+    <Tooltip content={t('toolbar.saveAs')}>
       <IconButton
         type="tertiary"
         theme="borderless"

@@ -841,19 +841,22 @@ class CodeAgent:
             # if any(p.get('name', '').lower() == 'openai' for p in llm_providers):
             #     skill_editor_llm = 'openai'
             #     logger.info(f"[CodeAgent] Overriding default LLM '{default_llm}' with 'openai' for skill editor")
+            # Use unified method to get default LLM config
+            llm_config = config_manager.llm_manager.get_default_llm_config()
+            
             llm_instance = pick_llm(
-                default_llm=default_llm,
+                default_llm=llm_config['provider_id'],
                 llm_providers=llm_providers,
                 config_manager=config_manager,
-                allow_fallback=True
+                allow_fallback=False
             )
             
-            if llm_instance is None:
-                raise RuntimeError("Failed to create LLM instance")
+            if not llm_instance:
+                raise RuntimeError(f"[CodeAgent] Failed to create LLM instance for provider '{llm_config['provider_id']}'")
             
             # Log which model is being used
             model_name = getattr(llm_instance, 'model_name', None) or getattr(llm_instance, 'model', None)
-            logger.info(f"[CodeAgent] Using LLM model: {model_name}")
+            logger.info(f"[CodeAgent] Using LLM from Settings: {llm_config['provider_id']}, model: {model_name or llm_config['model_name']}")
             
             # Increase max_tokens for complex flowgram generation
             # Default is often 4096, but complex workflows need more
@@ -864,16 +867,7 @@ class CodeAgent:
             return llm_instance
             
         except Exception as e:
-            logger.error(f"[CodeAgent] Error loading LLM: {e}")
-            try:
-                from langchain_openai import ChatOpenAI
-                import os
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if api_key:
-                    logger.info("[CodeAgent] Using fallback OpenAI LLM with max_tokens=16384")
-                    return ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=16384)
-            except Exception:
-                pass
+            logger.error(f"[CodeAgent] Failed to load LLM from Settings: {e}")
             raise
     
     def _format_canvas_context(self, canvas_context: Optional[Dict]) -> str:
@@ -1622,14 +1616,42 @@ Continue the JSON output (do not include any text before the continuation):"""
             logger.warning(f"[CodeAgent] Failed to save inline prompt for node '{node_id}': {e}")
 
     def _apply_config_defaults(self, node_type: str, config: Dict[str, Any]) -> None:
+        def _get_default_node_llm_config() -> Dict[str, Any]:
+            defaults = {
+                "modelProvider": "",
+                "modelName": "",
+                "apiHost": "",
+                "temperature": 0.3,
+                "useThinking": False,
+            }
+            try:
+                from app_context import AppContext
+                mainwin = AppContext.get_main_window()
+                if not mainwin or not hasattr(mainwin, 'config_manager'):
+                    return defaults
+
+                llm_config = mainwin.config_manager.llm_manager.get_default_llm_config()
+                provider_dict = llm_config.get("provider_dict") or {}
+                defaults["modelProvider"] = llm_config.get("provider_id") or ""
+                defaults["modelName"] = llm_config.get("model_name") or ""
+                defaults["apiHost"] = provider_dict.get("base_url") or ""
+            except Exception as e:
+                logger.warning(f"[CodeAgent] Failed to load default node LLM config from Settings: {e}")
+            return defaults
+
+        llm_defaults = _get_default_node_llm_config()
+
         if node_type == "llm":
-            config.setdefault("modelProvider", "openai")
-            config.setdefault("modelName", "gpt-4o")
-            config.setdefault("temperature", 0.3)
-            config.setdefault("useThinking", False)
+            if llm_defaults["modelProvider"]:
+                config.setdefault("modelProvider", llm_defaults["modelProvider"])
+            if llm_defaults["modelName"]:
+                config.setdefault("modelName", llm_defaults["modelName"])
+            config.setdefault("temperature", llm_defaults["temperature"])
+            config.setdefault("useThinking", llm_defaults["useThinking"])
             config.setdefault("attachments", [])
             config.setdefault("apiKey", "")
-            config.setdefault("apiHost", "https://api.openai.com/v1")
+            if llm_defaults["apiHost"]:
+                config.setdefault("apiHost", llm_defaults["apiHost"])
             if not config.get("promptSelection"):
                 config["promptSelection"] = DEFAULT_LLM_PROMPT_ID
                 logger.info(f"[CodeAgent] LLM node missing promptSelection; defaulting to {DEFAULT_LLM_PROMPT_ID}")
@@ -1643,12 +1665,14 @@ Continue the JSON output (do not include any text before the continuation):"""
                 config["tool"] = provider
             if "provider" in config:
                 del config["provider"]
-            config.setdefault("modelProvider", "openai")
-            config.setdefault("modelName", "gpt-4o")
+            if llm_defaults["modelProvider"]:
+                config.setdefault("modelProvider", llm_defaults["modelProvider"])
+            if llm_defaults["modelName"]:
+                config.setdefault("modelName", llm_defaults["modelName"])
             config.setdefault("browser", "new chromium")
             config.setdefault("browserDriver", "native")
-            config.setdefault("temperature", 0.3)
-            config.setdefault("useThinking", False)
+            config.setdefault("temperature", llm_defaults["temperature"])
+            config.setdefault("useThinking", llm_defaults["useThinking"])
             config.setdefault("timeout_seconds", 120)
             config.setdefault("tool", "browser-use")
             config.setdefault("cdpPort", "")

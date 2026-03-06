@@ -16,6 +16,10 @@ import { DisplayNode, GetAllOrgAgentsResponse, OrgAgent, TreeOrgNode } from '../
 import type { Agent } from './types';
 import { extractAllAgents } from './utils/orgTreeUtils';
 
+// DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
+// Previously filtered out 'system_my_twin_agent' from agent list
+// Now showing all agents without special filtering
+
 // 提取All agents（Recursive）
 const extractAllAgentsFromTree = (node: TreeOrgNode): OrgAgent[] => {
   let allAgents: OrgAgent[] = [];
@@ -385,11 +389,6 @@ const OrgNavigator: React.FC = () => {
       
       // Add匹配的 agents
       searchResults.matchedAgents
-        .filter(agent => {
-          const agentId = agent.id;
-          const agentName = agent.name;
-          return agentId !== 'system_my_twin_agent' && agentName !== 'My Twin Agent';
-        })
         .forEach((agent, index) => {
           items.push({
             type: 'agent',
@@ -409,13 +408,7 @@ const OrgNavigator: React.FC = () => {
       });
       
       // AddAllagents，SortValueSettings为较大Value，让agentsDisplay在doors之后
-      // Filter掉System后台 agent (My Twin Agent)
       agentsForDisplay
-        .filter(agent => {
-          const agentId = (agent as any)?.card?.id ?? (agent as any)?.id;
-          const agentName = (agent as any)?.card?.name ?? (agent as any)?.name;
-          return agentId !== 'system_my_twin_agent' && agentName !== 'My Twin Agent';
-        })
         .forEach((agent, index) => {
           items.push({
             type: 'agent',

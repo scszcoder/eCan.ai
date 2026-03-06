@@ -1,12 +1,14 @@
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 import { IconAddNodeColored } from '../tools/colored-icons';
 
 import { useAddNode } from './use-add-node';
 
 export const AddNode = (props: { disabled: boolean }) => {
+  const { t } = useTranslation('skillEditor');
   const addNode = useAddNode();
   return (
-    <Tooltip content="Add Node">
+    <Tooltip content={t('toolbar.addNode')}>
       <IconButton
         type="tertiary"
         theme="borderless"

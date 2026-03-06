@@ -2050,7 +2050,15 @@
           "deleteError": "删除工作空间失败",
           "loadError": "加载工作空间列表失败",
           "newPlaceholder": "输入新工作空间名称...",
-          "newHint": "按 Enter 创建"
+          "newHint": "按 Enter 创建",
+          "switchMode": "切换工作空间",
+          "createMode": "创建工作空间",
+          "selectPlaceholder": "选择工作空间",
+          "empty": "空",
+          "error": "错误",
+          "nameRequired": "工作空间名称不能为空",
+          "alreadyExists": "工作空间 \"{{name}}\" 已存在",
+          "createHint": "输入工作空间名称后点击创建按钮"
         },
         "tabs": {
           "basic": "基础配置",

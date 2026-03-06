@@ -92,6 +92,9 @@ from .models import (
     PendingEventStatus,
 )
 
+# Import cancellation_registry module for global task cancellation
+from . import cancellation_registry
+
 __all__ = [
     # Models
     "ManagedTask",
@@ -153,4 +156,6 @@ __all__ = [
     "subscribe_task_status",
     "run_cloud_tasks",
     "start_task_status_streams_for_runs",
+    # Cancellation registry
+    "cancellation_registry",
 ]

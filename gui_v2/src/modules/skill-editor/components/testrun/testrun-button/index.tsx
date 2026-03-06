@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useClientContext, getNodeForm, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 import { Button, Badge, Notification } from '@douyinfe/semi-ui';
@@ -24,6 +25,7 @@ import { registerDevTaskCleanup } from '../../../services/devTaskCleanup';
 import styles from './index.module.less';
 
 export function TestRunButton(props: { disabled: boolean }) {
+  const { t } = useTranslation('skillEditor');
   const [errorCount, setErrorCount] = useState(0);
   const [isLaunching, setIsLaunching] = useState(false);
   const clientContext = useClientContext();
@@ -68,13 +70,13 @@ export function TestRunButton(props: { disabled: boolean }) {
         if (form?.state.invalid) {
           const nodeTitle = node.data?.title || node.id;
           const invalidFields = Object.keys(form.state.errors);
-          errorMessages.push(`Node '${nodeTitle}': Invalid fields - ${invalidFields.join(', ')}`);
+          errorMessages.push(`${t('testrun.validationFailed')}: '${nodeTitle}' - ${invalidFields.join(', ')}`);
         }
       });
 
         if (errorMessages.length > 0) {
           Notification.error({
-            title: 'Validation Failed',
+            title: t('testrun.validationFailed'),
             content: (
               <ul style={{ listStyle: 'none', padding: 0 }}>
                 {errorMessages.map((msg, i) => <li key={i}>{msg}</li>)}
@@ -88,7 +90,7 @@ export function TestRunButton(props: { disabled: boolean }) {
 
       // Mirror original popup start behavior: set indicator, compose diagram+bundle+breakpoints, call IPC
       if (!username || !skillInfo) {
-        Notification.error({ title: 'Cannot run test', content: 'User or skill info is missing.' });
+        Notification.error({ title: t('testrun.cannotRun'), content: t('testrun.missingInfo') });
         return;
       }
 
@@ -159,8 +161,8 @@ export function TestRunButton(props: { disabled: boolean }) {
       const response = await ipcApi.runSkill(username, skillPayload, metaData);
       if (!response?.success) {
         Notification.error({
-          title: 'Backend Run Failed',
-          content: response?.error?.message || 'An unknown error occurred.',
+          title: t('testrun.backendRunFailed'),
+          content: response?.error?.message || t('testrun.unknownError'),
         });
       }
       // Capture the active run_id so the Stop button can reference it for cancel
@@ -191,7 +193,7 @@ export function TestRunButton(props: { disabled: boolean }) {
         await ipcApi.requestSkillState(username, { id: (skillInfo as any)?.skillId, name: (skillInfo as any)?.skillName });
       } catch {}
     } catch (e: any) {
-      Notification.error({ title: 'Run Error', content: e?.message || String(e) });
+      Notification.error({ title: t('testrun.runError'), content: e?.message || String(e) });
     } finally {
       setIsLaunching(false);
     }
