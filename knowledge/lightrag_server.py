@@ -23,6 +23,12 @@ class LightragServer:
         self._pid_file_path = None
         self._atexit_registered = False
         self._last_log_paths = (None, None)
+        self._last_start_status = {
+            'ok': None,
+            'message': '',
+            'error_type': '',
+            'timestamp': 0.0,
+        }
         self._register_atexit_handler()
 
         # Detect if running in PyInstaller packaged environment
@@ -122,6 +128,17 @@ class LightragServer:
         try:
             if self.is_running(): self.stop()
         except Exception: pass
+
+    def _set_start_status(self, ok, message='', error_type=''):
+        self._last_start_status = {
+            'ok': ok,
+            'message': message or '',
+            'error_type': error_type or '',
+            'timestamp': time.time(),
+        }
+
+    def get_startup_status(self):
+        return dict(self._last_start_status)
 
     def _load_proxy_config(self):
         """
@@ -744,60 +761,75 @@ class LightragServer:
                 
                 # Check FAISS index dimension mismatch and auto-fix
                 try:
+                    import shutil
+                    from datetime import datetime
+
                     working_dir = env.get('WORKING_DIR')
-                    workspace = env.get('WORKSPACE', 'default')
-                    if working_dir and workspace:
-                        workspace_path = os.path.join(working_dir, workspace)
-                        faiss_index_path = os.path.join(workspace_path, 'vdb_entities.index')
-                        
-                        if os.path.exists(faiss_index_path):
-                            # Try to read FAISS index dimension
-                            try:
-                                import struct
-                                import shutil
-                                from datetime import datetime
-                                
-                                with open(faiss_index_path, 'rb') as f:
-                                    # FAISS index format: first 4 bytes are dimension (little-endian int)
-                                    f.seek(0)
-                                    header = f.read(8)
-                                    if len(header) >= 4:
-                                        existing_dim = struct.unpack('<i', header[:4])[0]
-                                        if existing_dim > 0 and existing_dim < 100000:  # Sanity check
-                                            if str(existing_dim) != str(embed_dim):
-                                                # Dimension mismatch detected - auto-fix
-                                                logger.warning(f"[LightRAG] ⚠️  Dimension mismatch: config={embed_dim}, existing FAISS={existing_dim}")
-                                                summary.append(f"   ⚠️  Dimension mismatch detected!")
-                                                summary.append(f"       Config dimension:   {embed_dim}")
-                                                summary.append(f"       Existing FAISS dim: {existing_dim}")
-                                                
-                                                # Auto-fix: Backup old workspace and create new one
-                                                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                                                backup_name = f"{workspace}_{existing_dim}d_backup_{timestamp}"
-                                                backup_path = os.path.join(working_dir, backup_name)
-                                                
-                                                try:
-                                                    # Backup old workspace
-                                                    logger.info(f"[LightRAG] 🔄 Auto-fixing: Backing up old workspace to '{backup_name}'")
-                                                    shutil.move(workspace_path, backup_path)
-                                                    
-                                                    # Create new workspace directory
-                                                    os.makedirs(workspace_path, exist_ok=True)
-                                                    
-                                                    summary.append(f"   ✅ Auto-fixed: Old workspace backed up")
-                                                    summary.append(f"       Backup: {backup_name}")
-                                                    summary.append(f"       New workspace will use {embed_dim}d")
-                                                    logger.info(f"[LightRAG] ✅ Auto-fix completed: Old data backed up, new workspace created")
-                                                    logger.info(f"[LightRAG] 📁 Backup location: {backup_path}")
-                                                    logger.info(f"[LightRAG] 🔙 To restore: mv '{backup_path}' '{workspace_path}'")
-                                                except Exception as fix_error:
-                                                    logger.error(f"[LightRAG] ❌ Auto-fix failed: {fix_error}")
-                                                    summary.append(f"   ❌ Auto-fix failed: {fix_error}")
-                                                    summary.append(f"       → Manual fix required: delete FAISS index files")
-                                            else:
-                                                summary.append(f"   ✅ FAISS index dimension matches config ({existing_dim})")
-                            except Exception as e:
-                                logger.debug(f"[LightRAG] Could not read FAISS index dimension: {e}")
+                    workspace = (env.get('WORKSPACE') or '').strip()
+                    if working_dir:
+                        workspace_candidates = []
+                        if workspace and os.path.basename(os.path.normpath(working_dir)) == workspace:
+                            workspace_candidates.append(working_dir)
+                        if workspace:
+                            workspace_candidates.append(os.path.join(working_dir, workspace))
+                        workspace_candidates.append(working_dir)
+
+                        workspace_path = next((p for p in workspace_candidates if p and os.path.isdir(p)), None)
+                        if workspace_path:
+                            possible_index_files = [
+                                'vdb_entities.index',
+                                'faiss_index_entities.index',
+                                'vdb_chunks.index',
+                                'faiss_index_chunks.index',
+                            ]
+
+                            existing_dim = None
+                            for file_name in possible_index_files:
+                                faiss_index_path = os.path.join(workspace_path, file_name)
+                                if not os.path.exists(faiss_index_path):
+                                    continue
+                                try:
+                                    import faiss
+
+                                    index = faiss.read_index(faiss_index_path)
+                                    existing_dim = getattr(index, 'd', None)
+                                    if existing_dim:
+                                        logger.info(f"[LightRAG] Detected FAISS dimension {existing_dim} from {faiss_index_path}")
+                                        break
+                                except Exception as read_error:
+                                    logger.debug(f"[LightRAG] Could not read FAISS index {faiss_index_path}: {read_error}")
+
+                            if existing_dim is not None:
+                                if str(existing_dim) != str(embed_dim):
+                                    # Dimension mismatch detected - auto-fix
+                                    logger.warning(f"[LightRAG] ⚠️  Dimension mismatch: config={embed_dim}, existing FAISS={existing_dim}")
+                                    summary.append(f"   ⚠️  Dimension mismatch detected!")
+                                    summary.append(f"       Config dimension:   {embed_dim}")
+                                    summary.append(f"       Existing FAISS dim: {existing_dim}")
+
+                                    # Auto-fix: backup old workspace and create new one
+                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                    workspace_label = workspace or os.path.basename(os.path.normpath(workspace_path)) or 'workspace'
+                                    backup_name = f"{workspace_label}_{existing_dim}d_backup_{timestamp}"
+                                    backup_path = os.path.join(os.path.dirname(workspace_path), backup_name)
+
+                                    try:
+                                        logger.info(f"[LightRAG] 🔄 Auto-fixing: Backing up old workspace to '{backup_name}'")
+                                        shutil.move(workspace_path, backup_path)
+                                        os.makedirs(workspace_path, exist_ok=True)
+
+                                        summary.append(f"   ✅ Auto-fixed: Old workspace backed up")
+                                        summary.append(f"       Backup: {backup_name}")
+                                        summary.append(f"       New workspace will use {embed_dim}d")
+                                        logger.info("[LightRAG] ✅ Auto-fix completed: Old data backed up, new workspace created")
+                                        logger.info(f"[LightRAG] 📁 Backup location: {backup_path}")
+                                        logger.info(f"[LightRAG] 🔙 To restore: mv '{backup_path}' '{workspace_path}'")
+                                    except Exception as fix_error:
+                                        logger.error(f"[LightRAG] ❌ Auto-fix failed: {fix_error}")
+                                        summary.append(f"   ❌ Auto-fix failed: {fix_error}")
+                                        summary.append("       → Manual fix required: delete FAISS index files")
+                                else:
+                                    summary.append(f"   ✅ FAISS index dimension matches config ({existing_dim})")
                 except Exception as e:
                     logger.debug(f"[LightRAG] Error checking FAISS dimension: {e}")
 
@@ -902,6 +934,7 @@ class LightragServer:
                 if wait_gating:
                     health_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', 120.0))
                     if self._wait_for_server_ready(int(env['PORT']), timeout=health_timeout):
+                        self._set_start_status(True, 'LightRAG server is ready', '')
                         return True
                     else:
                         # Check if process is still alive - if so, don't kill it
@@ -914,17 +947,22 @@ class LightragServer:
                             self._log_startup_failure()
                             # Start background health monitor to detect when server becomes ready
                             self._start_background_health_monitor(int(env['PORT']))
+                            self._set_start_status(True, 'LightRAG server is still starting in background', '')
                             return True  # Return success so the app doesn't block
                         else:
                             logger.error("[LightragServer] Server failed to become ready and process has exited.")
                             self._log_startup_failure()
+                            self._set_start_status(False, 'LightRAG startup failed: process exited before ready', 'startup_failed')
                             self.stop()
                             return False
                 
+                self._set_start_status(True, 'LightRAG server started', '')
                 return True
+            self._set_start_status(False, 'LightRAG startup failed: process not running after spawn', 'startup_failed')
             return False
         except Exception as e:
             logger.error(f"[LightragServer] Start error: {e}")
+            self._set_start_status(False, str(e), 'start_exception')
             return False
 
     def _wait_for_server_ready(self, port, timeout=120.0):
@@ -1007,10 +1045,13 @@ class LightragServer:
         t.start()
 
     def start(self, wait_ready=False):
-        if self.is_running(): return True
+        if self.is_running():
+            self._set_start_status(True, 'LightRAG server is already running', '')
+            return True
         if time.time() - self.last_restart_time > 300: self.restart_count = 0
         if self.restart_count >= self.max_restarts:
             logger.error("[LightragServer] Max restarts reached")
+            self._set_start_status(False, 'LightRAG startup blocked: max restarts reached', 'max_restarts_reached')
             return False
         self.restart_count += 1
         self.last_restart_time = time.time()

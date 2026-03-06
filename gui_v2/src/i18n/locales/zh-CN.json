@@ -2038,6 +2038,9 @@
         "restarting": "正在应用...",
         "restartSuccess": "配置应用成功",
         "restartError": "应用配置失败",
+        "lightragUnavailableTitle": "知识库不可用",
+        "lightragUnavailableDesc": "LightRAG 启动失败，当前无法进行知识检索和文档处理。",
+        "lightragUnavailableAction": "请检查 embedding / workspace 设置后点击“应用配置”重启。如果 embedding 维度已变更，请切换到新工作空间。",
         "restartLater": "取消",
         "applyNow": "立即应用",
         "workspace": {

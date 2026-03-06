@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal, Alert } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -94,11 +94,20 @@ interface Workspace {
   created_at: number;
 }
 
+interface StartupStatus {
+  running: boolean;
+  ok: boolean;
+  message: string;
+  error_type: string;
+  timestamp: number;
+}
+
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
   const savedScrollPosition = useRef<number>(0);
   const restoringRef = useRef(false);
   const initialLoadRef = useRef(true);
@@ -876,6 +885,18 @@ const SettingsTab: React.FC = () => {
     }
   };
 
+  const loadStartupStatus = async () => {
+    try {
+      const response = await get_ipc_api().lightragApi.getStartupStatus<StartupStatus>();
+      if (response.success && response.data) {
+        console.log('[SettingsTab] Startup status received:', response.data);
+        setStartupStatus(response.data);
+      }
+    } catch (e) {
+      console.error('Failed to load startup status:', e);
+    }
+  };
+
   const handleDeleteWorkspace = async (workspaceName: string) => {
     modal.confirm({
       title: t('pages.knowledge.settings.workspace.deleteTitle'),
@@ -908,6 +929,15 @@ const SettingsTab: React.FC = () => {
 
   useEffect(() => {
     loadWorkspaces();
+    loadStartupStatus();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadStartupStatus();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   const handleSave = async () => {
@@ -984,11 +1014,13 @@ const SettingsTab: React.FC = () => {
       
       if (response.success) {
         message.success(t('pages.knowledge.settings.restartSuccess'));
+        await loadStartupStatus();
       } else {
         throw new Error(response.error?.message || 'Unknown error');
       }
     } catch (e: any) {
       message.error(t('pages.knowledge.settings.restartError') + ': ' + (e.message || String(e)));
+      await loadStartupStatus();
     }
   };
 
@@ -1554,6 +1586,29 @@ const SettingsTab: React.FC = () => {
         padding: '20px 24px 0 24px',
         background: token.colorBgLayout
       }}>
+        {/* Server Status Indicator - Always visible */}
+        {startupStatus && (
+          <Alert
+            type={startupStatus.running && startupStatus.ok !== false ? "success" : "warning"}
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={
+              startupStatus.running && startupStatus.ok !== false 
+                ? "LightRAG 服务运行中" 
+                : t('pages.knowledge.settings.lightragUnavailableTitle')
+            }
+            description={
+              !startupStatus.running || startupStatus.ok === false ? (
+                <div>
+                  <div>{startupStatus.message || t('pages.knowledge.settings.lightragUnavailableDesc')}</div>
+                  <div style={{ marginTop: 6, color: token.colorTextSecondary }}>
+                    {t('pages.knowledge.settings.lightragUnavailableAction')}
+                  </div>
+                </div>
+              ) : undefined
+            }
+          />
+        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',
