@@ -19,6 +19,10 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useChatStore } from '@/stores/domain/chatStore';
 import { messageManager } from '../managers/MessageManager';
 
+// DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
+// Previously used: const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
+// Now using: username from useUserStore for role config
+
 interface ChatDetailProps {
     chatId?: string | null;
     chats?: Chat[];
@@ -58,10 +62,8 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     
     // GetWhen前UserInformation
     const username = useUserStore(state => state.username) || 'default_user';
-    const getMyTwinAgent = useAgentStore(state => state.getMyTwinAgent);
     const getAgentById = useAgentStore(state => state.getAgentById);
-    const myTwinAgent = getMyTwinAgent();
-    const currentUserId = myTwinAgent?.card?.id || `system_${username}`;
+    const currentUserId = `system_${username}`;
     const prevScrollHeightRef = useRef(0);
     const prevScrollTopRef = useRef(0);
     const isLoadingMoreRef = useRef(false);
@@ -431,44 +433,34 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
 
     const { enhancedMessages, roleConfig } = useMemo(() => {
         // Semi UI align="leftRight" places role "user" on the RIGHT and all other roles on the LEFT.
-        // We want: current user messages on LEFT, agent messages on RIGHT.
-        // Strategy: map current-user messages to a custom role key ("self") so they go LEFT,
-        // and map agent messages to role "user" so Semi places them on the RIGHT.
+        // We want: current user messages on RIGHT, agent messages on LEFT.
+        // Strategy: map current-user messages to role "user" so they go RIGHT,
+        // and keep agent messages as role "agent" or other so they go LEFT.
         const baseConfig: RoleConfig = {
-            // "user" role in Semi UI = RIGHT side → we assign agent/assistant messages to this
-            user: { ...defaultRoleConfig.agent },
-            // "self" role = LEFT side → holds current user's avatar/name
-            self: { ...defaultRoleConfig.user },
+            // "user" role in Semi UI = RIGHT side → current user's messages
+            user: { ...defaultRoleConfig.user },
+            // "agent" role = LEFT side → agent/assistant messages
+            agent: { ...defaultRoleConfig.agent },
             assistant: { ...defaultRoleConfig.assistant },
-            system: { ...defaultRoleConfig.system },
-            agent: { ...defaultRoleConfig.agent }
+            system: { ...defaultRoleConfig.system }
         };
 
-        if (myTwinAgent?.card) {
-            const { name } = myTwinAgent.card;
-            const avatarUrl = myTwinAgent.avatar?.imageUrl;
-            baseConfig.self = {
-                ...baseConfig.self,
-                name: name || baseConfig.self.name,
-                avatar: avatarUrl || baseConfig.self.avatar
-            };
-        }
         const members = currentChat?.members || [];
 
         const enhanced = pageMessages.map(message => {
-            // Agent or assistant messages → assign role "user" so Semi puts them on the RIGHT
+            // Agent or assistant messages → keep as "agent" so Semi puts them on the LEFT
             // The chatter lambda sends agent replies with role "assistant", so we handle both
             if ((message?.role === 'agent' || message?.role === 'assistant') && message?.senderId !== currentUserId) {
                 const member = members.find(m => m.userId === message.senderId);
                 const agentInfo = message?.senderId ? getAgentById?.(message.senderId) : null;
-                baseConfig.user = {
+                baseConfig.agent = {
                     ...baseConfig.agent,
                     name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.agent.name,
                     avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.agent.avatar,
                 };
                 return {
                     ...message,
-                    role: 'user'
+                    role: 'agent'
                 };
             }
 
@@ -476,11 +468,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             if (message?.role === 'user' && message?.senderId && message.senderId !== currentUserId) {
                 const member = members.find(m => m.userId === message.senderId);
                 const agentInfo = getAgentById?.(message.senderId);
-                const roleKey = `user_${message.senderId}`;
+                const roleKey = `other_${message.senderId}`;
                 baseConfig[roleKey] = {
-                    ...baseConfig.self,
-                    name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.self.name,
-                    avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.self.avatar,
+                    ...baseConfig.agent,
+                    name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.agent.name,
+                    avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.agent.avatar,
                 };
                 return {
                     ...message,
@@ -488,11 +480,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 };
             }
 
-            // Current user's own messages → use "self" role (LEFT side)
+            // Current user's own messages → use "user" role (RIGHT side)
             if (message?.role === 'user') {
                 return {
                     ...message,
-                    role: 'self'
+                    role: 'user'
                 };
             }
 
@@ -513,7 +505,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         });
 
         return { enhancedMessages: enhanced, roleConfig: baseConfig };
-    }, [currentChat, currentUserId, myTwinAgent, pageMessages, getAgentById]);
+    }, [currentChat, currentUserId, pageMessages, getAgentById]);
 
     // ProcessFormSubmit
     const handleFormSubmit = useCallback(async (formId: string, _values: any, chatId: string, messageId: string, processedForm: any) => {

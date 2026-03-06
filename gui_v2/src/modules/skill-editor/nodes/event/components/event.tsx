@@ -3,23 +3,25 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Field } from '@flowgram.ai/free-layout-editor';
 import { SafeCodeEditor } from '../../../components/SafeCodeEditor';
 import { Divider, Select, Input, Button } from '@douyinfe/semi-ui';
 
 import { useIsSidebar, useNodeRenderContext } from '../../../hooks';
 
-const EVENT_OPTIONS = [
-  { label: 'Timer expiration', value: 'timer' },
-  { label: 'Message arrival', value: 'message' },
-  { label: 'Data changed', value: 'data_changed' },
-  { label: 'Hard interrupt', value: 'hard_interrupt' },
-];
-
 export function EventEditor() {
+  const { t } = useTranslation('skillEditor');
   const isSidebar = useIsSidebar();
   const { readonly } = useNodeRenderContext();
+
+  const EVENT_OPTIONS = useMemo(() => [
+    { label: t('nodes.event.eventTypes.timer'), value: 'timer' },
+    { label: t('nodes.event.eventTypes.message'), value: 'message' },
+    { label: t('nodes.event.eventTypes.dataChanged'), value: 'data_changed' },
+    { label: t('nodes.event.eventTypes.hardInterrupt'), value: 'hard_interrupt' },
+  ], [t]);
 
   if (!isSidebar) return null;
 
@@ -48,11 +50,11 @@ export function EventEditor() {
       <Field<string> name="event.i_tag">
         {({ field }) => (
           <div style={{ marginBottom: 12 }}>
-            <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--semi-color-text-2)' }}>i_tag</div>
+            <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--semi-color-text-2)' }}>{t('nodes.event.iTagLabel')}</div>
             <Input
               value={field.value || ''}
               onChange={(val) => field.onChange(val as string)}
-              placeholder="Enter interrupt tag (i_tag)"
+              placeholder={t('nodes.event.iTagPlaceholder')}
               disabled={readonly}
             />
           </div>
@@ -71,9 +73,9 @@ export function EventEditor() {
                   onChange={(val) => langField.onChange(val as string)}
                   style={{ width: 180 }}
                   optionList={[
-                    { label: 'Python', value: 'python' },
-                    { label: 'JavaScript', value: 'javascript' },
-                    { label: 'TypeScript', value: 'typescript' },
+                    { label: t('nodes.event.languages.python'), value: 'python' },
+                    { label: t('nodes.event.languages.javascript'), value: 'javascript' },
+                    { label: t('nodes.event.languages.typescript'), value: 'typescript' },
                   ]}
                   disabled={readonly}
                 />
@@ -90,7 +92,7 @@ export function EventEditor() {
                       Promise.resolve().then(() => contentField.onChange(tmpl));
                     };
                     return (
-                      <Button onClick={handleReset} size="small">Reset to template</Button>
+                      <Button onClick={handleReset} size="small">{t('nodes.event.resetToTemplate')}</Button>
                     );
                   }}
                 </Field>

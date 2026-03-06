@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip } from 'antd';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
@@ -47,9 +48,10 @@ export const FloatingToggleButton: React.FC<FloatingToggleButtonProps> = ({
   onClick,
   leftOffset,
 }) => {
+  const { t } = useTranslation('skillEditor');
   return (
     <Tooltip 
-      title={isCollapsed ? 'Open AI Chat' : 'Close AI Chat'} 
+      title={isCollapsed ? t('chatPanel.openAiChat') : t('chatPanel.closeAiChat')} 
       placement="right"
     >
       <FloatingButton $leftOffset={leftOffset} onClick={onClick}>

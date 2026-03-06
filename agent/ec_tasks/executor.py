@@ -468,6 +468,10 @@ class TaskExecutor:
         # Step 4: Validate skill
         self.validate_skill()
         
+        # Register cancellation_event in global registry so browser automation nodes can find it
+        from agent.ec_tasks import cancellation_registry
+        cancellation_registry.register(self.task.id, self.task.cancellation_event)
+        
         logger.debug(f"[SKILL_CHECK] Task {self.task.id} using skill: {self.task.skill.name}, runnable type: {type(self.task.skill.runnable)}")
         # Truncate screenshot data for logging
         try:
@@ -478,14 +482,13 @@ class TaskExecutor:
             _log_state0 = "[truncation error]"
         logger.debug(f"current langgraph run time state0: {_log_state0}")
         
-        # Step 5: Create stream generator
-        if isinstance(in_msg, Command):
-            logger.debug(f"effective config before resume: {effective_config}")
-            agen = self.task.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
-        else:
+        if not isinstance(in_msg, Command):
             in_args = self.task.metadata.get("state", {})
             logger.debug(f"in_args: {in_args}")
             agen = self.task.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
+        else:
+            logger.debug(f"effective config before resume: {effective_config}")
+            agen = self.task.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
         
         try:
             logger.debug(f"stream running skill: {self.task.skill.name}, {in_msg}")
@@ -595,6 +598,7 @@ class TaskExecutor:
             return {"success": False, "Error": ex_stat}
         
         finally:
+            cancellation_registry.unregister(self.task.id)
             if self.task.cancellation_event.is_set():
                 self.task.status.state = TaskState.canceled
     
@@ -627,6 +631,10 @@ class TaskExecutor:
         
         # Step 3: Normalize form data for resume scenarios
         self.normalize_form_data()
+        
+        # Register cancellation_event in global registry so browser automation nodes can find it
+        from agent.ec_tasks import cancellation_registry
+        cancellation_registry.register(self.task.id, self.task.cancellation_event)
         
         # Step 4: Create async stream generator
         if isinstance(in_msg, Command):
@@ -730,6 +738,7 @@ class TaskExecutor:
             return {"success": False, "Error": ex_stat}
         
         finally:
+            cancellation_registry.unregister(self.task.id)
             if self.task.cancellation_event.is_set():
                 self.task.status.state = TaskState.canceled
             try:

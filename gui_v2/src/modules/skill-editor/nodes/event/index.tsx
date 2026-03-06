@@ -4,6 +4,8 @@
  */
 
 import { nanoid } from 'nanoid';
+import type { FlowNodeJSON } from '@flowgram.ai/free-layout-editor';
+import i18n from '../../../../i18n'; // 使用全局 i18n 实例
 import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconCode from '../../assets/icon-script.png';
@@ -39,7 +41,7 @@ export const EventNodeRegistry: FlowNodeRegistry = {
       id: `event_${nanoid(5)}`,
       type: 'event',
       data: {
-        title: 'Event',
+        title: i18n.t('nodes.event.title', { ns: 'skillEditor' }) || 'Event',
         inputsValues: {
           input: { type: 'constant', content: '' },
         },

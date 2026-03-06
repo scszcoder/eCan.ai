@@ -5,6 +5,7 @@
 
 import { FormRenderProps, FormMeta, ValidateTrigger, Field } from '@flowgram.ai/free-layout-editor';
 import React from 'react';
+import i18n from '../../../../i18n';
 import { useNodeRenderContext } from '../../hooks';
 import { autoRenameRefEffect } from '@flowgram.ai/form-materials';
 
@@ -136,12 +137,12 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
   validateTrigger: ValidateTrigger.onChange,
   validate: {
-    title: ({ value }: { value: string }) => (value ? undefined : 'Title is required'),
+    title: ({ value }: { value: string }) => (value ? undefined : i18n.t('nodes.common.titleRequired', { ns: 'skillEditor' })),
     'conditions.*': ({ value }) => {
       const key: string | undefined = value?.key;
       const isElse = typeof key === 'string' && key.startsWith('else_');
       if (isElse) return undefined;
-      if (!value?.value) return 'Condition is required';
+      if (!value?.value) return i18n.t('nodes.condition.conditionRequired', { ns: 'skillEditor' });
       return undefined;
     },
   },

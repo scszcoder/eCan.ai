@@ -79,6 +79,19 @@ class OfflineSyncManager:
                 # Sync failed, check if we should add to queue
                 errors = result.get('errors', [])
                 
+                # Check for duplicate key errors (record already exists in cloud)
+                # Error code 1062 = Duplicate entry - treat as success, no need to retry
+                error_str = ' '.join(str(e) for e in errors)
+                if '1062' in error_str or 'Duplicate entry' in error_str:
+                    logger.info(f"[OfflineSyncManager] ✅ Record already exists in cloud (duplicate key), treating as success: {data_type}.{operation} - {data_name}")
+                    return {
+                        'success': True,
+                        'synced': True,
+                        'cached': False,
+                        'message': 'Record already exists in cloud',
+                        'errors': errors
+                    }
+                
                 # Check if offline sync is disabled
                 if not self.OFFLINE_SYNC_ENABLED:
                     logger.info(f"[OfflineSyncManager] ⚠️ Sync failed but offline sync is disabled: {data_type}.{operation} - {data_name}")
@@ -235,11 +248,18 @@ class OfflineSyncManager:
                     synced_count += 1
                     logger.info(f"[OfflineSyncManager] ✅ Queue task synced: {task_id}")
                 else:
-                    # Sync failed, mark as failed
-                    error = ', '.join(result.get('errors', ['Unknown error']))
-                    self.sync_queue.mark_failed(task_id, error)
-                    failed_count += 1
-                    logger.warning(f"[OfflineSyncManager] ⚠️ Queue task failed: {task_id}")
+                    # Check for duplicate key errors - record already exists, treat as success
+                    errors = result.get('errors', [])
+                    error_str = ', '.join(str(e) for e in errors)
+                    if '1062' in error_str or 'Duplicate entry' in error_str:
+                        self.sync_queue.mark_success(task_id)
+                        synced_count += 1
+                        logger.info(f"[OfflineSyncManager] ✅ Queue task: record already exists in cloud (duplicate key), marking as success: {task_id}")
+                    else:
+                        # Sync failed, mark as failed
+                        self.sync_queue.mark_failed(task_id, error_str or 'Unknown error')
+                        failed_count += 1
+                        logger.warning(f"[OfflineSyncManager] ⚠️ Queue task failed: {task_id}")
                     
             except Exception as e:
                 # Exception, mark as failed
