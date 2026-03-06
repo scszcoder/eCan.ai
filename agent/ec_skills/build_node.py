@@ -3614,6 +3614,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
     timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
+    browser_event_label = (config_metadata["inputsValues"].get("browserEventLabel") or {}).get("content", "") or ""
 
     # Also extract timer_name from pendingSources items (dicts with type + timerName)
     if not timer_name and isinstance(additional_events, list):
@@ -3621,6 +3622,14 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             if isinstance(src, dict) and src.get("type") == "timer":
                 timer_name = (src.get("timerName") or "").strip()
                 if timer_name:
+                    break
+
+    # Also extract browser_event_label from pendingSources items
+    if not browser_event_label and isinstance(additional_events, list):
+        for src in additional_events:
+            if isinstance(src, dict) and src.get("type") == "browser_event":
+                browser_event_label = (src.get("browserEventLabel") or "").strip()
+                if browser_event_label:
                     break
 
     # Build a flat set of event type strings for easy membership checks
@@ -3676,6 +3685,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "notification_to_human": notification,
             "event_type": main_event,
             "timer_name": timer_name,
+            "browser_event_label": browser_event_label,
         }
         resume_payload = interrupt(info)
 

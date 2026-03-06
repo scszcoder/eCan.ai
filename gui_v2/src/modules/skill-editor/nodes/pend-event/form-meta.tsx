@@ -16,7 +16,7 @@ const openDocFile = () => {
 };
 
 const EVENT_TYPES = [
-  'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'system', 'other'
+  'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'browser_event', 'system', 'other'
 ];
 
 export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
@@ -81,6 +81,21 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 </FormItem>
               );
             }
+            if (et === 'browser_event') {
+              return (
+                <FormItem key={`main-extra-${et}`} name="Event Label" type="string" vertical>
+                  <Field<any> name="inputsValues.browserEventLabel">
+                    {({ field: beField }) => (
+                      <Input
+                        value={String(beField.value?.content ?? '')}
+                        placeholder="e.g. price_api, page_loaded"
+                        onChange={(val) => beField.onChange({ type: 'constant', content: String(val) })}
+                      />
+                    )}
+                  </Field>
+                </FormItem>
+              );
+            }
             return null;
           }}
         </Field>
@@ -92,7 +107,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
               const toObj = (item: any) =>
                 typeof item === 'string'
                   ? { type: item }
-                  : { type: String(item?.type ?? 'human_chat'), messageType: item?.messageType ?? '', agentIds: item?.agentIds ?? '', timerName: item?.timerName ?? '' };
+                  : { type: String(item?.type ?? 'human_chat'), messageType: item?.messageType ?? '', agentIds: item?.agentIds ?? '', timerName: item?.timerName ?? '', browserEventLabel: item?.browserEventLabel ?? '' };
               const arr = (raw || []).map(toObj);
               const setArray = (next: any[]) => field.onChange({ type: 'constant', content: next });
               const addOne = () => setArray([...(arr || []), { type: 'human_chat' }]);
@@ -106,7 +121,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 next[idx] = { ...next[idx], type: val };
                 setArray(next);
               };
-              const updateExtraAt = (idx: number, key: 'messageType' | 'agentIds' | 'timerName', val: string) => {
+              const updateExtraAt = (idx: number, key: 'messageType' | 'agentIds' | 'timerName' | 'browserEventLabel', val: string) => {
                 const next = [...arr];
                 next[idx] = { ...next[idx], [key]: val };
                 setArray(next);
@@ -150,6 +165,15 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                               value={item.timerName ?? ''}
                               placeholder="e.g. check_orders"
                               onChange={(val) => updateExtraAt(i, 'timerName', String(val))}
+                            />
+                          </FormItem>
+                        )}
+                        {et === 'browser_event' && (
+                          <FormItem key={`list-extra-${i}-browser`} name="Event Label" type="string" vertical>
+                            <Input
+                              value={item.browserEventLabel ?? ''}
+                              placeholder="e.g. price_api, page_loaded"
+                              onChange={(val) => updateExtraAt(i, 'browserEventLabel', String(val))}
                             />
                           </FormItem>
                         )}
