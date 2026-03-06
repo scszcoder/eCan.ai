@@ -219,7 +219,7 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                 "task_id": task_id,
                 "async_response": async_response,  # Controls response mode in send_response_back
             },
-            "result": {},
+            "result": {"llm_result": {"all_done": False, "work_done": False}},
             "tool_name": "",
             "tool_input": {},
             "tool_result": {},

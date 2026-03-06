@@ -38,7 +38,7 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
         <Field<string> name={'loopMode'}>
           {({ field }) => (
             <Select
-              value={field.value || 'loopFor'}
+              value={field.value || 'loopWhile'}
               onChange={(val) => field.onChange(val as string)}
               optionList={[
                 { label: 'loopFor', value: 'loopFor' },
@@ -84,7 +84,7 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
         <Field<string> name={'loopMode'}>
           {({ field }) => (
             <Select
-              value={field.value || 'loopFor'}
+              value={field.value || 'loopWhile'}
               onChange={(val) => field.onChange(val as string)}
               optionList={[
                 { label: 'loopFor', value: 'loopFor' },

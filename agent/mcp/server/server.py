@@ -145,6 +145,11 @@ from agent.ec_tasks.timer_mcp_tools import (
     async_pause_timer,
     async_resume_timer,
 )
+from agent.ec_tasks.browser_event_mcp_tools import (
+    async_subscribe_browser_event,
+    async_unsubscribe_browser_event,
+    async_list_browser_event_subscriptions,
+)
 from agent.mcp.server.aws_utils.aws_tools import (
     aws_read_billing,
     aws_shutdown,
@@ -3325,6 +3330,10 @@ tool_function_mapping = {
         "list_timers": async_list_timers,
         "pause_timer": async_pause_timer,
         "resume_timer": async_resume_timer,
+        # Browser event subscription tools
+        "subscribe_browser_event": async_subscribe_browser_event,
+        "unsubscribe_browser_event": async_unsubscribe_browser_event,
+        "list_browser_event_subscriptions": async_list_browser_event_subscriptions,
         # AWS cost monitoring and emergency shutdown tools
         "aws_read_billing": aws_read_billing,
         "aws_shutdown": aws_shutdown,
