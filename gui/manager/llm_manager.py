@@ -1071,3 +1071,56 @@ class LLMManager:
         except Exception as e:
             logger.warning(f"[LLMManager] Error validating default_llm_model: {e}")
             return (default_llm_model, False)
+    
+    def get_default_llm_config(self) -> Optional[Dict[str, Any]]:
+        """
+        Get default LLM configuration in a standardized way.
+        
+        This is the SINGLE SOURCE OF TRUTH for getting default LLM configuration.
+        All code should use this method instead of accessing config_manager directly.
+        
+        Returns:
+            Dict with keys:
+                - provider_id: str - Canonical provider identifier (e.g., "openai", "deepseek")
+                - provider_name: str - Display name (e.g., "OpenAI", "DeepSeek")
+                - model_name: str - Model name (e.g., "gpt-4o", "deepseek-chat")
+                - provider_dict: Dict - Full provider configuration
+            None if no default LLM is configured or provider not found
+        
+        Raises:
+            RuntimeError: If default LLM is not configured or provider not found
+        """
+        try:
+            # Get default LLM from settings
+            default_llm = self.config_manager.general_settings.default_llm
+            if not default_llm or not default_llm.strip():
+                raise RuntimeError("No default LLM configured in Settings. Please configure a default LLM in Settings.")
+            
+            # Get provider configuration
+            provider_dict = self.get_provider(default_llm)
+            if not provider_dict:
+                raise RuntimeError(f"Default LLM provider '{default_llm}' not found in configuration")
+            
+            # Get model name
+            model_name = self.config_manager.general_settings.default_llm_model
+            if not model_name:
+                model_name = provider_dict.get('default_model', '')
+            
+            # Validate model belongs to provider
+            supported_models = provider_dict.get('supported_models', [])
+            if supported_models:
+                valid_model_names = {m.get('name') for m in supported_models if isinstance(m, dict)}
+                if model_name not in valid_model_names:
+                    logger.warning(f"[LLMManager] Model '{model_name}' not in provider's supported models, using default")
+                    model_name = provider_dict.get('default_model', '')
+            
+            return {
+                'provider_id': provider_dict.get('provider', default_llm),
+                'provider_name': provider_dict.get('name', ''),
+                'model_name': model_name,
+                'provider_dict': provider_dict
+            }
+            
+        except Exception as e:
+            logger.error(f"[LLMManager] Failed to get default LLM config: {e}")
+            raise

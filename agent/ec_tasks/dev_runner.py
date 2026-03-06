@@ -365,17 +365,34 @@ class DevRunner:
                 # 2. Try to cancel the Future (if not yet started)
                 # 3. Cancel asyncio Task (if applicable)
                 try:
-                    if hasattr(self._dev_task, "cancel"):
+                    if hasattr(self._dev_task, "stop"):
+                        self._dev_task.stop(reason="dev_stop", force=True)
+                        logger.info(f"[DevRunner] ✅ Stop signal sent to ManagedTask")
+                    elif hasattr(self._dev_task, "cancel"):
+                        # Backward compatibility fallback
                         self._dev_task.cancel()
                         logger.info(f"[DevRunner] ✅ Cancellation signal sent to ManagedTask")
-                    
-                    # Also call exit() for additional cleanup
-                    if hasattr(self._dev_task, "exit"):
-                        self._dev_task.exit()
+                        if hasattr(self._dev_task, "exit"):
+                            self._dev_task.exit()
                 except Exception as e:
-                    logger.warning(f"[DevRunner] ⚠️ Error calling cancel/exit on ManagedTask: {e}")
-                
-                self._dev_task = None
+                    logger.warning(f"[DevRunner] ⚠️ Error calling stop/cancel on ManagedTask: {e}")
+
+                # IMPORTANT: Do NOT clear _dev_task immediately.
+                # Some nodes (e.g. browser-use / LLM calls) can block for a while,
+                # and execution may continue until they return to the task loop.
+                # Keeping the reference allows repeated "stop" clicks to keep sending
+                # cancel signals instead of incorrectly reporting "task already done".
+                try:
+                    fut = getattr(self._dev_task, "future", None)
+                    task_obj = getattr(self._dev_task, "task", None)
+                    future_done = fut.done() if fut is not None and hasattr(fut, "done") else False
+                    async_done = task_obj.done() if task_obj is not None and hasattr(task_obj, "done") else False
+                    if future_done or async_done:
+                        self._dev_task = None
+                        logger.debug("[DevRunner] Cleared dev task reference after confirmed completion")
+                except Exception:
+                    # Keep reference on any uncertainty; safer for repeated cancellation.
+                    pass
             
             # Send status update to frontend via unified API
             try:

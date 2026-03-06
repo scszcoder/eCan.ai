@@ -12,9 +12,9 @@ from datetime import datetime
 from enum import Enum
 from queue import Queue
 import time
-from typing import Any, Callable, ClassVar, Dict, List, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from a2a.types import Task, TaskState, TaskStatus as A2ATaskStatus, Message, TextPart
 
@@ -259,6 +259,11 @@ class ManagedTask(Task):
     
     # Scheduling
     schedule: Optional[TaskSchedule] = None
+    queue: Optional[Queue] = None
+
+    # Hard-stop callbacks (runtime only; excluded from pydantic model data)
+    _force_stop_callbacks: List[Tuple[Callable[[], None], str]] = PrivateAttr(default_factory=list)
+    _force_stop_callbacks_ran: bool = PrivateAttr(default=False)
     priority: Optional[PriorityType] = None
     last_run_datetime: Optional[datetime] = None
     already_run_flag: bool = False  # Flag to prevent duplicate runs within schedule window
@@ -388,18 +393,20 @@ class ManagedTask(Task):
     
     # ==================== Lifecycle Management ====================
     
-    def cancel(self):
+    def stop(self, reason: str = "", force: bool = False):
         """
-        Signal the task to cancel its execution.
-        
-        This method:
-        1. Sets the cancellation_event (for thread-based execution loops)
-        2. Attempts to cancel the Future (if running in ThreadPoolExecutor)
-        3. Cancels the asyncio Task (if running async)
+        Unified stop entrypoint for task cancellation lifecycle.
+
+        Args:
+            reason: Optional reason for logging/debugging.
+            force: If True, also cancel running asyncio task.
         """
         # Set cancellation event for execution loops to check
         self.cancellation_event.set()
-        
+
+        # Execute registered force-stop callbacks once (best effort)
+        self._run_force_stop_callbacks()
+
         # Try to cancel the Future (only works if not yet started)
         if self.future is not None:
             try:
@@ -409,6 +416,60 @@ class ManagedTask(Task):
                     logger.debug(f"[ManagedTask] Successfully cancelled Future for task {self.id}")
             except Exception:
                 pass  # Future might not support cancellation or already done
+
+        # Optionally cancel the asyncio task reference too.
+        if force and self.task and not self.task.done():
+            try:
+                self.task.cancel()
+            except Exception:
+                pass
+
+    def cancel(self):
+        """
+        Signal the task to cancel its execution.
+        
+        This method:
+        1. Sets the cancellation_event (for thread-based execution loops)
+        2. Attempts to cancel the Future (if running in ThreadPoolExecutor)
+        3. Cancels the asyncio Task (if running async)
+        4. Executes registered hard-stop callbacks (best effort)
+        """
+        self.stop(reason="cancel", force=False)
+
+    def register_force_stop_callback(self, callback: Callable[[], None], source: str = ""):
+        """Register a best-effort callback to force-stop long-running node resources."""
+        if not callable(callback):
+            return
+        src = source or getattr(callback, "__name__", "unknown")
+        # Keep only the latest callback per source to avoid unbounded growth.
+        self._force_stop_callbacks = [item for item in self._force_stop_callbacks if item[1] != src]
+        self._force_stop_callbacks.append((callback, src))
+        # If new callbacks are registered for a new run, allow execution again.
+        self._force_stop_callbacks_ran = False
+
+    def clear_force_stop_callbacks(self):
+        """Clear all registered force-stop callbacks."""
+        self._force_stop_callbacks.clear()
+        self._force_stop_callbacks_ran = False
+
+    def _run_force_stop_callbacks(self):
+        """Execute registered force-stop callbacks once, best effort."""
+        if self._force_stop_callbacks_ran:
+            return
+        self._force_stop_callbacks_ran = True
+
+        from utils.logger_helper import logger_helper as logger
+
+        callbacks = list(self._force_stop_callbacks)
+        # Clear references early to avoid retaining heavy runtime objects.
+        self._force_stop_callbacks.clear()
+
+        for callback, source in callbacks:
+            try:
+                callback()
+                logger.info(f"[ManagedTask] Executed force-stop callback: {source}")
+            except Exception as e:
+                logger.warning(f"[ManagedTask] Force-stop callback failed ({source}): {e}")
     
     def is_cancelled(self) -> bool:
         """Check if cancellation was requested."""
@@ -428,9 +489,7 @@ class ManagedTask(Task):
     
     def exit(self):
         """Stop the task and cancel any running operations."""
-        self.cancel()
-        if self.task and not self.task.done():
-            self.task.cancel()
+        self.stop(reason="exit", force=True)
     
     # ==================== Validation ====================
     

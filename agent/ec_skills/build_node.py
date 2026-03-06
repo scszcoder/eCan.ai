@@ -691,6 +691,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         hard_timeout_config = str(hard_timeout_val).lower() in ('true', '1', 'yes', 'on') if hard_timeout_val else False
     except Exception:
         pass
+    
+    # CRITICAL: Get inputsValues FIRST before accessing any input fields
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+    
     # Get explicit provider from frontend (guaranteed by form-meta.tsx)
     raw_provider = None
     try:
@@ -698,9 +702,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         or (inputs.get("provider") or {}).get("content"))
     except Exception:
         raw_provider = None
+    
     model_name = ((inputs.get("modelName") or {}).get("content")
-                  or (inputs.get("model") or {}).get("content")
-                  or "gpt-5-mini")
+                  or (inputs.get("model") or {}).get("content"))
     api_key = ((inputs.get("apiKey") or {}).get("content") or "")
     api_host = ((inputs.get("apiHost") or {}).get("content") or "")
     try:
@@ -715,8 +719,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         node_use_thinking = str(use_thinking_val).lower() in ('true', '1', 'yes', 'on') if use_thinking_val is not None else False
     except Exception:
         node_use_thinking = False
-    
-    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
     logger.debug("[LLMNode]prompt_selection:", prompt_selection)
@@ -809,10 +811,60 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # Resolves any name variant (name/display_name/class_name/provider_id) → canonical provider_id
     provider_mapping = _get_provider_mapping()
 
-    # Resolve raw_provider (e.g. "DeepSeek", "Qwen (DashScope)") to canonical provider_id (e.g. "deepseek", "dashscope")
-    # Frontend is responsible for always passing correct modelProvider via form-meta.tsx
-    model_provider = provider_mapping.get((raw_provider or "").lower(), raw_provider or "openai")
-    llm_provider = (model_provider or "openai").lower()
+    # Determine provider: node-specified OR default from Settings
+    # CRITICAL: If node specifies a provider, we MUST use it (no fallback)
+    if raw_provider:
+        # Node specified a provider - use it and ONLY it (no fallback allowed)
+        model_provider = provider_mapping.get(raw_provider.lower(), raw_provider)
+        llm_provider = model_provider.lower()
+        try:
+            from app_context import AppContext
+            mainwin = AppContext.get_main_window()
+            if mainwin and hasattr(mainwin, 'config_manager'):
+                provider_exists = mainwin.config_manager.llm_manager.get_provider(model_provider)
+                if not provider_exists:
+                    raise RuntimeError(f"[build_llm_node] Node specified unknown provider '{raw_provider}'")
+        except Exception as e:
+            if isinstance(e, RuntimeError):
+                raise
+            logger.warning(f"[build_llm_node] Could not validate node provider '{raw_provider}': {e}")
+        if not model_name:
+            try:
+                from app_context import AppContext
+                mainwin = AppContext.get_main_window()
+                if mainwin and hasattr(mainwin, 'config_manager'):
+                    provider_dict = mainwin.config_manager.llm_manager.get_provider(model_provider)
+                    if provider_dict:
+                        model_name = provider_dict.get('default_model')
+            except Exception:
+                pass
+        if not model_name:
+            raise RuntimeError(f"[build_llm_node] Node specified provider '{raw_provider}' but model_name is missing")
+        logger.info(f"[build_llm_node] Node specified provider: {raw_provider} -> {llm_provider}")
+    else:
+        # Node did NOT specify provider - use default from Settings
+        try:
+            from app_context import AppContext
+            ctx = AppContext.get_instance()
+            mainwin = ctx.get_main_window()
+            
+            if not mainwin or not hasattr(mainwin, 'config_manager'):
+                raise RuntimeError("[build_llm_node] Cannot access Settings to get default LLM")
+            
+            # Use unified method to get default LLM config
+            llm_config = mainwin.config_manager.llm_manager.get_default_llm_config()
+            model_provider = llm_config['provider_id']
+            llm_provider = model_provider.lower()
+            
+            # If node didn't specify model, use default model from Settings
+            if not model_name:
+                model_name = llm_config['model_name']
+            
+            logger.info(f"[build_llm_node] Using default LLM from Settings: {model_provider}, model: {model_name}")
+            
+        except Exception as e:
+            logger.error(f"[build_llm_node] Failed to get default LLM from Settings: {e}")
+            raise RuntimeError(f"No provider specified in node and failed to get default LLM from Settings: {e}")
     
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
@@ -1316,7 +1368,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     kwargs.update(llm_extra_params)
                     llm = ChatOllama(**kwargs)
                 else:
-                    # Default to OpenAI-compatible
+                    if raw_provider:
+                        raise ValueError(
+                            f"Unsupported node-specified provider '{raw_provider}' (resolved: '{prov}'). "
+                            "Please select a configured provider from Settings."
+                        )
+                    # No provider explicitly specified by node: allow OpenAI-compatible default behavior
                     kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
                     if host:
                         kwargs["base_url"] = host
@@ -4641,15 +4698,31 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(f"[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
                     send_skill_editor_log("log", f"[BrowserAutomation] Starting cloud agent mode")
                     
-                    # Create LLM from node config + environment variables (no mainwin needed)
+                    # Create LLM: node-specified provider OR default from Settings
+                    # CRITICAL: If node specifies provider, we MUST use it (no fallback)
                     llm = None
-                    if node_llm_provider and node_model_name:
+                    
+                    if node_llm_provider:
+                        # Node specified provider - use it and ONLY it (no fallback allowed)
+                        provider_lower = node_llm_provider.lower()
+                        selected_model_name = node_model_name
+                        if not selected_model_name:
+                            try:
+                                from app_context import AppContext
+                                mainwin_cfg = AppContext.get_main_window()
+                                if mainwin_cfg and hasattr(mainwin_cfg, 'config_manager'):
+                                    provider_cfg = mainwin_cfg.config_manager.llm_manager.get_provider(node_llm_provider)
+                                    if provider_cfg:
+                                        selected_model_name = provider_cfg.get('default_model')
+                            except Exception:
+                                pass
+                        if not selected_model_name:
+                            raise RuntimeError(f"[BrowserAutomation] Node specified provider '{node_llm_provider}' but model_name is missing")
+                        
                         # Get API key from environment variables
                         api_key = None
                         base_url = None
                         
-                        # Try provider-specific env vars first
-                        provider_lower = node_llm_provider.lower()
                         if provider_lower == 'openai':
                             api_key = os.environ.get('OPENAI_API_KEY', '').strip()
                             base_url = os.environ.get('OPENAI_BASE_URL', '').strip() or None
@@ -4662,37 +4735,57 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             api_key = os.environ.get('AZURE_OPENAI_API_KEY', '').strip()
                             base_url = os.environ.get('AZURE_OPENAI_ENDPOINT', '').strip() or None
                         else:
-                            # Fallback to generic env vars
-                            api_key = os.environ.get('LLM_API_KEY', '').strip() or os.environ.get('OPENAI_API_KEY', '').strip()
+                            api_key = os.environ.get('LLM_API_KEY', '').strip()
                         
-                        if api_key:
-                            llm = create_browser_use_llm_by_provider_type(
-                                provider_type=provider_lower,
-                                model_name=node_model_name,
-                                api_key=api_key,
-                                base_url=base_url,
-                                mainwin=None
-                            )
-                            logger.info(f"[BrowserAutomation] Created cloud LLM: provider={node_llm_provider}, model={node_model_name}")
-                            send_skill_editor_log("log", f"[BrowserAutomation] LLM created: {node_llm_provider}/{node_model_name}")
-                        else:
-                            logger.warning(f"[BrowserAutomation] No API key found for provider {node_llm_provider}")
-                    
-                    if not llm:
-                        # Fallback to OpenAI from environment
-                        openai_key = os.environ.get('OPENAI_API_KEY', '').strip()
-                        if openai_key:
-                            llm = create_browser_use_llm_by_provider_type(
-                                provider_type='openai',
-                                model_name=node_model_name or 'gpt-4o-mini',
-                                api_key=openai_key,
-                                base_url=os.environ.get('OPENAI_BASE_URL', '').strip() or None,
-                                mainwin=None
-                            )
-                            logger.info(f"[BrowserAutomation] Created fallback OpenAI LLM: model={node_model_name or 'gpt-4o-mini'}")
-                    
-                    if not llm:
-                        raise ValueError("Cannot create LLM for cloud agent. Please set OPENAI_API_KEY or provider-specific API key environment variable.")
+                        if not api_key and provider_lower not in ('ollama',):
+                            raise RuntimeError(f"[BrowserAutomation] Node specified provider '{node_llm_provider}' but no API key found in environment. Please set the required API key.")
+                        
+                        llm = create_browser_use_llm_by_provider_type(
+                            provider_type=provider_lower,
+                            model_name=selected_model_name,
+                            api_key=api_key,
+                            base_url=base_url,
+                            mainwin=None
+                        )
+                        
+                        if not llm:
+                            raise RuntimeError(f"[BrowserAutomation] Failed to create LLM for node-specified provider '{node_llm_provider}'")
+                        
+                        logger.info(f"[BrowserAutomation] Created LLM from node config: provider={node_llm_provider}, model={selected_model_name}")
+                        send_skill_editor_log("log", f"[BrowserAutomation] LLM created: {node_llm_provider}/{selected_model_name}")
+                        
+                    else:
+                        # Node did NOT specify provider - use default from Settings
+                        from app_context import AppContext
+                        ctx = AppContext.get_instance()
+                        mainwin_ctx = ctx.get_main_window()
+                        
+                        if not mainwin_ctx or not hasattr(mainwin_ctx, 'config_manager'):
+                            raise RuntimeError("[BrowserAutomation] Cannot access Settings to get default LLM configuration")
+                        
+                        # Use unified method to get default LLM config
+                        llm_config = mainwin_ctx.config_manager.llm_manager.get_default_llm_config()
+                        provider_dict = llm_config['provider_dict']
+                        
+                        from agent.ec_skills.llm_utils.llm_utils import extract_provider_config
+                        provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
+                        
+                        if not api_key and provider_type not in ('ollama',):
+                            raise RuntimeError(f"[BrowserAutomation] No API key configured for default LLM provider '{llm_config['provider_id']}'")
+                        
+                        llm = create_browser_use_llm_by_provider_type(
+                            provider_type=provider_type,
+                            model_name=node_model_name or llm_config['model_name'],
+                            api_key=api_key,
+                            base_url=base_url,
+                            mainwin=None
+                        )
+                        
+                        if not llm:
+                            raise RuntimeError(f"[BrowserAutomation] Failed to create LLM instance for default provider '{llm_config['provider_id']}'")
+                        
+                        logger.info(f"[BrowserAutomation] Created LLM from Settings: {llm_config['provider_id']}, model: {llm_config['model_name']}")
+                        send_skill_editor_log("log", f"[BrowserAutomation] Using default LLM: {llm_config['provider_id']}")
                     
                     # Create transport for cloud communication
                     # First, try to get the global transport registered by cloud worker
@@ -5169,9 +5262,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Fallback: browser session creation failed or unsupported driver
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
-            
+
+            # Look up cancellation_event from global registry by task_id
+            from agent.ec_tasks import cancellation_registry
+            task_id = state.get('attributes', {}).get('task_id') if isinstance(state, dict) else None
+            cancellation_event = cancellation_registry.get(task_id) if task_id else None
+            if cancellation_event:
+                logger.info(f"[BrowserAutomation] ✅ Got cancellation_event for task_id={task_id}")
+
             try:
-                history = await agent.run()
+                # Pass cancellation_event to agents that support it natively;
+                # for native browser-use Agent, patch its step method inline.
+                agent_class_name = agent.__class__.__name__
+                if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
+                    history = await agent.run(cancellation_event=cancellation_event)
+                elif cancellation_event and hasattr(agent, 'step'):
+                    _orig_step = agent.step
+                    async def _step_with_cancel(*a, **kw):
+                        if cancellation_event.is_set():
+                            logger.info(f"[BrowserAutomation] 🛑 Cancellation requested, stopping")
+                            raise asyncio.CancelledError("Task cancelled by user")
+                        return await _orig_step(*a, **kw)
+                    agent.step = _step_with_cancel
+                    try:
+                        history = await agent.run()
+                    finally:
+                        agent.step = _orig_step
+                else:
+                    history = await agent.run()
 
                 # Persist focus target across node iterations to survive session churn.
                 try:
@@ -5557,8 +5675,23 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
     logger.debug(log_msg)
     send_skill_editor_log("log", log_msg)
     
-    # Get LLM config from node metadata or use defaults
-    model_name = (config_metadata or {}).get('model', 'gpt-4o-mini')
+    # Get LLM config from node metadata or use defaults from Settings
+    def _get_default_model():
+        """Get default model from Settings using unified method"""
+        try:
+            from app_context import AppContext
+            ctx = AppContext.get_instance()
+            mainwin = ctx.get_main_window()
+            if mainwin and hasattr(mainwin, 'config_manager'):
+                # Use unified method to get default LLM config
+                llm_config = mainwin.config_manager.llm_manager.get_default_llm_config()
+                return llm_config['model_name']
+            raise RuntimeError("MainWindow or config_manager not available")
+        except Exception as e:
+            logger.warning(f"[build_tool_picker_node] Failed to get default model from Settings: {e}")
+            raise RuntimeError("Failed to get default model from Settings. Please configure a default LLM in Settings.")
+    
+    model_name = (config_metadata or {}).get('model') or _get_default_model()
     temperature = (config_metadata or {}).get('temperature', 0.0)
     
     def _tool_picker(state: dict, **kwargs):
