@@ -39,6 +39,7 @@ from .scheduler import find_tasks_ready_to_run
 from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor, _create_message
+from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
 from utils.sleep_inhibitor import get_sleep_inhibitor
 
@@ -539,7 +540,11 @@ class TaskRunner(Generic[Context]):
                 encoding='utf-8'
             ) as f:
                 temp_file = f.name
-                json_data = task.model_dump_json(indent=2)
+                # Exclude non-serializable fields (Event, Future, Queue, etc.)
+                json_data = task.model_dump_json(
+                    indent=2,
+                    exclude=TASK_SERIALIZATION_EXCLUDE
+                )
                 f.write(json_data)
                 f.flush()
                 os.fsync(f.fileno())

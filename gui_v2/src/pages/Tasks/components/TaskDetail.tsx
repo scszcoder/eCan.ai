@@ -166,8 +166,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       latest_version: raw.latest_version,
       priority: raw.priority || 'none',
       trigger: raw.trigger,
-      skill: raw.skill,
-      skills: raw.skills,
+      skill_ids: raw.skill_ids,
       cloud_based: raw.cloud_based,
       status: raw.status,
       state: raw.state,
@@ -213,10 +212,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   }, [skillsKey]);  // Depend on primitive key instead of full skills object
 
   // Memoize skill options to avoid circular reference warnings
+  // value is always the skill ID; label/display is the name
   const skillOptions = React.useMemo(() => {
     return skillsSimplified.map((s) => ({ 
-      key: s.id || s.name,
-      value: s.name, 
+      key: s.id,
+      value: s.id, 
       label: s.name 
     }));
   }, [skillsSimplified]);
@@ -309,16 +309,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
   React.useEffect(() => {
     if (task) {
-      // Skill comes directly from task (loaded from relationship table)
-      const taskSkill = (task as any).skill || '';
-      const taskSkills = (task as any).skills || (taskSkill ? [taskSkill] : []);
+      // Skill association is purely ID-based; name is only for display
+      const rawSkillIds: string[] = (task as any).skill_ids || [];
+      // Form stores IDs directly
+      const taskSkills: string[] = rawSkillIds;
       
       // Metadata is clean (no skill stored in it anymore)
       const metadata = (task as any).metadata || {};
       const metaStr = Object.keys(metadata).length > 0 ? JSON.stringify(metadata, null, 2) : '';
 
       // ä½¿ç"¨ name Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç"¨ skill Fieldä½œä¸ºåŽå¤‡
-      const taskName = (task as any).name || taskSkill || '';
+      const taskName = (task as any).name || '';
 
       // ä½¿ç"¨ description Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç"¨ metadata ä¸­çš„Descriptionä½œä¸ºåŽå¤‡
       const taskDescription = (task as any).description
@@ -378,7 +379,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       form.resetFields();
       setEditMode(false);
     }
-  }, [taskKey, username]); // form is stable and doesn't need to be a dependency
+  }, [taskKey, username]); // form is stable; skillsKey re-init handled separately below
 
   const handleCancel = () => {
     if (isNew) {
@@ -417,10 +418,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     try {
       const values = await form.validateFields();
       
-      // Get skills array from form values and filter out empty values
-      const skillNames = ((values as any).skills || []).filter((s: string) => s && s.trim());
-      // Find skill objects by name (use simplified skills to avoid circular refs)
-      const skillObjs = skillNames.map((name: string) => skillsSimplified.find(s => s.name === name)).filter(Boolean);
+      // Form stores skill IDs directly — no name<->id conversion needed
+      const skillIds = ((values as any).skills || []).map((s: string) => String(s || '').trim()).filter(Boolean);
 
       const payload: any = {
         id: (values as any).id,
@@ -431,8 +430,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: ((values as any).trigger || ['auto']).join(','),
-        skills: skillNames,  // Pass skills array
-        skill_ids: skillObjs.map((s: any) => s?.id).filter(Boolean),  // Pass skill IDs for backend
+        skill_ids: skillIds,  // canonical IDs for backend
         schedule: {
           repeat_type: (values as any).schedule?.repeat_type || 'none',
           repeat_number: (values as any).schedule?.repeat_number || 1,
@@ -498,8 +496,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             const sid = String(rel?.skill_id || '').trim();
             return sid && !desiredSet.has(sid);
           })
-          .map((rel: any) => ({ id: String(rel?.id || '').trim() }))
-          .filter((x: any) => x.id);
+          .map((rel: any) => ({
+            task_id: safeTaskId,
+            skill_id: String(rel?.skill_id || '').trim(),
+          }))
+          .filter((x: any) => x.skill_id);
 
         if (toAdd.length) {
           const r = await api.addAgentTaskSkillRels(toAdd);
@@ -532,9 +533,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             } else {
               newTaskId = payload.id;
             }
+          } else {
+            // For save (update) operation, extract task_id from response
+            if (responseData?.task_id) {
+              newTaskId = responseData.task_id;
+            } else if (responseData?.id) {
+              newTaskId = responseData.id;
+            } else {
+              newTaskId = payload.id;
+            }
           }
-          console.log('[TaskDetail] ä¿å­˜æˆåŠŸï¼ŒTask ID:', newTaskId);
-          console.log('[TaskDetail] APIå"åº"æ•°æ®:', responseData);
+          console.log('[TaskDetail] Saved, Task ID:', newTaskId);
 
           // Web app: keep task↔skills relations in agent_task_skill_rels.
           // If this call fails (e.g., local dev GraphQL schema), we don't block saving the task itself.
@@ -930,7 +939,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   }
                                 />
                               ) : (
-                                <Input readOnly size="large" />
+                                <Form.Item noStyle shouldUpdate>
+                                  {({ getFieldValue }) => {
+                                    const skillId = getFieldValue(['skills', name]);
+                                    const found = skillsSimplified.find((s) => s.id === skillId);
+                                    return <Input readOnly size="large" value={found ? found.name : skillId} />;
+                                  }}
+                                </Form.Item>
                               )}
                             </Form.Item>
                             {(editMode || isNew) && fields.length > 0 && (
