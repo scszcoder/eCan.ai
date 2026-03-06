@@ -449,7 +449,7 @@ export class IPCAPI {
       {
         method: 'subscribe_to_skill',
         graphql: {
-          query: GRAPHQL_QUERIES.SUBSCRIBE_TO_SKILL,
+          mutation: GRAPHQL_MUTATIONS.SUBSCRIBE_TO_SKILL,
           resultPath: 'subscribeToSkill'
         }
       },
@@ -462,7 +462,7 @@ export class IPCAPI {
       {
         method: 'unsubscribe_from_skill',
         graphql: {
-          query: GRAPHQL_QUERIES.UNSUBSCRIBE_FROM_SKILL,
+          mutation: GRAPHQL_MUTATIONS.UNSUBSCRIBE_FROM_SKILL,
           resultPath: 'unsubscribeFromSkill'
         }
       },
@@ -1635,7 +1635,7 @@ export class IPCAPI {
       );
     }
 
-    public async removeAgentTaskSkillRels(input: { id: string }[]): Promise<APIResponse<any>> {
+    public async removeAgentTaskSkillRels(input: ({ id: string } | { task_id: string; skill_id: string })[]): Promise<APIResponse<any>> {
       return apiRouter.execute(
         {
           method: 'remove_agent_task_skill_rels',
