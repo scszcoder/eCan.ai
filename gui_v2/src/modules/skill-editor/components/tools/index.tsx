@@ -142,7 +142,7 @@ const ToolsInner = () => {
 
   const ipcApi = IPCAPI.getInstance();
 
-  const handleRunControl = (action: 'cancel' | 'pause' | 'resume' | 'step') => {
+  const handleRunControl = async (action: 'cancel' | 'pause' | 'resume' | 'step') => {
     if (!skillInfoFromStore || !username) return;
 
     // Create a new skill info object with the latest diagram
@@ -161,7 +161,12 @@ const ToolsInner = () => {
           skill_id: (skillInfoFromStore as any)?.skillId || (skillInfoFromStore as any)?.skill_id,
         };
         console.log('[ToolBar] cancelRunSkill with run_id:', cancelPayload.run_id, 'skill_id:', cancelPayload.skill_id);
-        ipcApi.cancelRunSkill(username, cancelPayload);
+        try {
+          await ipcApi.cancelRunSkill(username, cancelPayload);
+          console.log('[ToolBar] ✅ Cancel request sent successfully');
+        } catch (err) {
+          console.error('[ToolBar] ❌ Failed to send cancel request:', err);
+        }
         // Remove from dev task tracking
         if (activeRunId) {
           useRunningNodeStore.getState().removeDevTask(activeRunId);

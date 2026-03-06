@@ -108,29 +108,37 @@ class ValidatorAgent:
         if self.llm:
             return self.llm
         
+        # Use unified method to get default LLM from Settings
         try:
-            import importlib
-            settings_mod = importlib.import_module("config.llm_settings")
-            LLMSettings = getattr(settings_mod, "LLMSettings", None)
-            if not LLMSettings:
-                raise ImportError("config.llm_settings.LLMSettings not found")
-            settings = LLMSettings()
-            self.llm = settings.get_chat_model()
-            logger.info("[ValidatorAgent] Loaded LLM from settings")
+            from app_context import AppContext
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm
+            
+            ctx = AppContext.get_instance()
+            mainwin = ctx.get_main_window()
+            
+            if not mainwin or not hasattr(mainwin, 'config_manager'):
+                raise RuntimeError("[ValidatorAgent] Cannot access Settings to get default LLM")
+            
+            # Use unified method to get default LLM config
+            llm_config = mainwin.config_manager.llm_manager.get_default_llm_config()
+            llm_providers = mainwin.config_manager.llm_manager.get_all_providers()
+            
+            self.llm = pick_llm(
+                llm_config['provider_id'], 
+                llm_providers, 
+                mainwin.config_manager, 
+                allow_fallback=False
+            )
+            
+            if not self.llm:
+                raise RuntimeError(f"[ValidatorAgent] Failed to create LLM instance for provider '{llm_config['provider_id']}'")
+            
+            logger.info(f"[ValidatorAgent] Loaded LLM from Settings: {llm_config['provider_id']}, model: {llm_config['model_name']}")
             return self.llm
+                
         except Exception as e:
-            logger.error(f"[ValidatorAgent] Failed to load LLM: {e}")
-            try:
-                from langchain_openai import ChatOpenAI
-                import os
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if api_key:
-                    self.llm = ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=4096)
-                    logger.info("[ValidatorAgent] Using fallback OpenAI LLM")
-                    return self.llm
-            except Exception:
-                pass
-            return None
+            logger.error(f"[ValidatorAgent] Failed to load LLM from Settings: {e}")
+            raise
     
     def try_parse_json(self, json_str: str) -> tuple[Optional[Dict], Optional[str]]:
         """

@@ -341,43 +341,28 @@ class PlannerAgent:
             from agent.ec_skills.llm_utils.llm_utils import pick_llm
             
             mainwin = AppContext.get_main_window()
-            if mainwin is None:
-                raise RuntimeError("Main window not available")
+            if not mainwin or not hasattr(mainwin, 'config_manager'):
+                raise RuntimeError("[PlannerAgent] Cannot access Settings to get default LLM")
             
-            config_manager = getattr(mainwin, 'config_manager', None)
-            if config_manager is None:
-                raise RuntimeError("Config manager not available")
-            
-            # Get LLM providers and default LLM from config_manager
-            llm_providers = config_manager.llm_manager.get_all_providers()
-            default_llm = config_manager.general_settings.default_llm
-            
-            if not llm_providers:
-                raise RuntimeError("No LLM providers configured")
+            # Use unified method to get default LLM config
+            llm_config = mainwin.config_manager.llm_manager.get_default_llm_config()
+            llm_providers = mainwin.config_manager.llm_manager.get_all_providers()
             
             llm_instance = pick_llm(
-                default_llm=default_llm,
+                default_llm=llm_config['provider_id'],
                 llm_providers=llm_providers,
-                config_manager=config_manager,
-                allow_fallback=True
+                config_manager=mainwin.config_manager,
+                allow_fallback=False
             )
             
-            if llm_instance is None:
-                raise RuntimeError("Failed to create LLM instance")
+            if not llm_instance:
+                raise RuntimeError(f"[PlannerAgent] Failed to create LLM instance for provider '{llm_config['provider_id']}'")
             
+            logger.info(f"[PlannerAgent] Loaded LLM from Settings: {llm_config['provider_id']}, model: {llm_config['model_name']}")
             return llm_instance
             
         except Exception as e:
-            logger.error(f"[PlannerAgent] Error loading LLM: {e}")
-            try:
-                from langchain_openai import ChatOpenAI
-                import os
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if api_key:
-                    logger.info("[PlannerAgent] Using fallback OpenAI LLM")
-                    return ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
-            except Exception:
-                pass
+            logger.error(f"[PlannerAgent] Failed to load LLM from Settings: {e}")
             raise
     
     def _format_canvas_context(self, canvas_context: Optional[Dict]) -> str:

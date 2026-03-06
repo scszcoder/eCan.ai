@@ -459,17 +459,24 @@ class TaskRunner(Generic[Context]):
             return
         
         try:
-            # Cancel asyncio task
+            # Cancel pending async operations and their timers
+            from .pending_events import cancel_task_async_operations
+            cancel_task_async_operations(task)
+
+            # Unified stop entrypoint (cancellation_event + future + force-stop callbacks + asyncio task)
+            if hasattr(task, 'stop') and callable(task.stop):
+                task.stop(reason="runner_cancel", force=True)
+            else:
+                # Backward compatibility fallback
+                if task.task:
+                    task.task.cancel()
+
+            # Wait briefly for asyncio task to settle after cancellation
             if task.task:
-                task.task.cancel()
                 try:
                     await asyncio.wait_for(task.task, timeout=timeout)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-            
-            # Cancel pending async operations and their timers
-            from .pending_events import cancel_task_async_operations
-            cancel_task_async_operations(task)
             
             # Update status
             task.status.state = TaskState.canceled
@@ -478,8 +485,6 @@ class TaskRunner(Generic[Context]):
             # Cleanup
             if hasattr(task, 'cleanup') and callable(task.cleanup):
                 task.cleanup()
-            if hasattr(task, 'exit') and callable(task.exit):
-                task.exit()
             
             # Clear queue
             if hasattr(task, 'queue') and task.queue:
@@ -1045,7 +1050,13 @@ class TaskRunner(Generic[Context]):
                     if not t:
                         continue
                     if self._evaluate_match_fields(match_fields, match_mode, event_data, t):
-                        logger.info(f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}")
+                        skill_obj = getattr(t, "skill", None)
+                        skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                        skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                        logger.info(
+                            f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}, "
+                            f"skill={skill_name}, skill_id={skill_id}"
+                        )
                         return (t, rule)
                 logger.debug(f"[ROUTING] ❌ No task matched via match_fields for event '{etype}'")
             
@@ -1066,17 +1077,34 @@ class TaskRunner(Generic[Context]):
                         # Match by run_id (task.id or cloud_run_id)
                         if "run_id" in routing_key:
                             if str(t.id) == str(key_value):
-                                logger.info(f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}")
+                                skill_obj = getattr(t, "skill", None)
+                                skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                                skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                                logger.info(
+                                    f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}, "
+                                    f"skill={skill_name}, skill_id={skill_id}"
+                                )
                                 return (t, rule)
                             cloud_run_id = (t.state or {}).get("cloud_run_id")
                             if cloud_run_id and str(cloud_run_id) == str(key_value):
-                                logger.info(f"[ROUTING] ✅ Matched task by cloud_run_id: {t.name}")
+                                skill_obj = getattr(t, "skill", None)
+                                skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                                skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                                logger.info(
+                                    f"[ROUTING] ✅ Matched task by cloud_run_id: {t.name}, id={t.id}, "
+                                    f"skill={skill_name}, skill_id={skill_id}"
+                                )
                                 return (t, rule)
                         # Match by skill_id
                         if "skill_id" in routing_key:
                             skill = getattr(t, "skill", None)
                             if skill and str(getattr(skill, "id", "")) == str(key_value):
-                                logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
+                                skill_name = getattr(skill, "name", skill)
+                                skill_id = getattr(skill, "id", "")
+                                logger.info(
+                                    f"[ROUTING] ✅ Matched task by skill_id: {t.name}, id={t.id}, "
+                                    f"skill={skill_name}, skill_id={skill_id}"
+                                )
                                 return (t, rule)
             
             # 3. Static matching via task_selector (fallback)
@@ -1086,7 +1114,13 @@ class TaskRunner(Generic[Context]):
                     if not t:
                         continue
                     if self._evaluate_selector(selector, t):
-                        logger.info(f"[ROUTING] ✅ Matched task via selector '{selector}': {t.name}, id={t.id}")
+                        skill_obj = getattr(t, "skill", None)
+                        skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                        skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                        logger.info(
+                            f"[ROUTING] ✅ Matched task via selector '{selector}': {t.name}, id={t.id}, "
+                            f"skill={skill_name}, skill_id={skill_id}"
+                        )
                         return (t, rule)
                 logger.debug(f"[ROUTING] ❌ No task matched selector '{selector}' for event '{etype}'")
             else:
@@ -1864,6 +1898,10 @@ class TaskRunner(Generic[Context]):
         task_state['pending_since'] = None
         future = self._skill_executor.submit(_execute)
         future.add_done_callback(_on_complete)
+        
+        # CRITICAL: Save Future reference to task so cancel() can work
+        task.future = future
+        logger.debug(f"[SUBMIT] Saved Future reference to task {task.name} for cancellation support")
         
         task_mode = "hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local")
         logger.info(f"[SUBMIT] Skill execution submitted for task={task.name} (mode={task_mode})")
@@ -2886,6 +2924,11 @@ class TaskRunner(Generic[Context]):
                 task.already_run_flag = True
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
         finally:
+            # Clean up Future reference
+            if hasattr(task, 'future'):
+                task.future = None
+                logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
+            
             # Allow idle sleep once this task execution completes
             try:
                 get_sleep_inhibitor().release()

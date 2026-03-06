@@ -409,6 +409,7 @@ class CloudAgent(Agent):
         max_steps: int = 100,
         on_step_start=None,
         on_step_end=None,
+        cancellation_event=None,
     ):
         _cloud_agent_log(f"[CloudAgent] 🚀 Starting run: run_id={self.run_id}, max_steps={max_steps}")
         
@@ -449,6 +450,11 @@ class CloudAgent(Agent):
 
         try:
             while self.state.n_steps <= max_steps:
+                # Check for cancellation request (cooperative cancellation)
+                if cancellation_event and cancellation_event.is_set():
+                    _cloud_agent_log(f"[CloudAgent] 🛑 Cancellation requested, stopping at step {self.state.n_steps - 1}")
+                    break
+                
                 # Check consecutive failures like parent Agent.run() does
                 max_total_failures = self.settings.max_failures + int(
                     getattr(self.settings, 'final_response_after_failure', False)
