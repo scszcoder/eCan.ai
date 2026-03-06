@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   delay,
@@ -14,6 +15,7 @@ import { WorkflowNodeType } from '../../nodes';
 import { IconCommentColored } from './colored-icons';
 
 export const Comment = () => {
+  const { t } = useTranslation('skillEditor');
   const playground = usePlayground();
   const document = useService(WorkflowDocument);
   const selectService = useService(WorkflowSelectService);
@@ -56,7 +58,7 @@ export const Comment = () => {
       trigger="custom"
       visible={tooltipVisible}
       onVisibleChange={setTooltipVisible}
-      content="Comment"
+      content={t('toolbar.comment')}
     >
       <IconButton
         disabled={playground.config.readonly}

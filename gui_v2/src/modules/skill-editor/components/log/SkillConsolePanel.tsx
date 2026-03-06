@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import styled from 'styled-components';
 import { eventBus } from '@/utils/eventBus';
 
@@ -214,6 +215,7 @@ const Icon = styled.span<{ kind: LogEntry['type'] }>`
 `;
 
 export const SkillConsolePanel: React.FC = () => {
+  const { t } = useTranslation('skillEditor');
   const [open, setOpen] = React.useState(false);
   const [height, setHeight] = React.useState(200);
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
@@ -299,16 +301,16 @@ export const SkillConsolePanel: React.FC = () => {
       {/* Collapse handle - always visible */}
       <CollapseHandle $expanded={open} onClick={() => setOpen(!open)}>
         <span className="console-icon">⌘</span>
-        <span className="title">Console</span>
+        <span className="title">{t('console.title')}</span>
         {logs.length > 0 && (
           <div className="counts">
-            {counts.error > 0 && <span className="count error-count">{counts.error} errors</span>}
-            {counts.warning > 0 && <span className="count warning-count">{counts.warning} warnings</span>}
-            {counts.log > 0 && <span className="count">{counts.log} logs</span>}
+            {counts.error > 0 && <span className="count error-count">{counts.error} {t('console.errors')}</span>}
+            {counts.warning > 0 && <span className="count warning-count">{counts.warning} {t('console.warnings')}</span>}
+            {counts.log > 0 && <span className="count">{counts.log} {t('console.logs')}</span>}
           </div>
         )}
         {open && (
-          <span className="close-btn" onClick={handleClose} title="Close Console">×</span>
+          <span className="close-btn" onClick={handleClose} title={t('console.closeConsole')}>×</span>
         )}
       </CollapseHandle>
       
@@ -316,33 +318,33 @@ export const SkillConsolePanel: React.FC = () => {
         <Panel height={height}>
           <DragBar onMouseDown={(e) => onDownRef.current(e)} />
           <Toolbar>
-            <span className="clear-btn" onClick={clearLogs}>🚫 Clear</span>
-            <span className="clear-btn" onClick={copyAllLogs} title="Copy all logs">📋 Copy</span>
+            <span className="clear-btn" onClick={clearLogs}>🚫 {t('console.clear')}</span>
+            <span className="clear-btn" onClick={copyAllLogs} title={t('console.copyAll')}>📋 {t('console.copy')}</span>
             <div className="filter-tabs">
               <span 
                 className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
                 onClick={() => setFilter('all')}
               >
-                All
+                {t('console.all')}
               </span>
               <span 
                 className={`filter-tab ${filter === 'error' ? 'active' : ''}`}
                 onClick={() => setFilter('error')}
               >
-                Errors {counts.error > 0 && `(${counts.error})`}
+                {t('console.errorsFilter')} {counts.error > 0 && `(${counts.error})`}
               </span>
               <span 
                 className={`filter-tab ${filter === 'warning' ? 'active' : ''}`}
                 onClick={() => setFilter('warning')}
               >
-                Warnings {counts.warning > 0 && `(${counts.warning})`}
+                {t('console.warningsFilter')} {counts.warning > 0 && `(${counts.warning})`}
               </span>
             </div>
           </Toolbar>
           <ScrollArea ref={scrollRef}>
             {filteredLogs.length === 0 ? (
               <div style={{ padding: '20px', color: '#6e6e6e', textAlign: 'center' }}>
-                No logs to display
+                {t('console.noLogs')}
               </div>
             ) : (
               filteredLogs.map((l, i) => {

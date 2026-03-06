@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 const LazyEditor = lazy(async () => {
   const mod = await import('../../modules/skill-editor');
@@ -28,7 +28,46 @@ const EditorContainer = styled.div`
 `;
 
 const SkillEditor: React.FC = () => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const translationsLoadedRef = useRef(false);
+
+    // Dynamically load skill-editor translations when component mounts
+    useEffect(() => {
+        const loadSkillEditorTranslations = async () => {
+            // Avoid loading multiple times
+            if (translationsLoadedRef.current) return;
+            
+            try {
+                // Check if already loaded
+                if (i18n.hasResourceBundle('en-US', 'skillEditor') && 
+                    i18n.hasResourceBundle('zh-CN', 'skillEditor')) {
+                    translationsLoadedRef.current = true;
+                    return;
+                }
+
+                // Dynamically import translation files
+                const [enSkillEditor, zhSkillEditor] = await Promise.all([
+                    import('../../modules/skill-editor/i18n/en.json'),
+                    import('../../modules/skill-editor/i18n/zh.json'),
+                ]);
+
+                // Add resource bundles to i18n
+                if (!i18n.hasResourceBundle('en-US', 'skillEditor')) {
+                    i18n.addResourceBundle('en-US', 'skillEditor', enSkillEditor.default, true, false);
+                }
+                if (!i18n.hasResourceBundle('zh-CN', 'skillEditor')) {
+                    i18n.addResourceBundle('zh-CN', 'skillEditor', zhSkillEditor.default, true, false);
+                }
+
+                translationsLoadedRef.current = true;
+                console.log('[SkillEditor] Translations loaded successfully');
+            } catch (error) {
+                console.error('[SkillEditor] Failed to load translations:', error);
+            }
+        };
+
+        loadSkillEditorTranslations();
+    }, [i18n]);
     return (
         <EditorContainer>
             <style>
