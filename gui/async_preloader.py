@@ -6,10 +6,8 @@ Preloads heavy libraries asynchronously without blocking UI
 """
 
 import asyncio
-import threading
 import time
-from typing import Dict, Any, Optional, Callable, List
-from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Any, Optional
 from utils.logger_helper import logger_helper as logger
 
 
@@ -60,8 +58,11 @@ class AsyncPreloader:
         task_definitions = [
             ('mainwindow_deps', self._preload_mainwindow_dependencies()),
             ('crypto_modules', self._preload_crypto_modules()),
-            ('database_services', self._preload_database_services()),
-            ('gui_tools', self._preload_gui_tools()),
+            # Keep active preload scope minimal and low-risk.
+            # Database/GUI manager preloads are intentionally disabled to avoid
+            # side effects from importing modules with runtime initialization.
+            # ('database_services', self._preload_database_services()),
+            # ('gui_tools', self._preload_gui_tools()),
         ]
         
         # Start all tasks at once
@@ -100,14 +101,12 @@ class AsyncPreloader:
                 self._is_preloading = False
     
     async def _preload_mainwindow_dependencies(self) -> Dict[str, Any]:
-        """Preload MainWindow heavy dependencies with parallel sub-tasks"""
+        """Preload MainWindow heavy dependencies with predictable serial imports"""
         start_time = time.time()
         modules = []
         
         try:
-            loop = asyncio.get_event_loop()
-            
-            # Define parallel sub-tasks
+            # Keep serial execution for stability and easier debugging.
             def _load_stdlib():
                 import ast, asyncio, base64, copy, glob, hashlib, importlib
                 import json, math, os, platform, requests, socket, threading, time, traceback
@@ -129,22 +128,19 @@ class AsyncPreloader:
                     return "Basic models"
                 except ImportError as e:
                     return f"Basic models (partial: {e})"
-            
-            # Execute sub-tasks in parallel
-            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="MainWindowParallel") as executor:
-                tasks = [
-                    loop.run_in_executor(executor, _load_stdlib),
-                    loop.run_in_executor(executor, _load_core_utils),
-                    loop.run_in_executor(executor, _load_basic_models),
-                ]
-                modules = await asyncio.gather(*tasks)
+
+            modules = [
+                _load_stdlib(),
+                _load_core_utils(),
+                _load_basic_models(),
+            ]
             
             load_time = time.time() - start_time
             return {
                 'success': True,
                 'modules': list(modules),
                 'load_time': load_time,
-                'description': f"MainWindow dependencies ({len(modules)} groups, parallel)"
+                'description': f"MainWindow dependencies ({len(modules)} groups, serial)"
             }
             
         except Exception as e:
@@ -161,8 +157,6 @@ class AsyncPreloader:
         modules = []
         
         try:
-            loop = asyncio.get_event_loop()
-            
             def _load_crypto():
                 nonlocal modules
                 # Cryptography library imports (very heavy)
@@ -173,9 +167,8 @@ class AsyncPreloader:
                 modules.append("cryptography.fernet")
                 
                 return modules
-            
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="CryptoPreload") as executor:
-                modules = await loop.run_in_executor(executor, _load_crypto)
+
+            modules = _load_crypto()
             
             load_time = time.time() - start_time
             return {
