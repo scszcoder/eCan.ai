@@ -12,6 +12,7 @@ import {
   IFlowRefValue,
 } from '@flowgram.ai/form-materials';
 
+import { useTranslation } from 'react-i18next';
 import { defaultFormMeta } from '../default-form-meta';
 import { useIsSidebar, useNodeRenderContext } from '../../hooks';
 import { FormHeader, FormContent, FormItem, Feedback } from '../../form-components';
@@ -23,7 +24,8 @@ interface LoopNodeJSON extends FlowNodeJSON {
   };
 }
 
-export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
+export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
+  const { t } = useTranslation('skillEditor');
   const isSidebar = useIsSidebar();
   const { readonly, expanded } = useNodeRenderContext();
   const formHeight = 85;
@@ -41,8 +43,8 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
               value={field.value || 'loopWhile'}
               onChange={(val) => field.onChange(val as string)}
               optionList={[
-                { label: 'loopFor', value: 'loopFor' },
-                { label: 'loopWhile', value: 'loopWhile' },
+                { label: t('nodes.loop.modes.loopFor'), value: 'loopFor' },
+                { label: t('nodes.loop.modes.loopWhile'), value: 'loopWhile' },
               ]}
               style={{ width: '100%' }}
               size="small"
@@ -62,7 +64,7 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
                   <Input
                     value={field.value || ''}
                     onChange={(val) => field.onChange(val)}
-                    placeholder="Exit condition"
+                    placeholder={t('nodes.loop.exitCondition')}
                     disabled={readonly}
                     style={{ width: '100%' }}
                     size="small"
@@ -87,8 +89,8 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
               value={field.value || 'loopWhile'}
               onChange={(val) => field.onChange(val as string)}
               optionList={[
-                { label: 'loopFor', value: 'loopFor' },
-                { label: 'loopWhile', value: 'loopWhile' },
+                { label: t('nodes.loop.modes.loopFor'), value: 'loopFor' },
+                { label: t('nodes.loop.modes.loopWhile'), value: 'loopWhile' },
               ]}
               style={{ width: 160 }}
               size="small"
@@ -107,7 +109,7 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
                 <Input
                   value={field.value || ''}
                   onChange={(val) => field.onChange(val)}
-                  placeholder={modeField.value === 'loopWhile' ? 'Enter exit condition expression' : 'Exit condition (loopWhile)'}
+                  placeholder={modeField.value === 'loopWhile' ? t('nodes.loop.exitConditionPlaceholder') : t('nodes.loop.exitConditionWhile')}
                   disabled={readonly || modeField.value !== 'loopWhile'}
                   style={{ width: '100%' }}
                 />
@@ -126,7 +128,7 @@ export const LoopFormRender = ({}: FormRenderProps<LoopNodeJSON>) => {
           <Input
             value={field.value || ''}
             onChange={(val) => field.onChange(val)}
-            placeholder={'Enter loop count (number or expression)'}
+            placeholder={t('nodes.loop.loopCountPlaceholder')}
             disabled={readonly}
             style={{ width: '100%' }}
           />

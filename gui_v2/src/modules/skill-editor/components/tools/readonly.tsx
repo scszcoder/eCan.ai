@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { usePlayground } from '@flowgram.ai/free-layout-editor';
 import { IconButton, Tooltip, Toast } from '@douyinfe/semi-ui';
@@ -11,6 +12,7 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
  * - development => editor editable, skillInfo.mode = 'development'
  */
 export const Readonly = () => {
+  const { t } = useTranslation('skillEditor');
   const playground = usePlayground();
   const skillInfo = useSkillInfoStore((s) => s.skillInfo);
   const setSkillInfo = useSkillInfoStore((s) => s.setSkillInfo);
@@ -45,14 +47,14 @@ export const Readonly = () => {
     }, 0);
     // Defer toast to avoid nested update warnings within UI updates
     setTimeout(() => {
-      try { Toast.info({ content: nextMode === 'released' ? 'Switched to Released (read-only)' : 'Switched to Development (editable)' }); } catch {}
+      try { Toast.info({ content: nextMode === 'released' ? t('toolbar.switchedToReleased') : t('toolbar.switchedToDevelopment') }); } catch {}
     }, 0);
   }, [skillInfo, setSkillInfo, playground]);
 
   const isReleased = skillInfo?.mode === 'released' || playground.config.readonly;
 
   return isReleased ? (
-    <Tooltip content="Develop (switch to editable)">
+    <Tooltip content={t('toolbar.develop')}>
       <IconButton
         theme="borderless"
         type="tertiary"
@@ -61,7 +63,7 @@ export const Readonly = () => {
       />
     </Tooltip>
   ) : (
-    <Tooltip content="Release (switch to read-only)">
+    <Tooltip content={t('toolbar.release')}>
       <IconButton
         theme="borderless"
         type="tertiary"

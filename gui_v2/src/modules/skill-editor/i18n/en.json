@@ -1,0 +1,353 @@
+{
+  "toolbar": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "help": "Help",
+    "pauseRun": "Pause Run",
+    "stepRun": "Step Run",
+    "resumeRun": "Resume Run",
+    "stopRun": "Stop Run",
+    "open": "Open",
+    "save": "Save",
+    "saveAs": "Save As",
+    "newSkill": "New Skill",
+    "info": "Info",
+    "comment": "Comment",
+    "fitView": "Fit View",
+    "minimap": "Minimap",
+    "autoLayout": "Auto Layout",
+    "mouseFriendly": "Mouse-Friendly",
+    "touchpadFriendly": "Touchpad-Friendly",
+    "addNode": "Add Node",
+    "switchLine": "Switch Line",
+    "release": "Release (switch to read-only)",
+    "develop": "Develop (switch to editable)",
+    "switchedToReleased": "Switched to Released (read-only)",
+    "switchedToDevelopment": "Switched to Development (editable)",
+    "problems": "Problems"
+  },
+  "newSkill": {
+    "title": "Create New Skill",
+    "namePlaceholder": "e.g., shopify_fullfill",
+    "nameLabel": "Enter skill name (without _skill suffix):",
+    "structureHint": "Standard structure will be created:",
+    "okText": "Create",
+    "cancelText": "Cancel",
+    "alreadyExistsTitle": "Skill Already Exists",
+    "alreadyExistsContent": "A skill named \"{{name}}\" already exists. Please choose a different name.",
+    "errorTitle": "Error",
+    "errorCreate": "Failed to create skill: {{error}}",
+    "errorStructure": "Failed to create skill structure: {{error}}",
+    "successTitle": "Success",
+    "successContent": "Skill \"{{name}}\" created successfully!"
+  },
+  "saveAs": {
+    "title": "Save Skill As",
+    "nameLabel": "Enter new skill name (without _skill suffix):",
+    "namePlaceholder": "e.g., shopify_fulfill",
+    "okText": "Save",
+    "cancelText": "Cancel",
+    "alreadyExistsTitle": "Skill Already Exists",
+    "alreadyExistsContent": "A skill named \"{{name}}\" already exists. Please choose a different name.",
+    "noSkill": "No skill to save.",
+    "savedAs": "Skill saved as \"{{name}}\"",
+    "saveFailed": "Save As failed: {{error}}"
+  },
+  "save": {
+    "saved": "Skill saved.",
+    "bundleSaved": "Bundle saved: {{path}}",
+    "bundleDownloaded": "Bundle downloaded.",
+    "bundleSaveFailed": "Bundle save failed.",
+    "invalidMapping": "data_mapping.json is invalid JSON. Fix it before saving."
+  },
+  "open": {
+    "tooltip": "Open",
+    "failedLoadSkills": "Failed to load skills from S3.",
+    "failedOpenSkill": "Failed to open selected skill.",
+    "failedOpenDialog": "Failed to open file dialog.",
+    "failedLoadFile": "Failed to load skill file.",
+    "defaultSkillName": "Skill"
+  },
+  "info": {
+    "tooltip": "Info",
+    "title": "Edit Skill Info",
+    "skillId": "Skill ID:",
+    "skillName": "Skill Name:",
+    "version": "Version:",
+    "lastModified": "Last Modified:",
+    "description": "Description:",
+    "codePreview": "Code Preview:",
+    "editCode": "Edit Code",
+    "namePlaceholder": "Enter skill name",
+    "descriptionPlaceholder": "Describe what this skill does..."
+  },
+  "nodeMenu": {
+    "editTitle": "Edit Title",
+    "moveOut": "Move out",
+    "createCopy": "Create Copy",
+    "hFlip": "H-flip",
+    "setBreakpoint": "Set Breakpoint",
+    "clearBreakpoint": "Clear Breakpoint",
+    "delete": "Delete",
+    "ungroup": "Ungroup"
+  },
+  "sheetsMenu": {
+    "insertSheetCall": "Insert Sheet Call…",
+    "newSheet": "New Sheet",
+    "registerSkill": "Register Skill",
+    "unregisterSkill": "Unregister Skill",
+    "openSheetById": "Open Sheet by ID",
+    "openSheet": "Open Sheet…",
+    "renameActiveSheet": "Rename Active Sheet",
+    "clearSheet": "Clear Sheet (blank)",
+    "closeActiveSheet": "Close Active Sheet",
+    "deleteActiveSheet": "Delete Active Sheet",
+    "openSheetPrompt": "Open sheet by ID:",
+    "newSheetNamePrompt": "New sheet name?",
+    "renameSheetPrompt": "Rename sheet to:",
+    "deleteSheetConfirm": "Delete sheet '{{id}}'? This cannot be undone.",
+    "deleteMainSheet": "Cannot delete the main sheet in MVP.",
+    "clearSheetConfirm": "Clear current sheet to an empty canvas? This will remove all nodes and edges in this sheet.",
+    "unregisterConfirm": "Unregister skill \"{{name}}\"? This will remove it from the agent skills registry.",
+    "noSkillLoaded": "No skill loaded. Please open or create a skill first.",
+    "notLoggedIn": "Not logged in. Please log in first.",
+    "registeredSuccess": "Skill \"{{name}}\" registered successfully!",
+    "registerFailed": "Failed to register skill: {{error}}",
+    "registerError": "Error registering skill",
+    "unregisteredSuccess": "Skill \"{{name}}\" unregistered successfully!",
+    "unregisterFailed": "Failed to unregister skill: {{error}}",
+    "unregisterNotFound": "Cannot unregister: skill \"{{name}}\" not found in registry.",
+    "unregisterError": "Error unregistering skill",
+    "noSkillForUnregister": "No skill loaded. Please open a skill first.",
+    "testExported": "langgraph2flowgram test exported to test_skill/diagram_dir",
+    "testFailed": "Test failed: {{error}}",
+    "testIpcError": "IPC error while testing langgraph2flowgram",
+    "setupStepSimComplete": "Step Sim: setup complete. Backend moved to Start.",
+    "setupFailed": "Setup failed: {{error}}",
+    "setupStepSimError": "Setup step sim error",
+    "stepFailed": "Step failed: {{error}}",
+    "stepSimError": "Step sim error",
+    "simTimerEventTriggered": "Sim Timer Event triggered",
+    "simTimerEventFailed": "Sim Timer Event failed: {{error}}",
+    "simTimerEventError": "Sim Timer Event error",
+    "simWebsocketEventTriggered": "Sim Websocket Event triggered",
+    "simWebsocketEventFailed": "Sim Websocket Event failed: {{error}}",
+    "simWebsocketEventError": "Sim Websocket Event error",
+    "simSseEventTriggered": "Sim SSE Event triggered",
+    "simSseEventFailed": "Sim SSE Event failed: {{error}}",
+    "simSseEventError": "Sim SSE Event error",
+    "simWebhookEventTriggered": "Sim Webhook Event triggered",
+    "simWebhookEventFailed": "Sim Webhook Event failed: {{error}}",
+    "simWebhookEventError": "Sim Webhook Event error",
+    "devSetupStepSim": "[DEV] setup-step-sim",
+    "devStepSim": "[DEV] step-sim",
+    "devTestLanggraph": "[DEV] test langgraph2flowgram",
+    "simTimerEvent": "[SIM] Timer Event",
+    "simWebsocketEvent": "[SIM] Websocket Event",
+    "simSseEvent": "[SIM] SSE Event",
+    "simWebhookEvent": "[SIM] Webhook Event"
+  },
+  "helpPanel": {
+    "searchPlaceholder": "Search in help...",
+    "showingResults": "Showing results for:",
+    "toc": {
+      "intro": "Introduction",
+      "nodes": "Nodes",
+      "editor": "Editor Basics",
+      "debug": "Debugger",
+      "testrun": "Test Run",
+      "shortcuts": "Shortcuts",
+      "faq": "FAQ"
+    },
+    "sections": {
+      "intro": {
+        "title": "Introduction",
+        "content": "Welcome to the Skill Editor. This guide will help you build and run flows."
+      },
+      "nodes": {
+        "title": "Nodes",
+        "content": "Each node performs a unit of work. Connect nodes to build flows."
+      },
+      "editor": {
+        "title": "Editor Basics",
+        "content": "Use the toolbar to add nodes, set zoom, and manage layout."
+      },
+      "debug": {
+        "title": "Debugger",
+        "content": "Set breakpoints and use pause/step/resume buttons to control execution."
+      },
+      "testrun": {
+        "title": "Test Run",
+        "content": "Open the Test Run panel to supply inputs and simulate a flow run."
+      },
+      "shortcuts": {
+        "title": "Shortcuts",
+        "navigation": "Canvas Navigation",
+        "spaceDrag": "Pan canvas (hold Space, then drag with mouse)",
+        "mouseWheel": "Zoom in/out",
+        "ctrlPlus": "Zoom in",
+        "ctrlMinus": "Zoom out",
+        "editing": "Editing",
+        "ctrlZ": "Undo",
+        "ctrlY": "Redo",
+        "ctrlC": "Copy selected nodes",
+        "ctrlV": "Paste nodes",
+        "ctrlA": "Select all nodes",
+        "deleteKey": "Delete selected nodes",
+        "nodeOps": "Node Operations",
+        "clickNode": "Select node",
+        "doubleClickNode": "Open node editor",
+        "dragNode": "Move node",
+        "shiftClick": "Add to selection"
+      },
+      "faq": {
+        "title": "FAQ",
+        "content": "Common issues and troubleshooting tips."
+      }
+    }
+  },
+  "testrun": {
+    "testRun": "Test Run",
+    "cancel": "Cancel",
+    "cannotRun": "Cannot run test",
+    "missingInfo": "User or skill info is missing.",
+    "validationFailed": "Validation Failed",
+    "backendRunFailed": "Backend Run Failed",
+    "unknownError": "An unknown error occurred.",
+    "runError": "Run Error"
+  },
+  "chatPanel": {
+    "title": "Agent Chat",
+    "newChat": "New Chat",
+    "newChatTooltip": "New chat",
+    "showHistory": "Show history",
+    "hideHistory": "Hide history",
+    "close": "Close",
+    "openAiChat": "Open AI Chat",
+    "closeAiChat": "Close AI Chat",
+    "sessions": "Sessions ({{count}})",
+    "defaultSessionTopic": "Chat",
+    "attachments": "Attachments",
+    "voiceInput": "Voice input",
+    "attachFile": "Attach file",
+    "typeMessage": "Type a message...",
+    "sessionLoadTimeout": "Session load timeout",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "daysAgo": "{{count}}d ago",
+    "approvePlan": "Approve",
+    "rejectPlan": "Revise",
+    "proceedWithPlan": "Yes, proceed with the plan",
+    "rejectPlanMessage": "No, I want to revise the plan",
+    "generatingWorkflow": "⏳ Generating workflow — this may take a minute. The canvas will update automatically once the flowgram is ready.",
+    "generatingFlowgram": "Generating flowgram...",
+    "errorGeneratingWorkflow": "Error generating workflow: {{error}}",
+    "noMessages": "No messages yet",
+    "startNewChat": "Start a new chat or select a session from history.",
+    "planning": "Planning...",
+    "thinking": "Thinking..."
+  },
+  "selectionPopover": {
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "createGroup": "Create Group",
+    "copy": "Copy",
+    "delete": "Delete"
+  },
+  "dataViewer": {
+    "copied": "Copied",
+    "value": "value"
+  },
+  "skillName": {
+    "placeholder": "Enter skill name...",
+    "clickToEdit": "Click to edit"
+  },
+  "openPicker": {
+    "title": "Open Skill from S3",
+    "searchPlaceholder": "Search skills",
+    "okText": "Open",
+    "cancelText": "Cancel"
+  },
+  "console": {
+    "title": "Console",
+    "errors": "errors",
+    "warnings": "warnings",
+    "logs": "logs",
+    "closeConsole": "Close Console",
+    "clear": "Clear",
+    "copy": "Copy",
+    "copyAll": "Copy all logs",
+    "all": "All",
+    "errorsFilter": "Errors",
+    "warningsFilter": "Warnings",
+    "noLogs": "No logs to display"
+  },
+  "problemPanel": {
+    "title": "Problem"
+  },
+  "nodes": {
+    "common": {
+      "titleRequired": "Title is required",
+      "fieldRequired": "{{field}} is required"
+    },
+    "event": {
+      "title": "Event",
+      "eventTypes": {
+        "timer": "Timer expiration",
+        "message": "Message arrival",
+        "dataChanged": "Data changed",
+        "hardInterrupt": "Hard interrupt"
+      },
+      "iTagLabel": "i_tag",
+      "iTagPlaceholder": "Enter interrupt tag (i_tag)",
+      "languages": {
+        "python": "Python",
+        "javascript": "JavaScript",
+        "typescript": "TypeScript"
+      },
+      "resetToTemplate": "Reset to template"
+    },
+    "loop": {
+      "modes": {
+        "loopFor": "loopFor",
+        "loopWhile": "loopWhile"
+      },
+      "exitCondition": "Exit condition",
+      "exitConditionPlaceholder": "Enter exit condition expression",
+      "exitConditionWhile": "Exit condition (loopWhile)",
+      "loopCountPlaceholder": "Enter loop count (number or expression)"
+    },
+    "http": {
+      "title": "HTTP",
+      "label": "HTTP",
+      "description": "HTTP request",
+      "apiKeyPlaceholder": "Enter API Key",
+      "urlPlaceholder": "Input URL, use var by '{'",
+      "methods": {
+        "get": "GET",
+        "post": "POST",
+        "put": "PUT",
+        "delete": "DELETE",
+        "patch": "PATCH",
+        "head": "HEAD"
+      },
+      "bodyTypes": {
+        "none": "None",
+        "json": "JSON"
+      }
+    },
+    "condition": {
+      "conditionPlaceholder": "Enter condition expression",
+      "conditionRequired": "Condition is required",
+      "modes": {
+        "stateCondition": "state.condition",
+        "custom": "custom expression"
+      }
+    },
+    "sheetOutputs": {
+      "outputPlaceholder": "output_{{index}}",
+      "pickNextSheet": "Pick next sheet",
+      "sheetLabel": "{{name}} ({{id}})"
+    }
+  }
+}
