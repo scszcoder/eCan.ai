@@ -2,11 +2,12 @@ from agent.ec_agent import EC_Agent
 from a2a.types import AgentCapabilities
 from agent.a2a.langgraph_agent.utils import SUPPORTED_CONTENT_TYPES, AgentCard
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
-from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 import traceback
 import typing
 from utils.logger_helper import logger_helper as logger
 from agent.playwright import create_browser_use_llm
+# DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
+# from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
@@ -43,16 +44,23 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
                 skills=[chatter_skill],
         )
         logger.info(f"[MyTwinAgent] Created system agent with fixed ID: {MY_TWIN_AGENT_ID}, name: {MY_TWIN_AGENT_NAME}")
-        chat_task = create_my_twin_chat_task(mainwin)
         
-        if not chat_task:
-            logger.error(f"[MyTwinAgent] Critical Error: Failed to create chat task! Agent setup aborted.")
-            return None
+        # DEPRECATED: My Twin Agent chat task - kept for reference, will be removed later
+        # chat_task = create_my_twin_chat_task(mainwin)
+        chat_task = None
 
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
         browser_use_llm = mainwin.browser_use_llm
 
-        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[chatter_skill], tasks=[chat_task])
+        helper = EC_Agent(
+            mainwin=mainwin,
+            skill_llm=llm,
+            llm=browser_use_llm,
+            task="",
+            card=agent_card,
+            skills=[chatter_skill],
+            tasks=[chat_task] if chat_task else [],
+        )
 
     except Exception as e:
         # Get the traceback information

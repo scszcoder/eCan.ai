@@ -474,8 +474,13 @@ class DBChatService(BaseService):
                 "error": "userId is required"
             }
         with self.session_scope() as session:
+            logger.info(f"[query_chats_by_user] Querying chats for userId: {userId}")
             stmt = select(Chat).join(Member).where(Member.userId == userId)
             chats = session.execute(stmt).scalars().all()
+            logger.info(f"[query_chats_by_user] Found {len(chats)} chats for userId: {userId}")
+            for i, chat in enumerate(chats):
+                members_info = ', '.join([f"{m.userId}({m.role})" for m in chat.members]) if chat.members else 'no members'
+                logger.info(f"[query_chats_by_user] Chat {i+1}: id={chat.id}, name={chat.name}, members=[{members_info}]")
             return {
                 "success": True,
                 "id": None,

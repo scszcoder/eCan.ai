@@ -28,9 +28,10 @@ interface AgentStoreState {
 
   // Selectors
   getAgentById: (id: string) => Agent | null;
-  getMyTwinAgent: () => Agent | null;
   getAgentsByRank: (rank: string) => Agent[];
   getAgentsByOrganization: (organization: string) => Agent[];
+  // DEPRECATED: My Twin Agent selector - kept for reference, will be removed later
+  // getMyTwinAgent: () => Agent | null;
 
   // Data fetching
   fetchAgents: (username: string, skillIds?: string[]) => Promise<void>;
@@ -102,23 +103,6 @@ export const useAgentStore = create<AgentStoreState>()(
         return agents.find(agent => agent.card?.id === id) || null;
       },
       
-      getMyTwinAgent: () => {
-        const agents = get().agents;
-        // Priority: find by ID (more reliable)
-        const myTwinById = agents.find(agent => 
-          agent.card?.id?.startsWith('system_my_twin') || 
-          agent.card?.id === 'system_my_twin_agent'
-        );
-        if (myTwinById) return myTwinById;
-        
-        // Fallback: find by name
-        const myTwinByName = agents.find(agent => 
-          agent.card?.name === 'My Twin Agent' ||
-          agent.card?.name?.includes('Twin')
-        );
-        return myTwinByName || null;
-      },
-      
       getAgentsByRank: (rank) => {
         const agents = get().agents;
         return agents.filter(agent => agent.rank === rank);
@@ -126,15 +110,20 @@ export const useAgentStore = create<AgentStoreState>()(
       
       getAgentsByOrganization: (organization) => {
         const agents = get().agents;
-        return agents.filter(agent => agent.orgIds?.includes(organization));
+        return agents.filter(agent => agent.org_id === organization);
       },
+      
+      // DEPRECATED: My Twin Agent selector - kept for reference, will be removed later
+      // getMyTwinAgent: () => {
+      //   const agents = get().agents;
+      //   return agents.find(agent => agent.card?.id === 'system_my_twin_agent') || null;
+      // },
 
-      // Data fetching - getAgents now returns all agents including MyTwinAgent
+      // Data fetching
       fetchAgents: async (username: string, skillIds: string[] = []) => {
         set({ loading: true, error: null });
         try {
           const api = createIPCAPI();
-          // getAgents now includes all agents (database + memory-only agents like MyTwinAgent)
           const response = await api.getAgents<AgentsResponse | Agent[]>(username, skillIds);
           
           if (response && response.success && response.data) {

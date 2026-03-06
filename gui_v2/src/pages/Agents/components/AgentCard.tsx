@@ -23,6 +23,12 @@ import './AgentCard.css';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
 
+// DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
+// Previously: const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
+// Previously: const myTwinAgentId = myTwinAgent?.card?.id;
+// Previously: Chat button was disabled when agent.card?.id === myTwinAgentId
+// Now: Chat button is always enabled for all agents
+
 interface AgentCardProps {
   agent: Agent | AgentCardType;
   onChat?: () => void;
@@ -64,13 +70,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const username = useUserStore((state) => state.username);
-  const myTwinAgent = useAgentStore((state) => state.getMyTwinAgent());
 
   // SecurityGetProperty
   const id = getAgentId(agent);
   const name = getAgentName(agent);
   const description = getAgentDescription(agent);
-  const myTwinAgentId = myTwinAgent?.card?.id;
 
   // Scene playback state
   const videoRef = React.useRef<HTMLVideoElement>(null);
@@ -471,35 +475,24 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             e.stopPropagation();
             onChat?.();
           }}
-          disabled={id === myTwinAgentId}
           style={{
             flex: 1,
             borderRadius: '8px',
             height: '36px',
             fontWeight: 400,
-            background: id === myTwinAgentId 
-              ? 'rgba(255, 255, 255, 0.05)' 
-              : 'rgba(59, 130, 246, 0.08)',
-            border: id === myTwinAgentId 
-              ? '1px solid rgba(255, 255, 255, 0.1)' 
-              : '1px solid rgba(59, 130, 246, 0.2)',
-            color: id === myTwinAgentId 
-              ? 'rgba(255, 255, 255, 0.4)' 
-              : 'rgba(59, 130, 246, 0.9)',
+            background: 'rgba(59, 130, 246, 0.08)',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
+            color: 'rgba(59, 130, 246, 0.9)',
             boxShadow: 'none',
             transition: 'all 0.2s ease'
           }}
           onMouseEnter={(e) => {
-            if (id !== myTwinAgentId) {
-              e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)';
-              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
-            }
+            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)';
+            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
           }}
           onMouseLeave={(e) => {
-            if (id !== myTwinAgentId) {
-              e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
-              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
-            }
+            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
           }}
         >
           {t('pages.agents.startChat') || 'Start Chat'}

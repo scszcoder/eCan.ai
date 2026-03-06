@@ -8,6 +8,10 @@ import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
+// DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
+// Previously used: const myTwinAgentId = useAgentStore(state => state.getMyTwinAgent()?.card?.id);
+// Previously added "(myself)" label to My Twin Agent in the tree
+
 interface AgentFilterModalProps {
   visible: boolean;
   selectedAgentId: string | null;
@@ -26,13 +30,8 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
   const treeOrgs = useOrgStore((state) => state.treeOrgs);
   const setAllOrgAgents = useOrgStore((state) => state.setAllOrgAgents);
   const username = useUserStore((state) => state.username);
-  const getMyTwinAgent = useAgentStore((state) => state.getMyTwinAgent);
   const [searchText, setSearchText] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
-  
-  // Get MyTwin agent
-  const myTwinAgent = getMyTwinAgent();
-  const myTwinAgentId = myTwinAgent?.card?.id;
 
   // When Modal Open时Load组织Data
   useEffect(() => {
@@ -93,16 +92,11 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
           .map((agent: any) => {
             const agentId = agent.id || agent.card?.id;
             const agentName = agent.name || agent.card?.name || 'Unnamed Agent';
-            const isMyTwin = agentId === myTwinAgentId;
-            const displayName = isMyTwin 
-              ? `${t('pages.chat.myself')}（${agentName}）`
-              : agentName;
-            
             return {
               title: (
                 <Space>
                   <UserOutlined style={{ color: '#52c41a' }} />
-                  <span>{displayName}</span>
+                  <span>{agentName}</span>
                 </Space>
               ),
               key: agentId,
@@ -190,16 +184,11 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
         children: filteredAgents.map((agent: any) => {
           const agentId = agent.id || agent.card?.id;
           const agentName = agent.name || agent.card?.name || 'Unnamed Agent';
-          const isMyTwin = agentId === myTwinAgentId;
-          const displayName = isMyTwin 
-            ? `${t('pages.chat.myself')}（${agentName}）`
-            : agentName;
-          
           return {
             title: (
               <Space>
                 <UserOutlined style={{ color: '#52c41a' }} />
-                <span>{displayName}</span>
+                <span>{agentName}</span>
               </Space>
             ),
             key: agentId,
@@ -211,7 +200,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
     }
 
     return [];
-  }, [treeOrgs, agents, searchText, t, myTwinAgentId]);
+  }, [treeOrgs, agents, searchText, t]);
 
   // 收集All组织节点的 key Used forExpand
   useEffect(() => {
