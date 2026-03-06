@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, Callable
 from enum import Enum
 import asyncio
 import os
+import time
 
 # Conditionally import PySide6 - not needed in web mode
 _ECAN_MODE = os.getenv('ECAN_MODE', 'desktop')
@@ -197,6 +198,9 @@ class Login:
         """
         try:
             logger.info(f"[Login] Starting async main window launch...")
+            launch_start_time = time.time()
+            preload_wait_time = 0.0
+            preload_state = "unknown"
             
             # Check and wait for background preload completion
             try:
@@ -205,31 +209,47 @@ class Login:
                 preloader = get_async_preloader()
                 
                 if preloader.is_in_progress():
+                    preload_state = "in_progress"
                     logger.info("[Login] 📦 Waiting for background preload to complete...")
                     self._update_progress(70, "Finalizing preload...")
-                    
+
+                    preload_wait_start = time.time()
                     preload_result = await preloader.wait_for_completion(timeout=30.0)
+                    preload_wait_time = time.time() - preload_wait_start
                     success_count = preload_result.get('success_count', 0)
                     total_tasks = preload_result.get('total_tasks', 0)
                     
                     logger.info(f"[Login] 📦 Preload completed: {success_count}/{total_tasks} successful")
                     self._update_progress(75, f"Preload ready ({success_count}/{total_tasks})")
                 elif preloader.is_complete():
+                    preload_state = "complete"
                     result = preloader.get_summary()
                     logger.info(f"[Login] ✅ Preload ready: {result['success_count']}/{result['total_tasks']} modules")
                     self._update_progress(75, "Preload ready")
                 else:
+                    preload_state = "not_started"
                     logger.warning("[Login] ⚠️ Preload not available, continuing...")
                     self._update_progress(75, "Loading without preload...")
                     
             except Exception as e:
+                preload_state = "error"
                 logger.warning(f"[Login] ⚠️ Preload check failed: {e}")
                 self._update_progress(75, "Continuing...")
             
             # Launch main window
             self._update_progress(80, "Launching main window...")
             try:
+                main_window_launch_start = time.time()
                 self._launch_main_window(request.schedule_mode)
+                main_window_launch_time = time.time() - main_window_launch_start
+                total_launch_time = time.time() - launch_start_time
+
+                logger.info(
+                    f"[Login] ⏱️ Launch timing: preload_state={preload_state}, "
+                    f"preload_wait={preload_wait_time:.3f}s, "
+                    f"mainwindow_create={main_window_launch_time:.3f}s, "
+                    f"total={total_launch_time:.3f}s"
+                )
                 logger.info(f"[Login] ✅ Main window launched successfully")
             except Exception as e:
                 logger.error(f"[Login] ❌ Main window launch failed: {e}")

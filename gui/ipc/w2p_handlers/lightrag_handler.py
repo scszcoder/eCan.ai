@@ -537,7 +537,15 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
                         json.dump({}, f)
                     logger.info(f"[ClearCache] Created: {kv_file}")
                 
+                # Create graph database initialization file
+                graph_file = 'graph_chunk_entity_relation_table.json'
+                graph_path = os.path.join(working_dir, graph_file)
+                with open(graph_path, 'w', encoding='utf-8') as f:
+                    json.dump({}, f)
+                logger.info(f"[ClearCache] Created: {graph_file}")
+                
                 logger.info(f"[ClearCache] ✅ Initialization files recreated successfully")
+                logger.info(f"[ClearCache] Note: Vector database indexes will be recreated automatically on first document upload")
                 
             except Exception as e:
                 error_msg = f"Failed to recreate initialization files: {str(e)}"
@@ -1314,11 +1322,54 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
             return create_success_response(request, {'success': True, 'message': 'Server restarted successfully'})
         else:
             logger.error("[LightRAG] ❌ Server restart failed")
-            return create_error_response(request, 'RESTART_FAILED', 'Failed to restart server')
+            startup_message = 'Failed to restart server'
+            try:
+                status = main_window.lightrag_server.get_startup_status()
+                if status and status.get('message'):
+                    startup_message = status['message']
+            except Exception:
+                pass
+            return create_error_response(request, 'RESTART_FAILED', startup_message)
             
     except Exception as e:
         logger.error(f"Error restarting LightRAG server: {e}", exc_info=True)
         return create_error_response(request, 'RESTART_SERVER_ERROR', str(e))
+
+
+@IPCHandlerRegistry.background_handler('lightrag.getStartupStatus')
+def handle_get_startup_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get current LightRAG startup/running status for UI availability indicators."""
+    try:
+        from app_context import AppContext
+
+        main_window = AppContext.get_main_window()
+        if not main_window or not hasattr(main_window, 'lightrag_server') or not main_window.lightrag_server:
+            return create_success_response(request, {
+                'running': False,
+                'ok': False,
+                'message': 'LightRAG server is not initialized',
+                'error_type': 'not_initialized',
+                'timestamp': 0,
+            })
+
+        server = main_window.lightrag_server
+        startup_status = server.get_startup_status() if hasattr(server, 'get_startup_status') else {}
+        running = bool(server.is_running()) if hasattr(server, 'is_running') else False
+
+        status_ok = startup_status.get('ok')
+        if status_ok is None:
+            status_ok = running
+
+        return create_success_response(request, {
+            'running': running,
+            'ok': status_ok,
+            'message': startup_status.get('message', ''),
+            'error_type': startup_status.get('error_type', ''),
+            'timestamp': startup_status.get('timestamp', 0),
+        })
+    except Exception as e:
+        logger.error(f"[LightRAG] Error getting startup status: {e}", exc_info=True)
+        return create_error_response(request, 'GET_STARTUP_STATUS_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('lightrag.getWorkspaces')
@@ -1926,15 +1977,23 @@ def handle_check_embedding_dimension(request: IPCRequest, params: Optional[Dict[
                 'workspaces': []
             })
         
-        # Construct the full workspace directory path
-        # WORKING_DIR is the base directory, workspace files are in subdirectories
-        working_dir = os.path.join(base_working_dir, workspace_name)
-        
-        logger.info(f"Checking workspace directory: {working_dir}")
-        
-        if not os.path.exists(working_dir):
+        # Resolve workspace directory robustly.
+        # WORKING_DIR may already point to the current workspace folder,
+        # or to a parent folder containing workspace subdirectories.
+        workspace_candidates = []
+        if workspace_name and os.path.basename(os.path.normpath(base_working_dir)) == workspace_name:
+            workspace_candidates.append(base_working_dir)
+        workspace_candidates.append(os.path.join(base_working_dir, workspace_name))
+        workspace_candidates.append(base_working_dir)
+
+        working_dir = next((p for p in workspace_candidates if p and os.path.isdir(p)), None)
+
+        logger.info(f"Checking workspace directory candidates: {workspace_candidates}")
+        logger.info(f"Resolved workspace directory: {working_dir}")
+
+        if not working_dir:
             # Workspace directory doesn't exist yet, no conflict
-            logger.info(f"Workspace directory does not exist: {working_dir}")
+            logger.info(f"Workspace directory does not exist for workspace: {workspace_name}")
             return create_success_response(request, {
                 'hasConflict': False,
                 'currentDimension': None,
@@ -1954,6 +2013,9 @@ def handle_check_embedding_dimension(request: IPCRequest, params: Optional[Dict[
         if 'Faiss' in vector_storage or 'FAISS' in vector_storage:
             # Check FAISS index files
             faiss_files = [
+                'vdb_entities.index',
+                'vdb_chunks.index',
+                'vdb_relationships.index',
                 'faiss_index_chunks.index',
                 'faiss_index_entities.index',
                 'faiss_index_relationships.index'

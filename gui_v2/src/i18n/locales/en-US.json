@@ -2057,6 +2057,9 @@
         "restarting": "Applying...",
         "restartSuccess": "Configuration applied successfully",
         "restartError": "Failed to apply configuration",
+        "lightragUnavailableTitle": "Knowledge Base Unavailable",
+        "lightragUnavailableDesc": "LightRAG failed to start. Knowledge retrieval and document processing are currently unavailable.",
+        "lightragUnavailableAction": "Please check embedding/workspace settings and click \"Apply Configuration\" to restart. If embedding dimension changed, switch to a new workspace.",
         "restartLater": "Cancel",
         "applyNow": "Apply Now",
         "workspace": {
