@@ -7,6 +7,7 @@ import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-edito
 import { createInferInputsPlugin, DisplayOutputs, IJsonSchema, validateFlowValue } from '@flowgram.ai/form-materials';
 import { Divider, Input } from '@douyinfe/semi-ui';
 import styled from 'styled-components';
+import { useTranslation } from 'react-i18next';
 
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { HTTPNodeJSON } from './types';
@@ -16,32 +17,36 @@ import { Headers } from './components/headers';
 import { Body } from './components/body';
 import { Api } from './components/api';
 import { defaultFormMeta } from '../default-form-meta';
+import { getCommonFieldLabel } from '../../utils/field-labels';
 
 // Wrapper to set min-width for HTTP node content when expanded
 const HTTPFormContentWrapper = styled.div`
   min-width: 300px;
 `;
 
-export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
-  <>
-    <FormHeader />
-    <FormContent>
-      <HTTPFormContentWrapper>
-        <Api />
-        <Divider />
-        {/* API Key input */}
-        <FormItem name="apiKey" type="string" vertical>
-          <Field<string> name="inputsValues.apiKey">
-            {({ field }) => (
-              <Input
-                value={field.value}
-                onChange={(val) => field.onChange(val)}
-                placeholder="Enter API Key"
-                mode="password"
-              />
-            )}
-          </Field>
-        </FormItem>
+export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => {
+  const { t } = useTranslation('skillEditor');
+  
+  return (
+    <>
+      <FormHeader />
+      <FormContent>
+        <HTTPFormContentWrapper>
+          <Api />
+          <Divider />
+          {/* API Key input */}
+          <FormItem name="apiKey" label={getCommonFieldLabel('apiKey', t)} type="string" vertical>
+            <Field<string> name="inputsValues.apiKey">
+              {({ field }) => (
+                <Input
+                  value={field.value}
+                  onChange={(val) => field.onChange(val)}
+                  placeholder={t('nodes.http.apiKeyPlaceholder')}
+                  mode="password"
+                />
+              )}
+            </Field>
+          </FormItem>
         <Divider />
         <Headers />
         <Divider />
@@ -54,7 +59,8 @@ export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
       </HTTPFormContentWrapper>
     </FormContent>
   </>
-);
+  );
+};
 
 export const formMeta: FormMeta = {
   render: (props) => <FormRender {...props} />,

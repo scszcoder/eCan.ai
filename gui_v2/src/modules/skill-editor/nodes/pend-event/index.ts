@@ -13,7 +13,7 @@ export const PendEventNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.PendEvent as any,
   info: {
     icon: iconBreak,
-    description: 'Pause the flow until a specified event type arrives, then resume.',
+    description: 'nodes.pendEvent.description',
   },
   meta: {
     defaultPorts: [

@@ -6,14 +6,17 @@
 import { FormRenderProps, FormMeta, ValidateTrigger, Field } from '@flowgram.ai/free-layout-editor';
 import { createInferInputsPlugin, DisplayOutputs } from '@flowgram.ai/form-materials';
 import { Checkbox } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 
 import { FlowNodeJSON } from '../../typings';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormHeader, FormContent, FormInputs, FormItem } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
 import { RunCodeEditor } from './components/run-code-editor';
+import { getCommonFieldLabel } from '../../utils/field-labels';
 
 export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
+  const { t } = useTranslation('skillEditor');
 
   return (
     <>
@@ -23,14 +26,14 @@ export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
           {/* 1) Tool selector */}
           <FormCallable />
           {/* Run Local checkbox */}
-          <FormItem name="run_local" type="boolean" vertical>
+          <FormItem name="run_local" label={getCommonFieldLabel('run_local', t)} type="boolean" vertical>
             <Field<boolean> name="data.run_local">
               {({ field }) => (
                 <Checkbox
                   checked={!!field.value}
                   onChange={(e) => field.onChange(e.target.checked as boolean)}
                 >
-                  Run Local (execute on local machine via passive command)
+                  {t('nodes.mcp.runLocalDesc')}
                 </Checkbox>
               )}
             </Field>
@@ -39,7 +42,7 @@ export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
           <RunCodeEditor />
           {/* 2) Dynamic tool inputs */}
           <div style={{ height: 1, background: '#e8e8e8', margin: '12px 0', width: '100%' }} />
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Tool Inputs</div>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('nodes.mcp.toolInputs')}</div>
           {/* Dynamic inputs based on selected tool schema (data.callable.params) */}
           <FormInputs />
           {/* 3) Outputs */}
