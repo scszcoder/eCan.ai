@@ -71,8 +71,9 @@ class PackageManager:
         
         logger.info(f"Package manager initialized with download dir: {self.download_dir}")
         
-        # Clean up old downloaded packages on startup
-        self._cleanup_old_packages()
+        # ⚠️ DO NOT clean up packages on startup to prevent deletion of failed installation packages
+        # Cleanup will be performed after successful installation instead
+        # self._cleanup_old_packages()
     
     def download_package(self, package: UpdatePackage, progress_callback=None, cancel_check=None, max_retries=3) -> bool:
         """Download update package with automatic fallback to alternate URL
@@ -837,39 +838,40 @@ class PackageManager:
             logger.error(f"Dev installer failed: {e}")
             return False
     
-    def _cleanup_old_packages(self, max_age_days: int = 7):
-        """Clean up old downloaded packages on startup
+    def cleanup_after_installation(self, keep_current: bool = True):
+        """Clean up downloaded packages after successful installation
         
         Args:
-            max_age_days: Delete packages older than this many days (default: 7)
+            keep_current: If True, keep the current package file (default: True)
         """
         try:
             if not self.download_dir.exists():
                 return
             
-            import time
-            current_time = time.time()
-            max_age_seconds = max_age_days * 24 * 60 * 60
-            
             cleaned_count = 0
             cleaned_size = 0
+            
+            # Get current package path to preserve it
+            current_package_path = None
+            if keep_current and self.current_package and self.current_package.download_path:
+                current_package_path = self.current_package.download_path
             
             # Iterate through all files in download directory
             for file_path in self.download_dir.iterdir():
                 if not file_path.is_file():
                     continue
                 
+                # Skip current package if keep_current is True
+                if current_package_path and file_path == current_package_path:
+                    logger.info(f"[Cleanup] Keeping current package: {file_path.name}")
+                    continue
+                
                 try:
-                    # Get file age
-                    file_age = current_time - file_path.stat().st_mtime
-                    
-                    # Delete if older than max_age_days
-                    if file_age > max_age_seconds:
-                        file_size = file_path.stat().st_size
-                        file_path.unlink()
-                        cleaned_count += 1
-                        cleaned_size += file_size
-                        logger.info(f"[Cleanup] Deleted old package: {file_path.name} (age: {file_age / 86400:.1f} days)")
+                    file_size = file_path.stat().st_size
+                    file_path.unlink()
+                    cleaned_count += 1
+                    cleaned_size += file_size
+                    logger.info(f"[Cleanup] Deleted old package: {file_path.name}")
                     
                 except Exception as e:
                     logger.warning(f"[Cleanup] Failed to delete {file_path.name}: {e}")
@@ -882,6 +884,11 @@ class PackageManager:
                 
         except Exception as e:
             logger.error(f"[Cleanup] Failed to clean up old packages: {e}")
+    
+    def _cleanup_old_packages(self, max_age_days: int = 7):
+        """Legacy cleanup method - deprecated, use cleanup_after_installation() instead"""
+        logger.warning("[Cleanup] _cleanup_old_packages is deprecated, use cleanup_after_installation() instead")
+        self.cleanup_after_installation(keep_current=True)
 
 
 # Global package manager instance

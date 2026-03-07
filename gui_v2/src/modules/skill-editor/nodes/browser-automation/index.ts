@@ -15,7 +15,7 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.BrowserAutomation,
   info: {
     icon: iconScript,
-    description: 'Automate browsing tasks using a selected tool with prompts and parameters.',
+    description: 'nodes.browserAutomation.description',
   },
   meta: {
     size: {

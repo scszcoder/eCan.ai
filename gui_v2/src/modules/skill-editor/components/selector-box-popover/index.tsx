@@ -1,4 +1,5 @@
 import { FunctionComponent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { SelectorBoxPopoverProps } from '@flowgram.ai/free-layout-editor';
 import { WorkflowGroupCommand } from '@flowgram.ai/free-group-plugin';
@@ -15,7 +16,10 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
   children,
   flowSelectConfig,
   commandRegistry,
-}) => (
+}) => {
+  const { t } = useTranslation('skillEditor');
+
+  return (
   <>
     <div
       style={{
@@ -32,7 +36,7 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
         size="small"
         style={{ display: 'flex', flexWrap: 'nowrap', height: BUTTON_HEIGHT }}
       >
-        <Tooltip content={'Collapse'}>
+        <Tooltip content={t('selectionPopover.collapse')}>
           <Button
             icon={<IconShrink />}
             style={{ height: BUTTON_HEIGHT }}
@@ -44,7 +48,7 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
           />
         </Tooltip>
 
-        <Tooltip content={'Expand'}>
+        <Tooltip content={t('selectionPopover.expand')}>
           <Button
             icon={<IconExpand />}
             style={{ height: BUTTON_HEIGHT }}
@@ -56,7 +60,7 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
           />
         </Tooltip>
 
-        <Tooltip content={'Create Group'}>
+        <Tooltip content={t('selectionPopover.createGroup')}>
           <Button
             icon={<IconGroup size={14} />}
             style={{ height: BUTTON_HEIGHT }}
@@ -68,7 +72,7 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
           />
         </Tooltip>
 
-        <Tooltip content={'Copy'}>
+        <Tooltip content={t('selectionPopover.copy')}>
           <Button
             icon={<IconCopy />}
             style={{ height: BUTTON_HEIGHT }}
@@ -80,7 +84,7 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
           />
         </Tooltip>
 
-        <Tooltip content={'Delete'}>
+        <Tooltip content={t('selectionPopover.delete')}>
           <Button
             type="primary"
             theme="solid"
@@ -95,4 +99,5 @@ export const SelectorBoxPopover: FunctionComponent<SelectorBoxPopoverProps> = ({
     </div>
     <div>{children}</div>
   </>
-);
+  );
+};

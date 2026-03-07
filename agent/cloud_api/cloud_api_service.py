@@ -24,6 +24,24 @@ import agent.cloud_api.cloud_api  # noqa: F401
 
 class CloudAPIService:
     """Cloud API Sync Service (auto-registered using decorators)"""
+
+    @staticmethod
+    def _is_duplicate_entry_error(error: Any) -> bool:
+        """Check whether an error message indicates a DB duplicate-key insert."""
+        err = str(error or "").lower()
+        return (
+            "duplicate entry" in err
+            or "error code: 1062" in err
+            or "sqlstate: 23000" in err
+        )
+
+    def _is_idempotent_error(self, operation: str, error: Any) -> bool:
+        """Only treat known duplicate insert errors as idempotent success."""
+        return (
+            operation == Operation.ADD.value
+            and self.data_type == DataType.TASK_SKILL
+            and self._is_duplicate_entry_error(error)
+        )
     
     def __init__(self, data_type: Union[DataType, str]):
         """
@@ -209,6 +227,20 @@ class CloudAPIService:
             # Explicit failure shape from some cloud handlers
             if isinstance(result, dict) and result.get('success') is False:
                 error_msg = result.get('error') or result.get('message') or 'Cloud API returned success=false'
+
+                # Idempotent behavior for duplicate inserts on TASK_SKILL.add
+                if self._is_idempotent_error(operation_str, error_msg):
+                    logger.info(
+                        f"[CloudAPIService] ✅ Duplicate TASK_SKILL relation already exists in cloud, treating as idempotent success ({operation_str})"
+                    )
+                    return {
+                        'success': True,
+                        'synced': len(local_items),
+                        'failed': 0,
+                        'errors': [],
+                        'response': result
+                    }
+
                 logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
                 logger.error(f"[CloudAPIService] Full failure response: {result}")
                 return {
@@ -235,12 +267,22 @@ class CloudAPIService:
             if isinstance(result, list):
                 logger.debug(f"[CloudAPIService] Cloud API returned list response with {len(result)} item(s)")
                 # Some APIs return per-item results like {success: false, error: ...}
+                duplicate_errors = []
                 item_errors = []
                 for item in result:
                     if not isinstance(item, dict):
                         continue
                     if item.get('success') is False or item.get('errorType') or item.get('error'):
-                        item_errors.append(item.get('error') or item.get('message') or str(item))
+                        item_error = item.get('error') or item.get('message') or str(item)
+                        if self._is_idempotent_error(operation_str, item_error):
+                            duplicate_errors.append(item_error)
+                        else:
+                            item_errors.append(item_error)
+
+                if duplicate_errors:
+                    logger.info(
+                        f"[CloudAPIService] ℹ️ Ignoring {len(duplicate_errors)} duplicate TASK_SKILL relation error(s) as idempotent ({operation_str})"
+                    )
 
                 if item_errors:
                     logger.error(

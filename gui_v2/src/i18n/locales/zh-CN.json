@@ -2003,6 +2003,14 @@
         "workspace_switched": "已切换到 workspace：{{name}}",
         "workspace_switch_failed": "切换 workspace 失败"
       },
+      "help": {
+        "title": "知识库使用指南",
+        "button": "帮助",
+        "tooltip": "查看知识库使用指南",
+        "loading": "正在加载帮助文档...",
+        "loadError": "加载帮助文档失败",
+        "tableOfContents": "目录"
+      },
       "graph": {
         "title": "知识图谱",
         "subtitle": "知识关系的交互式可视化",
@@ -2038,6 +2046,9 @@
         "restarting": "正在应用...",
         "restartSuccess": "配置应用成功",
         "restartError": "应用配置失败",
+        "lightragUnavailableTitle": "知识库不可用",
+        "lightragUnavailableDesc": "LightRAG 启动失败，当前无法进行知识检索和文档处理。",
+        "lightragUnavailableAction": "请检查 embedding / workspace 设置后点击“应用配置”重启。如果 embedding 维度已变更，请切换到新工作空间。",
         "restartLater": "取消",
         "applyNow": "立即应用",
         "workspace": {
@@ -2050,7 +2061,15 @@
           "deleteError": "删除工作空间失败",
           "loadError": "加载工作空间列表失败",
           "newPlaceholder": "输入新工作空间名称...",
-          "newHint": "按 Enter 创建"
+          "newHint": "按 Enter 创建",
+          "switchMode": "切换工作空间",
+          "createMode": "创建工作空间",
+          "selectPlaceholder": "选择工作空间",
+          "empty": "空",
+          "error": "错误",
+          "nameRequired": "工作空间名称不能为空",
+          "alreadyExists": "工作空间 \"{{name}}\" 已存在",
+          "createHint": "输入工作空间名称后点击创建按钮"
         },
         "tabs": {
           "basic": "基础配置",

@@ -4,6 +4,8 @@
  */
 
 import React, { useState } from 'react';
+import { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 
 import classnames from 'classnames';
 import { Toast } from '@douyinfe/semi-ui';
@@ -20,14 +22,15 @@ interface TreeNodeProps {
   value: any;
   level: number;
   isLast?: boolean;
+  t: TFunction;
 }
 
-const TreeNode: React.FC<TreeNodeProps> = ({ label, value, level, isLast = false }) => {
+const TreeNode: React.FC<TreeNodeProps> = ({ label, value, level, isLast = false, t }) => {
   const [isExpanded, setIsExpanded] = useState(true);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    Toast.success('Copied');
+    Toast.success(t('dataViewer.copied'));
   };
 
   const isExpandable = (val: any) =>
@@ -107,6 +110,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({ label, value, level, isLast = false
           value={item}
           level={level + 1}
           isLast={index === value.length - 1}
+          t={t}
         />
       ));
     } else {
@@ -118,6 +122,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({ label, value, level, isLast = false
           value={val}
           level={level + 1}
           isLast={index === entries.length - 1}
+          t={t}
         />
       ));
     }
@@ -163,10 +168,12 @@ const TreeNode: React.FC<TreeNodeProps> = ({ label, value, level, isLast = false
 };
 
 export const DataStructureViewer: React.FC<DataStructureViewerProps> = ({ data, level = 0 }) => {
+  const { t } = useTranslation('skillEditor');
+
   if (data === null || data === undefined || typeof data !== 'object') {
     return (
       <div className={styles.dataStructureViewer}>
-        <TreeNode label="value" value={data} level={0} />
+        <TreeNode label={t('dataViewer.value')} value={data} level={0} t={t} />
       </div>
     );
   }
@@ -182,6 +189,7 @@ export const DataStructureViewer: React.FC<DataStructureViewerProps> = ({ data, 
           value={value}
           level={0}
           isLast={index === entries.length - 1}
+          t={t}
         />
       ))}
     </div>

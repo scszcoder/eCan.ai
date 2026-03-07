@@ -11,7 +11,7 @@ export const TaskNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Task,
   info: {
     icon: iconTask,
-    description: 'A task node for organizing workflow steps',
+    description: 'nodes.task.description',
   },
   meta: {
     size: {

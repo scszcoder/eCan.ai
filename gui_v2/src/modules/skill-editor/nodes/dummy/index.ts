@@ -11,7 +11,7 @@ export const DummyNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Dummy,
   info: {
     icon: iconDummy,
-    description: 'A dummy node for testing and placeholder purposes',
+    description: 'nodes.dummy.description',
   },
   meta: {
     size: {

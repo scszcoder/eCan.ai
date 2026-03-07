@@ -4,6 +4,7 @@
  */
 
 import { FC, useContext, useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import classnames from 'classnames';
 import { WorkflowInputs, WorkflowOutputs } from '@flowgram.ai/runtime-interface';
@@ -34,6 +35,7 @@ interface TestRunSidePanelProps {
 }
 
 export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel }) => {
+  const { t } = useTranslation('skillEditor');
   let runtimeService: WorkflowRuntimeService | null = null;
   try {
     runtimeService = useService(WorkflowRuntimeService);
@@ -52,9 +54,8 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
-  const [isRunning, setRunning] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [errors, setErrors] = useState<string[] | undefined>();
+  const [isRunning, setRunning] = useState(false);
   const [result, setResult] = useState<
     | {
         inputs: WorkflowInputs;
@@ -62,6 +63,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       }
     | undefined
   >();
+  const [, setErrors] = useState<string[] | undefined>(undefined);
 
   // en - Use localStorage to persist the JSON mode state
   const [inputJSONMode, _setInputJSONMode] = useState(() => {
@@ -97,7 +99,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     // 2. Use setTimeout to allow the UI to update before proceeding
     setTimeout(async () => {
       if (!username || !skillInfo) {
-        Notification.error({ title: 'Cannot run test', content: 'User or skill info is missing.' });
+        Notification.error({ title: t('testrun.cannotRun'), content: t('testrun.missingInfo') });
         setRunning(false);
         setRunningNodeId(null);
         return;
@@ -172,10 +174,10 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         setRunning(false);
         setRunningNodeId(null);
         Notification.error({
-          title: 'Backend Run Failed',
-          content: response.error?.message || 'An unknown error occurred.',
+          title: t('testrun.backendRunFailed'),
+          content: response.error?.message || t('testrun.unknownError'),
         });
-        setErrors([response.error?.message || 'An unknown error occurred.']);
+        setErrors([response.error?.message || t('testrun.unknownError')]);
       }
     }, 0);
   }, [document, isRunning, username, skillInfo, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine, setRunningNodeId, values]);
@@ -204,7 +206,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         [styles.default]: !isRunning,
       })}
     >
-      {isRunning ? 'Cancel' : 'Test Run'}
+      {isRunning ? t('testrun.cancel') : t('testrun.testRun')}
     </Button>
   );
 

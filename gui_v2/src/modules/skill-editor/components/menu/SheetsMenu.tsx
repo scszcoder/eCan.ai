@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dropdown, IconButton, Toast } from '@douyinfe/semi-ui';
 import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconEdit, IconUpload, IconMinus } from '@douyinfe/semi-icons';
 import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
@@ -13,6 +14,7 @@ import { useUserStore } from '../../../../stores/userStore';
  * MVP uses prompt dialogs for simplicity.
  */
 export const SheetsMenu: React.FC = () => {
+  const { t } = useTranslation('skillEditor');
   const ctx = useClientContext();
   const playground = usePlayground();
   const workflowDocument = useService(WorkflowDocument);
@@ -42,7 +44,7 @@ export const SheetsMenu: React.FC = () => {
   }, [sheetOrder, sheetMap]);
 
   const handleOpen = () => {
-    const id = window.prompt('Open sheet by ID:');
+    const id = window.prompt(t('sheetsMenu.openSheetPrompt'));
     if (id) openSheet(id);
   };
 
@@ -51,13 +53,13 @@ export const SheetsMenu: React.FC = () => {
       const ipc = IPCAPI.getInstance();
       const resp = await ipc.testLanggraph2Flowgram();
       if (resp.success) {
-        Toast.success({ content: 'langgraph2flowgram test exported to test_skill/diagram_dir' });
+        Toast.success({ content: t('sheetsMenu.testExported') });
       } else {
-        Toast.error({ content: `Test failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.testFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] test-langgraph2flowgram error', e);
-      Toast.error({ content: 'IPC error while testing langgraph2flowgram' });
+      Toast.error({ content: t('sheetsMenu.testIpcError') });
     } finally {
       setVisible(false);
     }
@@ -82,27 +84,27 @@ export const SheetsMenu: React.FC = () => {
   };
   const handleDelete = () => {
     if (!activeId) return;
-    if (activeId === 'main') return alert('Cannot delete the main sheet in MVP.');
-    if (confirm(`Delete sheet '${activeId}'? This cannot be undone.`)) {
+    if (activeId === 'main') return alert(t('sheetsMenu.deleteMainSheet'));
+    if (confirm(t('sheetsMenu.deleteSheetConfirm', { id: activeId }))) {
       deleteSheet(activeId);
     }
   };
   const handleNew = () => {
-    const name = prompt('New sheet name?') || undefined;
+    const name = prompt(t('sheetsMenu.newSheetNamePrompt')) || undefined;
     const id = newSheet(name, null);
     openSheet(id);
   };
 
   const handleClear = () => {
     if (!activeId) return;
-    const ok = confirm('Clear current sheet to an empty canvas? This will remove all nodes and edges in this sheet.');
+    const ok = confirm(t('sheetsMenu.clearSheetConfirm'));
     if (!ok) return;
     clearActiveSheet();
   };
 
   const handleRename = () => {
     if (!activeId) return;
-    const name = prompt('Rename sheet to:');
+    const name = prompt(t('sheetsMenu.renameSheetPrompt'));
     if (!name) return;
     renameSheet(activeId, name);
   };
@@ -110,12 +112,12 @@ export const SheetsMenu: React.FC = () => {
   // ---- Register / Unregister Skill ----
   const handleRegisterSkill = async () => {
     if (!skillInfo) {
-      Toast.warning({ content: 'No skill loaded. Please open or create a skill first.' });
+      Toast.warning({ content: t('sheetsMenu.noSkillLoaded') });
       setVisible(false);
       return;
     }
     if (!username) {
-      Toast.warning({ content: 'Not logged in. Please log in first.' });
+      Toast.warning({ content: t('sheetsMenu.notLoggedIn') });
       setVisible(false);
       return;
     }
@@ -186,13 +188,13 @@ export const SheetsMenu: React.FC = () => {
           console.info('[SheetsMenu] Updating skillId from', skillInfo.skillId, 'to database id:', result.id);
           setSkillInfo({ ...skillInfo, skillId: result.id });
         }
-        Toast.success({ content: `Skill "${skillInfo.skillName}" registered successfully!` });
+        Toast.success({ content: t('sheetsMenu.registeredSuccess', { name: skillInfo.skillName }) });
       } else {
-        Toast.error({ content: `Failed to register skill: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.registerFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] register-skill error', e);
-      Toast.error({ content: 'Error registering skill' });
+      Toast.error({ content: t('sheetsMenu.registerError') });
     } finally {
       setVisible(false);
     }
@@ -200,17 +202,17 @@ export const SheetsMenu: React.FC = () => {
 
   const handleUnregisterSkill = async () => {
     if (!skillInfo) {
-      Toast.warning({ content: 'No skill loaded. Please open a skill first.' });
+      Toast.warning({ content: t('sheetsMenu.noSkillForUnregister') });
       setVisible(false);
       return;
     }
     if (!username) {
-      Toast.warning({ content: 'Not logged in. Please log in first.' });
+      Toast.warning({ content: t('sheetsMenu.notLoggedIn') });
       setVisible(false);
       return;
     }
 
-    const ok = confirm(`Unregister skill "${skillInfo.skillName}"? This will remove it from the agent skills registry.`);
+    const ok = confirm(t('sheetsMenu.unregisterConfirm', { name: skillInfo.skillName }));
     if (!ok) {
       setVisible(false);
       return;
@@ -237,7 +239,7 @@ export const SheetsMenu: React.FC = () => {
       }
       
       if (!skillIdToDelete || skillIdToDelete === '') {
-        Toast.error({ content: `Cannot unregister: skill "${skillInfo.skillName}" not found in registry.` });
+        Toast.error({ content: t('sheetsMenu.unregisterNotFound', { name: skillInfo.skillName }) });
         setVisible(false);
         return;
       }
@@ -253,14 +255,14 @@ export const SheetsMenu: React.FC = () => {
       if (resp.success && result?.success !== false) {
         // Clear the skillId since it's no longer registered
         setSkillInfo({ ...skillInfo, skillId: '' });
-        Toast.success({ content: `Skill "${skillInfo.skillName}" unregistered successfully!` });
+        Toast.success({ content: t('sheetsMenu.unregisteredSuccess', { name: skillInfo.skillName }) });
       } else {
         const errMsg = result?.error || resp.error?.message || 'unknown error';
-        Toast.error({ content: `Failed to unregister skill: ${errMsg}` });
+        Toast.error({ content: t('sheetsMenu.unregisterFailed', { error: errMsg }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] unregister-skill error', e);
-      Toast.error({ content: 'Error unregistering skill' });
+      Toast.error({ content: t('sheetsMenu.unregisterError') });
     } finally {
       setVisible(false);
     }
@@ -278,13 +280,13 @@ export const SheetsMenu: React.FC = () => {
       const resp = await ipc.setupSimStep(bundle);
       console.info('[SIM][FE] setup-step-sim: backend response', resp);
       if (resp.success) {
-        Toast.success({ content: 'Step Sim: setup complete. Backend moved to Start.' });
+        Toast.success({ content: t('sheetsMenu.setupStepSimComplete') });
       } else {
-        Toast.error({ content: `Setup failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.setupFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] setup-step-sim error', e);
-      Toast.error({ content: 'Setup step sim error' });
+      Toast.error({ content: t('sheetsMenu.setupStepSimError') });
     } finally {
       setVisible(false);
     }
@@ -297,11 +299,11 @@ export const SheetsMenu: React.FC = () => {
       const resp = await ipc.stepSim();
       console.info('[SIM][FE] step-sim: backend response', resp);
       if (!resp.success) {
-        Toast.error({ content: `Step failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.stepFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] step-sim error', e);
-      Toast.error({ content: 'Step sim error' });
+      Toast.error({ content: t('sheetsMenu.stepSimError') });
     } finally {
       setVisible(false);
     }
@@ -313,13 +315,13 @@ export const SheetsMenu: React.FC = () => {
       const ipc = IPCAPI.getInstance();
       const resp = await ipc.simTimerEvent();
       if (resp.success) {
-        Toast.success({ content: 'Sim Timer Event triggered' });
+        Toast.success({ content: t('sheetsMenu.simTimerEventTriggered') });
       } else {
-        Toast.error({ content: `Sim Timer Event failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.simTimerEventFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] sim-timer-event error', e);
-      Toast.error({ content: 'Sim Timer Event error' });
+      Toast.error({ content: t('sheetsMenu.simTimerEventError') });
     } finally {
       setVisible(false);
     }
@@ -331,13 +333,13 @@ export const SheetsMenu: React.FC = () => {
       const ipc = IPCAPI.getInstance();
       const resp = await ipc.simWebsocketEvent();
       if (resp.success) {
-        Toast.success({ content: 'Sim Websocket Event triggered' });
+        Toast.success({ content: t('sheetsMenu.simWebsocketEventTriggered') });
       } else {
-        Toast.error({ content: `Sim Websocket Event failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.simWebsocketEventFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] sim-websocket-event error', e);
-      Toast.error({ content: 'Sim Websocket Event error' });
+      Toast.error({ content: t('sheetsMenu.simWebsocketEventError') });
     } finally {
       setVisible(false);
     }
@@ -349,13 +351,13 @@ export const SheetsMenu: React.FC = () => {
       const ipc = IPCAPI.getInstance();
       const resp = await ipc.simSseEvent();
       if (resp.success) {
-        Toast.success({ content: 'Sim SSE Event triggered' });
+        Toast.success({ content: t('sheetsMenu.simSseEventTriggered') });
       } else {
-        Toast.error({ content: `Sim SSE Event failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.simSseEventFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] sim-sse-event error', e);
-      Toast.error({ content: 'Sim SSE Event error' });
+      Toast.error({ content: t('sheetsMenu.simSseEventError') });
     } finally {
       setVisible(false);
     }
@@ -367,13 +369,13 @@ export const SheetsMenu: React.FC = () => {
       const ipc = IPCAPI.getInstance();
       const resp = await ipc.simWebhookEvent();
       if (resp.success) {
-        Toast.success({ content: 'Sim Webhook Event triggered' });
+        Toast.success({ content: t('sheetsMenu.simWebhookEventTriggered') });
       } else {
-        Toast.error({ content: `Sim Webhook Event failed: ${resp.error?.message || 'unknown error'}` });
+        Toast.error({ content: t('sheetsMenu.simWebhookEventFailed', { error: resp.error?.message || 'unknown error' }) });
       }
     } catch (e) {
       console.error('[SheetsMenu] sim-webhook-event error', e);
-      Toast.error({ content: 'Sim Webhook Event error' });
+      Toast.error({ content: t('sheetsMenu.simWebhookEventError') });
     } finally {
       setVisible(false);
     }
@@ -387,14 +389,14 @@ export const SheetsMenu: React.FC = () => {
       onClickOutSide={() => setVisible(false)}
       render={
         <Dropdown.Menu>
-          <Dropdown.Item icon={<IconPlus />} onClick={handleInsertSheetCall}>Insert Sheet Call…</Dropdown.Item>
-          <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>New Sheet</Dropdown.Item>
-          <Dropdown.Item icon={<IconUpload />} onClick={handleRegisterSkill} disabled={!skillInfo}>Register Skill</Dropdown.Item>
-          <Dropdown.Item icon={<IconMinus />} onClick={handleUnregisterSkill} disabled={!skillInfo}>Unregister Skill</Dropdown.Item>
+          <Dropdown.Item icon={<IconPlus />} onClick={handleInsertSheetCall}>{t('sheetsMenu.insertSheetCall')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>{t('sheetsMenu.newSheet')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconUpload />} onClick={handleRegisterSkill} disabled={!skillInfo}>{t('sheetsMenu.registerSkill')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconMinus />} onClick={handleUnregisterSkill} disabled={!skillInfo}>{t('sheetsMenu.unregisterSkill')}</Dropdown.Item>
           <Dropdown.Divider />
-          <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>Open Sheet by ID</Dropdown.Item>
+          <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>{t('sheetsMenu.openSheetById')}</Dropdown.Item>
           <Dropdown.Item disabled>
-            <span style={{ fontWeight: 600, color: '#666' }}>Open Sheet…</span>
+            <span style={{ fontWeight: 600, color: '#666' }}>{t('sheetsMenu.openSheet')}</span>
           </Dropdown.Item>
           {/* Auto-generated list of available sheets */}
           {(sheetList || []).map((s) => (
@@ -402,19 +404,19 @@ export const SheetsMenu: React.FC = () => {
               {s.name || s.id} <span style={{ color: '#999' }}>({s.id})</span>
             </Dropdown.Item>
           ))}
-          <Dropdown.Item icon={<IconEdit />} onClick={handleRename} disabled={!activeId}>Rename Active Sheet</Dropdown.Item>
-          <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClear} disabled={!activeId}>Clear Sheet (blank)</Dropdown.Item>
-          <Dropdown.Item icon={<IconExit />} onClick={handleClose} disabled={!activeId}>Close Active Sheet</Dropdown.Item>
-          <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleDelete} disabled={!activeId}>Delete Active Sheet</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleRename} disabled={!activeId}>{t('sheetsMenu.renameActiveSheet')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClear} disabled={!activeId}>{t('sheetsMenu.clearSheet')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconExit />} onClick={handleClose} disabled={!activeId}>{t('sheetsMenu.closeActiveSheet')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleDelete} disabled={!activeId}>{t('sheetsMenu.deleteActiveSheet')}</Dropdown.Item>
           <Dropdown.Divider />
-          <Dropdown.Item icon={<IconEdit />} onClick={handleSetupStepSim}>[DEV] setup-step-sim</Dropdown.Item>
-          <Dropdown.Item icon={<IconEdit />} onClick={handleStepSim}>[DEV] step-sim</Dropdown.Item>
-          <Dropdown.Item icon={<IconEdit />} onClick={handleTestLanggraph2Flowgram}>[DEV] test langgraph2flowgram</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSetupStepSim}>{t('sheetsMenu.devSetupStepSim')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleStepSim}>{t('sheetsMenu.devStepSim')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleTestLanggraph2Flowgram}>{t('sheetsMenu.devTestLanggraph')}</Dropdown.Item>
           <Dropdown.Divider />
-          <Dropdown.Item icon={<IconEdit />} onClick={handleSimTimerEvent}>[SIM] Timer Event</Dropdown.Item>
-          <Dropdown.Item icon={<IconEdit />} onClick={handleSimWebsocketEvent}>[SIM] Websocket Event</Dropdown.Item>
-          <Dropdown.Item icon={<IconEdit />} onClick={handleSimSseEvent}>[SIM] SSE Event</Dropdown.Item>
-          <Dropdown.Item icon={<IconEdit />} onClick={handleSimWebhookEvent}>[SIM] Webhook Event</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimTimerEvent}>{t('sheetsMenu.simTimerEvent')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimWebsocketEvent}>{t('sheetsMenu.simWebsocketEvent')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimSseEvent}>{t('sheetsMenu.simSseEvent')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimWebhookEvent}>{t('sheetsMenu.simWebhookEvent')}</Dropdown.Item>
         </Dropdown.Menu>
       }
     >

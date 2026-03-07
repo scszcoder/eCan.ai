@@ -4,6 +4,7 @@
  */
 
 import React, { FC, useCallback, useState, type MouseEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   delay,
@@ -370,6 +371,8 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
     deleteNode();
   }, [deleteNode]);
 
+  const { t } = useTranslation('skillEditor');
+
   if (!visible) {
     return <></>;
   }
@@ -383,29 +386,29 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
           {/* Special menu for Group nodes */}
           {registry.type === 'group' ? (
             <>
-              <Dropdown.Item onClick={handleUngroup}>Ungroup</Dropdown.Item>
-              <Dropdown.Item onClick={handleDelete}>Delete</Dropdown.Item>
+              <Dropdown.Item onClick={handleUngroup}>{t('nodeMenu.ungroup')}</Dropdown.Item>
+              <Dropdown.Item onClick={handleDelete}>{t('nodeMenu.delete')}</Dropdown.Item>
             </>
           ) : (
             <>
-              <Dropdown.Item onClick={handleEditTitle}>Edit Title</Dropdown.Item>
-              {canMoveOut && <Dropdown.Item onClick={handleMoveOut}>Move out</Dropdown.Item>}
+              <Dropdown.Item onClick={handleEditTitle}>{t('nodeMenu.editTitle')}</Dropdown.Item>
+              {canMoveOut && <Dropdown.Item onClick={handleMoveOut}>{t('nodeMenu.moveOut')}</Dropdown.Item>}
               <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
-                Create Copy
+                {t('nodeMenu.createCopy')}
               </Dropdown.Item>
               <Dropdown.Item onClick={handleHFlipToggle}>
-                H-flip
+                {t('nodeMenu.hFlip')}
               </Dropdown.Item>
               {![WorkflowNodeType.Condition, WorkflowNodeType.Loop].includes(registry.type as any) && (
                 <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
-                  {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
+                  {isBreakpoint ? t('nodeMenu.clearBreakpoint') : t('nodeMenu.setBreakpoint')}
                 </Dropdown.Item>
               )}
               <Dropdown.Item
                 onClick={handleDelete}
                 disabled={!!(registry.canDelete?.(clientContext, node) || registry.meta!.deleteDisable)}
               >
-                Delete
+                {t('nodeMenu.delete')}
               </Dropdown.Item>
             </>
           )}

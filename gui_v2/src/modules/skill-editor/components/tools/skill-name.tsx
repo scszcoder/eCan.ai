@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Typography, Tooltip, Input } from '@douyinfe/semi-ui';
 import { IconEdit } from '@douyinfe/semi-icons';
 import styled from 'styled-components';
@@ -128,9 +129,10 @@ const StyledInput = styled(Input)`
  * - Double-click to edit, Enter/Escape to confirm/cancel
  * - Beautiful gradient background with hover effects
  */
-export const SkillNameBadge: React.FC = () => {
-  const skillInfo = useSkillInfoStore((s) => s.skillInfo);
-  const setSkillInfo = useSkillInfoStore((s) => s.setSkillInfo);
+export const SkillName: React.FC = () => {
+  const { t } = useTranslation('skillEditor');
+  const skillInfo = useSkillInfoStore((state) => state.skillInfo);
+  const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
   const setHasUnsavedChanges = useSkillInfoStore((s) => s.setHasUnsavedChanges);
 
   const value = skillInfo?.skillName || 'Untitled';
@@ -174,7 +176,7 @@ export const SkillNameBadge: React.FC = () => {
             }
           }}
           style={{ width: 200 }}
-          placeholder="Enter skill name..."
+          placeholder={t('skillName.placeholder')}
         />
       ) : (
         <>
@@ -183,7 +185,7 @@ export const SkillNameBadge: React.FC = () => {
               {display}
             </SkillNameText>
           </StyledTooltip>
-          <StyledTooltip content="Click to edit" position="bottom">
+          <StyledTooltip content={t('skillName.clickToEdit')} position="bottom">
             <EditIconWrapper onClick={startEditing}>
               <EditIcon />
             </EditIconWrapper>
@@ -193,3 +195,6 @@ export const SkillNameBadge: React.FC = () => {
     </SkillNameContainer>
   );
 };
+
+// Export alias for backward compatibility
+export const SkillNameBadge = SkillName;

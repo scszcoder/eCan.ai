@@ -1,0 +1,663 @@
+{
+  "nodeState": {
+    "title": "Node State",
+    "runtimeStateTitle": "Runtime State (read-only)",
+    "refreshState": "Refresh State",
+    "injectAndResume": "Inject & Resume",
+    "loadingSchema": "Loading node state schema...",
+    "nodeId": "Node ID",
+    "status": "Status",
+    "updated": "Updated",
+    "noRuntimeData": "No runtime data for this node yet. Make sure this exact node is being executed.",
+    "syncToForm": "Sync to Form",
+    "skillLevelMappingTitle": "Skill-Level Mapping Rules",
+    "skillLevelMappingDesc": "Configure event-to-state mappings and event routing for the entire skill.",
+    "nodeTransferMappingTitle": "Node Transfer Mapping",
+    "nodeTransferMappingDesc": "Maps data from preceding node(s) to this node's input state.",
+    "add": "Add",
+    "new": "New",
+    "key": "key",
+    "value": "value",
+    "keyRequired": "Key is required",
+    "duplicateKey": "Duplicate key",
+    "cancel": "Cancel",
+    "newItem": "New item",
+    "remove": "Remove",
+    "empty": "(empty)",
+    "rename": "Rename",
+    "renameKey": "Rename key",
+    "fields": {
+      "attributes": "Attributes",
+      "metadata": "Metadata",
+      "toolInput": "Tool Input",
+      "toolOutput": "Tool Output",
+      "state": "State",
+      "input": "Input",
+      "output": "Output",
+      "result": "Result",
+      "data": "Data",
+      "config": "Config",
+      "options": "Options",
+      "params": "Params",
+      "root": "Root",
+      "attachments": "Attachments",
+      "prompts": "Prompts",
+      "promptRefs": "Prompt Refs",
+      "history": "History",
+      "messages": "Messages",
+      "threads": "Threads",
+      "context": "Context",
+      "session": "Session",
+      "cache": "Cache",
+      "errors": "Errors",
+      "warnings": "Warnings",
+      "logs": "Logs",
+      "run_local": "Run Local",
+      "loopMode": "Loop Mode",
+      "loopWhileExpr": "Loop While Expression",
+      "loopCountExpr": "Loop Count Expression",
+      "loopOutputs": "Loop Outputs",
+      "apiKey": "API Key"
+    }
+  },
+  "sidebar": {
+    "close": "Close"
+  },
+  "mapping": {
+    "skillLevelMappingRules": "Skill-Level Mapping Rules",
+    "skillLevelMappingDesc": "These rules apply to the entire skill and control event-to-state data mapping.",
+    "developmentModeMappings": "Development Mode Mappings",
+    "developmentModeDesc": "Mapping rules used when skill run_mode = \"developing\" (includes debug metadata)",
+    "releasedModeMappings": "Released Mode Mappings",
+    "releasedModeDesc": "Mapping rules used when skill run_mode = \"released\" (production optimized)",
+    "eventDataMapping": "Event Data Mapping (adapt_to_state)",
+    "eventDataMappingDesc": "Per-skill config that maps event payload fields into the resuming node's state when a pending event arrives. Each key is an event type (e.g. \"passive_command\"), and the value contains an adapt_to_state object mapping source fields to target state paths.",
+    "eventRouting": "Event Routing (Info)",
+    "eventRoutingDesc": "Event-to-task routing is now managed at the agent level via event_routing.json, not per-skill. When a task starts, the runner automatically detects pend_event nodes in the skill and registers the required event routes globally.",
+    "apply": "Apply",
+    "mustBeJsonObject": "Must be a JSON object",
+    "invalidJson": "Invalid JSON",
+    "eventDataMappingUpdated": "Event data mapping updated",
+    "mappingRules": "Mapping Rules",
+    "from": "From (comma-separated paths)",
+    "transform": "Transform",
+    "none": "(none)",
+    "argsPath": "args.path",
+    "argsPathsCommaSeparated": "args.paths (comma-separated)",
+    "conflict": "Conflict",
+    "targets": "Targets",
+    "removeRule": "Remove Rule",
+    "addRule": "Add Rule",
+    "rawMappingJson": "Raw Mapping JSON",
+    "sampleEvent": "Sample Event",
+    "sampleState": "Sample State",
+    "sampleNodeOutput": "Sample Node Output",
+    "preview": "Preview",
+    "previewResume": "Preview Resume",
+    "previewStatePatch": "Preview State Patch",
+    "remove": "Remove",
+    "addTarget": "Add Target"
+  },
+  "toolbar": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "help": "Help",
+    "pauseRun": "Pause Run",
+    "stepRun": "Step Run",
+    "resumeRun": "Resume Run",
+    "stopRun": "Stop Run",
+    "open": "Open",
+    "save": "Save",
+    "saveAs": "Save As",
+    "newSkill": "New Skill",
+    "info": "Info",
+    "comment": "Comment",
+    "fitView": "Fit View",
+    "minimap": "Minimap",
+    "autoLayout": "Auto Layout",
+    "mouseFriendly": "Mouse-Friendly",
+    "touchpadFriendly": "Touchpad-Friendly",
+    "addNode": "Add Node",
+    "switchLine": "Switch Line",
+    "release": "Release (switch to read-only)",
+    "develop": "Develop (switch to editable)",
+    "switchedToReleased": "Switched to Released (read-only)",
+    "switchedToDevelopment": "Switched to Development (editable)",
+    "problems": "Problems"
+  },
+  "newSkill": {
+    "title": "Create New Skill",
+    "namePlaceholder": "e.g., shopify_fullfill",
+    "nameLabel": "Enter skill name (without _skill suffix):",
+    "structureHint": "Standard structure will be created:",
+    "okText": "Create",
+    "cancelText": "Cancel",
+    "alreadyExistsTitle": "Skill Already Exists",
+    "alreadyExistsContent": "A skill named \"{{name}}\" already exists. Please choose a different name.",
+    "errorTitle": "Error",
+    "errorCreate": "Failed to create skill: {{error}}",
+    "errorStructure": "Failed to create skill structure: {{error}}",
+    "successTitle": "Success",
+    "successContent": "Skill \"{{name}}\" created successfully!"
+  },
+  "saveAs": {
+    "title": "Save Skill As",
+    "nameLabel": "Enter new skill name (without _skill suffix):",
+    "namePlaceholder": "e.g., shopify_fulfill",
+    "okText": "Save",
+    "cancelText": "Cancel",
+    "alreadyExistsTitle": "Skill Already Exists",
+    "alreadyExistsContent": "A skill named \"{{name}}\" already exists. Please choose a different name.",
+    "noSkill": "No skill to save.",
+    "savedAs": "Skill saved as \"{{name}}\"",
+    "saveFailed": "Save As failed: {{error}}"
+  },
+  "save": {
+    "saved": "Skill saved.",
+    "bundleSaved": "Bundle saved: {{path}}",
+    "bundleDownloaded": "Bundle downloaded.",
+    "bundleSaveFailed": "Bundle save failed.",
+    "invalidMapping": "data_mapping.json is invalid JSON. Fix it before saving."
+  },
+  "open": {
+    "tooltip": "Open",
+    "failedLoadSkills": "Failed to load skills from S3.",
+    "failedOpenSkill": "Failed to open selected skill.",
+    "failedOpenDialog": "Failed to open file dialog.",
+    "failedLoadFile": "Failed to load skill file.",
+    "defaultSkillName": "Skill"
+  },
+  "info": {
+    "tooltip": "Info",
+    "title": "Edit Skill Info",
+    "skillId": "Skill ID:",
+    "skillName": "Skill Name:",
+    "version": "Version:",
+    "lastModified": "Last Modified:",
+    "description": "Description:",
+    "codePreview": "Code Preview:",
+    "editCode": "Edit Code",
+    "namePlaceholder": "Enter skill name",
+    "descriptionPlaceholder": "Describe what this skill does..."
+  },
+  "nodeMenu": {
+    "editTitle": "Edit Title",
+    "moveOut": "Move out",
+    "createCopy": "Create Copy",
+    "hFlip": "H-flip",
+    "setBreakpoint": "Set Breakpoint",
+    "clearBreakpoint": "Clear Breakpoint",
+    "delete": "Delete",
+    "ungroup": "Ungroup"
+  },
+  "sheetsMenu": {
+    "insertSheetCall": "Insert Sheet Call…",
+    "newSheet": "New Sheet",
+    "registerSkill": "Register Skill",
+    "unregisterSkill": "Unregister Skill",
+    "openSheetById": "Open Sheet by ID",
+    "openSheet": "Open Sheet…",
+    "renameActiveSheet": "Rename Active Sheet",
+    "clearSheet": "Clear Sheet (blank)",
+    "closeActiveSheet": "Close Active Sheet",
+    "deleteActiveSheet": "Delete Active Sheet",
+    "openSheetPrompt": "Open sheet by ID:",
+    "newSheetNamePrompt": "New sheet name?",
+    "renameSheetPrompt": "Rename sheet to:",
+    "deleteSheetConfirm": "Delete sheet '{{id}}'? This cannot be undone.",
+    "deleteMainSheet": "Cannot delete the main sheet in MVP.",
+    "clearSheetConfirm": "Clear current sheet to an empty canvas? This will remove all nodes and edges in this sheet.",
+    "unregisterConfirm": "Unregister skill \"{{name}}\"? This will remove it from the agent skills registry.",
+    "noSkillLoaded": "No skill loaded. Please open or create a skill first.",
+    "notLoggedIn": "Not logged in. Please log in first.",
+    "registeredSuccess": "Skill \"{{name}}\" registered successfully!",
+    "registerFailed": "Failed to register skill: {{error}}",
+    "registerError": "Error registering skill",
+    "unregisteredSuccess": "Skill \"{{name}}\" unregistered successfully!",
+    "unregisterFailed": "Failed to unregister skill: {{error}}",
+    "unregisterNotFound": "Cannot unregister: skill \"{{name}}\" not found in registry.",
+    "unregisterError": "Error unregistering skill",
+    "noSkillForUnregister": "No skill loaded. Please open a skill first.",
+    "testExported": "langgraph2flowgram test exported to test_skill/diagram_dir",
+    "testFailed": "Test failed: {{error}}",
+    "testIpcError": "IPC error while testing langgraph2flowgram",
+    "setupStepSimComplete": "Step Sim: setup complete. Backend moved to Start.",
+    "setupFailed": "Setup failed: {{error}}",
+    "setupStepSimError": "Setup step sim error",
+    "stepFailed": "Step failed: {{error}}",
+    "stepSimError": "Step sim error",
+    "simTimerEventTriggered": "Sim Timer Event triggered",
+    "simTimerEventFailed": "Sim Timer Event failed: {{error}}",
+    "simTimerEventError": "Sim Timer Event error",
+    "simWebsocketEventTriggered": "Sim Websocket Event triggered",
+    "simWebsocketEventFailed": "Sim Websocket Event failed: {{error}}",
+    "simWebsocketEventError": "Sim Websocket Event error",
+    "simSseEventTriggered": "Sim SSE Event triggered",
+    "simSseEventFailed": "Sim SSE Event failed: {{error}}",
+    "simSseEventError": "Sim SSE Event error",
+    "simWebhookEventTriggered": "Sim Webhook Event triggered",
+    "simWebhookEventFailed": "Sim Webhook Event failed: {{error}}",
+    "simWebhookEventError": "Sim Webhook Event error",
+    "devSetupStepSim": "[DEV] setup-step-sim",
+    "devStepSim": "[DEV] step-sim",
+    "devTestLanggraph": "[DEV] test langgraph2flowgram",
+    "simTimerEvent": "[SIM] Timer Event",
+    "simWebsocketEvent": "[SIM] Websocket Event",
+    "simSseEvent": "[SIM] SSE Event",
+    "simWebhookEvent": "[SIM] Webhook Event"
+  },
+  "helpPanel": {
+    "searchPlaceholder": "Search in help...",
+    "showingResults": "Showing results for:",
+    "toc": {
+      "intro": "Introduction",
+      "nodes": "Nodes",
+      "editor": "Editor Basics",
+      "debug": "Debugger",
+      "testrun": "Test Run",
+      "shortcuts": "Shortcuts",
+      "faq": "FAQ"
+    },
+    "sections": {
+      "intro": {
+        "title": "Introduction",
+        "content": "Welcome to the Skill Editor. This guide will help you build and run flows."
+      },
+      "nodes": {
+        "title": "Nodes",
+        "content": "Each node performs a unit of work. Connect nodes to build flows."
+      },
+      "editor": {
+        "title": "Editor Basics",
+        "content": "Use the toolbar to add nodes, set zoom, and manage layout."
+      },
+      "debug": {
+        "title": "Debugger",
+        "content": "Set breakpoints and use pause/step/resume buttons to control execution."
+      },
+      "testrun": {
+        "title": "Test Run",
+        "content": "Open the Test Run panel to supply inputs and simulate a flow run."
+      },
+      "shortcuts": {
+        "title": "Shortcuts",
+        "navigation": "Canvas Navigation",
+        "spaceDrag": "Pan canvas (hold Space, then drag with mouse)",
+        "mouseWheel": "Zoom in/out",
+        "ctrlPlus": "Zoom in",
+        "ctrlMinus": "Zoom out",
+        "editing": "Editing",
+        "ctrlZ": "Undo",
+        "ctrlY": "Redo",
+        "ctrlC": "Copy selected nodes",
+        "ctrlV": "Paste nodes",
+        "ctrlA": "Select all nodes",
+        "deleteKey": "Delete selected nodes",
+        "nodeOps": "Node Operations",
+        "clickNode": "Select node",
+        "doubleClickNode": "Open node editor",
+        "dragNode": "Move node",
+        "shiftClick": "Add to selection"
+      },
+      "faq": {
+        "title": "FAQ",
+        "content": "Common issues and troubleshooting tips."
+      }
+    }
+  },
+  "testrun": {
+    "testRun": "Test Run",
+    "cancel": "Cancel",
+    "cannotRun": "Cannot run test",
+    "missingInfo": "User or skill info is missing.",
+    "validationFailed": "Validation Failed",
+    "backendRunFailed": "Backend Run Failed",
+    "unknownError": "An unknown error occurred.",
+    "runError": "Run Error"
+  },
+  "chatPanel": {
+    "title": "Agent Chat",
+    "newChat": "New Chat",
+    "newChatTooltip": "New chat",
+    "showHistory": "Show history",
+    "hideHistory": "Hide history",
+    "close": "Close",
+    "openAiChat": "Open AI Chat",
+    "closeAiChat": "Close AI Chat",
+    "sessions": "Sessions ({{count}})",
+    "defaultSessionTopic": "Chat",
+    "attachments": "Attachments",
+    "voiceInput": "Voice input",
+    "attachFile": "Attach file",
+    "typeMessage": "Type a message...",
+    "sessionLoadTimeout": "Session load timeout",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "daysAgo": "{{count}}d ago",
+    "approvePlan": "Approve",
+    "rejectPlan": "Revise",
+    "proceedWithPlan": "Yes, proceed with the plan",
+    "rejectPlanMessage": "No, I want to revise the plan",
+    "generatingWorkflow": "⏳ Generating workflow — this may take a minute. The canvas will update automatically once the flowgram is ready.",
+    "generatingFlowgram": "Generating flowgram...",
+    "errorGeneratingWorkflow": "Error generating workflow: {{error}}",
+    "noMessages": "No messages yet",
+    "startNewChat": "Start a new chat or select a session from history.",
+    "planning": "Planning...",
+    "thinking": "Thinking..."
+  },
+  "selectionPopover": {
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "createGroup": "Create Group",
+    "copy": "Copy",
+    "delete": "Delete"
+  },
+  "dataViewer": {
+    "copied": "Copied",
+    "value": "value"
+  },
+  "skillName": {
+    "placeholder": "Enter skill name...",
+    "clickToEdit": "Click to edit"
+  },
+  "openPicker": {
+    "title": "Open Skill from S3",
+    "searchPlaceholder": "Search skills",
+    "okText": "Open",
+    "cancelText": "Cancel"
+  },
+  "console": {
+    "title": "Console",
+    "errors": "errors",
+    "warnings": "warnings",
+    "logs": "logs",
+    "closeConsole": "Close Console",
+    "clear": "Clear",
+    "copy": "Copy",
+    "copyAll": "Copy all logs",
+    "all": "All",
+    "errorsFilter": "Errors",
+    "warningsFilter": "Warnings",
+    "noLogs": "No logs to display"
+  },
+  "problemPanel": {
+    "title": "Problems"
+  },
+  "formInputs": {
+    "apiKeyPlaceholder": "Enter API Key",
+    "done": "Done",
+    "edit": "Edit",
+    "noParameters": "No parameters to render for this tool. Source: {{source}}"
+  },
+  "nodes": {
+    "common": {
+      "titleRequired": "Title is required",
+      "fieldRequired": "{{field}} is required",
+      "name": "Name",
+      "description": "Description",
+      "type": "Type",
+      "value": "Value",
+      "add": "Add",
+      "remove": "Remove",
+      "edit": "Edit",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "loop": {
+      "name": "Loop",
+      "description": "Repeat the sub-process until the exit condition is met",
+      "modes": {
+        "loopFor": "Loop Count",
+        "loopWhile": "Loop Condition"
+      },
+      "exitCondition": "Exit Condition",
+      "exitConditionPlaceholder": "Enter exit condition expression",
+      "exitConditionWhile": "Loop condition expression",
+      "loopCountPlaceholder": "Enter loop count expression",
+      "defaultTitle": "Loop"
+    },
+    "http": {
+      "name": "HTTP",
+      "title": "HTTP",
+      "label": "HTTP",
+      "description": "Call the HTTP API",
+      "apiKeyPlaceholder": "Enter API Key",
+      "urlPlaceholder": "Input URL, use var by '{'",
+      "methods": {
+        "get": "GET",
+        "post": "POST",
+        "put": "PUT",
+        "delete": "DELETE",
+        "patch": "PATCH",
+        "head": "HEAD"
+      },
+      "bodyTypes": {
+        "none": "None",
+        "json": "JSON"
+      }
+    },
+    "condition": {
+      "name": "Condition",
+      "description": "Connect multiple downstream branches. Only the corresponding branch will be executed if the set conditions are met",
+      "conditionPlaceholder": "Enter condition expression",
+      "conditionRequired": "Condition is required",
+      "modes": {
+        "stateCondition": "state.condition",
+        "custom": "custom expression"
+      },
+      "elseBranch": "Else branch",
+      "addElsif": "Add elsif"
+    },
+    "code": {
+      "name": "Code",
+      "description": "Run the Script"
+    },
+    "chat": {
+      "name": "Chat",
+      "description": "Send a chat message to a selected party (human or agent)",
+      "party": "Party",
+      "human": "Human",
+      "chatWith": "Chat With",
+      "selectParty": "Select party (default: Human)",
+      "message": "Message",
+      "messagePlaceholder": "Enter chat message template",
+      "partyRequired": "Party is required"
+    },
+    "task": {
+      "name": "Task",
+      "description": "A task node for organizing workflow steps"
+    },
+    "variable": {
+      "name": "Variable",
+      "description": "Variable Assign and Declaration"
+    },
+    "start": {
+      "name": "Start",
+      "description": "The starting node of the workflow, used to set the information needed to initiate the workflow"
+    },
+    "end": {
+      "name": "End",
+      "description": "The final node of the workflow, used to return the result information after the workflow is run"
+    },
+    "break": {
+      "name": "Break",
+      "description": "The final node of the workflow, used to return the result information after the workflow is run"
+    },
+    "continue": {
+      "name": "Continue",
+      "description": "The final node of the workflow, used to return the result information after the workflow is run"
+    },
+    "event": {
+      "name": "Event",
+      "description": "Event trigger node"
+    },
+    "pendInput": {
+      "name": "Pend Input",
+      "description": "Pause the flow until a message arrives from selected queues/events",
+      "source": "Source",
+      "queue": "Queue",
+      "event": "Event",
+      "pendingSources": "Pending Sources",
+      "selectSources": "Select one or more sources",
+      "timeoutSec": "Timeout (sec)",
+      "resumePolicy": "Resume Policy",
+      "first": "First",
+      "all": "All",
+      "selectAtLeastOne": "Select at least one source"
+    },
+    "pendEvent": {
+      "name": "Pend Event",
+      "description": "Pause the flow until a specified event type arrives, then resume",
+      "eventType": "Event Type"
+    },
+    "sheetCall": {
+      "name": "Sheet Call",
+      "description": "Invoke another sheet and map its inputs/outputs"
+    },
+    "sheetInputs": {
+      "name": "Sheet Inputs",
+      "description": "Defines the input interface (ports) for this sheet",
+      "inputPlaceholder": "input_{{index}}",
+      "addInput": "Add Input",
+      "title": "Sheet Inputs",
+      "remove": "Remove"
+    },
+    "sheetOutputs": {
+      "name": "Sheet Outputs",
+      "description": "Defines the output interface (ports) for this sheet",
+      "outputPlaceholder": "output_{{index}}",
+      "pickNextSheet": "Pick next sheet",
+      "sheetLabel": "{{name}} ({{id}})",
+      "title": "Sheet Outputs",
+      "remove": "Remove",
+      "addOutput": "Add Output",
+      "nextSheetOptional": "Next Sheet (optional)",
+      "sheetNotFound": "Selected sheet id not found in this bundle",
+      "openNextSheet": "Open next sheet"
+    },
+    "blockStart": {
+      "name": "Block Start",
+      "description": "The starting node of the block"
+    },
+    "blockEnd": {
+      "name": "Block End",
+      "description": "The final node of the block"
+    },
+    "toolPicker": {
+      "name": "Tool Picker",
+      "description": "A tool picker node for selecting and invoking tools"
+    },
+    "dummy": {
+      "name": "Dummy",
+      "description": "A dummy node for testing and placeholder purposes"
+    },
+    "group": {
+      "name": "Group",
+      "description": "Group multiple nodes together",
+      "defaultTitle": "Group"
+    },
+    "browserAutomation": {
+      "description": "Automate browsing tasks using a selected tool with prompts and parameters",
+      "tool": "Tool",
+      "browser": "Browser",
+      "browserDriver": "Browser Driver",
+      "shop": "Shop",
+      "runEnvironment": "Run Environment",
+      "privacyStrategy": "Privacy Strategy",
+      "profile": "Profile",
+      "modelProvider": "Model Provider",
+      "model": "Model",
+      "cdpPort": "CDP Port",
+      "enableJudge": "Enable Judge",
+      "enableJudgeDesc": "LLM result validation",
+      "useThinking": "Use Thinking",
+      "useThinkingDesc": "For reasoning models like Qwen3, DeepSeek-R1",
+      "useVision": "Use Vision",
+      "useVisionDesc": "Send screenshots to LLM, requires vision-capable model",
+      "customShopName": "Custom Shop Name",
+      "customShopPlaceholder": "Enter custom shop name",
+      "tools": {
+        "browserUse": "browser-use",
+        "crawl4ai": "crawl4ai",
+        "browsebase": "browsebase"
+      },
+      "browsers": {
+        "newChromium": "New Chromium",
+        "existingChrome": "Existing Chrome",
+        "adsPower": "Ads Power",
+        "ziniao": "Ziniao",
+        "multiLogin": "Multi-Login"
+      },
+      "drivers": {
+        "native": "Native",
+        "selenium": "Selenium",
+        "playwright": "Playwright",
+        "puppeteer": "Puppeteer"
+      },
+      "shops": {
+        "amazon": "Amazon",
+        "ebay": "eBay",
+        "etsy": "Etsy",
+        "walmart": "Walmart",
+        "tiktok": "TikTok",
+        "shopify": "Shopify",
+        "woocommerce": "WooCommerce",
+        "custom": "Custom"
+      },
+      "runEnvironments": {
+        "fullLocal": "Full Local",
+        "passiveLocal": "Passive Local",
+        "hybridCloud": "Hybrid Cloud",
+        "fullCloud": "Full Cloud"
+      },
+      "privacyStrategies": {
+        "none": "None",
+        "patternFilter": "Pattern Filter",
+        "localLlm": "Local LLM"
+      },
+      "defaultProfile": "(Default Profile)",
+      "inlinePrompt": "In-line Prompt",
+      "cdpPortPlaceholder": "9228 (default)"
+    },
+    "mcp": {
+      "name": "MCP",
+      "description": "An MCP node for executing general tasks via MCP tools with simple input and output",
+      "runLocalDesc": "Run Local (execute on local machine via passive command)",
+      "toolInputs": "Tool Inputs"
+    },
+    "llm": {
+      "name": "LLM",
+      "description": "Call the large language model and use variables and prompt words to generate responses",
+      "loadingProviders": "Loading LLM providers...",
+      "selectProvider": "Select LLM Provider",
+      "selectModel": "Select Model",
+      "useThinkingDesc": "Use Thinking (for reasoning models like Qwen3, DeepSeek-R1)",
+      "addAttachment": "Add Attachment",
+      "recording": "Recording... release to finish",
+      "holdToRecord": "Hold to record voice",
+      "recordingButton": "Recording…",
+      "holdToRecordButton": "Hold to Record",
+      "editPrompt": "Edit prompt",
+      "provider": "Provider",
+      "model": "Model",
+      "prompt": "Prompt",
+      "promptSelection": "Prompt Selection",
+      "promptId": "Prompt ID",
+      "promptSelector": "Prompt Selector",
+      "systemPromptId": "System Prompt ID",
+      "systemPromptSelector": "System Prompt Selector",
+      "temperature": "Temperature",
+      "maxTokens": "Max Tokens",
+      "systemPrompt": "System Prompt",
+      "topP": "Top P",
+      "frequencyPenalty": "Frequency Penalty",
+      "presencePenalty": "Presence Penalty",
+      "stopSequences": "Stop Sequences",
+      "seed": "Seed",
+      "responseFormat": "Response Format",
+      "tools": "Tools",
+      "toolChoice": "Tool Choice"
+    }
+  }
+}

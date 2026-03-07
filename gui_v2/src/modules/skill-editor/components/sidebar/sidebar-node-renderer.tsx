@@ -4,6 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNodeRender, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 
 import { NodeRenderContext } from '../../context';
@@ -17,6 +18,7 @@ import { useRuntimeStateStore } from '../../stores/runtime-state-store';
 import { WorkflowNodeType } from '../../nodes/constants';
 
 export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
+  const { t } = useTranslation('skillEditor');
   const { node } = props;
   const nodeRender = useNodeRender(node);
   const { schema, loading } = useNodeStateSchema();
@@ -154,7 +156,7 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
         </div>
         {shouldShowNodeState && (
           <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>
-            <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node State</div>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>{t('nodeState.title')}</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button
               type="button"
@@ -174,7 +176,7 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
                   console.error('requestSkillState failed', e);
                 }
               }}
-            >Refresh State</button>
+            >{t('nodeState.refreshState')}</button>
             <button
               type="button"
               style={{ fontSize: 12, padding: '2px 8px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#f5f5f5', color: '#333', cursor: 'pointer' }}
@@ -197,22 +199,22 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
                   console.error('injectSkillState/resume failed', e);
                 }
               }}
-            >Inject & Resume</button>
+            >{t('nodeState.injectAndResume')}</button>
           </div>
           {loading || !schema ? (
-            <div style={{ color: '#999' }}>Loading node state schema...</div>
+            <div style={{ color: '#999' }}>{t('nodeState.loadingSchema')}</div>
           ) : (
             <NodeStatePanel schema={schema} value={getStateValue() ?? {}} onChange={setStateValue} />
           )}
           {/* Runtime state (read-only, from backend) */}
           <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6, color: '#222' }}>Runtime State (read-only)</div>
-            <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>Node ID: <code style={{ color: '#222' }}>{node.id}</code></div>
+            <div style={{ fontWeight: 600, marginBottom: 6, color: '#222' }}>{t('nodeState.runtimeStateTitle')}</div>
+            <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>{t('nodeState.nodeId')}: <code style={{ color: '#222' }}>{node.id}</code></div>
             {runtimeEntry ? (
               <>
                 <div style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>
-                  Status: <b>{runtimeEntry.status || 'n/a'}</b>
-                  <span style={{ marginLeft: 8, color: '#999' }}>Updated: {new Date(runtimeEntry.updatedAt).toLocaleTimeString()}</span>
+                  {t('nodeState.status')}: <b>{runtimeEntry.status || 'n/a'}</b>
+                  <span style={{ marginLeft: 8, color: '#999' }}>{t('nodeState.updated')}: {new Date(runtimeEntry.updatedAt).toLocaleTimeString()}</span>
                 </div>
                 <pre style={{ maxHeight: 180, overflow: 'auto', color: '#111', background: '#fff', border: '1px solid #e5e5e5', padding: 8, borderRadius: 4 }}>
                   {JSON.stringify(runtimeEntry.state ?? {}, null, 2)}
@@ -231,11 +233,11 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
                         console.error('[NodeState] Sync to Form failed', e);
                       }
                     }}
-                  >Sync to Form</button>
+                  >{t('nodeState.syncToForm')}</button>
                 </div>
               </>
             ) : (
-              <div style={{ fontSize: 12, color: '#999' }}>No runtime data for this node yet. Make sure this exact node is being executed.</div>
+              <div style={{ fontSize: 12, color: '#999' }}>{t('nodeState.noRuntimeData')}</div>
             )}
           </div>
         </div>
@@ -244,9 +246,9 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
         <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 12, padding: '12px' }}>
             {isStartNode ? (
               <>
-                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Skill-Level Mapping Rules</div>
+                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>{t('nodeState.skillLevelMappingTitle')}</div>
                 <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-                  Configure event-to-state mappings and event routing for the entire skill.
+                  {t('nodeState.skillLevelMappingDesc')}
                 </div>
                 <SkillLevelMappingEditor 
                   value={getSkillLevelMappingRules()} 
@@ -255,9 +257,9 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
               </>
             ) : (
               <>
-                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node Transfer Mapping</div>
+                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>{t('nodeState.nodeTransferMappingTitle')}</div>
                 <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-                  Maps data from preceding node(s) to this node's input state.
+                  {t('nodeState.nodeTransferMappingDesc')}
                 </div>
                 <MappingEditor value={getMappingRules()} onChange={setMappingRules} />
               </>

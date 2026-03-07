@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Modal, Input } from '@douyinfe/semi-ui';
 import { IconNewColored } from './colored-icons';
@@ -15,6 +16,7 @@ interface NewPageProps {
 }
 
 export const NewPage = ({ disabled }: NewPageProps) => {
+  const { t } = useTranslation('skillEditor');
   const { document: workflowDocument } = useClientContext();
   const tools = usePlaygroundTools();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
@@ -98,12 +100,12 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         let modalInstance: ReturnType<typeof Modal.confirm> | null = null;
         
         modalInstance = Modal.confirm({
-          title: 'Create New Skill',
+          title: t('newSkill.title'),
           content: (
             <div style={{ marginTop: 16 }}>
-              <p style={{ marginBottom: 8 }}>Enter skill name (without _skill suffix):</p>
+              <p style={{ marginBottom: 8 }}>{t('newSkill.nameLabel')}</p>
               <Input
-                placeholder="e.g., shopify_fullfill"
+                placeholder={t('newSkill.namePlaceholder')}
                 autoFocus
                 onChange={(value) => { inputValue = value; }}
                 onEnterPress={() => {
@@ -114,13 +116,13 @@ export const NewPage = ({ disabled }: NewPageProps) => {
                 }}
               />
               <p style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                Standard structure will be created:<br/>
+                {t('newSkill.structureHint')}<br/>
                 my_skills/{'<name>_skill'}/diagram_dir/{'<name>_skill.json'}
               </p>
             </div>
           ),
-          okText: 'Create',
-          cancelText: 'Cancel',
+          okText: t('newSkill.okText'),
+          cancelText: t('newSkill.cancelText'),
           onOk: () => {
             modalInstance?.destroy();
             if (inputValue.trim()) {
@@ -159,8 +161,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         const checkResult = await ipcApi.checkSkillExists(skillBaseName);
         if (checkResult.success && checkResult.data?.exists) {
           Modal.warning({
-            title: 'Skill Already Exists',
-            content: `A skill named "${skillBaseName}" already exists. Please choose a different name.`,
+            title: t('newSkill.alreadyExistsTitle'),
+            content: t('newSkill.alreadyExistsContent', { name: skillBaseName }),
           });
           return;
         }
@@ -168,8 +170,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         const checkResult = await ipcApi.checkSkillExists(skillBaseName);
         if (checkResult.success && checkResult.data?.exists) {
           Modal.warning({
-            title: 'Skill Already Exists',
-            content: `A skill named "${skillBaseName}" already exists. Please choose a different name.`,
+            title: t('newSkill.alreadyExistsTitle'),
+            content: t('newSkill.alreadyExistsContent', { name: skillBaseName }),
           });
           return;
         }
@@ -281,8 +283,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         } else {
           console.error('[NEW_SKILL] Failed to scaffold skill:', scaffoldResponse.error);
           Modal.error({
-            title: 'Error',
-            content: `Failed to create skill: ${scaffoldResponse.error?.message || 'Unknown error'}`,
+            title: t('newSkill.errorTitle'),
+            content: t('newSkill.errorCreate', { error: scaffoldResponse.error?.message || 'Unknown error' }),
           });
           return;
         }
@@ -290,8 +292,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     } catch (e) {
       console.error('[NEW_SKILL] Scaffold error:', e);
       Modal.error({
-        title: 'Error',
-        content: `Failed to create skill structure: ${e}`,
+        title: t('newSkill.errorTitle'),
+        content: t('newSkill.errorStructure', { error: String(e) }),
       });
       return;
     }
@@ -319,8 +321,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     console.log('[NEW_SKILL] Created new skill:', diagramJsonPath);
     
     Modal.success({
-      title: 'Success',
-      content: `Skill "${skillBaseName}" created successfully!`,
+      title: t('newSkill.successTitle'),
+      content: t('newSkill.successContent', { name: skillBaseName }),
     });
   }, [
     workflowDocument,
@@ -336,7 +338,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   ]);
 
   return (
-    <Tooltip content="New Skill">
+    <Tooltip content={t('toolbar.newSkill')}>
       <IconButton
         type="tertiary"
         theme="borderless"

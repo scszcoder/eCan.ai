@@ -529,17 +529,18 @@ class PrivacyAgent:
 
         return self._parse_structured_output(candidate)
     
-    async def run(self, max_steps: int = 100) -> Any:
+    async def run(self, max_steps: int = 100, cancellation_event=None) -> Any:
         """
         Run the agent with privacy filtering.
         
         Args:
             max_steps: Maximum number of steps to run
+            cancellation_event: Optional threading.Event for cooperative cancellation
             
         Returns:
             Agent result (AgentHistoryList)
         """
-        return await self._agent.run(max_steps=max_steps)
+        return await self._agent.run(max_steps=max_steps, cancellation_event=cancellation_event)
     
     def get_filter_results(self) -> list[FilterResult]:
         """
