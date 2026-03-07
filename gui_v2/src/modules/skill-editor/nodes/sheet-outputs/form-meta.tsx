@@ -2,11 +2,13 @@ import React from 'react';
 import { FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Button, Input, Typography, Select } from '@douyinfe/semi-ui';
 import { Field } from '@flowgram.ai/free-layout-editor';
+import { useTranslation } from 'react-i18next';
 import { FlowNodeJSON } from '../../typings';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { FormHeader, FormContent } from '../../form-components';
 
 const OutputsEditor: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
+  const { t } = useTranslation('skillEditor');
   const items: Array<{ name: string }> = form.values?.data?.interface?.outputs || [];
   const setItems = (next: Array<{ name: string }>) => form.setFieldValue('data.interface.outputs', next);
   const onAdd = () => setItems([...(items || []), { name: '' }]);
@@ -26,21 +28,21 @@ const OutputsEditor: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
       <FormHeader />
       <FormContent>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Typography.Text strong>Sheet Outputs</Typography.Text>
+          <Typography.Text strong>{t('nodes.sheetOutputs.title')}</Typography.Text>
           {(items || []).map((it, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <Input
                 value={it.name}
-                placeholder={`output_${i + 1}`}
+                placeholder={t('nodes.sheetOutputs.outputPlaceholder', { index: i + 1 })}
                 onChange={(v) => onChange(i, v)}
                 style={{ flex: 1 }}
               />
-              <Button type="danger" theme="borderless" onClick={() => onRemove(i)}>Remove</Button>
+              <Button type="danger" theme="borderless" onClick={() => onRemove(i)}>{t('nodes.sheetOutputs.remove')}</Button>
             </div>
           ))}
-          <Button onClick={onAdd}>Add Output</Button>
+          <Button onClick={onAdd}>{t('nodes.sheetOutputs.addOutput')}</Button>
           <div style={{ height: 1, background: '#eee' }} />
-          <Typography.Text strong>Next Sheet (optional)</Typography.Text>
+          <Typography.Text strong>{t('nodes.sheetOutputs.nextSheetOptional')}</Typography.Text>
           <Field<string> name="data.nextSheet">
             {({ field }) => {
               const nextId = String(field.value || '');
@@ -48,7 +50,7 @@ const OutputsEditor: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
               return (
                 <>
                   <Select
-                    placeholder="Pick next sheet"
+                    placeholder={t('nodes.sheetOutputs.pickNextSheet')}
                     value={nextId}
                     optionList={options}
                     onChange={(v) => field.onChange(String(v))}
@@ -56,10 +58,10 @@ const OutputsEditor: React.FC<FormRenderProps<FlowNodeJSON>> = ({ form }) => {
                     style={{ minWidth: 240 }}
                   />
                   {!nextExists && nextId && (
-                    <Typography.Text type="warning">Selected sheet id not found in this bundle.</Typography.Text>
+                    <Typography.Text type="warning">{t('nodes.sheetOutputs.sheetNotFound')}</Typography.Text>
                   )}
                   {nextExists && (
-                    <Button onClick={() => openSheet(nextId)}>Open next sheet</Button>
+                    <Button onClick={() => openSheet(nextId)}>{t('nodes.sheetOutputs.openNextSheet')}</Button>
                   )}
                 </>
               );

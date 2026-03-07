@@ -4,6 +4,7 @@
  */
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Space, Tag, Tooltip, Checkbox } from '@douyinfe/semi-ui';
 import { IconPaperclip, IconEdit } from '@douyinfe/semi-icons';
@@ -14,6 +15,7 @@ import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-mater
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
+import { getCommonFieldLabel } from '../../utils/field-labels';
 
 // Temporary in-memory storage for user-configured values (per provider)
 // This preserves user settings when switching between providers during the current session
@@ -97,6 +99,7 @@ const PromptSelectionDropdown = ({
   promptOptions,
   onChange,
   onEdit,
+  t,
 }: {
   selected: string;
   username: string;
@@ -106,6 +109,7 @@ const PromptSelectionDropdown = ({
   promptOptions: any[];
   onChange: (val: string) => void;
   onEdit: () => void;
+  t: any;
 }) => {
   const [refreshing, setRefreshing] = useState(false);
   const attemptedIds = useRef<Set<string>>(new Set());
@@ -137,7 +141,7 @@ const PromptSelectionDropdown = ({
         loading={refreshing}
       />
       {showEditButton && (
-        <Tooltip content="Edit prompt">
+        <Tooltip content={t('nodes.llm.editPrompt')}>
           <Button
             icon={<IconEdit />}
             size="small"
@@ -152,6 +156,7 @@ const PromptSelectionDropdown = ({
 };
 
 export const FormRender = (_props: FormRenderProps<any>) => {
+  const { t } = useTranslation('skillEditor');
   const navigate = useNavigate();
   const username = useUserStore((s) => s.username || 'user');
   const { prompts, fetch, fetched, loading: promptStoreLoading } = usePromptStore();
@@ -239,7 +244,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <FormHeader />
         <FormContent>
           <div style={{ padding: '20px', textAlign: 'center' }}>
-            Loading LLM providers...
+            {t('nodes.llm.loadingProviders')}
           </div>
         </FormContent>
       </>
@@ -251,7 +256,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       <FormHeader />
       <FormContent>
         <Divider />
-        <FormItem name="promptSelection" type="string" vertical>
+        <FormItem name="promptSelection" label={getCommonFieldLabel('promptSelection', t)} type="string" vertical>
           <Field<string> name="inputsValues.promptSelection.content">
             {({ field: promptSelectorField }) => {
               const selected = (promptSelectorField.value as string) || 'inline';
@@ -268,13 +273,14 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   onEdit={() => {
                     navigate(`/prompts?id=${encodeURIComponent(selected)}&edit=true`);
                   }}
+                  t={t}
                 />
               );
             }}
           </Field>
         </FormItem>
         {/* Model Provider selector */}
-        <FormItem name="modelProvider" type="string" vertical>
+        <FormItem name="modelProvider" label={getCommonFieldLabel('modelProvider', t)} type="string" vertical>
           <Field<string> name="inputsValues.modelProvider.content">
             {({ field: providerField }) => {
               const currentProvider = (providerField.value as string) || (providers[0]?.name) || 'OpenAI';
@@ -393,7 +399,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                       style={{ width: '100%' }}
                                       dropdownMatchSelectWidth
                                       size="small"
-                                      placeholder="Select LLM Provider"
+                                      placeholder={t('nodes.llm.selectProvider')}
                                     />
                                   </div>
                                 );
@@ -411,7 +417,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Model Name selector depends on provider */}
-        <FormItem name="modelName" type="string" vertical>
+        <FormItem name="modelName" label={getCommonFieldLabel('modelName', t)} type="string" vertical>
           <Field<string> name="inputsValues.modelName.content">
             {({ field: modelField }) => (
               <Field<string> name="inputsValues.modelProvider.content">
@@ -437,7 +443,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                         style={{ width: '100%' }}
                         dropdownMatchSelectWidth
                         size="small"
-                        placeholder="Select Model"
+                        placeholder={t('nodes.llm.selectModel')}
                       />
                     </div>
                   );
@@ -448,14 +454,14 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Use Thinking checkbox */}
-        <FormItem name="useThinking" type="boolean" vertical>
+        <FormItem name="useThinking" label={getCommonFieldLabel('useThinking', t)} type="boolean" vertical>
           <Field<boolean> name="inputsValues.useThinking.content">
             {({ field }) => (
               <Checkbox
                 checked={!!field.value}
                 onChange={(e: any) => field.onChange(e.target?.checked ?? e)}
               >
-                Use Thinking (for reasoning models like Qwen3, DeepSeek-R1)
+                {t('nodes.llm.useThinkingDesc')}
               </Checkbox>
             )}
           </Field>
@@ -463,7 +469,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
 
         <Field<string> name="inputsValues.promptSelection.content">
           {({ field: promptSelectorField }) => (
-            <FormItem name="attachments" type="array" vertical>
+            <FormItem name="attachments" label={getCommonFieldLabel('attachments', t)} type="array" vertical>
               <Field<any[]> name="inputsValues.attachments.content">
                 {({ field: attField }) => {
                   const files = Array.isArray(attField.value) ? attField.value : [];
@@ -587,12 +593,12 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                     ))}
                   </Space>
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Tooltip content="Add attachment(s)">
+                    <Tooltip content={t('nodes.llm.addAttachment')}>
                       <Button icon={<IconPaperclip />} onClick={handleAdd} size="small">
-                        Add Attachment
+                        {t('nodes.llm.addAttachment')}
                       </Button>
                     </Tooltip>
-                    <Tooltip content={isRecording ? 'Recording... release to finish' : 'Hold to record voice'}>
+                    <Tooltip content={isRecording ? t('nodes.llm.recording') : t('nodes.llm.holdToRecord')}>
                       <Button
                         icon={<span role="img" aria-label="mic">🎤</span>}
                         size="small"
@@ -603,7 +609,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                         onTouchStart={startRecording}
                         onTouchEnd={stopRecording}
                       >
-                        {isRecording ? 'Recording…' : 'Hold to Record'}
+                        {isRecording ? t('nodes.llm.recordingButton') : t('nodes.llm.holdToRecordButton')}
                       </Button>
                     </Tooltip>
                   </div>
@@ -627,7 +633,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <PromptInputWithSelector
           promptFieldName="inputsValues.systemPrompt"
           promptIdFieldName="inputsValues.systemPromptId"
-          label="System Prompt"
+          label={t('nodes.llm.systemPrompt')}
           promptType="systemPrompt"
           schema={{ type: 'string' }}
         />
@@ -636,7 +642,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <PromptInputWithSelector
           promptFieldName="inputsValues.prompt"
           promptIdFieldName="inputsValues.promptId"
-          label="Prompt"
+          label={t('nodes.llm.prompt')}
           promptType="prompt"
           schema={{ type: 'string' }}
         />
