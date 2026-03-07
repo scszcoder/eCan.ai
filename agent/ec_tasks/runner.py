@@ -2673,10 +2673,13 @@ class TaskRunner(Generic[Context]):
                     break
 
                 # If the initial run interrupted (pend_event waiting for input) and the
-                # original message is an async_callback (e.g., passive command from cloud),
-                # immediately resume with the callback data so pend_event can resolve.
-                # Without this, the callback data is lost because prep_skills_run doesn't
-                # understand async_callback format — the graph pauses and never resumes.
+                # original message carries data the pend_event needs, immediately
+                # resume so the graph can continue.  This covers two cases:
+                #   1. async_callback — passive command from cloud
+                #   2. message trigger (human_chat / a2a) — the user's chat message
+                #      is already in the state but pend_event always interrupts on
+                #      first visit; auto-resume feeds the message as a resume payload
+                #      so the graph advances to the LLM node.
                 _is_interrupted = (
                     isinstance(response, dict)
                     and response.get("success") is False
@@ -2684,9 +2687,11 @@ class TaskRunner(Generic[Context]):
                     and "__interrupt__" in response.get("step", {})
                 )
                 _is_async_callback = isinstance(msg, dict) and msg.get("type") == "async_callback"
+                _is_message_trigger = trigger_type == "message"
+                _should_auto_resume = _is_async_callback or _is_message_trigger
 
-                if _is_interrupted and _is_async_callback:
-                    logger.info(f"[EXECUTOR] Initial run interrupted at pend_event with async_callback message — auto-resuming")
+                if _is_interrupted and _should_auto_resume:
+                    logger.info(f"[EXECUTOR] Initial run interrupted at pend_event — auto-resuming (trigger={trigger_type}, async_cb={_is_async_callback})")
                     resume_payload, cp = self._build_resume_payload(task, msg)
                     resume_cmd = Command(resume=resume_payload)
                     resume_tag = None
