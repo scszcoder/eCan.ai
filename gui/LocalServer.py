@@ -429,16 +429,14 @@ class RequestHandlers:
             else:
                 request_params = dict(graphql_variables)
 
-            # Extract token from Authorization header (AppSync-style) and inject into params.token
-            # so IPC registry can validate it.
-            if 'token' not in request_params or not request_params.get('token'):
-                auth_header = request.headers.get('authorization') or request.headers.get('Authorization')
-                if auth_header and isinstance(auth_header, str):
-                    parts = auth_header.split(' ', 1)
-                    if len(parts) == 2 and parts[0].lower() == 'bearer':
-                        bearer_token = parts[1].strip()
-                        if bearer_token:
-                            request_params['token'] = bearer_token
+            # Extract token from Authorization header for validation
+            # Token should NOT be injected into request_params to avoid polluting business data
+            auth_header = request.headers.get('authorization') or request.headers.get('Authorization')
+            extracted_token = None
+            if auth_header and isinstance(auth_header, str):
+                parts = auth_header.split(' ', 1)
+                if len(parts) == 2 and parts[0].lower() == 'bearer':
+                    extracted_token = parts[1].strip()
             
             # 将 extensions 中的其他元数据合并进来（排除 method 和 operationName）
             for key, value in extensions.items():
@@ -450,9 +448,18 @@ class RequestHandlers:
             # 使用 IPCHandlerRegistry 统一处理
             from gui.ipc.registry import IPCHandlerRegistry
 
+            # Create IPC request with token separate from business params
+            ipc_request = {
+                'id': f'graphql_{method}',
+                'method': method,
+                'params': request_params,
+                'source': 'graphql',
+                'token': extracted_token  # Token for validation only, not in params
+            }
+
             # IPCHandlerRegistry now automatically handles background handlers in thread pool
             # to avoid blocking the event loop (e.g., login, skill_editor.chat.send_message)
-            result_data = await IPCHandlerRegistry.handle_graphql_request(method, request_params)
+            result_data = await IPCHandlerRegistry.handle_graphql_request(method, request_params, ipc_request)
             
             # 使用 operation_name 作为响应的字段名（如果没有则使用 method）
             response_field_name = operation_name or method
