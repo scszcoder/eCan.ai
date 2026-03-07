@@ -16,7 +16,7 @@ export const SheetOutputsNodeRegistry: FlowNodeRegistry = {
   },
   info: {
     icon: iconVariable,
-    description: 'Defines the output interface (ports) for this sheet.',
+    description: 'nodes.sheetOutputs.description',
   },
   onAdd() {
     return {

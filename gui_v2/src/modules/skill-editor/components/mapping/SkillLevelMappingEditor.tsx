@@ -1,4 +1,5 @@
-import React, { useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import MappingEditor, { type MappingConfig } from './MappingEditor';
 import { Collapse, Typography, TextArea, Button, Toast } from '@douyinfe/semi-ui';
 
@@ -14,6 +15,7 @@ export function SkillLevelMappingEditor(props: {
   value?: SkillLevelMappingConfig | null;
   onChange?: (cfg: SkillLevelMappingConfig) => void;
 }) {
+  const { t } = useTranslation('skillEditor');
   const config = props.value || {
     developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
     released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
@@ -37,29 +39,29 @@ export function SkillLevelMappingEditor(props: {
     try {
       const parsed = JSON.parse(edmText);
       if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-        setEdmError('Must be a JSON object');
+        setEdmError(t('mapping.mustBeJsonObject'));
         return;
       }
       setEdmError(null);
       props.onChange?.({ ...config, event_data_mapping: parsed });
-      Toast.success('Event data mapping updated');
+      Toast.success(t('mapping.eventDataMappingUpdated'));
     } catch (e: any) {
-      setEdmError(e.message || 'Invalid JSON');
+      setEdmError(e.message || t('mapping.invalidJson'));
     }
   }, [edmText, config, props.onChange]);
 
   return (
     <div style={{ padding: '8px 0' }}>
-      <Title heading={6} style={{ marginBottom: 12 }}>Skill-Level Mapping Rules</Title>
+      <Title heading={6} style={{ marginBottom: 12 }}>{t('mapping.skillLevelMappingRules')}</Title>
       <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 16 }}>
-        These rules apply to the entire skill and control event-to-state data mapping.
+        {t('mapping.skillLevelMappingDesc')}
       </Text>
       
       <Collapse defaultActiveKey={['dev']} accordion={false}>
-        <Collapse.Panel header="Development Mode Mappings" itemKey="dev">
+        <Collapse.Panel header={t('mapping.developmentModeMappings')} itemKey="dev">
           <div style={{ padding: '8px 0' }}>
             <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
-              Mapping rules used when skill run_mode = "developing" (includes debug metadata)
+              {t('mapping.developmentModeDesc')}
             </Text>
             <MappingEditor 
               value={config.developing}
@@ -68,10 +70,10 @@ export function SkillLevelMappingEditor(props: {
           </div>
         </Collapse.Panel>
         
-        <Collapse.Panel header="Released Mode Mappings" itemKey="rel">
+        <Collapse.Panel header={t('mapping.releasedModeMappings')} itemKey="rel">
           <div style={{ padding: '8px 0' }}>
             <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
-              Mapping rules used when skill run_mode = "released" (production optimized)
+              {t('mapping.releasedModeDesc')}
             </Text>
             <MappingEditor 
               value={config.released}
@@ -80,13 +82,10 @@ export function SkillLevelMappingEditor(props: {
           </div>
         </Collapse.Panel>
 
-        <Collapse.Panel header="Event Data Mapping (adapt_to_state)" itemKey="edm">
+        <Collapse.Panel header={t('mapping.eventDataMapping')} itemKey="edm">
           <div style={{ padding: '8px 0' }}>
             <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
-              Per-skill config that maps event payload fields into the resuming node's state
-              when a pending event arrives. Each key is an event type (e.g. "passive_command"),
-              and the value contains an <code>adapt_to_state</code> object mapping source fields
-              to target state paths.
+              {t('mapping.eventDataMappingDesc')}
             </Text>
             <TextArea
               value={edmText}
@@ -101,17 +100,15 @@ export function SkillLevelMappingEditor(props: {
               </Text>
             )}
             <Button size="small" theme="solid" style={{ marginTop: 8 }} onClick={handleEdmApply}>
-              Apply
+              {t('mapping.apply')}
             </Button>
           </div>
         </Collapse.Panel>
 
-        <Collapse.Panel header="Event Routing (Info)" itemKey="routing">
+        <Collapse.Panel header={t('mapping.eventRouting')} itemKey="routing">
           <div style={{ padding: '8px 0' }}>
             <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
-              Event-to-task routing is now managed at the agent level via <code>event_routing.json</code>,
-              not per-skill. When a task starts, the runner automatically detects pend_event nodes
-              in the skill and registers the required event routes globally.
+              {t('mapping.eventRoutingDesc')}
             </Text>
           </div>
         </Collapse.Panel>

@@ -33,3 +33,19 @@ body {
 .logout-confirm-modal .ant-modal-body {
   color: #ffffff !important;
 }
+
+/* Fix Semi-UI Tooltip text color for DisplaySchemaTag - Global override */
+body div[class*="semi-tooltip"],
+body div[class*="Tooltip"],
+body [role="tooltip"] {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #e0e0e0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+body div[class*="semi-tooltip"] *,
+body div[class*="Tooltip"] *,
+body [role="tooltip"] * {
+  color: #000000 !important;
+}

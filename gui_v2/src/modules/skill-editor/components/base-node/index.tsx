@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { FlowNodeEntity, useNodeRender } from '@flowgram.ai/free-layout-editor';
 import { ConfigProvider } from '@douyinfe/semi-ui';
@@ -45,6 +46,7 @@ class NodeErrorBoundary extends React.Component<
 }
 
 export const BaseNode = ({ node }: { node: FlowNodeEntity }) => {
+  const { t } = useTranslation('skillEditor');
   console.log('[BaseNode] Rendering node:', { nodeId: node?.id, nodeType: node?.flowNodeType });
   /**
    * Provides methods related to node rendering
@@ -114,9 +116,9 @@ export const BaseNode = ({ node }: { node: FlowNodeEntity }) => {
             {/* Unified Node State panel for all nodes (hidden for Loop, BlockStart, BlockEnd) */}
             {shouldShowNodeState && (
               <div style={{ marginTop: 8, borderTop: '1px solid #eee', paddingTop: 8 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Node State</div>
+                <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>{t('nodeState.title')}</div>
                 {loading || !schema ? (
-                  <div style={{ color: '#999' }}>Loading node state schema...</div>
+                  <div style={{ color: '#999' }}>{t('nodeState.loadingSchema')}</div>
                 ) : (
                   <NodeStatePanel schema={schema} value={getStateValue() ?? {}} onChange={setStateValue} />
                 )}

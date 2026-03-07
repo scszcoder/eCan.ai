@@ -31,7 +31,7 @@ export const BlockStartNodeRegistry: FlowNodeRegistry = {
   },
   info: {
     icon: iconStart,
-    description: 'The starting node of the block.',
+    description: 'nodes.blockStart.description',
   },
   /**
    * Render node via formMeta
