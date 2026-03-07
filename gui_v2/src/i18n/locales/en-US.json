@@ -2022,6 +2022,14 @@
         "workspace_switched": "Switched to workspace: {{name}}",
         "workspace_switch_failed": "Failed to switch workspace"
       },
+      "help": {
+        "title": "Knowledge Base User Guide",
+        "button": "Help",
+        "tooltip": "View Knowledge Base User Guide",
+        "loading": "Loading help documentation...",
+        "loadError": "Failed to load help documentation",
+        "tableOfContents": "Table of Contents"
+      },
       "graph": {
         "title": "Knowledge Graph",
         "subtitle": "Interactive visualization of knowledge relationships",
