@@ -27,7 +27,7 @@ export const CodeNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Code,
   info: {
     icon: iconCode,
-    description: 'Run the Script',
+    description: 'nodes.code.description',
   },
   meta: {
     size: {

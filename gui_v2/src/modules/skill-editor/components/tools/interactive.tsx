@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   usePlaygroundTools,
@@ -31,6 +32,7 @@ export enum InteractiveType {
 }
 
 export const Interactive = () => {
+  const { t } = useTranslation('skillEditor');
   const tools = usePlaygroundTools();
   const [visible, setVisible] = useState(false);
 
@@ -41,7 +43,7 @@ export const Interactive = () => {
   const [showInteractivePanel, setShowInteractivePanel] = useState(false);
 
   const mousePadTooltip =
-    interactiveType === InteractiveType.Mouse ? 'Mouse-Friendly' : 'Touchpad-Friendly';
+    interactiveType === InteractiveType.Mouse ? t('toolbar.mouseFriendly') : t('toolbar.touchpadFriendly');
 
   useEffect(() => {
     tools.setMouseScrollDelta((zoom) => zoom / 20);

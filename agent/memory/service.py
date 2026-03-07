@@ -78,21 +78,19 @@ class MemoryManager:
 				if main_window:
 					general_settings = main_window.config_manager.general_settings
 					if embedding_provider is None:
-						embedding_provider = general_settings.default_embedding or "OpenAI"
+						embedding_provider = general_settings.default_embedding
+						if not embedding_provider:
+							logger.warning("[MemoryManager] No default embedding provider configured in Settings")
+							embedding_provider = None
 					if embedding_model is None:
-						embedding_model = general_settings.default_embedding_model or "text-embedding-3-small"
+						embedding_model = general_settings.default_embedding_model
+						if not embedding_model:
+							logger.warning("[MemoryManager] No default embedding model configured in Settings")
+							embedding_model = None
 				else:
-					# Fallback if main_window not available
-					if embedding_provider is None:
-						embedding_provider = "OpenAI"
-					if embedding_model is None:
-						embedding_model = "text-embedding-3-small"
+					logger.warning("[MemoryManager] Main window not available, cannot get embedding settings")
 			except Exception as e:
-				logger.warning(f"[MemoryManager] Failed to get embedding settings, using defaults: {e}")
-				if embedding_provider is None:
-					embedding_provider = "OpenAI"
-				if embedding_model is None:
-					embedding_model = "text-embedding-3-small"
+				logger.warning(f"[MemoryManager] Failed to get embedding settings from Settings: {e}")
 		
 		# Initialize embeddings using EmbeddingFactory with settings from config
 		try:

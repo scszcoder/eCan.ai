@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useRefresh } from '@flowgram.ai/free-layout-editor';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
@@ -101,6 +102,7 @@ class ToolsErrorBoundary extends React.Component<
 }
 
 const ToolsInner = () => {
+  const { t } = useTranslation('skillEditor');
   // Stabilization state - wait for flowgram to settle before rendering interactive elements
   // This prevents errors during the initial "churn" period when flowgram
   // fires internal events like FreeLayoutScopeChain.sortAll
@@ -142,7 +144,7 @@ const ToolsInner = () => {
 
   const ipcApi = IPCAPI.getInstance();
 
-  const handleRunControl = (action: 'cancel' | 'pause' | 'resume' | 'step') => {
+  const handleRunControl = async (action: 'cancel' | 'pause' | 'resume' | 'step') => {
     if (!skillInfoFromStore || !username) return;
 
     // Create a new skill info object with the latest diagram
@@ -161,7 +163,12 @@ const ToolsInner = () => {
           skill_id: (skillInfoFromStore as any)?.skillId || (skillInfoFromStore as any)?.skill_id,
         };
         console.log('[ToolBar] cancelRunSkill with run_id:', cancelPayload.run_id, 'skill_id:', cancelPayload.skill_id);
-        ipcApi.cancelRunSkill(username, cancelPayload);
+        try {
+          await ipcApi.cancelRunSkill(username, cancelPayload);
+          console.log('[ToolBar] ✅ Cancel request sent successfully');
+        } catch (err) {
+          console.error('[ToolBar] ❌ Failed to send cancel request:', err);
+        }
         // Remove from dev task tracking
         if (activeRunId) {
           useRunningNodeStore.getState().removeDevTask(activeRunId);
@@ -195,7 +202,7 @@ const ToolsInner = () => {
         <Minimap visible={minimapVisible} />
         <Readonly />
         <Comment />
-        <Tooltip content="Undo">
+        <Tooltip content={t('toolbar.undo')}>
           <IconButton
             type="tertiary"
             theme="borderless"
@@ -204,7 +211,7 @@ const ToolsInner = () => {
             onClick={() => history.undo()}
           />
         </Tooltip>
-        <Tooltip content="Redo">
+        <Tooltip content={t('toolbar.redo')}>
           <IconButton
             type="tertiary"
             theme="borderless"
@@ -226,7 +233,7 @@ const ToolsInner = () => {
         <Info />
         <GitMenu />
         {/* Help button */}
-        <Tooltip content="Help">
+        <Tooltip content={t('toolbar.help')}>
           <IconButton
             type="tertiary"
             theme="borderless"
@@ -238,25 +245,25 @@ const ToolsInner = () => {
         <TestRunControlButton
           icon={<IconPauseColored size={16} />}
           onClick={() => handleRunControl('pause')}
-          tooltip="Pause Run"
+          tooltip={t('toolbar.pauseRun')}
           disabled={playground.config.readonly}
         />
         <TestRunControlButton
           icon={<IconStepColored size={16} />}
           onClick={() => handleRunControl('step')}
-          tooltip="Step Run"
+          tooltip={t('toolbar.stepRun')}
           disabled={playground.config.readonly}
         />
         <TestRunControlButton
           icon={<IconResumeColored size={16} />}
           onClick={() => handleRunControl('resume')}
-          tooltip="Resume Run"
+          tooltip={t('toolbar.resumeRun')}
           disabled={playground.config.readonly}
         />
         <TestRunControlButton
           icon={<IconStopColored size={16} />}
           onClick={() => handleRunControl('cancel')}
-          tooltip="Stop Run"
+          tooltip={t('toolbar.stopRun')}
           disabled={playground.config.readonly}
         />
       </ToolSection>

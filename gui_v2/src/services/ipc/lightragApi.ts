@@ -220,6 +220,10 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.restartServer', payload);
     },
 
+    async getStartupStatus<T>(): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getStartupStatus', {});
+    },
+
     async checkEmbeddingDimension<T>(payload: { newDimension: number; workspaceName: string }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.checkEmbeddingDimension', payload);
     }

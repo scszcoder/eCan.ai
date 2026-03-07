@@ -13,7 +13,7 @@ export const PendInputNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.PendInput,
   info: {
     icon: iconBreak,
-    description: 'Pause the flow until a message arrives from selected queues/events.',
+    description: 'nodes.pendInput.description',
   },
   meta: {
     defaultPorts: [

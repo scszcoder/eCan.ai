@@ -13,7 +13,7 @@ export const SheetCallNodeRegistry: FlowNodeRegistry = {
   },
   info: {
     icon: iconScript,
-    description: 'Invoke another sheet and map its inputs/outputs.',
+    description: 'nodes.sheetCall.description',
   },
   onAdd() {
     return {

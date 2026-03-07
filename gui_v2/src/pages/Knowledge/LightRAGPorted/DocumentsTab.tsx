@@ -577,6 +577,13 @@ const DocumentsTab: React.FC = () => {
   const loadDocuments = async (silentRefresh: boolean = false, retryCount: number = 0) => {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 2000; // 2 seconds
+    const isConnectionErrorMessage = (msg: string) => {
+      const m = (msg || '').toLowerCase();
+      return m.includes('connection') ||
+             m.includes('refused') ||
+             m.includes('max retries exceeded') ||
+             m.includes('failed to establish a new connection');
+    };
     
     try {
       if (!silentRefresh) {
@@ -606,9 +613,7 @@ const DocumentsTab: React.FC = () => {
       // Check if server is not ready (connection refused) and retry
       if (!response.success && retryCount < MAX_RETRIES) {
         const errorMsg = response.error?.message || '';
-        const isConnectionError = errorMsg.includes('Connection') || 
-                                   errorMsg.includes('refused') || 
-                                   errorMsg.includes('Max retries exceeded');
+        const isConnectionError = isConnectionErrorMessage(errorMsg);
         
         if (isConnectionError) {
           console.log(`[DocumentsTab] Server not ready, retrying in ${RETRY_DELAY}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
@@ -701,7 +706,20 @@ const DocumentsTab: React.FC = () => {
       }
     } catch (e: any) {
       console.error('[DocumentsTab] Exception in loadDocuments:', e);
-      const errorMsg = 'Error loading documents: ' + (e?.message || String(e));
+
+      const rawMessage = e?.message || e?.error?.message || String(e);
+      if (retryCount < MAX_RETRIES && isConnectionErrorMessage(rawMessage)) {
+        console.log(`[DocumentsTab] Exception indicates server not ready, retrying in ${RETRY_DELAY}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        if (!silentRefresh) {
+          appendLog(t('pages.knowledge.documents.waitingForServer', {
+            defaultValue: `Waiting for LightRAG server... (attempt ${retryCount + 1}/${MAX_RETRIES})`
+          }));
+        }
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return loadDocuments(silentRefresh, retryCount + 1);
+      }
+
+      const errorMsg = 'Error loading documents: ' + rawMessage;
       appendLog(errorMsg);
       message.error(errorMsg);
     } finally {

@@ -1,17 +1,20 @@
 /**
  * Chat Node form
  */
-import React, { useEffect, useMemo, useState } from 'react';
-import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
+import { useEffect, useMemo, useState } from 'react';
+import { Field, FormMeta, FormRenderProps, FlowNodeJSON } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, TextArea } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
+import i18n from 'i18next';
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { defaultFormMeta } from '../default-form-meta';
 import { IPCAPI } from '../../../../services/ipc/api';
 
 interface AgentOption { id: string; name: string; kind: 'human' | 'agent' }
 
-export const ChatFormRender = ({ form }: FormRenderProps) => {
-  const [options, setOptions] = useState<AgentOption[]>([{ id: 'human', name: 'Human', kind: 'human' }]);
+export const ChatFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
+  const { t } = useTranslation('skillEditor');
+  const [options, setOptions] = useState<AgentOption[]>([{ id: 'human', name: t('nodes.chat.human'), kind: 'human' }]);
 
   useEffect(() => {
     IPCAPI.getInstance().getEditorAgents<{ agents: AgentOption[] }>()
@@ -32,27 +35,27 @@ export const ChatFormRender = ({ form }: FormRenderProps) => {
     <>
       <FormHeader />
       <FormContent>
-        <FormItem name="party" type="string" label="Chat With" vertical>
+        <FormItem name="party" type="string" label={t('nodes.chat.chatWith')} vertical>
           <Field<any> name="inputsValues.party">
             {({ field }) => (
               <Select
                 value={field.value?.content ?? 'human'}
                 onChange={(val) => field.onChange({ type: 'constant', content: String(val) })}
                 optionList={partyOptions}
-                placeholder="Select party (default: Human)"
+                placeholder={t('nodes.chat.selectParty')}
               />
             )}
           </Field>
         </FormItem>
         <Divider />
-        <FormItem name="messageTemplate" type="string" label="Message" vertical>
+        <FormItem name="messageTemplate" type="string" label={t('nodes.chat.message')} vertical>
           <Field<any> name="inputsValues.messageTemplate">
             {({ field }) => (
               <TextArea
                 value={String(field.value?.content ?? '')}
                 onChange={(val) => field.onChange({ type: 'template', content: String(val ?? '') })}
                 rows={4}
-                placeholder="Enter chat message template"
+                placeholder={t('nodes.chat.messagePlaceholder')}
               />
             )}
           </Field>
@@ -65,7 +68,7 @@ export const ChatFormRender = ({ form }: FormRenderProps) => {
 export const formMeta: FormMeta = {
   render: (props) => <ChatFormRender {...props} />,
   validate: {
-    party: ({ value }) => (value ? undefined : 'Party is required'),
+    party: ({ value }) => (value ? undefined : i18n.t('nodes.chat.partyRequired', { ns: 'skillEditor' })),
   },
   effect: defaultFormMeta.effect,
 };

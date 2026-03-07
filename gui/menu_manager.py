@@ -649,6 +649,12 @@ class MenuManager:
             help_menu.addAction(log_viewer_action)
             logger.debug("Added 'View Logs' menu item")
             
+            # LightRAG Log Viewer
+            lightrag_log_viewer_action = QAction(_get_menu_messages().get('view_lightrag_logs'), self.main_window)
+            lightrag_log_viewer_action.triggered.connect(self.show_lightrag_log_viewer)
+            help_menu.addAction(lightrag_log_viewer_action)
+            logger.debug("Added 'View LightRAG Logs' menu item")
+            
             logger.info("Help menu setup completed successfully")
         except Exception as e:
             logger.error(f"Error setting up help menu: {e}")
@@ -1479,6 +1485,53 @@ class MenuManager:
             logger.error(f"Failed to show log viewer: {e}")
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self.main_window, "Error", f"Failed to open log viewer:\n{str(e)}")
+
+    def show_lightrag_log_viewer(self):
+        """Show LightRAG log viewer window"""
+        try:
+            # Import here to avoid circular imports
+            from gui.log_viewer import LogViewer
+            from PySide6.QtCore import Qt
+            from config.app_info import app_info
+
+            # Check if LightRAG log viewer is already open
+            if hasattr(self, 'lightrag_log_viewer_window') and self.lightrag_log_viewer_window and not self.lightrag_log_viewer_window.isHidden():
+                # Bring existing window to front
+                self.lightrag_log_viewer_window.raise_()
+                self.lightrag_log_viewer_window.activateWindow()
+                logger.info("Brought existing LightRAG log viewer window to front")
+            else:
+                # Determine LightRAG log file path using same logic as eCan.log
+                # Development: <project_root>/runlogs/lightrag.log
+                # Production: <appdata_path>/runlogs/lightrag.log
+                appdata_path = app_info.appdata_path
+                runlogs_dir = os.path.join(appdata_path, "runlogs")
+                lightrag_log_path = os.path.join(runlogs_dir, "lightrag.log")
+                
+                # Check if log file exists
+                if not os.path.exists(lightrag_log_path):
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.information(
+                        self.main_window, 
+                        "LightRAG Log", 
+                        f"LightRAG log file not found.\n\nExpected location:\n{lightrag_log_path}\n\nThe LightRAG server may not have been started yet."
+                    )
+                    logger.debug(f"LightRAG log file not found: {lightrag_log_path}")
+                    return
+                
+                # Create new LightRAG log viewer window WITHOUT parent to avoid staying on top of main window
+                self.lightrag_log_viewer_window = LogViewer(None, log_file_path=lightrag_log_path)
+                # Ensure it's a normal top-level, non-modal window
+                self.lightrag_log_viewer_window.setWindowModality(Qt.NonModal)
+                self.lightrag_log_viewer_window.setWindowFlag(Qt.Window, True)
+                self.lightrag_log_viewer_window.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+                self.lightrag_log_viewer_window.show()
+                logger.info(f"Opened new LightRAG log viewer window for: {lightrag_log_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to show LightRAG log viewer: {e}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self.main_window, "Error", f"Failed to open LightRAG log viewer:\n{str(e)}")
 
 
 

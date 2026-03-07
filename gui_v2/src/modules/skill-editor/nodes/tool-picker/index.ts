@@ -11,7 +11,7 @@ export const ToolPickerNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.ToolPicker,
   info: {
     icon: iconToolPicker,
-    description: 'A tool picker node for selecting and invoking tools',
+    description: 'nodes.toolPicker.description',
   },
   meta: {
     size: {
