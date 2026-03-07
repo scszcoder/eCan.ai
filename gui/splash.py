@@ -533,33 +533,118 @@ class ThemedSplashScreen(QWidget):
 
     def finish(self, main_window=None):
         try:
+            from utils.logger_helper import logger_helper as logger
+            logger.info(f"[Splash] finish() called, main_window={'provided' if main_window else 'None'}")
+            
             # Mark web as done; only close when both web and python are done
             self._web_done = True
             if main_window is not None:
                 self._target_main_window = main_window
             # Hide immediately once web is ready; keep initialization running
             self._hide_now()
+            logger.info("[Splash] Splash hidden, activating main window...")
+            
             # Show and bring main window to front reliably
             if main_window is not None:
                 try:
                     main_window.show()
                     main_window.raise_()
                     main_window.activateWindow()
+                    logger.info("[Splash] Basic window activation done (show, raise, activate)")
+                    
+                    # Platform-specific window activation
                     if sys.platform == 'win32':
+                        # Windows: Use SetForegroundWindow
                         try:
                             import ctypes
                             hwnd = int(main_window.winId())
                             if hwnd:
                                 user32 = ctypes.windll.user32
                                 user32.SetForegroundWindow(hwnd)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                                logger.info("[Splash] Windows: SetForegroundWindow called")
+                        except Exception as e:
+                            logger.warning(f"[Splash] Windows activation failed: {e}")
+                    elif sys.platform == 'darwin':
+                        # macOS: Force application to foreground using NSApplication
+                        logger.info("[Splash] macOS: Starting window activation sequence...")
+                        try:
+                            from PySide6.QtWidgets import QApplication
+                            from PySide6.QtCore import QTimer
+                            
+                            # Use QTimer to ensure window activation happens after splash is hidden
+                            def activate_main_window():
+                                try:
+                                    # Method 1: Use AppleScript (most reliable on macOS)
+                                    activation_success = False
+                                    try:
+                                        import subprocess
+                                        # Get the process name (should be "eCan" or "Python" in dev)
+                                        app_name = "eCan"
+                                        script = f'tell application "System Events" to set frontmost of first process whose name is "{app_name}" to true'
+                                        result = subprocess.run(
+                                            ['osascript', '-e', script],
+                                            capture_output=True,
+                                            text=True,
+                                            timeout=1.0
+                                        )
+                                        if result.returncode == 0:
+                                            activation_success = True
+                                        else:
+                                            # Try with "Python" as fallback (development mode)
+                                            script = 'tell application "System Events" to set frontmost of first process whose name is "Python" to true'
+                                            result = subprocess.run(
+                                                ['osascript', '-e', script],
+                                                capture_output=True,
+                                                text=True,
+                                                timeout=1.0
+                                            )
+                                            if result.returncode == 0:
+                                                activation_success = True
+                                    except Exception:
+                                        pass
+                                    
+                                    # Method 2: NSApplication (backup method)
+                                    try:
+                                        import objc
+                                        from AppKit import NSApplication
+                                        ns_app = NSApplication.sharedApplication()
+                                        ns_app.activateIgnoringOtherApps_(True)
+                                    except Exception:
+                                        pass
+                                    
+                                    # Then activate the window
+                                    main_window.show()
+                                    main_window.raise_()
+                                    main_window.activateWindow()
+                                    # Force window to front on macOS
+                                    main_window.setWindowState(main_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+                                    
+                                    # Only log if activation was successful
+                                    if activation_success:
+                                        logger.debug("[Splash] macOS: Window activated")
+                                except Exception as e:
+                                    logger.warning(f"[Splash] macOS activation error: {e}")
+                            
+                            # Activate immediately and again after short delays
+                            activate_main_window()
+                            QTimer.singleShot(100, activate_main_window)
+                            QTimer.singleShot(300, activate_main_window)
+                            logger.info("[Splash] macOS: Scheduled 3 activation attempts (0ms, 100ms, 300ms)")
+                        except Exception as e:
+                            logger.error(f"[Splash] macOS activation setup failed: {e}")
+                except Exception as e:
+                    logger.error(f"[Splash] Window activation failed: {e}")
+            else:
+                logger.warning("[Splash] No main_window provided to finish()")
+            
             # Delete later when python init finishes
             self._maybe_delete()
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                from utils.logger_helper import logger_helper as logger
+                logger.error(f"[Splash] finish() exception: {e}")
+            except:
+                pass
 
     # Python-side progress handlers
     def _on_py_progress(self, value: int):
