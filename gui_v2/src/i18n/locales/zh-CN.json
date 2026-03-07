@@ -2003,6 +2003,14 @@
         "workspace_switched": "已切换到 workspace：{{name}}",
         "workspace_switch_failed": "切换 workspace 失败"
       },
+      "help": {
+        "title": "知识库使用指南",
+        "button": "帮助",
+        "tooltip": "查看知识库使用指南",
+        "loading": "正在加载帮助文档...",
+        "loadError": "加载帮助文档失败",
+        "tableOfContents": "目录"
+      },
       "graph": {
         "title": "知识图谱",
         "subtitle": "知识关系的交互式可视化",

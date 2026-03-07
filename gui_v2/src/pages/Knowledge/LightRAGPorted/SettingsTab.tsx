@@ -28,6 +28,7 @@ import {
   ProviderConfig
 } from './providerConfig';
 import { Card } from 'antd';
+import HelpDialog from './HelpDialog';
 
 // Helper to merge static providers with system providers
 // Preserves static config (rich UI) for known providers, adds new ones from system
@@ -108,6 +109,7 @@ const SettingsTab: React.FC = () => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
+  const [helpDialogVisible, setHelpDialogVisible] = useState(false);
   const savedScrollPosition = useRef<number>(0);
   const restoringRef = useRef(false);
   const initialLoadRef = useRef(true);
@@ -1637,9 +1639,20 @@ const SettingsTab: React.FC = () => {
               </p>
             </div>
           </div>
-          <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
-            <SaveOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
-          </button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <Tooltip title={t('pages.knowledge.help.tooltip')}>
+              <button 
+                className="ec-btn ec-btn-default" 
+                onClick={() => setHelpDialogVisible(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <QuestionCircleOutlined /> {t('pages.knowledge.help.button')}
+              </button>
+            </Tooltip>
+            <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
+              <SaveOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1674,6 +1687,12 @@ const SettingsTab: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Help Dialog */}
+      <HelpDialog 
+        visible={helpDialogVisible}
+        onClose={() => setHelpDialogVisible(false)}
+      />
 
       {/* Scoped styles */}
       <style>{`
