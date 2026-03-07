@@ -141,40 +141,29 @@ class IPCHandlerRegistry:
 
     @classmethod
     def _validate_token(cls, request: IPCRequest, params: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
-        """Validate token (optimized version)
+        """Validate token from request.token (standard approach)
+        
+        Token should be in request.token, extracted from HTTP Authorization header.
+        No fallback to params to avoid masking issues.
 
         Returns:
             Tuple[bool, Optional[str]]: (is valid, error message)
         """
         try:
-            # Optimization: fast path - get token directly from params
+            # Get token from request.token (standard design)
             token = None
-            if params and isinstance(params, dict):
-                token = params.get('token')
-                if token:
-                    # Fast validation path
-                    if token_manager.validate_token(token):
-                        return True, None
-                    else:
-                        return False, "INVALID_TOKEN"
-
-            # Fallback path: find token from request
             if isinstance(request, dict):
-                # Check top-level token field first
                 token = request.get('token')
-                if not token:
-                    # Then check token in args
-                    args = request.get('args', {})
-                    if isinstance(args, dict):
-                        token = args.get('token')
-
+            
             if not token:
+                logger.warning(f"[registry] TOKEN_REQUIRED: No token in request.token")
                 return False, "TOKEN_REQUIRED"
-
-            # Use token_manager to validate token
+            
+            # Validate token
             if token_manager.validate_token(token):
                 return True, None
             else:
+                logger.warning(f"[registry] INVALID_TOKEN: Token validation failed for {token[:8]}...")
                 return False, "INVALID_TOKEN"
 
         except Exception as e:
@@ -510,7 +499,7 @@ class IPCHandlerRegistry:
         return True
 
     @classmethod
-    async def handle_graphql_request(cls, method: str, variables: Dict[str, Any]) -> Any:
+    async def handle_graphql_request(cls, method: str, variables: Dict[str, Any], request: Optional[IPCRequest] = None) -> Any:
         """Handle GraphQL request from LocalServer or AppSync Lambda
         
         Converts GraphQL request to IPC format, processes it, and returns result directly.
@@ -519,6 +508,7 @@ class IPCHandlerRegistry:
         Args:
             method: API method name (e.g., 'readSkillFile', 'getAgents')
             variables: GraphQL variables/arguments
+            request: Optional IPC request with token from Authorization header
             
         Returns:
             Direct result data (for GraphQL response wrapping)
@@ -527,13 +517,8 @@ class IPCHandlerRegistry:
             Exception: If handler execution fails (GraphQL will wrap as error)
         """
         try:
-            # Create IPC request format
-            ipc_request: IPCRequest = {
-                'id': f'graphql_{method}',
-                'method': method,
-                'params': variables,
-                'source': 'graphql'
-            }
+            # Use the provided IPC request (contains token from Authorization header)
+            ipc_request = request
             
             # Get handler
             handler_info = cls.get_handler(method)

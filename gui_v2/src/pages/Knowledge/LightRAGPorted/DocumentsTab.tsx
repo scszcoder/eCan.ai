@@ -999,40 +999,55 @@ const DocumentsTab: React.FC = () => {
           // Pass 'id' as required by the updated backend handler
           const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id });
           if (response.success) {
-              appendLog(t('pages.knowledge.documents.documentDeleted'));
-              
-              // Reload documents to verify deletion
-              await loadDocuments();
-              
-              // Wait a bit and check if document still exists
-              await new Promise(resolve => setTimeout(resolve, 500));
-              const verifyResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
-                page: 1,
-                page_size: 100,
-                status_filter: null,
-                sort_field: 'updated_at',
-                sort_direction: 'desc'
+              // Deletion is background async, show initiated message
+              appendLog('文档删除已启动，正在后台处理...');
+              message.success({
+                content: '文档删除已启动，将在后台完成',
+                duration: 3
               });
               
-              if (verifyResponse.success && verifyResponse.data) {
-                const allDocs = (verifyResponse.data as any).documents || [];
-                const stillExists = allDocs.some((d: any) => d.id === doc.id);
+              // Poll to verify deletion completion
+              let pollCount = 0;
+              const maxPolls = 20; // Max 60 seconds (20 * 3s)
+              const pollInterval = 3000;
+              
+              const pollUntilDeleted = async () => {
+                pollCount++;
+                console.log(`[DocumentsTab] Deletion poll ${pollCount}/${maxPolls}`);
                 
-                if (stillExists) {
-                  // Document still exists, deletion failed silently
-                  const errorMsg = t('pages.knowledge.documents.deletionFailedStillExists', { status: doc.status?.toUpperCase() });
-                  appendLog(errorMsg);
-                  message.error({
-                    content: errorMsg,
-                    duration: 10,
-                    style: { maxWidth: '600px', whiteSpace: 'pre-line' }
-                  });
-                } else {
-                  message.success(t('pages.knowledge.documents.documentDeleted'));
+                await loadDocuments();
+                
+                const verifyResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
+                  page: 1,
+                  page_size: 100,
+                  status_filter: null,
+                  sort_field: 'updated_at',
+                  sort_direction: 'desc'
+                });
+                
+                if (verifyResponse.success && verifyResponse.data) {
+                  const allDocs = (verifyResponse.data as any).documents || [];
+                  const stillExists = allDocs.some((d: any) => d.id === doc.id);
+                  
+                  if (!stillExists) {
+                    // Document deleted successfully
+                    appendLog('✅ 文档删除完成');
+                    message.success('文档已成功删除');
+                    return;
+                  }
                 }
-              } else {
-                message.success(t('pages.knowledge.documents.documentDeleted'));
-              }
+                
+                // Continue polling if not done
+                if (pollCount < maxPolls) {
+                  setTimeout(pollUntilDeleted, pollInterval);
+                } else {
+                  appendLog('⚠️ 删除验证超时，请手动刷新查看');
+                  message.warning('删除验证超时，请刷新页面确认');
+                }
+              };
+              
+              // Start polling after 2 seconds
+              setTimeout(pollUntilDeleted, 2000);
           } else {
               const errorMsg = response.error?.message || 'Unknown error';
               

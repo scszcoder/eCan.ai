@@ -149,7 +149,7 @@ Controls how documents are split for indexing.
 | Parameter | Default | Description | Recommended Range |
 |-----------|---------|-------------|-------------------|
 | **Chunk Token Size** | 1200 | Tokens per chunk | 800-2000 |
-| **Chunk Overlap** | 100 | Overlap between chunks | 50-200 |
+| **Chunk Overlap** | 100 | Overlap between chunks | 80-200 |
 | **Max Async** | 4 | Parallel processing tasks | 2-8 |
 | **Max Embed Tokens** | 8192 | Max tokens for embedding | Model-dependent |
 
