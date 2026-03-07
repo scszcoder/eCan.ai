@@ -14,11 +14,26 @@
     --g-workflow-line-color-error: red;
 
     /* Node colors - 确保不透明背景 */
-    --flow-node-bg-color: #ffffff;
-    --flow-node-border-color: #d9d9d9;
-  }
-  
-  /* CodeMirror line color for skill-editor nodes */
+  --flow-node-bg-color: #ffffff;
+  --flow-node-border-color: #d9d9d9;
+}
+
+/* Skill Editor - 字段类型提示 Popover 文字颜色 */
+/* Popover 通过 Portal 渲染在 body 下，需要全局选择器 */
+body .gedit-m-display-schema-tag-popover-content,
+body .gedit-m-display-schema-tag-popover-content * {
+  color: #000000 !important;
+}
+
+/* Semi-UI Popover 内容文字颜色 */
+body div[class*="semi-popover-content"],
+body div[class*="semi-popover-content"] *,
+body div[class*="semi-popover-inner"],
+body div[class*="semi-popover-inner"] * {
+  color: #000000 !important;
+}
+
+/* CodeMirror line color for skill-editor nodes */
   .ͼ2 .cm-line {
     color: var(--semi-color-text-0) !important;
   }
