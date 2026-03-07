@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useContext, useEffect, useMemo, startTransition, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { PlaygroundEntityContext, useRefresh, useClientContext } from '@flowgram.ai/free-layout-editor';
 
@@ -12,7 +13,7 @@ import { SidebarContext, IsSidebarContext } from '../../context';
 import { SidebarNodeRenderer } from './sidebar-node-renderer';
 
 export const SidebarRenderer = () => {
-
+  const { t } = useTranslation('skillEditor');
   const { nodeId, setNodeId } = useContext(SidebarContext);
   // Prevent immediate close after open due to rapid selection/change events
   const lastOpenAtRef = useRef<number>(0);
@@ -365,7 +366,33 @@ export const SidebarRenderer = () => {
               e.preventDefault();
             }}
           >
-            <div style={{ fontSize: 12, color: '#333', fontWeight: 600, pointerEvents: 'none' }}>{node?.data?.title || node?.type || 'Node'}</div>
+            <div style={{ fontSize: 12, color: '#333', fontWeight: 600, pointerEvents: 'none' }}>
+              {(() => {
+                try {
+                  // Try multiple possible locations for title
+                  const title = (node as any)?.json?.data?.title || 
+                                (node as any)?.data?.title ||
+                                (node as any)?.title;
+                  
+                  if (title) return title;
+                  
+                  // Fallback to translated node type name
+                  const nodeType = (node as any)?.json?.type || (node as any)?.type || '';
+                  const typeKey = nodeType.replace(/-/g, '');
+                  const translationKey = `nodes.${typeKey}.name`;
+                  const translatedName = t(translationKey);
+                  
+                  // If translation exists (not returning the key itself), use it
+                  if (translatedName && translatedName !== translationKey) {
+                    return translatedName;
+                  }
+                  
+                  return nodeType || 'Node';
+                } catch {
+                  return 'Node';
+                }
+              })()}
+            </div>
             <button
               type="button"
               onMouseDown={(e) => e.stopPropagation()}
@@ -379,7 +406,7 @@ export const SidebarRenderer = () => {
                 padding: '2px 6px',
                 cursor: 'pointer'
               }}
-            >Close</button>
+            >{t('sidebar.close')}</button>
           </div>
           {/* Body */}
           <div style={{ flex: 1, minHeight: 0, minWidth: 0, boxSizing: 'border-box', padding: '8px 12px 28px 12px', overflow: 'auto' }}>

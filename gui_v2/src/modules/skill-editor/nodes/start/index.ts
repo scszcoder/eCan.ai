@@ -25,8 +25,7 @@ export const StartNodeRegistry: FlowNodeRegistry = {
   },
   info: {
     icon: iconStart,
-    description:
-      'The starting node of the workflow, used to set the information needed to initiate the workflow.',
+    description: 'nodes.start.description',
   },
   /**
    * Render node via formMeta

@@ -242,7 +242,7 @@ class LogHighlighter(QSyntaxHighlighter):
 class LogViewer(QMainWindow):
     """Log Viewer Window for displaying real-time and historical logs"""
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, log_file_path=None):
         super().__init__(parent)
         self.setWindowTitle(f"{APP_NAME} - {_get_log_viewer_messages().get('window_title')}")
         self.setGeometry(100, 100, 1000, 700)
@@ -254,14 +254,18 @@ class LogViewer(QMainWindow):
         self.user_is_scrolling = False  # Track if user is manually scrolling
         self.last_scroll_position = 0  # Track last scroll position
         self.programmatic_scroll = False  # Flag to ignore programmatic scrolls
+        self._custom_log_file = log_file_path  # Store custom log file path if provided
         
         # Set up UI
         self._setup_ui()
         self._setup_menu()
         self._setup_status_bar()
         
-        # Load current log file
-        self._load_current_log_file()
+        # Load specified log file or current log file
+        if log_file_path:
+            self._load_custom_log_file(log_file_path)
+        else:
+            self._load_current_log_file()
         
         # Apply dark theme
         self._apply_dark_theme()
@@ -542,6 +546,22 @@ class LogViewer(QMainWindow):
 
         except Exception as e:
             logger.error(f"Error loading current log file: {e}")
+            self._set_status_message(_get_log_viewer_messages().get('error_loading'))
+
+    def _load_custom_log_file(self, file_path):
+        """Load a custom log file specified by path"""
+        try:
+            if os.path.exists(file_path):
+                self.current_log_file = file_path
+                self._load_log_file(file_path)
+                self._set_status_message(_get_log_viewer_messages().get('loaded', filename=os.path.basename(file_path)))
+                logger.info(f"Loaded custom log file: {file_path}")
+            else:
+                self._set_status_message(_get_log_viewer_messages().get('no_log_file'))
+                logger.warning(f"Custom log file not found: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Error loading custom log file: {e}")
             self._set_status_message(_get_log_viewer_messages().get('error_loading'))
 
     def _load_log_file(self, file_path):

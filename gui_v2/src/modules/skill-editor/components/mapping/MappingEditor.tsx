@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Lightweight front-end mapping preview engine aligned with agent/tasks_resume.py DSL
@@ -160,6 +161,7 @@ export function MappingEditor(props: {
   value?: MappingConfig | null;
   onChange?: (cfg: MappingConfig) => void;
 }) {
+  const { t } = useTranslation('skillEditor');
   const [config, setConfig] = useState<MappingConfig>(() => props.value || { mappings: [], options: { strict: false, apply_order: 'top_down' } });
   const [sampleEvent, setSampleEvent] = useState<string>(JSON.stringify({ type: 'human_chat', data: { human_text: 'hi' } }, null, 2));
   const [sampleState, setSampleState] = useState<string>(JSON.stringify({ attributes: {}, metadata: {}, tool_input: {} }, null, 2));
@@ -217,7 +219,7 @@ export function MappingEditor(props: {
 
   return (
     <div style={{ border: '1px solid #eee', borderRadius: 6, padding: 8, background: '#ffffff', marginTop: 8, color: '#222' }}>
-      <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>Mapping Rules</div>
+      <div style={{ fontWeight: 600, marginBottom: 8, color: '#333' }}>{t('mapping.mappingRules')}</div>
 
       {/* Rules editor */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -225,7 +227,7 @@ export function MappingEditor(props: {
           <div key={idx} style={{ border: '1px solid #e6e6e6', borderRadius: 6, padding: 8 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 240px' }}>
-                <div style={{ fontSize: 12, color: '#555' }}>From (comma-separated paths)</div>
+                <div style={{ fontSize: 12, color: '#555' }}>{t('mapping.from')}</div>
                 <input
                   style={{ width: '100%', color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                   value={(rule.from || []).join(', ')}
@@ -234,13 +236,13 @@ export function MappingEditor(props: {
                 />
               </div>
               <div style={{ flex: '1 1 220px' }}>
-                <div style={{ fontSize: 12, color: '#555' }}>Transform</div>
+                <div style={{ fontSize: 12, color: '#555' }}>{t('mapping.transform')}</div>
                 <select
                   value={typeof rule.transform === 'string' ? rule.transform : (rule.transform?.name || '')}
                   onChange={(e) => setRuleField(idx, 'transform', e.target.value || undefined)}
                   style={{ width: '100%', color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
                 >
-                  <option value="">(none)</option>
+                  <option value="">{t('mapping.none')}</option>
                   <option value="identity">identity</option>
                   <option value="to_string">to_string</option>
                   <option value="parse_json">parse_json</option>
@@ -256,7 +258,7 @@ export function MappingEditor(props: {
                     return (
                       <input
                         style={{ width: '100%', marginTop: 4, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
-                        placeholder="args.path"
+                        placeholder={t('mapping.argsPath')}
                         value={path}
                         onChange={(e) => setRuleField(idx, 'transform', { name: 'pick', args: { path: e.target.value } })}
                       />
@@ -268,7 +270,7 @@ export function MappingEditor(props: {
                     return (
                       <input
                         style={{ width: '100%', marginTop: 4, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
-                        placeholder="args.paths (comma-separated)"
+                        placeholder={t('mapping.argsPathsCommaSeparated')}
                         value={paths.join(', ')}
                         onChange={(e) => setRuleField(idx, 'transform', { name: 'coalesce', args: { paths: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
                       />
@@ -278,7 +280,7 @@ export function MappingEditor(props: {
                 })()}
               </div>
               <div style={{ flex: '0 0 160px' }}>
-                <div style={{ fontSize: 12, color: '#555' }}>Conflict</div>
+                <div style={{ fontSize: 12, color: '#555' }}>{t('mapping.conflict')}</div>
                 <select
                   value={rule.on_conflict || 'overwrite'}
                   onChange={(e) => setRuleField(idx, 'on_conflict', e.target.value as any)}
@@ -292,7 +294,7 @@ export function MappingEditor(props: {
                 </select>
               </div>
               <div style={{ flex: '1 1 320px' }}>
-                <div style={{ fontSize: 12, color: '#555' }}>Targets</div>
+                <div style={{ fontSize: 12, color: '#555' }}>{t('mapping.targets')}</div>
                 <TargetsEditor
                   value={rule.to || []}
                   onChange={(targets) => setTargets(idx, targets)}
@@ -300,18 +302,18 @@ export function MappingEditor(props: {
               </div>
             </div>
             <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
-              <button type="button" style={btn()} onClick={() => removeRule(idx)}>Remove Rule</button>
+              <button type="button" style={btn()} onClick={() => removeRule(idx)}>{t('mapping.removeRule')}</button>
             </div>
           </div>
         ))}
         <div>
-          <button type="button" style={btn()} onClick={addRule}>Add Rule</button>
+          <button type="button" style={btn()} onClick={addRule}>{t('mapping.addRule')}</button>
         </div>
       </div>
 
       {/* Raw JSON view */}
       <div style={{ marginTop: 12 }}>
-        <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Raw Mapping JSON</div>
+        <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>{t('mapping.rawMappingJson')}</div>
         <textarea
           style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }}
           value={JSON.stringify(config, null, 2)}
@@ -324,29 +326,29 @@ export function MappingEditor(props: {
       {/* Preview */}
       <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
         <div>
-          <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Sample Event</div>
+          <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>{t('mapping.sampleEvent')}</div>
           <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }} value={sampleEvent} onChange={(e) => setSampleEvent(e.target.value)} />
         </div>
         <div>
-          <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Sample State</div>
+          <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>{t('mapping.sampleState')}</div>
           <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }} value={sampleState} onChange={(e) => setSampleState(e.target.value)} />
         </div>
         <div>
-          <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>Sample Node Output</div>
+          <div style={{ fontSize: 12, color: '#555', marginBottom: 4 }}>{t('mapping.sampleNodeOutput')}</div>
           <textarea style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: 12, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: 8 }} value={sampleNode} onChange={(e) => setSampleNode(e.target.value)} />
         </div>
       </div>
       <div style={{ marginTop: 8 }}>
-        <button type="button" style={btn()} onClick={doPreview}>Preview</button>
+        <button type="button" style={btn()} onClick={doPreview}>{t('mapping.preview')}</button>
       </div>
       {preview && (
         <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div>
-            <div style={{ fontSize: 12, color: '#555' }}>Preview Resume</div>
+            <div style={{ fontSize: 12, color: '#555' }}>{t('mapping.previewResume')}</div>
             <pre style={pre()}>{JSON.stringify(preview.resume, null, 2)}</pre>
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#555' }}>Preview State Patch</div>
+            <div style={{ fontSize: 12, color: '#555' }}>{t('mapping.previewStatePatch')}</div>
             <pre style={pre()}>{JSON.stringify(preview.statePatch, null, 2)}</pre>
           </div>
         </div>
@@ -356,23 +358,24 @@ export function MappingEditor(props: {
 }
 
 function TargetsEditor(props: { value: MappingTarget[]; onChange: (v: MappingTarget[]) => void }) {
+  const { t } = useTranslation('skillEditor');
   const addTarget = () => props.onChange([...(props.value || []), { target: 'resume.human_text' }]);
-  const setTarget = (i: number, t: string) => {
+  const setTarget = (i: number, targetPath: string) => {
     const arr = (props.value || []).slice();
-    arr[i] = { target: t };
+    arr[i] = { target: targetPath };
     props.onChange(arr);
   };
   const remove = (i: number) => props.onChange((props.value || []).filter((_, idx) => idx !== i));
 
   return (
     <div>
-      {(props.value || []).map((t, i) => (
+      {(props.value || []).map((target, i) => (
         <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
           <select
-            value={(t.target || 'resume.human_text').split('.')[0] + ''}
+            value={(target.target || 'resume.human_text').split('.')[0] + ''}
             onChange={(e) => {
               const root = e.target.value;
-              const rest = (t.target || '').split('.').slice(1).join('.') || (root === 'resume' ? 'human_text' : 'attributes.x');
+              const rest = (target.target || '').split('.').slice(1).join('.') || (root === 'resume' ? 'human_text' : 'attributes.x');
               setTarget(i, `${root}.${rest}`);
             }}
             style={{ color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
@@ -382,17 +385,17 @@ function TargetsEditor(props: { value: MappingTarget[]; onChange: (v: MappingTar
           </select>
           <input
             style={{ flex: 1, color: '#222', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '4px 6px' }}
-            placeholder={"path e.g. " + ((t.target || '').startsWith('resume') ? 'human_text' : 'attributes.x')}
-            value={(t.target || '').split('.').slice(1).join('.')}
+            placeholder={"path e.g. " + ((target.target || '').startsWith('resume') ? 'human_text' : 'attributes.x')}
+            value={(target.target || '').split('.').slice(1).join('.')}
             onChange={(e) => {
-              const root = (t.target || 'resume.human_text').split('.')[0];
+              const root = (target.target || 'resume.human_text').split('.')[0];
               setTarget(i, `${root}.${e.target.value}`);
             }}
           />
-          <button type="button" style={btn()} onClick={() => remove(i)}>Remove</button>
+          <button type="button" style={btn()} onClick={() => remove(i)}>{t('mapping.remove')}</button>
         </div>
       ))}
-      <button type="button" style={btn()} onClick={addTarget}>Add Target</button>
+      <button type="button" style={btn()} onClick={addTarget}>{t('mapping.addTarget')}</button>
     </div>
   );
 }

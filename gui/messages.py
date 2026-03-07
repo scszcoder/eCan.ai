@@ -28,6 +28,7 @@ class MenuMessages:
             'quick_start': 'Quick Start Guide',
             'keyboard_shortcuts': 'Keyboard Shortcuts',
             'view_logs': 'View Logs...',
+            'view_lightrag_logs': 'View LightRAG Logs...',
             'test': 'Test',
             
             # About Dialog
@@ -135,6 +136,7 @@ class MenuMessages:
             'shortcuts_open_help': 'Open Help Documentation',
             'shortcuts_system': 'System Utilities',
             'shortcuts_view_logs': 'View System Logs',
+            'shortcuts_view_lightrag_logs': 'View LightRAG Logs',
             'shortcuts_navigation': 'Navigation',
             'shortcuts_nav_chat': 'Navigate to Chat',
             'shortcuts_nav_agents': 'Navigate to Agents',
@@ -170,6 +172,7 @@ class MenuMessages:
             'quick_start': '快速入门指南',
             'keyboard_shortcuts': '键盘快捷键',
             'view_logs': '查看日志...',
+            'view_lightrag_logs': '查看 LightRAG 日志...',
             'test': '测试',
             
             # About Dialog
@@ -276,6 +279,7 @@ class MenuMessages:
             'shortcuts_open_help': '打开帮助文档',
             'shortcuts_system': '系统工具',
             'shortcuts_view_logs': '查看系统日志',
+            'shortcuts_view_lightrag_logs': '查看 LightRAG 日志',
             'shortcuts_navigation': '导航',
             'shortcuts_nav_chat': '导航到聊天',
             'shortcuts_nav_agents': '导航到代理',

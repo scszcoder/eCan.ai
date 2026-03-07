@@ -1,4 +1,103 @@
 {
+  "nodeState": {
+    "title": "节点状态",
+    "runtimeStateTitle": "运行时状态（只读）",
+    "refreshState": "刷新状态",
+    "injectAndResume": "注入并恢复",
+    "loadingSchema": "加载节点状态架构...",
+    "nodeId": "节点 ID",
+    "status": "状态",
+    "updated": "更新时间",
+    "noRuntimeData": "此节点尚无运行时数据。请确保此节点正在执行。",
+    "syncToForm": "同步到表单",
+    "skillLevelMappingTitle": "技能级映射规则",
+    "skillLevelMappingDesc": "配置整个技能的事件到状态映射和事件路由。",
+    "nodeTransferMappingTitle": "节点传输映射",
+    "nodeTransferMappingDesc": "将前置节点的数据映射到此节点的输入状态。",
+    "add": "添加",
+    "new": "新建",
+    "key": "键",
+    "value": "值",
+    "keyRequired": "键是必需的",
+    "duplicateKey": "键重复",
+    "cancel": "取消",
+    "newItem": "新项目",
+    "remove": "移除",
+    "empty": "（空）",
+    "rename": "重命名",
+    "renameKey": "重命名键",
+    "fields": {
+      "attributes": "属性",
+      "metadata": "元数据",
+      "toolInput": "工具输入",
+      "toolOutput": "工具输出",
+      "state": "状态",
+      "input": "输入",
+      "output": "输出",
+      "result": "结果",
+      "data": "数据",
+      "config": "配置",
+      "options": "选项",
+      "params": "参数",
+      "root": "根",
+      "attachments": "附件",
+      "prompts": "提示词",
+      "promptRefs": "提示词引用",
+      "history": "历史",
+      "messages": "消息",
+      "threads": "线程",
+      "context": "上下文",
+      "session": "会话",
+      "cache": "缓存",
+      "errors": "错误",
+      "warnings": "警告",
+      "logs": "日志",
+      "run_local": "本地运行",
+      "loopMode": "循环模式",
+      "loopWhileExpr": "循环条件表达式",
+      "loopCountExpr": "循环次数表达式",
+      "loopOutputs": "循环输出",
+      "apiKey": "API 密钥"
+    }
+  },
+  "sidebar": {
+    "close": "关闭"
+  },
+  "mapping": {
+    "skillLevelMappingRules": "技能级映射规则",
+    "skillLevelMappingDesc": "这些规则应用于整个技能并控制事件到状态的数据映射。",
+    "developmentModeMappings": "开发模式映射",
+    "developmentModeDesc": "当技能 run_mode = \"developing\" 时使用的映射规则（包含调试元数据）",
+    "releasedModeMappings": "发布模式映射",
+    "releasedModeDesc": "当技能 run_mode = \"released\" 时使用的映射规则（生产优化）",
+    "eventDataMapping": "事件数据映射 (adapt_to_state)",
+    "eventDataMappingDesc": "每个技能的配置，当待处理事件到达时，将事件负载字段映射到恢复节点的状态。每个键是一个事件类型（例如 \"passive_command\"），值包含一个 adapt_to_state 对象，将源字段映射到目标状态路径。",
+    "eventRouting": "事件路由（信息）",
+    "eventRoutingDesc": "事件到任务的路由现在通过 event_routing.json 在 agent 级别管理，而不是每个技能。当任务启动时，运行器会自动检测技能中的 pend_event 节点并全局注册所需的事件路由。",
+    "apply": "应用",
+    "mustBeJsonObject": "必须是 JSON 对象",
+    "invalidJson": "无效的 JSON",
+    "eventDataMappingUpdated": "事件数据映射已更新",
+    "mappingRules": "映射规则",
+    "from": "来源（逗号分隔的路径）",
+    "transform": "转换",
+    "none": "（无）",
+    "argsPath": "args.path",
+    "argsPathsCommaSeparated": "args.paths（逗号分隔）",
+    "conflict": "冲突",
+    "targets": "目标",
+    "removeRule": "移除规则",
+    "addRule": "添加规则",
+    "rawMappingJson": "原始映射 JSON",
+    "sampleEvent": "示例事件",
+    "sampleState": "示例状态",
+    "sampleNodeOutput": "示例节点输出",
+    "preview": "预览",
+    "previewResume": "预览恢复",
+    "previewStatePatch": "预览状态补丁",
+    "remove": "移除",
+    "addTarget": "添加目标"
+  },
   "toolbar": {
     "undo": "撤销",
     "redo": "重做",
@@ -285,42 +384,83 @@
   "problemPanel": {
     "title": "问题"
   },
+  "formInputs": {
+    "apiKeyPlaceholder": "输入 API 密钥",
+    "done": "完成",
+    "edit": "编辑",
+    "noParameters": "此工具没有参数需要渲染。来源: {{source}}"
+  },
   "nodes": {
+    "mcp": {
+      "name": "MCP",
+      "description": "通过 MCP 工具执行通用任务，具有简单的输入和输出",
+      "runLocalDesc": "本地运行（通过被动命令在本地机器上执行）",
+      "toolInputs": "工具输入"
+    },
+    "llm": {
+      "name": "LLM",
+      "description": "调用大语言模型，使用变量和提示词生成响应",
+      "loadingProviders": "加载 LLM 提供商...",
+      "selectProvider": "选择 LLM 提供商",
+      "selectModel": "选择模型",
+      "useThinkingDesc": "使用思考模式（适用于推理模型如 Qwen3、DeepSeek-R1）",
+      "addAttachment": "添加附件",
+      "recording": "录音中... 松开完成",
+      "holdToRecord": "按住录音",
+      "recordingButton": "录音中…",
+      "holdToRecordButton": "按住录音",
+      "editPrompt": "编辑提示词",
+      "provider": "提供商",
+      "model": "模型",
+      "prompt": "提示词",
+      "promptSelection": "提示词选择",
+      "promptId": "提示词ID",
+      "promptSelector": "提示词选择器",
+      "systemPromptId": "系统提示词ID",
+      "systemPromptSelector": "系统提示词选择器",
+      "temperature": "温度",
+      "maxTokens": "最大令牌数",
+      "systemPrompt": "系统提示词",
+      "topP": "Top P",
+      "frequencyPenalty": "频率惩罚",
+      "presencePenalty": "存在惩罚",
+      "stopSequences": "停止序列",
+      "seed": "随机种子",
+      "responseFormat": "响应格式",
+      "tools": "工具",
+      "toolChoice": "工具选择"
+    },
     "common": {
       "titleRequired": "标题为必填项",
-      "fieldRequired": "{{field}} 为必填项"
-    },
-    "event": {
-      "title": "事件",
-      "eventTypes": {
-        "timer": "定时器到期",
-        "message": "消息到达",
-        "dataChanged": "数据变更",
-        "hardInterrupt": "硬中断"
-      },
-      "iTagLabel": "中断标签",
-      "iTagPlaceholder": "输入中断标签 (i_tag)",
-      "languages": {
-        "python": "Python",
-        "javascript": "JavaScript",
-        "typescript": "TypeScript"
-      },
-      "resetToTemplate": "重置为模板"
+      "fieldRequired": "{{field}} 为必填项",
+      "name": "名称",
+      "description": "描述",
+      "type": "类型",
+      "value": "值",
+      "add": "添加",
+      "remove": "移除",
+      "edit": "编辑",
+      "save": "保存",
+      "cancel": "取消"
     },
     "loop": {
+      "name": "循环",
+      "description": "重复执行子流程直到满足退出条件",
       "modes": {
-        "loopFor": "计数循环",
-        "loopWhile": "条件循环"
+        "loopFor": "循环次数",
+        "loopWhile": "循环条件"
       },
       "exitCondition": "退出条件",
       "exitConditionPlaceholder": "输入退出条件表达式",
-      "exitConditionWhile": "退出条件（条件循环）",
-      "loopCountPlaceholder": "输入循环次数（数字或表达式）"
+      "exitConditionWhile": "循环条件表达式",
+      "loopCountPlaceholder": "输入循环次数表达式",
+      "defaultTitle": "循环"
     },
     "http": {
+      "name": "HTTP",
       "title": "HTTP 请求",
       "label": "HTTP",
-      "description": "HTTP 请求",
+      "description": "调用 HTTP API",
       "apiKeyPlaceholder": "输入 API 密钥",
       "urlPlaceholder": "输入 URL，使用 '{' 引用变量",
       "methods": {
@@ -337,17 +477,187 @@
       }
     },
     "condition": {
+      "name": "条件",
+      "description": "连接多个下游分支。只有在满足设定条件时，才会执行相应的分支",
       "conditionPlaceholder": "输入条件表达式",
-      "conditionRequired": "条件为必填项",
+      "conditionRequired": "条件是必需的",
       "modes": {
-        "stateCondition": "状态条件",
+        "stateCondition": "state.condition",
         "custom": "自定义表达式"
-      }
+      },
+      "elseBranch": "Else 分支",
+      "addElsif": "添加 elsif"
+    },
+    "code": {
+      "name": "代码",
+      "description": "运行脚本"
+    },
+    "chat": {
+      "name": "聊天",
+      "description": "向选定的对话方（人类或代理）发送聊天消息",
+      "party": "对话方",
+      "human": "人类",
+      "chatWith": "聊天对象",
+      "selectParty": "选择对话方（默认：人类）",
+      "message": "消息",
+      "messagePlaceholder": "输入聊天消息模板",
+      "partyRequired": "对话方是必需的"
+    },
+    "task": {
+      "name": "任务",
+      "description": "用于组织工作流步骤的任务节点"
+    },
+    "variable": {
+      "name": "变量",
+      "description": "变量赋值和声明"
+    },
+    "start": {
+      "name": "开始",
+      "description": "工作流的起始节点，用于设置启动工作流所需的信息"
+    },
+    "end": {
+      "name": "结束",
+      "description": "工作流的最终节点，用于返回工作流运行后的结果信息"
+    },
+    "break": {
+      "name": "中断",
+      "description": "工作流的最终节点，用于返回工作流运行后的结果信息"
+    },
+    "continue": {
+      "name": "继续",
+      "description": "工作流的最终节点，用于返回工作流运行后的结果信息"
+    },
+    "event": {
+      "name": "事件",
+      "description": "事件触发节点"
+    },
+    "pendInput": {
+      "name": "等待输入",
+      "description": "暂停流程，直到从选定的队列/事件接收到消息",
+      "source": "来源",
+      "queue": "队列",
+      "event": "事件",
+      "pendingSources": "等待来源",
+      "selectSources": "选择一个或多个来源",
+      "timeoutSec": "超时（秒）",
+      "resumePolicy": "恢复策略",
+      "first": "首个",
+      "all": "全部",
+      "selectAtLeastOne": "至少选择一个来源"
+    },
+    "pendEvent": {
+      "name": "等待事件",
+      "description": "暂停流程，直到指定的事件类型到达，然后恢复",
+      "eventType": "事件类型"
+    },
+    "sheetCall": {
+      "name": "调用表单",
+      "description": "调用另一个表单并映射其输入/输出"
+    },
+    "sheetInputs": {
+      "name": "表单输入",
+      "description": "定义此表单的输入接口（端口）",
+      "inputPlaceholder": "输入_{{index}}",
+      "addInput": "添加输入",
+      "title": "表单输入",
+      "remove": "移除"
     },
     "sheetOutputs": {
+      "name": "表单输出",
+      "description": "定义此表单的输出接口（端口）",
       "outputPlaceholder": "输出_{{index}}",
       "pickNextSheet": "选择下一个表单",
-      "sheetLabel": "{{name}} ({{id}})"
+      "sheetLabel": "{{name}} ({{id}})",
+      "title": "表单输出",
+      "remove": "移除",
+      "addOutput": "添加输出",
+      "nextSheetOptional": "下一个表单（可选）",
+      "sheetNotFound": "在此包中未找到所选表单 ID",
+      "openNextSheet": "打开下一个表单"
+    },
+    "blockStart": {
+      "name": "块开始",
+      "description": "块的起始节点"
+    },
+    "blockEnd": {
+      "name": "块结束",
+      "description": "块的最终节点"
+    },
+    "toolPicker": {
+      "name": "工具选择器",
+      "description": "用于选择和调用工具的工具选择器节点"
+    },
+    "dummy": {
+      "name": "占位符",
+      "description": "用于测试和占位的虚拟节点"
+    },
+    "group": {
+      "name": "分组",
+      "description": "将多个节点组合在一起",
+      "defaultTitle": "分组"
+    },
+    "browserAutomation": {
+      "description": "使用选定的工具和提示词参数自动化浏览任务",
+      "tool": "工具",
+      "browser": "浏览器",
+      "browserDriver": "浏览器驱动",
+      "shop": "商店",
+      "runEnvironment": "运行环境",
+      "privacyStrategy": "隐私策略",
+      "profile": "配置文件",
+      "modelProvider": "模型提供商",
+      "model": "模型",
+      "cdpPort": "CDP 端口",
+      "enableJudge": "启用判断",
+      "enableJudgeDesc": "LLM 结果验证",
+      "useThinking": "使用思考模式",
+      "useThinkingDesc": "用于推理模型（如 Qwen3, DeepSeek-R1）",
+      "useVision": "使用视觉功能",
+      "useVisionDesc": "发送截图到 LLM，需要支持视觉的模型",
+      "customShopName": "自定义商店名称",
+      "customShopPlaceholder": "输入自定义商店名称",
+      "tools": {
+        "browserUse": "browser-use",
+        "crawl4ai": "crawl4ai",
+        "browsebase": "browsebase"
+      },
+      "browsers": {
+        "newChromium": "新建 Chromium",
+        "existingChrome": "现有 Chrome",
+        "adsPower": "Ads Power",
+        "ziniao": "紫鸟",
+        "multiLogin": "Multi-Login"
+      },
+      "drivers": {
+        "native": "原生",
+        "selenium": "Selenium",
+        "playwright": "Playwright",
+        "puppeteer": "Puppeteer"
+      },
+      "shops": {
+        "amazon": "亚马逊",
+        "ebay": "eBay",
+        "etsy": "Etsy",
+        "walmart": "沃尔玛",
+        "tiktok": "TikTok",
+        "shopify": "Shopify",
+        "woocommerce": "WooCommerce",
+        "custom": "自定义"
+      },
+      "runEnvironments": {
+        "fullLocal": "完全本地",
+        "passiveLocal": "被动本地",
+        "hybridCloud": "混合云",
+        "fullCloud": "完全云端"
+      },
+      "privacyStrategies": {
+        "none": "无",
+        "patternFilter": "模式过滤",
+        "localLlm": "本地 LLM"
+      },
+      "defaultProfile": "（默认配置）",
+      "inlinePrompt": "内联提示词",
+      "cdpPortPlaceholder": "9228（默认）"
     }
   }
 }

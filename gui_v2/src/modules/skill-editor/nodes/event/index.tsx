@@ -26,7 +26,7 @@ export const EventNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Event,
   info: {
     icon: iconCode,
-    description: 'Event trigger node',
+    description: 'nodes.event.description',
   },
   meta: {
     defaultPorts: [{ type: 'output' }],
