@@ -63,6 +63,10 @@ class InstallationManager:
                 return self._install_pkg(package_path, install_options)
             elif package_path.suffix.lower() == '.dmg':
                 return self._install_dmg(package_path, install_options)
+            elif package_path.suffix.lower() == '.appimage':
+                return self._install_appimage(package_path, install_options)
+            elif package_path.suffix.lower() == '.deb':
+                return self._install_deb(package_path, install_options)
             else:
                 logger.error(f"Unsupported package format: {package_path.suffix}")
                 return False
@@ -335,6 +339,149 @@ class InstallationManager:
             logger.error(f"Failed to create backup: {e}")
             return False
     
+    def _install_appimage(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
+        """Install AppImage package on Linux
+        
+        Args:
+            package_path: Path to AppImage file
+            install_options: Installation options
+            
+        Returns:
+            True if installation successful
+        """
+        try:
+            logger.info(f"Installing AppImage: {package_path}")
+            
+            # Make AppImage executable
+            os.chmod(package_path, 0o755)
+            
+            # Determine installation location
+            install_dir = Path.home() / '.local' / 'bin'
+            install_dir.mkdir(parents=True, exist_ok=True)
+            
+            app_name = ota_config.get_app_name()
+            target_path = install_dir / f"{app_name}.AppImage"
+            
+            # Backup existing installation
+            if target_path.exists():
+                backup_path = target_path.with_suffix('.AppImage.backup')
+                shutil.copy2(target_path, backup_path)
+                logger.info(f"Backed up existing AppImage to {backup_path}")
+            
+            # Copy new AppImage
+            shutil.copy2(package_path, target_path)
+            os.chmod(target_path, 0o755)
+            
+            logger.info(f"AppImage installed to {target_path}")
+            
+            # Update progress
+            if self.progress_callback:
+                self.progress_callback(100, _tr('installation.complete'))
+            
+            # Schedule restart if requested
+            if install_options.get('auto_restart', False):
+                self._schedule_linux_restart(str(target_path))
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"AppImage installation failed: {e}")
+            return False
+    
+    def _install_deb(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
+        """Install DEB package on Linux
+        
+        Args:
+            package_path: Path to DEB file
+            install_options: Installation options
+            
+        Returns:
+            True if installation successful
+        """
+        try:
+            logger.info(f"Installing DEB package: {package_path}")
+            
+            # DEB installation requires sudo privileges
+            # Check if we can use pkexec or sudo
+            if shutil.which('pkexec'):
+                cmd = ['pkexec', 'dpkg', '-i', str(package_path)]
+                logger.info("Using pkexec for privilege elevation")
+            elif shutil.which('sudo'):
+                cmd = ['sudo', 'dpkg', '-i', str(package_path)]
+                logger.info("Using sudo for privilege elevation")
+            else:
+                logger.error("No privilege elevation tool found (pkexec or sudo)")
+                return False
+            
+            # Update progress
+            if self.progress_callback:
+                self.progress_callback(50, _tr('installation.installing'))
+            
+            # Execute installation
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                logger.info("DEB package installed successfully")
+                
+                # Update progress
+                if self.progress_callback:
+                    self.progress_callback(100, _tr('installation.complete'))
+                
+                # Schedule restart if requested
+                if install_options.get('auto_restart', False):
+                    app_name = ota_config.get_app_name().lower()
+                    self._schedule_linux_restart(f"/usr/bin/{app_name}")
+                
+                return True
+            else:
+                logger.error(f"DEB installation failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"DEB installation failed: {e}")
+            return False
+    
+    def _schedule_linux_restart(self, app_path: str):
+        """Schedule application restart on Linux
+        
+        Args:
+            app_path: Path to application executable
+        """
+        try:
+            # Create restart script
+            restart_script = tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.sh',
+                delete=False
+            )
+            
+            restart_script.write(f'''#!/bin/bash
+# Wait for current process to exit
+sleep 2
+
+# Start new version
+"{app_path}" &
+
+# Clean up this script
+rm -f "$0"
+''')
+            restart_script.close()
+            
+            # Make script executable
+            os.chmod(restart_script.name, 0o755)
+            
+            # Execute restart script in background
+            subprocess.Popen([restart_script.name], start_new_session=True)
+            
+            logger.info(f"Restart scheduled: {app_path}")
+            
+            # Exit current application
+            logger.info("Exiting application to allow restart...")
+            sys.exit(0)
+            
+        except Exception as e:
+            logger.warning(f"Failed to schedule restart: {e}")
+    
     def _install_exe(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
         """Install Windows EXE package - OTA silent update"""
         try:
@@ -353,11 +500,11 @@ class InstallationManager:
                         current_install_dir = self._get_current_windows_install_dir()
                         if current_install_dir:
                             install_dir = current_install_dir
-                            logger.info(f"[OTA] Preserving custom installation directory: {install_dir}")
+                            logger.info(f"[OTA] Preserving custom installation directory: {str(install_dir)}")
                         else:
                             # Priority 3: Fallback to standard location
                             install_dir = self._get_windows_standard_install_dir()
-                            logger.info(f"[OTA] Using standard installation directory: {install_dir}")
+                            logger.info(f"[OTA] Using standard installation directory: {str(install_dir)}")
 
                     if not install_dir.exists():
                         try:
@@ -365,7 +512,7 @@ class InstallationManager:
                         except Exception:
                             install_dir = Path(sys.executable).parent
 
-                    logger.info(f"Target installation directory: {install_dir}")
+                    logger.info(f"Target installation directory: {str(install_dir)}")
 
                     # Note: Process termination is handled by Inno Setup's CloseApplications=yes
                     # No need to manually terminate processes here as it may conflict with installer
@@ -384,12 +531,13 @@ class InstallationManager:
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
-                        f'/DIR="{install_dir}"'
+                        f'/DIR="{str(install_dir)}"'
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     
-                    logger.info(f"Executing OTA update with progress: {' '.join(cmd)}")
+                    # Use repr() to safely log Windows paths with backslashes
+                    logger.info(f"Executing OTA update with progress: {repr(cmd)}")
                     logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
@@ -455,10 +603,10 @@ class InstallationManager:
                     current_install_dir = self._get_current_windows_install_dir()
                     if current_install_dir:
                         install_dir = current_install_dir
-                        logger.info(f"[OTA Dev] Preserving custom installation directory: {install_dir}")
+                        logger.info(f"[OTA Dev] Preserving custom installation directory: {str(install_dir)}")
                     else:
                         install_dir = self._get_windows_standard_install_dir()
-                        logger.info(f"[OTA Dev] Using standard installation directory: {install_dir}")
+                        logger.info(f"[OTA Dev] Using standard installation directory: {str(install_dir)}")
                     
                     # Development OTA command - silent mode with progress
                     cmd = [
@@ -468,11 +616,12 @@ class InstallationManager:
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
                         '/CLOSEAPPLICATIONS',    # Force close running instances
-                        f'/DIR="{install_dir}"'  # Preserve installation directory
+                        f'/DIR="{str(install_dir)}"'  # Preserve installation directory
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
-                    logger.info(f"Development OTA command: {' '.join(cmd)}")
+                    # Use repr() to safely log Windows paths with backslashes
+                    logger.info(f"Development OTA command: {repr(cmd)}")
 
                     if sys.platform == 'win32':
                         creation_flags = (
@@ -546,18 +695,19 @@ class InstallationManager:
                         current_install_dir = self._get_current_windows_install_dir()
                         if current_install_dir:
                             install_dir = current_install_dir
-                            logger.info(f"[OTA MSI] Preserving custom installation directory: {install_dir}")
+                            logger.info(f"[OTA MSI] Preserving custom installation directory: {str(install_dir)}")
                         else:
                             # Priority 3: Fallback to current executable directory
                             install_dir = Path(sys.executable).parent
-                            logger.info(f"[OTA MSI] Using current executable directory: {install_dir}")
+                            logger.info(f"[OTA MSI] Using current executable directory: {str(install_dir)}")
                     
-                    cmd.append(f'INSTALLDIR="{install_dir}"')
+                    cmd.append(f'INSTALLDIR="{str(install_dir)}"')
                     cmd.append('REINSTALLMODE=vamus')  # Reinstall all files
                     cmd.append('REINSTALL=ALL')  # Reinstall all features
             
             # Execute installation in background
-            logger.info(f"Executing silent MSI update: {' '.join(cmd)}")
+            # Use repr() to safely log Windows paths with backslashes
+            logger.info(f"Executing silent MSI update: {repr(cmd)}")
 
             # Launch installer without waiting
             # Use DETACHED_PROCESS to make installer independent of parent process
