@@ -32,6 +32,7 @@ common:
   platforms:
     - macos
     - windows
+    - linux
   
   # Supported architectures
   architectures:
@@ -39,6 +40,8 @@ common:
       - aarch64
       - amd64
     windows:
+      - amd64
+    linux:
       - amd64
 
 # ============================================
