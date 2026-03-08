@@ -659,5 +659,9 @@
       "tools": "Tools",
       "toolChoice": "Tool Choice"
     }
+  },
+  "formComponents": {
+    "expandPrompt": "Expand to view all",
+    "collapsePrompt": "Collapse"
   }
 }

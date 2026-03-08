@@ -7,10 +7,10 @@ import { Field } from '@flowgram.ai/free-layout-editor';
 import {
   IFlowTemplateValue,
   JsonEditorWithVariables,
-  PromptEditorWithVariables,
 } from '@flowgram.ai/form-materials';
 import { Select } from '@douyinfe/semi-ui';
 
+import { CollapsiblePromptEditor } from '../../../form-components/CollapsiblePromptEditor';
 import { useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
@@ -52,15 +52,14 @@ export function Body() {
       case 'raw-text':
         return (
           <Field<IFlowTemplateValue> name="body.rawText">
-            {({ field }) => (
-              <PromptEditorWithVariables
-                disableMarkdownHighlight
+            {({ field, fieldState }) => (
+              <CollapsiblePromptEditor
+                value={field.value}
+                onChange={field.onChange}
                 readonly={readonly}
-                style={{ flexGrow: 1 }}
-                placeholder="Input raw text, use var by '{'"
-                onChange={(value) => {
-                  field.onChange(value!);
-                }}
+                hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                defaultCollapsed={true}
+                collapsedLines={3}
               />
             )}
           </Field>

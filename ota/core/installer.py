@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""\neCan.ai OTA Installer Module\nHandles installation of update packages and application restart logic\n\nSupported formats:\n- Windows: EXE, MSI\n- macOS: PKG, DMG\n- Linux: AppImage, DEB, RPM (planned)\n"""
+"""eCan.ai OTA Installer Module
+Handles installation of update packages and application restart logic
+
+Supported formats:
+- Windows: EXE, MSI
+- macOS: PKG, DMG
+- Linux: AppImage, DEB, RPM (planned)
+"""
 
 import os
 import sys
@@ -79,7 +86,7 @@ class InstallationManager:
         return Path.home() / 'AppData' / 'Local' / 'eCan'
     
     def _get_current_windows_install_dir(self) -> Optional[Path]:
-        """Read current installation directory from Windows Registry.
+        r"""Read current installation directory from Windows Registry.
         
         This is critical for OTA upgrades to preserve custom installation paths.
         If the user installed to D:\MyApps\eCan, we must upgrade to the same location,
@@ -258,7 +265,7 @@ class InstallationManager:
         bat_content = (
             "@echo off\r\n"
             f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
-            f'start "" "{exe_path}" {args_str}\r\n'
+            f'start "" {repr(exe_path)} {args_str}\r\n'
         )
 
         with open(bat_path, 'w', encoding='utf-8') as f:
@@ -342,7 +349,7 @@ class InstallationManager:
                         install_dir = Path(str(configured_install_dir)).expanduser()
                     else:
                         # Priority 2: Read current installation directory from registry (OTA upgrade)
-                        # This preserves custom installation paths like D:\MyApps\eCan
+                        # This preserves custom installation paths like D:\\MyApps\\eCan
                         current_install_dir = self._get_current_windows_install_dir()
                         if current_install_dir:
                             install_dir = current_install_dir
@@ -535,7 +542,7 @@ class InstallationManager:
                         install_dir = Path(str(configured_install_dir)).expanduser()
                     else:
                         # Priority 2: Read current installation directory from registry (OTA upgrade)
-                        # This preserves custom installation paths like D:\MyApps\eCan
+                        # This preserves custom installation paths like D:\\MyApps\\eCan
                         current_install_dir = self._get_current_windows_install_dir()
                         if current_install_dir:
                             install_dir = current_install_dir
