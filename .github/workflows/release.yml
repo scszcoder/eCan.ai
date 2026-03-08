@@ -245,7 +245,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Build platform (windows, macos, all)'
+        description: 'Platform to build (all: build all platforms, windows: Windows only, macos: macOS only, linux: Linux only)'
         required: true
         default: 'all'
         type: choice
@@ -253,6 +253,7 @@ on:
           - all
           - windows
           - macos
+          - linux
       arch:
         description: 'CPU architecture (all: build all supported, amd64: x86_64 only, aarch64: ARM64 only)'
         required: true
