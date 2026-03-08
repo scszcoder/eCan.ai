@@ -6,11 +6,12 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field } from '@flowgram.ai/free-layout-editor';
-import { DynamicValueInput, PromptEditorWithVariables } from '@flowgram.ai/form-materials';
+import { DynamicValueInput } from '@flowgram.ai/form-materials';
 import { Button, Input } from '@douyinfe/semi-ui';
 
 import { FormItem } from '../form-item';
 import { Feedback } from '../feedback';
+import { CollapsiblePromptEditor } from '../CollapsiblePromptEditor';
 import { JsonSchema } from '../../typings';
 import { useNodeRenderContext } from '../../hooks';
 import { maskApiKeyForDisplay, API_KEY_PLACEHOLDER, API_KEY_REGEX } from '../../utils/sanitize-utils';
@@ -202,11 +203,13 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
               required={required.includes(key)}
             >
               {formComponent === 'prompt-editor' && (
-                <PromptEditorWithVariables
+                <CollapsiblePromptEditor
                   value={sanitizeFlowValue(field.value, property)}
                   onChange={field.onChange}
                   readonly={readonly}
                   hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                  defaultCollapsed={true}
+                  collapsedLines={3}
                 />
               )}
               {!formComponent && (
