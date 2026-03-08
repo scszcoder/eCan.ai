@@ -659,5 +659,9 @@
       "inlinePrompt": "内联提示词",
       "cdpPortPlaceholder": "9228（默认）"
     }
+  },
+  "formComponents": {
+    "expandPrompt": "展开查看全部",
+    "collapsePrompt": "收起"
   }
 }

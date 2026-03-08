@@ -4,9 +4,10 @@
  */
 
 import { Field } from '@flowgram.ai/free-layout-editor';
-import { IFlowTemplateValue, PromptEditorWithVariables } from '@flowgram.ai/form-materials';
+import { IFlowTemplateValue } from '@flowgram.ai/form-materials';
 import { Select } from '@douyinfe/semi-ui';
 
+import { CollapsiblePromptEditor } from '../../../form-components/CollapsiblePromptEditor';
 import { useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
@@ -40,16 +41,14 @@ export function Api() {
           </Field>
 
           <Field<IFlowTemplateValue> name="api.url">
-            {({ field }) => (
-              <PromptEditorWithVariables
-                disableMarkdownHighlight
-                readonly={readonly}
-                style={{ flexGrow: 1 }}
-                placeholder="Input URL, use var by '{'"
+            {({ field, fieldState }) => (
+              <CollapsiblePromptEditor
                 value={field.value}
-                onChange={(value) => {
-                  field.onChange(value!);
-                }}
+                onChange={field.onChange}
+                readonly={readonly}
+                hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                defaultCollapsed={true}
+                collapsedLines={3}
               />
             )}
           </Field>

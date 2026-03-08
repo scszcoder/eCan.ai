@@ -1,10 +1,10 @@
 import React from 'react';
 import { Field } from '@flowgram.ai/free-layout-editor';
-import { PromptEditorWithVariables } from '@flowgram.ai/form-materials';
 import { useTranslation } from 'react-i18next';
 import { FormItem } from './form-item';
 import { Feedback } from './feedback';
 import { PromptSelector, IN_LINE_PROMPT_ID } from './PromptSelector';
+import { CollapsiblePromptEditor } from './CollapsiblePromptEditor';
 import { useNodeRenderContext } from '../hooks';
 import { getCommonFieldLabel } from '../utils/field-labels';
 
@@ -34,11 +34,13 @@ const PromptEditorField: React.FC<{
         <Field<any> name={promptFieldName}>
           {({ field, fieldState }) => (
             <>
-              <PromptEditorWithVariables
+              <CollapsiblePromptEditor
                 value={sanitizeFlowValue(field.value, schema)}
                 onChange={field.onChange}
                 readonly={readonly}
                 hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                defaultCollapsed={true}
+                collapsedLines={3}
               />
               <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
             </>
