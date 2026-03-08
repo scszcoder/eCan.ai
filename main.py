@@ -466,6 +466,64 @@ try:
 
     print(TimeUtil.formatted_now_with_ms() + " app start...")
 
+    # Linux: Check display server availability BEFORE creating QApplication
+    if sys.platform.startswith('linux'):
+        print(TimeUtil.formatted_now_with_ms() + " [Linux] Checking display server...")
+        try:
+            from gui.utils.display_detector import (
+                is_gui_available, 
+                get_display_info,
+                check_pyside6_compatibility
+            )
+            
+            display_info = get_display_info()
+            print(f"[Linux] Display info: {display_info}")
+            
+            if not is_gui_available():
+                print("[Linux] No display server detected, switching to web mode")
+                os.environ['ECAN_MODE'] = 'web'
+                
+                # Redirect to web server
+                print("[Linux] Starting web server mode...")
+                from web_server import main as web_main
+                sys.exit(web_main())
+            
+            # Check PySide6 compatibility
+            can_run, message = check_pyside6_compatibility()
+            print(f"[Linux] PySide6 compatibility: {message}")
+            
+            if not can_run:
+                print("\n" + "="*60)
+                print("ERROR: GUI cannot run on this system")
+                print("="*60)
+                print(message)
+                print("\nOptions:")
+                print("  1. Install required system packages (see requirements-linux.txt)")
+                print("  2. Run in web mode: ECAN_MODE=web python main.py")
+                print("  3. Use deployment script: ./scripts/deploy-ubuntu.sh")
+                print("="*60 + "\n")
+                sys.exit(1)
+            
+            # Check system dependencies
+            try:
+                from utils.linux_permissions import get_missing_dependencies
+                missing = get_missing_dependencies()
+                if missing:
+                    print("\n" + "="*60)
+                    print("WARNING: Missing system dependencies")
+                    print("="*60)
+                    for item in missing:
+                        print(f"  ⚠️  {item}")
+                    print("\nSome features may not work properly.")
+                    print("Run: python -m utils.linux_permissions")
+                    print("="*60 + "\n")
+            except Exception as e:
+                print(f"[Linux] Could not check dependencies: {e}")
+                
+        except Exception as e:
+            print(f"[Linux] Display detection failed: {e}")
+            print("[Linux] Continuing with GUI startup...")
+
     # Create QApplication FIRST - this is the single point of creation
     print(TimeUtil.formatted_now_with_ms() + " creating QApplication...")
     from PySide6.QtWidgets import QApplication as _QApp
