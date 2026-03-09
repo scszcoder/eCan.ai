@@ -387,7 +387,7 @@ Loop nodes are container nodes that hold internal nodes. They have a special str
    - A "block-start" node (type: "block-start") at the beginning
    - A "block-end" node (type: "block-end") at the end
    - Any content nodes (llm, mcp, code, etc.) between them
-3. Loop nodes MUST have an `edges` array (or `internal_edges`) connecting ALL blocks
+3. Loop nodes MUST have an `internal_edges` array connecting ALL blocks (use key `internal_edges`, NOT `edges`)
 4. Internal node positions are RELATIVE to the loop's internal coordinate system:
    - block-start: position around (30, 0)
    - Content nodes: y ~16, x spread between 120 and 450
@@ -450,7 +450,7 @@ Example loop node (loopFor - simple):
     {{"id": "llm_in_loop", "type": "llm", "label": "Process", "position": {{"x": 200, "y": 16}}, "config": {{}}}},
     {{"id": "block_end_1", "type": "block-end", "label": "Loop End", "position": {{"x": 450, "y": 16}}, "config": {{}}}}
   ],
-  "edges": [
+  "internal_edges": [
     {{"source": "block_start_1", "target": "llm_in_loop"}},
     {{"source": "llm_in_loop", "target": "block_end_1"}}
   ]
@@ -471,7 +471,7 @@ Example loop node (with condition - NOTICE ALL EDGES):
     {{"id": "pend_event_human", "type": "pend_event", "label": "Wait Human", "position": {{"x": 450, "y": 100}}, "config": {{}}}},
     {{"id": "block_end_msg", "type": "block-end", "label": "Loop End", "position": {{"x": 600, "y": 50}}, "config": {{}}}}
   ],
-  "edges": [
+  "internal_edges": [
     {{"source": "block_start_msg", "target": "rag_query_kb"}},
     {{"source": "rag_query_kb", "target": "condition_has_answer"}},
     {{"source": "condition_has_answer", "target": "llm_respond", "source_handle": "if_yes"}},

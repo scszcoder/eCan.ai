@@ -1865,6 +1865,8 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     classified_intent_taxonomy=session.get("classifiedIntentTaxonomy"),
                     requirement_answers=session.get("requirementAnswers"),
                     workflow_description=session.get("workflowDescription"),
+                    accumulated_clarification_answers=session.get("accumulatedClarificationAnswers"),
+                    clarification_round=int(session.get("clarificationRound", 0) or 0),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -1971,6 +1973,8 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         session["classifiedIntentTaxonomy"] = agent.classified_intent_taxonomy
         session["requirementAnswers"] = agent.requirement_answers or None
         session["workflowDescription"] = agent.workflow_description
+        session["accumulatedClarificationAnswers"] = agent.accumulated_clarification_answers or None
+        session["clarificationRound"] = agent.clarification_round
 
     except Exception as e:
         import traceback

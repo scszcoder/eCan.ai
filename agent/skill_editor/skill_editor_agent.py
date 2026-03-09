@@ -386,6 +386,11 @@ class SkillEditorAgent:
         self._classified_intent_taxonomy: Optional[str] = None
         self._requirement_answers: Dict[str, Any] = {}  # collected QA answers keyed by question id
         self._workflow_description: Optional[str] = None  # natural-language workflow description for user review
+        # Accumulated clarification answers across planner rounds (old pipeline)
+        self._accumulated_clarification_answers: Dict[str, List[str]] = {}
+        self._all_asked_questions: Dict[str, ClarificationQuestion] = {}  # all questions keyed by id across rounds
+        self._clarification_round: int = 0
+        self._MAX_CLARIFICATION_ROUNDS: int = 3
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -525,6 +530,14 @@ class SkillEditorAgent:
     def workflow_description(self) -> Optional[str]:
         return self._workflow_description
 
+    @property
+    def accumulated_clarification_answers(self) -> Dict[str, Any]:
+        return self._accumulated_clarification_answers
+
+    @property
+    def clarification_round(self) -> int:
+        return self._clarification_round
+
     def restore_state(
         self,
         pipeline_state: str,
@@ -534,6 +547,8 @@ class SkillEditorAgent:
         classified_intent_taxonomy: Optional[str] = None,
         requirement_answers: Optional[Dict[str, Any]] = None,
         workflow_description: Optional[str] = None,
+        accumulated_clarification_answers: Optional[Dict[str, Any]] = None,
+        clarification_round: int = 0,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
@@ -544,6 +559,8 @@ class SkillEditorAgent:
             self._classified_intent_taxonomy = classified_intent_taxonomy
             self._requirement_answers = requirement_answers or {}
             self._workflow_description = workflow_description
+            self._accumulated_clarification_answers = accumulated_clarification_answers or {}
+            self._clarification_round = clarification_round
             
             if current_plan:
                 # Reconstruct ImplementationPlan from dict
@@ -2445,6 +2462,11 @@ class SkillEditorAgent:
         """Run the planning phase with PlannerAgent"""
         logger.info("[SkillEditorAgent] Running planning phase")
         self._pipeline_state = PipelineState.PLANNING
+
+        # Reset accumulated clarification state for a fresh planning run
+        self._accumulated_clarification_answers = {}
+        self._all_asked_questions = {}
+        self._clarification_round = 0
         
         # Run planner with forced clarification policy when applicable
         require_clarification = self._should_require_clarification(message, intent)
@@ -2468,6 +2490,10 @@ class SkillEditorAgent:
             # Need clarification from user
             self._pipeline_state = PipelineState.AWAITING_CLARIFICATION
             self._pending_clarification = planner_output.questions
+            # Track all asked questions for enrichment across rounds
+            if planner_output.questions:
+                for q in planner_output.questions:
+                    self._all_asked_questions[q.id] = q
             
             return AgentResponse(
                 message=planner_output.message or "I have some questions to better understand your requirements:",
@@ -2495,6 +2521,32 @@ class SkillEditorAgent:
             # Request is clear enough, proceed directly
             return await self._generate_from_plan(canvas_context, session_id, on_event)
     
+    def _build_enriched_request_with_answers(self) -> str:
+        """Build a richer user_message that includes the original request plus
+        all accumulated clarification answers so the planner/code-agent sees
+        the full picture — not just the original (possibly trivial) message."""
+        parts: List[str] = []
+        base = (self._current_request or "").strip()
+        if base:
+            parts.append(f"Original user request: {base}")
+        if self._accumulated_clarification_answers:
+            qa_lines: List[str] = []
+            q_map = self._all_asked_questions or {}
+            for qid, answer_ids in self._accumulated_clarification_answers.items():
+                q_obj = q_map.get(qid)
+                q_text = q_obj.question if q_obj else qid
+                # Resolve answer labels when possible
+                labels: List[str] = []
+                for aid in answer_ids:
+                    if q_obj:
+                        match = next((c for c in q_obj.choices if c.id == aid), None)
+                        labels.append(match.label if match else aid)
+                    else:
+                        labels.append(aid)
+                qa_lines.append(f"- {q_text}: {', '.join(labels)}")
+            parts.append("User's answers to clarification questions:\n" + "\n".join(qa_lines))
+        return "\n\n".join(parts) if parts else base
+
     async def _handle_clarification_response(
         self,
         responses: Dict[str, List[str]],
@@ -2504,19 +2556,40 @@ class SkillEditorAgent:
     ) -> AgentResponse:
         """Handle user's clarification responses"""
         logger.info("[SkillEditorAgent] Handling clarification response")
-        
-        # Continue planning with responses
+
+        # Accumulate answers across rounds
+        for qid, answer_ids in responses.items():
+            self._accumulated_clarification_answers[qid] = answer_ids
+        self._clarification_round += 1
+        logger.info(
+            f"[SkillEditorAgent] Clarification round {self._clarification_round}, "
+            f"accumulated {len(self._accumulated_clarification_answers)} answer(s)"
+        )
+
+        # Build enriched request that includes all accumulated answers
+        enriched_request = self._build_enriched_request_with_answers()
+
+        # Cap clarification rounds — if we've already asked enough, force plan generation
+        force_plan = self._clarification_round >= self._MAX_CLARIFICATION_ROUNDS
+        if force_plan:
+            logger.info("[SkillEditorAgent] Max clarification rounds reached — forcing plan generation")
+
+        # Continue planning with ALL accumulated responses
         planner_output = await self.planner.plan(
-            user_message=self._current_request or "",
+            user_message=enriched_request,
             canvas_context=canvas_context,
-            clarification_responses=responses,
+            clarification_responses=self._accumulated_clarification_answers,
             on_event=on_event,
             require_clarification=False,
         )
         
-        if planner_output.action == PlannerAction.ASK_CLARIFICATION:
+        if planner_output.action == PlannerAction.ASK_CLARIFICATION and not force_plan:
             # More clarification needed
             self._pending_clarification = planner_output.questions
+            # Track all asked questions for enrichment across rounds
+            if planner_output.questions:
+                for q in planner_output.questions:
+                    self._all_asked_questions[q.id] = q
             return AgentResponse(
                 message=planner_output.message or "I have a few more questions:",
                 intent=IntentType.CREATE_FLOWGRAM,
@@ -2524,19 +2597,36 @@ class SkillEditorAgent:
                 metadata={"session_id": session_id, "state": "awaiting_clarification"}
             )
         
-        elif planner_output.action == PlannerAction.GENERATE_PLAN:
+        elif planner_output.action == PlannerAction.GENERATE_PLAN or force_plan:
             self._pipeline_state = PipelineState.AWAITING_PLAN_APPROVAL
-            self._current_plan = planner_output.plan
-            plan_text = self._format_plan_for_display(planner_output.plan)
-            
-            return AgentResponse(
-                message=f"Based on your answers, here's my plan:\n\n{plan_text}\n\nShall I proceed?",
-                intent=IntentType.CREATE_FLOWGRAM,
-                plan=planner_output.plan,
-                metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
-            )
+            plan = planner_output.plan
+            if not plan and force_plan:
+                # Ask plannerAgent one final time with explicit instruction to produce a plan
+                logger.info("[SkillEditorAgent] Force-generating plan after max rounds")
+                planner_output2 = await self.planner.plan(
+                    user_message=enriched_request,
+                    canvas_context=canvas_context,
+                    clarification_responses=self._accumulated_clarification_answers,
+                    on_event=on_event,
+                    require_clarification=False,
+                )
+                plan = planner_output2.plan
+            self._current_plan = plan
+            if plan:
+                plan_text = self._format_plan_for_display(plan)
+                return AgentResponse(
+                    message=f"Based on your answers, here's my plan:\n\n{plan_text}\n\nShall I proceed?",
+                    intent=IntentType.CREATE_FLOWGRAM,
+                    plan=plan,
+                    metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
+                )
+            # Fallback: proceed directly to code generation with enriched context
+            self._current_request = enriched_request
+            return await self._generate_from_plan(canvas_context, session_id, on_event)
         
         else:
+            # Update _current_request with enriched context so code gen has full picture
+            self._current_request = enriched_request
             return await self._generate_from_plan(canvas_context, session_id, on_event)
 
     # ------------------------------------------------------------------
@@ -3730,6 +3820,13 @@ class SkillEditorAgent:
         path = ctx_dir / f"{session_id}.json"
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def _is_trivial_message(self, msg: Optional[str]) -> bool:
+        """Return True when *msg* carries no actionable task info."""
+        if not msg:
+            return True
+        m = (msg or "").strip().lower()
+        return len(m) < 12 and not any(kw in m for kw in ("create", "build", "make", "automate", "workflow", "skill"))
+
     async def _generate_from_plan(
         self,
         canvas_context: Optional[Dict],
@@ -3749,12 +3846,21 @@ class SkillEditorAgent:
             content = msg.get("content", "")
             if content:
                 context_messages.append(f"[{role.upper()}]: {content}")
+
+        # If the original request is trivial (e.g. "hello"), derive a richer task
+        # description from accumulated clarification answers + conversation history.
+        effective_request = self._current_request or ""
+        if self._is_trivial_message(effective_request):
+            enriched = self._build_enriched_request_with_answers()
+            if enriched and len(enriched) > len(effective_request):
+                effective_request = enriched
+                logger.info("[SkillEditorAgent] Enriched trivial request for code gen")
         
         # Combine conversation context with current request
         full_context = ""
         if len(context_messages) > 1:
             full_context = "## CONVERSATION HISTORY (for context):\n" + "\n".join(context_messages[:-1]) + "\n\n"
-        full_context += "## CURRENT REQUEST:\n" + (self._current_request or "")
+        full_context += "## CURRENT REQUEST:\n" + effective_request
         
         # Generate with code agent
         code_output = await self.code_agent.generate(
@@ -3764,6 +3870,21 @@ class SkillEditorAgent:
             on_event=on_event
         )
         
+        # If no flowgram was produced, surface a clear failure message rather
+        # than passing through raw LLM text that looks like a generic greeting.
+        if not code_output.flowgram:
+            logger.warning("[SkillEditorAgent] Code generation produced no flowgram — returning error to user")
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message=(
+                    "I wasn't able to generate the workflow from the plan. "
+                    "This can happen when the model returns an incomplete response. "
+                    "Please try again — you can start a new session or re-describe your workflow."
+                ),
+                intent=IntentType.CREATE_FLOWGRAM,
+                metadata={"session_id": session_id, "state": "idle", "generation_failed": True},
+            )
+
         self._pipeline_state = PipelineState.COMPLETE
         
         # Generate canvas commands if flowgram was created
