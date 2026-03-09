@@ -6,11 +6,13 @@
 import { Field } from '@flowgram.ai/free-layout-editor';
 import { DisplayOutputs, IJsonSchema, JsonSchemaEditor } from '@flowgram.ai/form-materials';
 import { Divider } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 
 import { useIsSidebar, useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
 export function Outputs() {
+  const { t } = useTranslation('skillEditor');
   const { readonly } = useNodeRenderContext();
   const isSidebar = useIsSidebar();
 
@@ -28,7 +30,7 @@ export function Outputs() {
   return (
     <>
       <Divider />
-      <FormItem name="outputs" type="object" vertical>
+      <FormItem name="outputs" label={t('nodeState.fields.outputs')} type="object" vertical>
         <Field<IJsonSchema> name="outputs">
           {({ field }) => (
             <JsonSchemaEditor

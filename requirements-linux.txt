@@ -1,0 +1,127 @@
+# ============================================================================
+# eCan.ai Linux Requirements
+# ============================================================================
+# Complete dependencies for running eCan.ai on Linux (Ubuntu/Debian/Fedora)
+#
+# Installation:
+#   pip install -r requirements-linux.txt
+#
+# System dependencies (install first):
+#   Ubuntu/Debian:
+#     sudo apt-get install -y \
+#       python3-dev python3-pip python3-venv \
+#       gcc g++ make \
+#       libffi-dev libssl-dev \
+#       libgl1 libglib2.0-0 \
+#       libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+#       libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+#       libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-cursor0 \
+#       scrot wmctrl xdotool xdg-utils \
+#       cups tesseract-ocr \
+#       python3-tk
+#
+#   Fedora/RHEL:
+#     sudo dnf install -y \
+#       python3-devel gcc gcc-c++ make \
+#       libffi-devel openssl-devel \
+#       mesa-libGL glib2 \
+#       libxkbcommon-x11 xcb-util-image xcb-util-keysyms \
+#       xcb-util-renderutil xcb-util-wm \
+#       scrot wmctrl xdotool xdg-utils \
+#       cups tesseract \
+#       python3-tkinter
+# ============================================================================
+
+# Import base dependencies (shared across all platforms)
+-r requirements-base.txt
+
+# ============================================================================
+# LINUX-SPECIFIC GUI SUPPORT
+# ============================================================================
+
+# PySide6 for Linux Desktop GUI (Qt6)
+PySide6==6.6.1
+PySide6-Addons==6.6.1
+PySide6-Essentials==6.6.1
+
+# ============================================================================
+# LINUX-SPECIFIC SYSTEM INTEGRATION
+# ============================================================================
+
+# Screenshot and window management
+python3-xlib>=0.33          # X11 window management
+PyAutoGUI>=0.9.54           # Cross-platform GUI automation
+Pillow>=10.0.0              # Image processing (ensure version compatibility)
+
+# Clipboard support
+pyperclip>=1.8.2            # Clipboard operations
+
+# ============================================================================
+# LINUX-SPECIFIC UTILITIES
+# ============================================================================
+
+# Terminal and console
+colorama==0.4.6             # Terminal color support
+python-dotenv>=1.0.0        # Environment variable management
+
+# System monitoring
+psutil>=5.9.0               # System and process utilities
+
+# ============================================================================
+# LINUX-SPECIFIC DEVELOPMENT TOOLS
+# ============================================================================
+
+# Testing framework
+pytest>=8.2.2               # Testing framework
+pytest-asyncio>=0.23.0      # Async testing support
+pytest-cov>=4.1.0           # Coverage reporting
+pytest-xdist>=3.5.0         # Parallel testing
+
+# ============================================================================
+# LINUX-SPECIFIC WEB SCRAPING
+# ============================================================================
+
+# Web scraping (Linux has better lxml support)
+crawl4ai==0.8.0             # Web crawling with lxml support
+lxml>=5.0.0                 # XML/HTML processing (C extension)
+
+# ============================================================================
+# LINUX-SPECIFIC BROWSER AUTOMATION
+# ============================================================================
+
+# Browser automation
+browser-use==0.12.0         # Browser automation framework
+playwright>=1.40.0          # Playwright for Linux
+
+# ============================================================================
+# LINUX-SPECIFIC OPTIONAL DEPENDENCIES
+# ============================================================================
+
+# PDF processing (optional, for document handling)
+PyPDF2>=3.0.0               # PDF reading
+pdf2image>=1.16.3           # PDF to image conversion
+# Note: pdf2image requires poppler-utils system package
+
+# Excel file reading (optional)
+xlrd==2.0.1                 # Excel file reading
+openpyxl>=3.1.0             # Modern Excel support
+
+# ============================================================================
+# LINUX DISTRIBUTION-SPECIFIC NOTES
+# ============================================================================
+# 
+# Ubuntu 20.04/22.04: Fully supported
+# Debian 11/12: Fully supported
+# Fedora 38+: Fully supported
+# RHEL 8/9: Supported with EPEL repository
+# Arch Linux: Install python-pyside6 from AUR
+# 
+# For headless servers (no GUI):
+#   Use requirements-web.txt instead
+#   Or set ECAN_MODE=web environment variable
+# 
+# Display Server Support:
+#   - X11: Full support (recommended)
+#   - Wayland: Supported via XWayland
+#   - Headless: Web mode only
+# ============================================================================
