@@ -2138,8 +2138,12 @@ class SkillEditorAgent:
                 # requirement-collection pipeline (domain-specific QA → workflow
                 # description → planner) instead of the old planner-only path
                 # that generates only 3 generic questions.
-                has_canvas_for_routing = self._has_loaded_canvas(canvas_context)
-                if intent == IntentType.GENERAL_CHAT and not has_canvas_for_routing:
+                # NOTE: use nodes-only check (not _has_loaded_canvas which also
+                # considers skillName — the frontend may send skillName even when
+                # the canvas has zero nodes, which would incorrectly skip this).
+                canvas_nodes = (canvas_context or {}).get("nodes")
+                has_real_nodes = isinstance(canvas_nodes, list) and len(canvas_nodes) > 0
+                if intent == IntentType.GENERAL_CHAT and not has_real_nodes:
                     logger.info(
                         "[SkillEditorAgent] GENERAL_CHAT + empty canvas → routing "
                         "through requirement collection pipeline (domain QA)"
