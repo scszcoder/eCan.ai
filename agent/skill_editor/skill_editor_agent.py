@@ -2120,6 +2120,22 @@ class SkillEditorAgent:
             
             # Decide whether to use planner or go directly to code
             if self._should_use_planner(intent, canvas_context):
+                # For GENERAL_CHAT on an empty canvas, route through the new
+                # requirement-collection pipeline (domain-specific QA → workflow
+                # description → planner) instead of the old planner-only path
+                # that generates only 3 generic questions.
+                has_canvas_for_routing = self._has_loaded_canvas(canvas_context)
+                if intent == IntentType.GENERAL_CHAT and not has_canvas_for_routing:
+                    logger.info(
+                        "[SkillEditorAgent] GENERAL_CHAT + empty canvas → routing "
+                        "through requirement collection pipeline (domain QA)"
+                    )
+                    self._current_request = message
+                    response = await self._run_requirement_collection(
+                        message, canvas_context, session_id, on_event
+                    )
+                    self._add_response_to_history(response)
+                    return response
                 response = await self._run_planning_phase(
                     message=message,
                     canvas_context=canvas_context,
