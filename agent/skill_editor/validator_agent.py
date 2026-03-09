@@ -170,9 +170,33 @@ class ValidatorAgent:
         open_brackets = fixed.count('[') - fixed.count(']')
         
         if open_braces > 0 or open_brackets > 0:
-            closing = ']' * open_brackets + '}' * open_braces
-            result, _ = self.try_parse_json(fixed + closing)
+            # First, handle mid-string truncation: close any unclosed string
+            repair = fixed.rstrip()
+            # Check if we're inside an unclosed string (odd number of unescaped quotes)
+            in_string = False
+            i = 0
+            while i < len(repair):
+                if repair[i] == '\\':
+                    i += 2
+                    continue
+                if repair[i] == '"':
+                    in_string = not in_string
+                i += 1
+            if in_string:
+                # Close the string and add a null value placeholder
+                repair = repair + '..."'
+            
+            # Remove trailing comma if present
+            repair = re.sub(r',\s*$', '', repair)
+            
+            # Recalculate after potential string fix
+            open_braces = repair.count('{') - repair.count('}')
+            open_brackets = repair.count('[') - repair.count(']')
+            closing = ']' * max(0, open_brackets) + '}' * max(0, open_braces)
+            result, _ = self.try_parse_json(repair + closing)
             if result:
+                logger.info(f"[ValidatorAgent] quick_fix: closed {open_braces} braces, {open_brackets} brackets" +
+                           (" + unclosed string" if in_string else ""))
                 return result
         
         # Fix 3: Replace single quotes with double quotes (risky but sometimes works)
@@ -339,6 +363,8 @@ Return ONLY the fixed JSON, no explanations."""
         2. JSON ends mid-object (unclosed braces)
         3. Response ends with incomplete JSON structure
         4. Response ends abruptly without proper closing
+        5. Significant brace/bracket imbalance (>1)
+        6. No proper JSON closing after a code block start
         """
         if not text:
             return False
@@ -367,23 +393,37 @@ Return ONLY the fixed JSON, no explanations."""
             if text_stripped.endswith(ending):
                 return True
         
-        # Pattern 3: Count brackets - significant imbalance suggests truncation
+        # Pattern 3: Count brackets - even mild imbalance in a JSON response suggests truncation
         open_braces = text.count('{')
         close_braces = text.count('}')
         open_brackets = text.count('[')
         close_brackets = text.count(']')
         
-        # If many more opens than closes, likely truncated
         brace_diff = open_braces - close_braces
         bracket_diff = open_brackets - close_brackets
         
-        if brace_diff > 3 or bracket_diff > 3:
+        # Lowered threshold: any imbalance > 1 in a JSON response is suspicious
+        if brace_diff > 1 or bracket_diff > 1:
+            logger.debug(f"[ValidatorAgent] Brace imbalance: {brace_diff} braces, {bracket_diff} brackets")
             return True
         
         # Pattern 4: Check if response ends mid-word or mid-key
         # Look for incomplete key-value patterns
         if re.search(r'"[a-zA-Z_][a-zA-Z0-9_]*$', text_stripped):
             return True  # Ends with incomplete key
+        
+        # Pattern 5: Has ```json opening but no closing ```
+        if re.search(r'```json', text) and not re.search(r'```json[\s\S]*```', text):
+            logger.debug("[ValidatorAgent] Detected unclosed markdown code block")
+            return True
+        
+        # Pattern 6: Response is very long (>30K chars) and doesn't end with } or ]
+        # Long JSON responses that don't end properly are likely truncated
+        if len(text_stripped) > 30000:
+            last_char = text_stripped[-1] if text_stripped else ''
+            if last_char not in ('}', ']', '`'):
+                logger.debug(f"[ValidatorAgent] Long response ({len(text_stripped)} chars) doesn't end with closing bracket")
+                return True
         
         return False
     
