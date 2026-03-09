@@ -11,6 +11,7 @@ Uses Content-Type: application/json (required when variables are present).
 from __future__ import annotations
 
 import json
+import time
 import traceback
 from typing import Any, Dict, List, Optional
 
@@ -348,6 +349,7 @@ def relay_send_message(session_id: str,
                     "role": "assistant",
                     "content": "Processing your request — the cloud agent is still working on it. "
                                "The response will arrive shortly via streaming.",
+                    "timestamp": int(time.time() * 1000),
                 },
             }
         logger.error(f"[se_cloud_relay] send_message errors: {errors}")
