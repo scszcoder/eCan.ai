@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Callable
 
 from utils.logger_helper import logger_helper as logger
 
+from .token_tracker import token_tracker
+
 from .schemas import (
     CodeAgentAction,
     CodeAgentOutput,
@@ -39,6 +41,7 @@ from .schemas import (
 )
 from .placement import place_nodes, LOOP_INTERNAL_CFG
 from .prompt_store import prompt_store
+from .prompt_store import safe_format
 
 
 # ============================================================
@@ -50,6 +53,83 @@ DEFAULT_NODE_SPACING_X = 250
 DEFAULT_NODE_SPACING_Y = 150
 START_POSITION_X = 100
 START_POSITION_Y = 100
+
+# ---------------------------------------------------------------------------
+# Baseline data_mapping.json rules
+# These are always present; the LLM can add workflow-specific rules on top.
+# ---------------------------------------------------------------------------
+
+_BASE_MAPPINGS = [
+    {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+            {"target": "state.attributes.forms.qa_form"},
+            {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+    },
+    {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+            {"target": "state.attributes.notifications.latest"},
+            {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+    },
+    {
+        "from": ["event.data.human_text"],
+        "to": [
+            {"target": "state.attributes.human.last_message"},
+            {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+    },
+    {
+        "from": ["event.tag"],
+        "to": [
+            {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+    },
+    # Async response mode: controls whether send_response_back sends via A2A or skips
+    {
+        "from": ["event.data.metadata.async_response", "event.context.async_response"],
+        "to": [
+            {"target": "state.attributes.async_response"}
+        ],
+        "on_conflict": "overwrite"
+    },
+]
+
+_DEV_DEBUG_MAPPING = {
+    "from": ["event.data.metadata"],
+    "to": [
+        {"target": "state.attributes.debug.last_event_metadata"}
+    ],
+    "on_conflict": "overwrite"
+}
+
+DEFAULT_BASELINE_MAPPINGS: Dict[str, Any] = {
+    "developing": {
+        "mappings": _BASE_MAPPINGS + [_DEV_DEBUG_MAPPING],
+        "options": {
+            "strict": False,
+            "default_on_missing": None,
+            "apply_order": "top_down"
+        }
+    },
+    "released": {
+        "mappings": list(_BASE_MAPPINGS),
+        "options": {
+            "strict": True,
+            "default_on_missing": None,
+            "apply_order": "top_down"
+        }
+    },
+    "node_transfers": {},
+    "event_routing": {},
+}
 
 # Preferred prompt pool IDs (fallback defaults when config is missing)
 DEFAULT_LLM_PROMPT_ID = "pr-454780"
@@ -91,6 +171,14 @@ Your role is to translate user requests and implementation plans into concrete f
 
 ## AVAILABLE NODE TYPES:
 {node_types}
+
+## NODE SCHEMA REFERENCE:
+{node_schema}
+
+## MAPPING DSL REFERENCE (data_mapping.json):
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state without code nodes. Prefer mapping rules over code nodes when the task is pure data routing.
+
+{mapping_dsl}
 
 ## CURRENT CANVAS STATE:
 {canvas_context}
@@ -506,8 +594,35 @@ You MUST respond with valid JSON containing the flowgram.
       "skillName": "workflow_name",
       "description": "What this workflow does"
     }}
+  }},
+  "data_mapping": {{
+    "developing": {{
+      "mappings": [
+        {{
+          "from": ["event.data.custom_field"],
+          "to": [{{"target": "state.attributes.custom"}}],
+          "on_conflict": "overwrite"
+        }}
+      ]
+    }},
+    "released": {{
+      "mappings": [
+        {{
+          "from": ["event.data.custom_field"],
+          "to": [{{"target": "state.attributes.custom"}}],
+          "on_conflict": "overwrite"
+        }}
+      ]
+    }},
+    "node_transfers": {{}},
+    "event_routing": {{}}
   }}
 }}
+
+NOTE: The `data_mapping` field is OPTIONAL. Baseline event-to-state mappings (human_text, qa_form,
+notification, cloud_task_id, async_response) are always included automatically.
+Only add `data_mapping` when the workflow needs EXTRA routing beyond the baseline.
+Prefer mapping rules over code nodes for pure data movement.
 
 For simple answers without code generation:
 {{
@@ -652,6 +767,14 @@ EDIT_FLOWGRAM_PROMPT = """You are a Code Agent for the Skill Editor, specializin
 
 ## AVAILABLE NODE TYPES:
 {node_types}
+
+## NODE SCHEMA REFERENCE:
+{node_schema}
+
+## MAPPING DSL REFERENCE (data_mapping.json):
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state without code nodes. Prefer mapping rules over code nodes when the task is pure data routing.
+
+{mapping_dsl}
 
 ## EDIT RULES:
 1. Preserve existing node IDs when modifying nodes
@@ -925,18 +1048,33 @@ class CodeAgent:
         lines.append("6. Connect the nodes from each step in sequence to form the complete workflow")
         
         return "\n".join(lines)
-    
-    async def _invoke_llm_async(self, prompt: str) -> str:
+
+    @staticmethod
+    async def _emit_progress(on_event, message: str) -> None:
+        """Send a progress event to the client (best-effort)."""
+        if not on_event:
+            return
+        try:
+            import asyncio
+            result = on_event({"type": "progress", "data": {"message": message}})
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            pass
+
+    async def _invoke_llm_async(self, prompt: str, *, action: str = "") -> str:
         """Invoke LLM asynchronously"""
         logger.debug(f"[CodeAgent] Invoking LLM, prompt length: {len(prompt)}")
         try:
             if hasattr(self.llm, 'ainvoke'):
                 response = await self.llm.ainvoke(prompt)
+                token_tracker.record(response, agent="CodeAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
                 logger.debug(f"[CodeAgent] LLM response length: {len(result)}")
                 return result
             else:
                 response = self.llm.invoke(prompt)
+                token_tracker.record(response, agent="CodeAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
                 logger.debug(f"[CodeAgent] LLM response length: {len(result)}")
                 return result
@@ -1309,21 +1447,23 @@ Continue the JSON output (do not include any text before the continuation):"""
                     if block.id in id_mapping:
                         block.id = id_mapping[block.id]
         
-        # Update edge references
+        # Update edge references — use field names directly, NOT @property aliases
+        # (edge.source is a read-only @property returning sourceNodeID; assignment
+        #  via the property raises AttributeError in Pydantic v2)
         for edge in flowgram.edges:
-            if edge.source in id_mapping:
-                edge.source = id_mapping[edge.source]
-            if edge.target in id_mapping:
-                edge.target = id_mapping[edge.target]
+            if edge.sourceNodeID in id_mapping:
+                edge.sourceNodeID = id_mapping[edge.sourceNodeID]
+            if edge.targetNodeID in id_mapping:
+                edge.targetNodeID = id_mapping[edge.targetNodeID]
         
         # Update internal edges in loop nodes
         for node in flowgram.nodes:
             if node.internal_edges:
                 for edge in node.internal_edges:
-                    if edge.source in id_mapping:
-                        edge.source = id_mapping[edge.source]
-                    if edge.target in id_mapping:
-                        edge.target = id_mapping[edge.target]
+                    if edge.sourceNodeID in id_mapping:
+                        edge.sourceNodeID = id_mapping[edge.sourceNodeID]
+                    if edge.targetNodeID in id_mapping:
+                        edge.targetNodeID = id_mapping[edge.targetNodeID]
     
     def _apply_layout(self, flowgram: Flowgram) -> None:
         """
@@ -1841,18 +1981,78 @@ Continue the JSON output (do not include any text before the continuation):"""
                 self._ensure_start_end_nodes(flowgram)
                 self._fix_missing_incoming_edges(flowgram)
                 self._fix_node_naming(flowgram)
+
+                # Safety net: if edges were lost (e.g. node renaming failed earlier),
+                # rebuild the sequential chain so nodes are never fully isolated.
+                node_ids = {n.id for n in flowgram.nodes}
+                valid_edges = [e for e in flowgram.edges if e.sourceNodeID in node_ids and e.targetNodeID in node_ids]
+                if len(valid_edges) < len(flowgram.edges):
+                    dropped = len(flowgram.edges) - len(valid_edges)
+                    logger.warning(f"[CodeAgent] Dropped {dropped} invalid edge(s) referencing non-existent nodes")
+                    flowgram.edges = valid_edges
+                if len(flowgram.nodes) > 1 and not flowgram.edges:
+                    logger.warning("[CodeAgent] No valid edges after parsing — rebuilding sequential chain")
+                    self._fix_missing_incoming_edges(flowgram)
+                    self._ensure_start_end_nodes(flowgram)
+
                 logger.info(f"[CodeAgent] Parsed flowgram: {len(flowgram.nodes)} nodes, {len(flowgram.edges)} edges")
             except Exception as e:
-                logger.warning(f"[CodeAgent] Error parsing flowgram: {e}")
+                import traceback as _tb
+                logger.warning(f"[CodeAgent] Error parsing flowgram: {e}\n{_tb.format_exc()}")
 
         message = self._finalize_message(data.get("message"), flowgram)
+
+        # Extract data_mapping from LLM response and merge with baseline defaults
+        data_mapping = self._build_data_mapping(data.get("data_mapping"))
 
         return CodeAgentOutput(
             action=action,
             message=message,
-            flowgram=flowgram
+            flowgram=flowgram,
+            data_mapping=data_mapping,
         )
     
+    # ------------------------------------------------------------------
+    # data_mapping.json construction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_data_mapping(llm_mapping: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Build a data_mapping.json payload by merging LLM-generated rules on
+        top of the baseline defaults.
+
+        The baseline covers event→state routing for human_text, qa_form,
+        notification, cloud_task_id, and async_response.  The LLM may add
+        workflow-specific rules (e.g. webhook fields, node transfers).
+
+        Returns a ready-to-persist ``data_mapping.json`` dict.
+        """
+        import copy
+        mapping = copy.deepcopy(DEFAULT_BASELINE_MAPPINGS)
+
+        if not llm_mapping or not isinstance(llm_mapping, dict):
+            return mapping
+
+        # Merge extra mappings produced by the LLM into each run-mode section
+        for mode in ("developing", "released"):
+            extra = llm_mapping.get(mode)
+            if isinstance(extra, dict):
+                extra_rules = extra.get("mappings")
+                if isinstance(extra_rules, list):
+                    mapping[mode]["mappings"].extend(extra_rules)
+                # Let LLM override options if explicitly provided
+                extra_opts = extra.get("options")
+                if isinstance(extra_opts, dict):
+                    mapping[mode]["options"].update(extra_opts)
+
+        # Merge node_transfers & event_routing if provided
+        for key in ("node_transfers", "event_routing"):
+            extra_section = llm_mapping.get(key)
+            if isinstance(extra_section, dict):
+                mapping[key].update(extra_section)
+
+        return mapping
+
     def validate_flowgram(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> ValidationResult:
         """Validate a flowgram structure"""
         logger.debug(f"[CodeAgent] Validating flowgram with {len(flowgram.nodes)} nodes")
@@ -2124,18 +2324,25 @@ Continue the JSON output (do not include any text before the continuation):"""
         self._current_task_context = user_message
         
         try:
-            # Build prompt
-            prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
+            await self._emit_progress(on_event, "Building generation prompt…")
+
+            # Build prompt — safe_format leaves JSON braces in .md files intact
+            raw_prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT)
+            prompt = safe_format(
+                raw_prompt,
                 node_types=get_node_types_description(),
+                node_schema=prompt_store.get_node_schema(),
+                mapping_dsl=prompt_store.get_mapping_dsl(),
                 canvas_context=self._format_canvas_context(canvas_context),
-                plan_context=self._format_plan_context(plan)
+                plan_context=self._format_plan_context(plan),
             )
             
             prompt += f"\n\n## USER REQUEST:\n{user_message}"
             
             # Invoke LLM
+            await self._emit_progress(on_event, "Generating workflow — this may take 1-2 minutes for complex skills…")
             logger.debug("[CodeAgent] Invoking LLM for generation")
-            response = await self._invoke_llm_async(prompt)
+            response = await self._invoke_llm_async(prompt, action="generate")
             
             # Check for empty response
             if not response or not response.strip():
@@ -2150,6 +2357,7 @@ Continue the JSON output (do not include any text before the continuation):"""
             
             # Validate if flowgram was generated
             if output.flowgram:
+                await self._emit_progress(on_event, f"Validating generated workflow ({len(output.flowgram.nodes)} nodes)…")
                 validation = self.validate_flowgram(output.flowgram, plan)
                 output.validation = validation
                 
@@ -2158,18 +2366,21 @@ Continue the JSON output (do not include any text before the continuation):"""
                 
                 # Retry if validation failed
                 if not validation.valid and MAX_VALIDATION_RETRIES > 0:
+                    n_errors = len(validation.errors)
+                    await self._emit_progress(on_event, f"Validation found {n_errors} error(s) — auto-fixing…")
                     logger.info("[CodeAgent] Validation failed, attempting fix...")
                     output = await self._fix_validation_errors(
-                        output, validation, user_message, canvas_context, plan
+                        output, validation, user_message, canvas_context, plan,
+                        on_event=on_event,
                     )
                 
                 # Send flowgram event
                 if on_event and output.flowgram:
                     import asyncio
-                    logger.info(f"[CodeAgent] 🎨 Sending flowgram event with {len(output.flowgram.nodes)} nodes")
+                    logger.info(f"[CodeAgent] 🎨 Sending flowgram event with {len(output.flowgram.nodes)} nodes, {len(output.flowgram.edges)} edges")
                     result = on_event({
                         "type": "flowgram",
-                        "data": output.flowgram.model_dump()
+                        "data": output.flowgram.model_dump(exclude_none=True)
                     })
                     # Handle both sync and async callbacks
                     if asyncio.iscoroutine(result):
@@ -2197,7 +2408,8 @@ Continue the JSON output (do not include any text before the continuation):"""
         user_message: str,
         canvas_context: Optional[Dict],
         plan: Optional[ImplementationPlan],
-        retry_count: int = 0
+        retry_count: int = 0,
+        on_event: Optional[Callable] = None,
     ) -> CodeAgentOutput:
         """Attempt to fix validation errors by re-generating"""
         if retry_count >= MAX_VALIDATION_RETRIES:
@@ -2205,6 +2417,7 @@ Continue the JSON output (do not include any text before the continuation):"""
             return output
         
         logger.info(f"[CodeAgent] Fix attempt {retry_count + 1}/{MAX_VALIDATION_RETRIES}")
+        await self._emit_progress(on_event, f"Fix attempt {retry_count + 1}/{MAX_VALIDATION_RETRIES} — regenerating…")
         
         # Build fix prompt
         error_messages = [e.message for e in validation.errors]
@@ -2218,30 +2431,37 @@ ORIGINAL REQUEST: {user_message}
 Please regenerate the flowgram with these errors fixed.
 """
         
-        prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
+        raw_prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT)
+        prompt = safe_format(
+            raw_prompt,
             node_types=get_node_types_description(),
+            node_schema=prompt_store.get_node_schema(),
+            mapping_dsl=prompt_store.get_mapping_dsl(),
             canvas_context=self._format_canvas_context(canvas_context),
-            plan_context=self._format_plan_context(plan)
+            plan_context=self._format_plan_context(plan),
         )
         prompt += f"\n\n{fix_prompt}"
         
         # Re-invoke LLM
-        response = await self._invoke_llm_async(prompt)
+        response = await self._invoke_llm_async(prompt, action=f"fix_attempt_{retry_count + 1}")
         new_output = self._parse_code_agent_output(response)
         
         if new_output.flowgram:
+            await self._emit_progress(on_event, f"Validating fix attempt {retry_count + 1}…")
             new_validation = self.validate_flowgram(new_output.flowgram, plan)
             new_output.validation = new_validation
             
             if new_validation.valid:
                 logger.info("[CodeAgent] Fix successful, flowgram is now valid")
+                await self._emit_progress(on_event, "Validation passed ✓")
                 self._current_flowgram = new_output.flowgram
                 return new_output
             else:
                 # Recurse
                 return await self._fix_validation_errors(
                     new_output, new_validation, user_message, 
-                    canvas_context, plan, retry_count + 1
+                    canvas_context, plan, retry_count + 1,
+                    on_event=on_event,
                 )
         
         return output
@@ -2274,15 +2494,22 @@ Please regenerate the flowgram with these errors fixed.
         logger.info(f"[CodeAgent] Editing flowgram: {edit_request[:100]}...")
         
         try:
+            await self._emit_progress(on_event, "Preparing edit…")
+
             # Build edit prompt
-            prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT).format(
+            raw_edit_prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT)
+            prompt = safe_format(
+                raw_edit_prompt,
                 current_flowgram=json.dumps(flowgram.model_dump(), indent=2),
                 edit_request=edit_request,
-                node_types=get_node_types_description()
+                node_types=get_node_types_description(),
+                node_schema=prompt_store.get_node_schema(),
+                mapping_dsl=prompt_store.get_mapping_dsl(),
             )
             
             # Invoke LLM
-            response = await self._invoke_llm_async(prompt)
+            await self._emit_progress(on_event, "Applying edit — please wait…")
+            response = await self._invoke_llm_async(prompt, action="edit")
             output = self._parse_code_agent_output(response)
             
             if output.flowgram:
@@ -2299,7 +2526,7 @@ Please regenerate the flowgram with these errors fixed.
                     import asyncio
                     result = on_event({
                         "type": "flowgram",
-                        "data": output.flowgram.model_dump()
+                        "data": output.flowgram.model_dump(exclude_none=True)
                     })
                     # Handle both sync and async callbacks
                     if asyncio.iscoroutine(result):

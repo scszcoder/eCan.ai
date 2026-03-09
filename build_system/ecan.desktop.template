@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=eCan
+Exec={executable_path} %u
+Icon=ecan
+Type=Application
+MimeType=x-scheme-handler/ecan
+Categories=Utility;Development;
+Comment=eCan Automation Platform

@@ -11,18 +11,22 @@ import boto3
 from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
 from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_dir_name
 from agent.skill_editor.prompt_store import prompt_store
+from agent.skill_editor.token_tracker import token_tracker
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Pre-fetch all prompts from DynamoDB during cold start so sub-agents
-# never block on individual gets.
+# never block on individual gets.  Falls back to .md files → inline defaults.
 _PROMPT_IDS = [
     "intent_classifier",
+    "main_orchestrator",
     "planner",
     "code_gen",
     "edit_flowgram",
     "validator",
+    "requirement_collector",
+    "testor",
     # Log analysis sub-agents
     "log_analysis_orchestrator",
     "log_parser",
@@ -31,9 +35,15 @@ _PROMPT_IDS = [
 ]
 try:
     prompt_store.preload(_PROMPT_IDS)
-    logger.info("Prompt store preloaded successfully")
+    # Also warm the domain QA / SOP / node schema / taxonomy caches
+    prompt_store.get_domain_qa()
+    prompt_store.get_sop()
+    prompt_store.get_node_schema()
+    prompt_store.get_mapping_dsl()
+    prompt_store.get_taxonomy()
+    logger.info("Prompt store preloaded successfully (%d prompts + QA + SOP + schema + mapping DSL + taxonomy)", len(_PROMPT_IDS))
 except Exception as _pre_err:
-    logger.warning("Prompt store preload failed (will fall back to defaults): %s", _pre_err)
+    logger.warning("Prompt store preload failed (will fall back to .md files / defaults): %s", _pre_err)
 
 # Cache detected S3 base prefixes per owner to avoid repeated list calls within
 # the same warm Lambda environment.
@@ -78,24 +88,9 @@ def _generate_dev_mode_client_id(username: str, skill: Dict[str, Any]) -> str:
     client_id = f"{user_part}_{site}"
     return client_id
 
-DEFAULT_DATA_MAPPING: Dict[str, Any] = {
-    "developing": {
-        "mappings": [],
-        "options": {
-            "strict": False,
-            "apply_order": "top_down",
-        },
-    },
-    "released": {
-        "mappings": [],
-        "options": {
-            "strict": True,
-            "apply_order": "top_down",
-        },
-    },
-    "node_transfers": {},
-    "event_routing": {},
-}
+# Re-use the authoritative baseline mappings from code_agent so that
+# scaffold, lazy-create, and code-generation all produce the same defaults.
+from agent.skill_editor.code_agent import DEFAULT_BASELINE_MAPPINGS as DEFAULT_DATA_MAPPING
 
 
 @dataclass(frozen=True)
@@ -1866,6 +1861,10 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     pipeline_state=pipeline_state,
                     current_plan=session.get("currentPlan") if isinstance(session.get("currentPlan"), dict) else session.get("currentPlan"),
                     current_request=session.get("currentRequest") if isinstance(session.get("currentRequest"), str) else None,
+                    classified_domain=session.get("classifiedDomain"),
+                    classified_intent_taxonomy=session.get("classifiedIntentTaxonomy"),
+                    requirement_answers=session.get("requirementAnswers"),
+                    workflow_description=session.get("workflowDescription"),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -1879,6 +1878,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             canvas_context = {"contextSessions": recent_context_sessions}
 
         logger.info(f"[sendSkillEditorChatMessage] Calling agent.process_message_sync, canvas_context_type={type(canvas_context).__name__}")
+        token_tracker.reset()   # clear any stale data from warm-Lambda reuse
         response = agent.process_message_sync(
             message=content,
             canvas_context=canvas_context,
@@ -1887,6 +1887,16 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             on_event=on_event,
         )
         logger.info(f"[sendSkillEditorChatMessage] Agent response received, intent={getattr(response, 'intent', None)}, message_len={len(response.message or '')}")
+
+        # --- Flush token usage to S3 (best-effort) ---
+        try:
+            token_tracker.flush_to_s3(
+                owner=owner,
+                session_id=session_id,
+                request_summary=content[:200] if content else "",
+            )
+        except Exception as _tok_err:
+            logger.warning(f"[sendSkillEditorChatMessage] token_tracker flush failed: {_tok_err}")
 
         logger.info("[sendSkillEditorChatMessage] Publishing stream_end event...")
         try:
@@ -1897,7 +1907,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
                 "clarification": [q.model_dump() for q in (response.clarification or [])] if getattr(response, "clarification", None) else None,
                 "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
-                "flowgram": response.flowgram.model_dump() if getattr(response, "flowgram", None) else None,
+                "flowgram": response.flowgram.model_dump(exclude_none=True) if getattr(response, "flowgram", None) else None,
                 "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
             }
             logger.info(f"[sendSkillEditorChatMessage] stream_end payload keys: {list(stream_end_payload.keys())}, "
@@ -1957,6 +1967,10 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         session["pipelineState"] = agent.pipeline_state.value
         session["currentPlan"] = agent.current_plan.model_dump() if agent.current_plan else None
         session["currentRequest"] = agent.current_request
+        session["classifiedDomain"] = agent.classified_domain
+        session["classifiedIntentTaxonomy"] = agent.classified_intent_taxonomy
+        session["requirementAnswers"] = agent.requirement_answers or None
+        session["workflowDescription"] = agent.workflow_description
 
     except Exception as e:
         import traceback
@@ -2068,7 +2082,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         "message": _to_message_gql(assistant_msg),
         "clarification": [q.model_dump() for q in (response.clarification or [])] if response and getattr(response, "clarification", None) else None,
         "plan": response.plan.model_dump() if response and getattr(response, "plan", None) else None,
-        "flowgram": response.flowgram.model_dump() if response and getattr(response, "flowgram", None) else None,
+        "flowgram": response.flowgram.model_dump(exclude_none=True) if response and getattr(response, "flowgram", None) else None,
         "validation": response.validation.model_dump() if response and getattr(response, "validation", None) else None,
     }
 

@@ -61,6 +61,7 @@ class ClarificationChoice(BaseModel):
     id: str = Field(..., description="Unique identifier for this choice")
     label: str = Field(..., description="Display label for the choice")
     description: Optional[str] = Field(None, description="Additional description")
+    allow_freeform: bool = Field(False, description="When selected, show a text input for custom user input")
 
 
 class ClarificationQuestion(BaseModel):
@@ -269,6 +270,9 @@ class CodeAgentOutput(BaseModel):
     )
     validation: Optional[ValidationResult] = Field(
         None, description="Validation result"
+    )
+    data_mapping: Optional[Dict[str, Any]] = Field(
+        None, description="Data mapping rules for data_mapping.json (merged with baseline defaults)"
     )
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
