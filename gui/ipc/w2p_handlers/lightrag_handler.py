@@ -1032,7 +1032,7 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         # Call synchronously (this runs in a background thread via registry)
         result = client.get_documents_paginated(request_params)
         
-        logger.info(f"[lightrag_handler] Client returned result type: {type(result)}, value: {result}")
+        # logger.info(f"[lightrag_handler] Client returned result type: {type(result)}, value: {result}")
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to get documents')
@@ -1233,6 +1233,22 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         for key in ollama_keys:
             if key in params:
                 logger.info(f"[LightRAG] {key} = {params[key]}")
+        
+        # Validate and adjust configuration based on provider limits
+        from knowledge.provider_limits_validator import validate_lightrag_config
+        
+        embedding_provider = params.get('EMBEDDING_BINDING', '')
+        if embedding_provider and 'EMBEDDING_BATCH_NUM' in params:
+            logger.info(f"[LightRAG] Validating config for embedding provider: {embedding_provider}")
+            adjusted_params, warnings = validate_lightrag_config(embedding_provider, params)
+            
+            # Log any adjustments
+            if warnings:
+                for warning in warnings:
+                    logger.warning(f"[LightRAG] {warning}")
+            
+            # Use adjusted parameters
+            params = adjusted_params
         
         # Process rerank provider settings - auto-configure proxy for non-native providers
         from knowledge.lightrag_constants import is_native_rerank_provider
