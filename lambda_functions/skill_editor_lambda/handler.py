@@ -1864,6 +1864,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     classified_domain=session.get("classifiedDomain"),
                     classified_intent_taxonomy=session.get("classifiedIntentTaxonomy"),
                     requirement_answers=session.get("requirementAnswers"),
+                    domain_qa_done=bool(session.get("domainQaDone", False)),
                     workflow_description=session.get("workflowDescription"),
                     accumulated_clarification_answers=session.get("accumulatedClarificationAnswers"),
                     clarification_round=int(session.get("clarificationRound", 0) or 0),
@@ -1972,6 +1973,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         session["classifiedDomain"] = agent.classified_domain
         session["classifiedIntentTaxonomy"] = agent.classified_intent_taxonomy
         session["requirementAnswers"] = agent.requirement_answers or None
+        session["domainQaDone"] = agent.domain_qa_done
         session["workflowDescription"] = agent.workflow_description
         session["accumulatedClarificationAnswers"] = agent.accumulated_clarification_answers or None
         session["clarificationRound"] = agent.clarification_round

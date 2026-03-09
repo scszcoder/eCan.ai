@@ -572,36 +572,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           setSessions(convertedSessions);
           console.log(`[ChatPanel] Loaded ${convertedSessions.length} sessions from backend`);
           
-          // Auto-select the most recent session if none selected
-          if (!activeSessionId && convertedSessions.length > 0) {
-            const firstId = convertedSessions[0].id;
-            setActiveSessionId(firstId);
-
-            // Cloud getSessions only returns metadata — fetch messages
-            if (!convertedSessions[0].messages.length) {
-              try {
-                const history = await skillEditorChatService.getHistory(firstId);
-                if (history && history.length > 0) {
-                  const mapped: ChatMessage[] = history.map(m => ({
-                    id: m.id,
-                    role: m.role as 'user' | 'assistant',
-                    content: m.content,
-                    timestamp: safeDate(m.timestamp),
-                    attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
-                    clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
-                    plan: m.metadata?.plan as ImplementationPlan | undefined,
-                    state: m.metadata?.state as PipelineState | undefined,
-                  }));
-                  setSessions(prev => prev.map(s =>
-                    s.id === firstId ? { ...s, messages: mapped } : s
-                  ));
-                  console.log(`[ChatPanel] Auto-loaded ${mapped.length} messages for session ${firstId}`);
-                }
-              } catch (err) {
-                console.warn('[ChatPanel] Failed to auto-load history:', err);
-              }
-            }
-          }
+          // Don't auto-select any session — let the user either pick one from
+          // history or type a new message (which creates a fresh session).
+          // This mirrors the "coding agent" UX: history is visible, but a blank
+          // input box always starts a new conversation.
         } else {
           console.log('[ChatPanel] No sessions found in backend');
         }
