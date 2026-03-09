@@ -1289,17 +1289,42 @@ def handle_open_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         logger.info(f"[OPEN_FILE] Opening file: {path}")
         
         if sys.platform == 'darwin':
-            subprocess.run(['open', path], check=True)
+            subprocess.run(['open', path], check=True, timeout=5)
         elif sys.platform == 'win32':
             os.startfile(path)
-        else:
-            subprocess.run(['xdg-open', path], check=True)
+        else:  # Linux
+            # Check if xdg-open is available
+            import shutil
+            if not shutil.which('xdg-open'):
+                error_msg = (
+                    "xdg-open not found. Please install xdg-utils:\n"
+                    "  Ubuntu/Debian: sudo apt install xdg-utils\n"
+                    "  Fedora/RHEL: sudo dnf install xdg-utils\n"
+                    "  Arch Linux: sudo pacman -S xdg-utils"
+                )
+                logger.error(f"[OPEN_FILE] {error_msg}")
+                return create_error_response(request, 'XDG_UTILS_NOT_FOUND', error_msg)
+            
+            try:
+                # xdg-open may not return immediately, use timeout
+                subprocess.run(
+                    ['xdg-open', path],
+                    check=True,
+                    timeout=5,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE
+                )
+            except subprocess.TimeoutExpired:
+                # This is normal for xdg-open, it may spawn the app and return
+                logger.debug(f"[OPEN_FILE] xdg-open timeout (normal behavior)")
+                pass
         
         return create_success_response(request, {'success': True, 'path': path})
         
     except subprocess.CalledProcessError as e:
-        logger.error(f"[OPEN_FILE] Failed to open file: {e}")
-        return create_error_response(request, 'OPEN_FILE_ERROR', f'Failed to open file: {str(e)}')
+        error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+        logger.error(f"[OPEN_FILE] Failed to open file: {error_msg}")
+        return create_error_response(request, 'OPEN_FILE_ERROR', f'Failed to open file: {error_msg}')
     except Exception as e:
         logger.error(f"[OPEN_FILE] Error: {e}")
         return create_error_response(request, 'OPEN_FILE_ERROR', str(e))
@@ -1340,17 +1365,68 @@ def handle_open_folder(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         
         # Open folder based on platform
         if sys.platform == 'darwin':  # macOS
-            subprocess.run(['open', path], check=True)
+            subprocess.run(['open', path], check=True, timeout=5)
         elif sys.platform == 'win32':  # Windows
             os.startfile(path)
         else:  # Linux and other Unix-like systems
-            subprocess.run(['xdg-open', path], check=True)
+            import shutil
+            
+            # Try different file managers in order of preference
+            file_managers = [
+                'nautilus',      # GNOME
+                'dolphin',       # KDE
+                'thunar',        # XFCE
+                'pcmanfm',       # LXDE
+                'caja',          # MATE
+                'nemo',          # Cinnamon
+                'xdg-open'       # Generic fallback
+            ]
+            
+            opened = False
+            last_error = None
+            
+            for fm in file_managers:
+                if shutil.which(fm):
+                    try:
+                        subprocess.run(
+                            [fm, path],
+                            check=True,
+                            timeout=5,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE
+                        )
+                        logger.info(f"[OPEN_FOLDER] Opened with {fm}")
+                        opened = True
+                        break
+                    except subprocess.TimeoutExpired:
+                        # Normal behavior for some file managers
+                        logger.debug(f"[OPEN_FOLDER] {fm} timeout (normal)")
+                        opened = True
+                        break
+                    except subprocess.CalledProcessError as e:
+                        last_error = e
+                        logger.debug(f"[OPEN_FOLDER] {fm} failed: {e}")
+                        continue
+            
+            if not opened:
+                error_msg = (
+                    "No file manager found. Please install one:\n"
+                    "  GNOME: sudo apt install nautilus\n"
+                    "  KDE: sudo apt install dolphin\n"
+                    "  XFCE: sudo apt install thunar\n"
+                    "  Or install xdg-utils: sudo apt install xdg-utils"
+                )
+                if last_error:
+                    error_msg += f"\nLast error: {last_error}"
+                logger.error(f"[OPEN_FOLDER] {error_msg}")
+                return create_error_response(request, 'NO_FILE_MANAGER', error_msg)
         
         return create_success_response(request, {'success': True, 'path': path})
         
     except subprocess.CalledProcessError as e:
-        logger.error(f"[OPEN_FOLDER] Failed to open folder: {e}")
-        return create_error_response(request, 'OPEN_FOLDER_ERROR', f'Failed to open folder: {str(e)}')
+        error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+        logger.error(f"[OPEN_FOLDER] Failed to open folder: {error_msg}")
+        return create_error_response(request, 'OPEN_FOLDER_ERROR', f'Failed to open folder: {error_msg}')
     except Exception as e:
         logger.error(f"[OPEN_FOLDER] Error: {e}")
         return create_error_response(request, 'OPEN_FOLDER_ERROR', str(e))

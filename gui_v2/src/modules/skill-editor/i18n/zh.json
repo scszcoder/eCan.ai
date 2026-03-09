@@ -57,7 +57,10 @@
       "loopWhileExpr": "循环条件表达式",
       "loopCountExpr": "循环次数表达式",
       "loopOutputs": "循环输出",
-      "apiKey": "API 密钥"
+      "apiKey": "API 密钥",
+      "inputs": "输入",
+      "outputs": "输出",
+      "tool": "工具"
     }
   },
   "sidebar": {
@@ -441,7 +444,10 @@
       "remove": "移除",
       "edit": "编辑",
       "save": "保存",
-      "cancel": "取消"
+      "cancel": "取消",
+      "pleaseInputInteger": "请输入整数",
+      "pleaseInputNumber": "请输入数字",
+      "pleaseInputText": "请输入文本"
     },
     "loop": {
       "name": "循环",
@@ -490,7 +496,17 @@
     },
     "code": {
       "name": "代码",
-      "description": "运行脚本"
+      "description": "运行脚本",
+      "resetToTemplate": "重置为模板",
+      "fileName": "文件名",
+      "fileNamePlaceholder": "myskills/skill0/file_name0.py",
+      "save": "保存",
+      "loadFile": "加载文件",
+      "saveSuccess": "文件已保存为: {{name}}",
+      "loadSuccess": "已加载文件: {{name}}",
+      "fileNameRequired": "保存文件需要文件名",
+      "saveFailed": "保存文件失败: {{error}}",
+      "loadFailed": "加载文件失败: {{error}}"
     },
     "chat": {
       "name": "聊天",
@@ -548,7 +564,26 @@
     "pendEvent": {
       "name": "等待事件",
       "description": "暂停流程，直到指定的事件类型到达，然后恢复",
-      "eventType": "事件类型"
+      "eventType": "事件类型",
+      "messageType": "消息类型",
+      "agentIds": "Agent ID列表",
+      "timerName": "定时器名称",
+      "eventLabel": "事件标签",
+      "pendingSources": "待处理来源",
+      "timeoutSec": "超时时间（秒）",
+      "resumePolicy": "恢复策略",
+      "first": "首个",
+      "all": "全部",
+      "routingMatchFields": "路由匹配字段",
+      "routingMatchFieldsDesc": "用于将事件路由到正确任务的匹配字段。事件字段是规范化事件信封中的点路径（type、source、tag、data.*、context.*）。任务字段是任务中的点路径（state.*、skill.*、id、name）。如果在运行时自动填充（例如任务 id），任务字段可以为空。",
+      "viewSpecification": "查看规范",
+      "eventField": "事件字段",
+      "taskField": "任务字段",
+      "eventFieldPlaceholder": "事件字段（例如 data.order_id）",
+      "taskFieldPlaceholder": "任务字段（例如 state.order_id）",
+      "addMatchField": "添加匹配字段",
+      "delete": "删除",
+      "add": "添加"
     },
     "sheetCall": {
       "name": "调用表单",

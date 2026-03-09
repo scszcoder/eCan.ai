@@ -1015,19 +1015,40 @@ const DocumentsTab: React.FC = () => {
                 pollCount++;
                 console.log(`[DocumentsTab] Deletion poll ${pollCount}/${maxPolls}`);
                 
+                // Refresh documents list and status counts
                 await loadDocuments();
                 
-                const verifyResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
-                  page: 1,
-                  page_size: 100,
-                  status_filter: null,
-                  sort_field: 'updated_at',
-                  sort_direction: 'desc'
-                });
+                // Also refresh status counts to ensure UI is in sync
+                try {
+                  const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
+                  if (countsResponse.success && countsResponse.data) {
+                    const counts = countsResponse.data as any;
+                    const statusData = counts?.data?.status_counts || counts?.status_counts || {};
+                    const normalizedCounts: Record<string, number> = {};
+                    Object.keys(statusData).forEach(key => {
+                      normalizedCounts[key.toUpperCase()] = statusData[key];
+                    });
+                    const processed = normalizedCounts.PROCESSED || 0;
+                    const processing = normalizedCounts.PROCESSING || 0;
+                    const pending = normalizedCounts.PENDING || 0;
+                    const failed = normalizedCounts.FAILED || 0;
+                    const all = processed + processing + pending + failed;
+                    setStatusCounts({
+                      all,
+                      PROCESSED: processed,
+                      PROCESSING: processing,
+                      PENDING: pending,
+                      FAILED: failed
+                    });
+                  }
+                } catch (e) {
+                  console.error('[DocumentsTab] Failed to refresh status counts:', e);
+                }
                 
-                if (verifyResponse.success && verifyResponse.data) {
-                  const allDocs = (verifyResponse.data as any).documents || [];
-                  const stillExists = allDocs.some((d: any) => d.id === doc.id);
+                // Check if document still exists in current documents state
+                // Use a small delay to ensure state has updated
+                setTimeout(() => {
+                  const stillExists = documents.some((d: Document) => d.id === doc.id);
                   
                   if (!stillExists) {
                     // Document deleted successfully
@@ -1035,15 +1056,15 @@ const DocumentsTab: React.FC = () => {
                     message.success('文档已成功删除');
                     return;
                   }
-                }
-                
-                // Continue polling if not done
-                if (pollCount < maxPolls) {
-                  setTimeout(pollUntilDeleted, pollInterval);
-                } else {
-                  appendLog('⚠️ 删除验证超时，请手动刷新查看');
-                  message.warning('删除验证超时，请刷新页面确认');
-                }
+                  
+                  // Continue polling if not done
+                  if (pollCount < maxPolls) {
+                    setTimeout(pollUntilDeleted, pollInterval);
+                  } else {
+                    appendLog('⚠️ 删除验证超时，请手动刷新查看');
+                    message.warning('删除验证超时，请刷新页面确认');
+                  }
+                }, 500);
               };
               
               // Start polling after 2 seconds
