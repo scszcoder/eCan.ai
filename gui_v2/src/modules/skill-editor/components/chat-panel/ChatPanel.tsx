@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
-import { A2UIFormCard } from './a2ui/A2UIFormCard';
+import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
@@ -438,7 +438,7 @@ const renderMessageContent = (msg: ChatMessage) => {
     return (
       <>
         {renderTextContent(raw)}
-        <A2UIFormCard
+        <ClarificationCard
           questions={msg.clarification}
           submittedAnswers={msg.clarificationAnswers}
         />
@@ -1650,12 +1650,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           )}
 
           {!isLoading && pendingClarification && pendingClarification.length > 0 && (
-            <A2UIFormCard
+            <ClarificationCard
               questions={pendingClarification}
-              a2uiMessages={pendingA2UI?.messages}
-              surfaceId={pendingA2UI?.surfaceId}
               onSubmit={handleClarificationSubmit}
-              onCancel={handleClarificationCancel}
               isSubmitting={isLoading}
             />
           )}
