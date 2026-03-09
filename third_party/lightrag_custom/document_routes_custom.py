@@ -949,6 +949,20 @@ async def pipeline_enqueue_file(
         ext = file_path.suffix.lower()
         file_size = 0
 
+        # Check if file exists before processing
+        if not file_path.exists():
+            error_files = [
+                {
+                    "file_path": str(file_path.name),
+                    "error_description": "[File Extraction]File not found - file may have been deleted or moved",
+                    "original_error": f"File does not exist at path: {file_path}",
+                    "file_size": 0,
+                }
+            ]
+            await rag.apipeline_enqueue_error_documents(error_files, track_id)
+            logger.error(f"[File Extraction]File not found (does not exist): {file_path.name}")
+            return False, track_id
+
         # Get file size for error reporting
         try:
             file_size = file_path.stat().st_size
@@ -1039,8 +1053,47 @@ async def pipeline_enqueue_file(
                     | ".less"
                 ):
                     try:
-                        # Try to decode as UTF-8
-                        content = file.decode("utf-8")
+                        # Try to decode with automatic encoding detection
+                        # First try UTF-8, then try to detect encoding for non-UTF-8 files
+                        try:
+                            content = file.decode("utf-8")
+                        except UnicodeDecodeError:
+                            # UTF-8 failed, try to detect encoding
+                            logger.info(f"[File Extraction]UTF-8 decoding failed for {file_path.name}, attempting encoding detection...")
+                            
+                            # Try common encodings for Chinese files
+                            encodings_to_try = ['gbk', 'gb2312', 'gb18030', 'big5', 'latin1', 'cp1252']
+                            
+                            content = None
+                            detected_encoding = None
+                            
+                            for encoding in encodings_to_try:
+                                try:
+                                    content = file.decode(encoding)
+                                    detected_encoding = encoding
+                                    logger.info(f"[File Extraction]Successfully decoded {file_path.name} using {encoding} encoding")
+                                    break
+                                except (UnicodeDecodeError, LookupError):
+                                    continue
+                            
+                            # If all encodings failed, try with chardet library if available
+                            if content is None:
+                                try:
+                                    if not pm.is_installed("chardet"):  # type: ignore
+                                        pm.install("chardet")
+                                    import chardet
+                                    
+                                    detected = chardet.detect(file)
+                                    if detected and detected.get('encoding'):
+                                        detected_encoding = detected['encoding']
+                                        content = file.decode(detected_encoding)
+                                        logger.info(f"[File Extraction]Successfully decoded {file_path.name} using chardet-detected {detected_encoding} encoding (confidence: {detected.get('confidence', 0):.2%})")
+                                except Exception as e:
+                                    logger.warning(f"[File Extraction]Chardet detection failed: {e}")
+                            
+                            # If still failed, raise the original error
+                            if content is None:
+                                raise UnicodeDecodeError('utf-8', file, 0, len(file), 'Unable to decode file with any known encoding')
 
                         # Validate content
                         if not content or len(content.strip()) == 0:
@@ -1485,7 +1538,9 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = No
             rag, file_path, track_id
         )
         if success:
-            await rag.apipeline_process_enqueue_documents()
+            # Process queue in background to avoid blocking
+            import asyncio
+            asyncio.create_task(rag.apipeline_process_enqueue_documents())
 
     except Exception as e:
         logger.error(f"Error indexing file {file_path.name}: {str(e)}")
@@ -1520,7 +1575,9 @@ async def pipeline_index_files(
 
         # Process the queue only if at least one file was successfully enqueued
         if enqueued:
-            await rag.apipeline_process_enqueue_documents()
+            # Process queue in background to avoid blocking
+            import asyncio
+            asyncio.create_task(rag.apipeline_process_enqueue_documents())
     except Exception as e:
         logger.error(f"Error indexing files: {str(e)}")
         logger.error(traceback.format_exc())
@@ -1551,7 +1608,9 @@ async def pipeline_index_texts(
     await rag.apipeline_enqueue_documents(
         input=texts, file_paths=file_sources, track_id=track_id
     )
-    await rag.apipeline_process_enqueue_documents()
+    # Process queue in background to avoid blocking
+    import asyncio
+    asyncio.create_task(rag.apipeline_process_enqueue_documents())
 
 
 async def run_scanning_process(
@@ -1615,7 +1674,9 @@ async def run_scanning_process(
             logger.info(
                 "No upload file found, check if there are any documents in the queue..."
             )
-            await rag.apipeline_process_enqueue_documents()
+            # Process queue in background to avoid blocking
+            import asyncio
+            asyncio.create_task(rag.apipeline_process_enqueue_documents())
 
     except Exception as e:
         logger.error(f"Error during scanning process: {str(e)}")
@@ -1862,7 +1923,9 @@ async def background_delete_documents(
                 logger.info(
                     "Processing pending document indexing requests after deletion"
                 )
-                await rag.apipeline_process_enqueue_documents()
+                # Process queue in background to avoid blocking
+                import asyncio
+                asyncio.create_task(rag.apipeline_process_enqueue_documents())
             except Exception as e:
                 logger.error(f"Error processing pending documents after deletion: {e}")
 

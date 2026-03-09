@@ -7,11 +7,13 @@ import React, { useEffect } from 'react';
 import { Field } from '@flowgram.ai/free-layout-editor';
 import { SafeCodeEditor } from '../../../components/SafeCodeEditor';
 import { Divider, Select, Button } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 
 import { useIsSidebar, useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
 export function Code() {
+  const { t } = useTranslation('skillEditor');
   const isSidebar = useIsSidebar();
   const { readonly } = useNodeRenderContext();
 
@@ -52,7 +54,7 @@ export function Code() {
                       Promise.resolve().then(() => contentField.onChange(tmpl));
                     };
                     return (
-                      <Button onClick={handleReset} size="small">Reset to template</Button>
+                      <Button onClick={handleReset} size="small">{t('nodes.code.resetToTemplate')}</Button>
                     );
                   }}
                 </Field>
