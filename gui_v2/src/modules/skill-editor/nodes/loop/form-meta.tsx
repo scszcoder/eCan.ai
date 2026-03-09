@@ -36,7 +36,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
   const loopModeAndExprCollapsed = (
     <>
       {/* Loop mode selector */}
-      <FormItem name={'loopMode'} type={'string'} vertical>
+      <FormItem name={'loopMode'} label={t('nodeState.fields.loopMode')} type={'string'} vertical>
         <Field<string> name={'loopMode'}>
           {({ field }) => (
             <Select
@@ -58,7 +58,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
       <Field<string> name={'loopMode'}>
         {({ field: modeField }) => (
           modeField.value === 'loopWhile' ? (
-            <FormItem name={'loopWhileExpr'} type={'string'} vertical>
+            <FormItem name={'loopWhileExpr'} label={t('nodeState.fields.loopWhileExpr')} type={'string'} vertical>
               <Field<string> name={'loopWhileExpr'}>
                 {({ field }) => (
                   <Input
@@ -82,7 +82,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
   const loopModeAndExpr = (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
       {/* Loop mode selector */}
-      <FormItem name={'loopMode'} type={'string'} vertical>
+      <FormItem name={'loopMode'} label={t('nodeState.fields.loopMode')} type={'string'} vertical>
         <Field<string> name={'loopMode'}>
           {({ field }) => (
             <Select
@@ -101,7 +101,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
       </FormItem>
 
       {/* While exit condition expression */}
-      <FormItem name={'loopWhileExpr'} type={'string'} vertical>
+      <FormItem name={'loopWhileExpr'} label={t('nodeState.fields.loopWhileExpr')} type={'string'} vertical>
         <Field<string> name={'loopWhileExpr'}>
           {({ field }) => (
             <Field<string> name={'loopMode'}>
@@ -124,7 +124,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
   const loopFor = (
     <Field<string> name={`loopCountExpr`}>
       {({ field, fieldState }) => (
-        <FormItem name={'loopCountExpr'} type={'string'} required>
+        <FormItem name={'loopCountExpr'} label={t('nodeState.fields.loopCountExpr')} type={'string'} required>
           <Input
             value={field.value || ''}
             onChange={(val) => field.onChange(val)}
@@ -141,7 +141,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
   const loopOutputs = (
     <Field<Record<string, IFlowRefValue | undefined> | undefined> name={`loopOutputs`}>
       {({ field, fieldState }) => (
-        <FormItem name="loopOutputs" type="object" vertical>
+        <FormItem name="loopOutputs" label={t('nodeState.fields.loopOutputs')} type="object" vertical>
           <BatchOutputs
             style={{ width: '100%' }}
             value={field.value}
