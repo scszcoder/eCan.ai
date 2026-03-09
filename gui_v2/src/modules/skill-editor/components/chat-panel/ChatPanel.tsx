@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
-import { ClarificationCard } from './ClarificationCard';
+import { A2UIFormCard } from './a2ui/A2UIFormCard';
 import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
@@ -425,13 +425,13 @@ const formatSessionDate = (date: Date, t: (key: string, options?: any) => string
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // If message has clarification with submitted answers, render read-only ClarificationCard
+  // If message has clarification with submitted answers, render read-only A2UIFormCard
   // Only render if clarification data is valid
   if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
     return (
       <>
         {renderTextContent(raw)}
-        <ClarificationCard
+        <A2UIFormCard
           questions={msg.clarification}
           submittedAnswers={msg.clarificationAnswers}
         />
@@ -1529,6 +1529,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     }
   }, [activeSessionId, canvasController, inputValue, isLoading, streamingStatus, pendingClarification, pipelineState, setMessages, setPendingPlan]);
 
+  // Handle clarification cancel — dismiss the form and reset pipeline state
+  const handleClarificationCancel = useCallback(() => {
+    console.log('[ChatPanel] Clarification cancelled by user');
+    setPendingClarification(null);
+    setPendingA2UI(null);
+    setPipelineState('idle');
+    const cancelMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: 'Clarification cancelled. Feel free to describe what you\'d like to build whenever you\'re ready.',
+      timestamp: new Date(),
+      state: 'idle',
+    };
+    setMessages(prev => [...prev, cancelMsg]);
+  }, [setMessages]);
+
 // ...
 
   return (
@@ -1627,9 +1643,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           )}
 
           {!isLoading && pendingClarification && pendingClarification.length > 0 && (
-            <ClarificationCard
+            <A2UIFormCard
               questions={pendingClarification}
+              a2uiMessages={pendingA2UI?.messages}
+              surfaceId={pendingA2UI?.surfaceId}
               onSubmit={handleClarificationSubmit}
+              onCancel={handleClarificationCancel}
               isSubmitting={isLoading}
             />
           )}

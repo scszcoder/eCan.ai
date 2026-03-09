@@ -149,9 +149,16 @@ export const A2UIFormCard: React.FC<A2UIFormCardProps> = ({
         </ReadOnlyHeader>
         {questions.map((q, index) => {
           const selectedIds = submittedAnswers[q.id] || [];
+          const freeformText = (submittedAnswers[`freeform_${q.id}`] || [])[0] || '';
           const selectedLabels = q.choices
             .filter(c => selectedIds.includes(c.id))
-            .map(c => c.label);
+            .map(c => {
+              // If this choice has allow_freeform and there's freeform text, append it
+              if (c.allow_freeform && freeformText) {
+                return `${c.label}: ${freeformText}`;
+              }
+              return c.label;
+            });
           
           return (
             <ReadOnlyAnswer key={q.id}>

@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Callable
 
 from utils.logger_helper import logger_helper as logger
 
+from .token_tracker import token_tracker
+
 from .schemas import (
     PlannerAction,
     PlannerOutput,
@@ -27,6 +29,7 @@ from .schemas import (
     get_node_types_description,
 )
 from .prompt_store import prompt_store
+from .prompt_store import safe_format
 
 
 # ============================================================
@@ -424,17 +427,19 @@ class PlannerAgent:
         
         return "\n".join(context_parts)
     
-    async def _invoke_llm_async(self, prompt: str) -> str:
+    async def _invoke_llm_async(self, prompt: str, *, action: str = "") -> str:
         """Invoke LLM asynchronously"""
         logger.debug(f"[PlannerAgent] Invoking LLM, prompt length: {len(prompt)}")
         try:
             if hasattr(self.llm, 'ainvoke'):
                 response = await self.llm.ainvoke(prompt)
+                token_tracker.record(response, agent="PlannerAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
                 logger.debug(f"[PlannerAgent] LLM response length: {len(result)}")
                 return result
             else:
                 response = self.llm.invoke(prompt)
+                token_tracker.record(response, agent="PlannerAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
                 logger.debug(f"[PlannerAgent] LLM response length: {len(result)}")
                 return result
@@ -550,6 +555,7 @@ class PlannerAgent:
         clarification_responses: Optional[Dict[str, List[str]]] = None,
         on_event: Optional[Callable] = None,
         require_clarification: bool = False,
+        domain_questions: Optional[str] = None,
     ) -> PlannerOutput:
         """
         Run the planning process.
@@ -567,11 +573,16 @@ class PlannerAgent:
         
         try:
             # Build system prompt
-            system_prompt = prompt_store.get("planner", default=PLANNER_SYSTEM_PROMPT).format(
-                max_questions=MAX_CLARIFICATION_QUESTIONS,
+            raw_prompt = prompt_store.get("planner", default=PLANNER_SYSTEM_PROMPT)
+            # The .md file contains raw JSON braces — use safe_format so only
+            # known template variables are substituted.
+            system_prompt = safe_format(
+                raw_prompt,
+                max_questions=str(MAX_CLARIFICATION_QUESTIONS),
                 node_types=get_node_types_description(),
                 canvas_context=self._format_canvas_context(canvas_context),
-                require_clarification=str(require_clarification).lower()
+                require_clarification=str(require_clarification).lower(),
+                domain_questions=domain_questions or prompt_store.get_domain_qa(),
             )
             
             # Build conversation context
