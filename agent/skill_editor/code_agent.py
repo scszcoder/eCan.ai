@@ -982,10 +982,14 @@ class CodeAgent:
             logger.info(f"[CodeAgent] Using LLM from Settings: {llm_config['provider_id']}, model: {model_name or llm_config['model_name']}")
             
             # Increase max_tokens for complex flowgram generation
-            # Default is often 4096, but complex workflows need more
+            # Default is often 4096, but complex workflows need much more
+            # (a 14-node eBay workflow needed ~17k tokens → 50k chars)
             if hasattr(llm_instance, 'max_tokens'):
-                llm_instance.max_tokens = 16384
-                logger.info(f"[CodeAgent] Set max_tokens to 16384 for complex flowgram generation")
+                llm_instance.max_tokens = 65536
+                logger.info(f"[CodeAgent] Set max_tokens to 65536 for complex flowgram generation")
+            # Also try max_completion_tokens for newer OpenAI models (o-series, gpt-5+)
+            if hasattr(llm_instance, 'max_completion_tokens'):
+                llm_instance.max_completion_tokens = 65536
             
             return llm_instance
             
@@ -1065,22 +1069,35 @@ class CodeAgent:
     async def _invoke_llm_async(self, prompt: str, *, action: str = "") -> str:
         """Invoke LLM asynchronously"""
         logger.debug(f"[CodeAgent] Invoking LLM, prompt length: {len(prompt)}")
+        self._last_response_truncated = False  # Reset per-call
         try:
             if hasattr(self.llm, 'ainvoke'):
                 response = await self.llm.ainvoke(prompt)
                 token_tracker.record(response, agent="CodeAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
-                logger.debug(f"[CodeAgent] LLM response length: {len(result)}")
+                self._check_finish_reason(response, len(result))
                 return result
             else:
                 response = self.llm.invoke(prompt)
                 token_tracker.record(response, agent="CodeAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
-                logger.debug(f"[CodeAgent] LLM response length: {len(result)}")
+                self._check_finish_reason(response, len(result))
                 return result
         except Exception as e:
             logger.error(f"[CodeAgent] LLM invocation failed: {e}")
             raise
+
+    def _check_finish_reason(self, response, result_len: int):
+        """Check LLM response metadata for truncation (finish_reason == 'length')."""
+        try:
+            meta = getattr(response, 'response_metadata', None) or {}
+            finish = meta.get('finish_reason') or meta.get('finish_reasons', [None])[0]
+            logger.debug(f"[CodeAgent] LLM response length: {result_len}, finish_reason: {finish}")
+            if finish == 'length':
+                logger.warning(f"[CodeAgent] LLM output TRUNCATED (finish_reason=length, {result_len} chars). Flagging for continuation.")
+                self._last_response_truncated = True
+        except Exception:
+            logger.debug(f"[CodeAgent] LLM response length: {result_len} (finish_reason unavailable)")
     
     async def _stream_llm_async(self, prompt: str):
         """Stream LLM response asynchronously"""
@@ -1160,7 +1177,9 @@ class CodeAgent:
         # If direct parsing failed, use ValidatorAgent to fix the JSON
         if not parsed_data:
             logger.info("[CodeAgent] Direct JSON parsing failed, using ValidatorAgent to repair")
-            parsed_data = self._parse_with_validator(response)
+            # Pass finish_reason truncation flag to validator
+            force_truncated = getattr(self, '_last_response_truncated', False)
+            parsed_data = self._parse_with_validator(response, force_truncated=force_truncated)
         
         # Always fix disconnected nodes if we have a flowgram
         if parsed_data:
@@ -1183,8 +1202,15 @@ class CodeAgent:
             logger.warning(f"[CodeAgent] Failed to fix disconnected nodes: {e}")
             return data
     
-    def _parse_with_validator(self, response: str, continuation_attempt: int = 0) -> Optional[Dict]:
-        """Use ValidatorAgent to parse and fix malformed JSON"""
+    def _parse_with_validator(self, response: str, continuation_attempt: int = 0, force_truncated: bool = False) -> Optional[Dict]:
+        """Use ValidatorAgent to parse and fix malformed JSON
+        
+        Args:
+            response: Raw LLM response string
+            continuation_attempt: Current continuation attempt number
+            force_truncated: If True, treat as truncated even if validator doesn't detect it
+                            (e.g., finish_reason == 'length' from LLM metadata)
+        """
         import asyncio
         
         MAX_CONTINUATION_ATTEMPTS = 2
@@ -1221,11 +1247,15 @@ class CodeAgent:
                         return {"action": "generate_flowgram", "flowgram": data, "message": ""}
                     return data
             
-            elif result.action == ValidatorAction.TRUNCATED:
+            elif result.action == ValidatorAction.TRUNCATED or (force_truncated and result.action == ValidatorAction.UNFIXABLE):
                 # Output was truncated - try to continue generation
+                # Also handle case where finish_reason='length' but validator said UNFIXABLE
+                if force_truncated and result.action == ValidatorAction.UNFIXABLE:
+                    logger.info("[CodeAgent] Overriding UNFIXABLE → TRUNCATED (finish_reason=length detected)")
                 if continuation_attempt < MAX_CONTINUATION_ATTEMPTS:
                     logger.info(f"[CodeAgent] Output truncated, requesting continuation (attempt {continuation_attempt + 1})")
-                    continued_response = self._request_continuation(result.truncated_content)
+                    truncated_content = result.truncated_content or validator._extract_json_string(response) or response
+                    continued_response = self._request_continuation(truncated_content)
                     if continued_response:
                         # Combine original + continuation and try again
                         combined = response.rstrip() + continued_response
