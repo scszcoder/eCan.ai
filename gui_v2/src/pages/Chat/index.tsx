@@ -88,6 +88,7 @@ const ChatPage: React.FC = () => {
     const lastAutoSelectAgentId = useRef<string | undefined>(); // Track agentId when last auto-selected
     const handleChatSelectRef = useRef<((chatId: string) => Promise<void>) | null>(null); // Ref to handleChatSelect
     const hasAutoFetchedCloudRef = useRef<string | null>(null); // Track if we've auto-fetched cloud messages for this agentId
+    const fetchChatsDebounceRef = useRef<NodeJS.Timeout | null>(null); // Debounce rapid fetchChats calls
     const helloInitRef = useRef<Set<string>>(new Set()); // Track chatIds with auto hello sent
     const autoCreateChatRef = useRef<Set<string>>(new Set()); // Track agentIds with auto-create attempt
     
@@ -126,6 +127,15 @@ const ChatPage: React.FC = () => {
             effectsCompletedRef.current = false;
             isFetchingRef.current = false;
             isCreatingChatRef.current = false;
+            // Cancel any pending debounced fetchChats
+            if (fetchChatsDebounceRef.current) {
+                clearTimeout(fetchChatsDebounceRef.current);
+                fetchChatsDebounceRef.current = null;
+            }
+            // NOTE: Do NOT reset lastFetchedAgentId, fetchOnceRef, or lastAutoSelectAgentId here.
+            // KeepAlive deactivation triggers this cleanup, and resetting these refs causes
+            // a duplicate fetchChats() storm when the component reactivates because the
+            // main useEffect sees agentId !== lastFetchedAgentId (undefined) and fires again.
         };
     }, [username]);
     
@@ -431,7 +441,8 @@ const ChatPage: React.FC = () => {
     }, [allMessages, unreadCounts, t]);
 
     // 抽取Get聊天的Function，Can在多个地方调用
-    const fetchChats = async () => {
+    // Debounced: collapses rapid calls (KeepAlive reactivation, agentId change, auto-select) into one
+    const fetchChatsImmediate = async () => {
         // If已经在Get中，跳过
         if (isFetchingRef.current) {
             return;
@@ -541,6 +552,17 @@ const ChatPage: React.FC = () => {
             setIsLoading(false);
             isFetchingRef.current = false;
         }
+    };
+
+    // Debounced wrapper: collapses multiple fetchChats() calls within 50ms into one
+    const fetchChats = () => {
+        if (fetchChatsDebounceRef.current) {
+            clearTimeout(fetchChatsDebounceRef.current);
+        }
+        fetchChatsDebounceRef.current = setTimeout(() => {
+            fetchChatsDebounceRef.current = null;
+            fetchChatsImmediate();
+        }, 50);
     };
     
     // GeneralGet聊天Data的Function，使用新的 API，并在GetData后ProcessagentId相关逻辑
@@ -1453,14 +1475,18 @@ const ChatPage: React.FC = () => {
             logger.warn('[Auto-select] Failed to restore saved chat:', e);
         }
         
-        // Scenario 1: agentId changed - always select first chat
+        // Scenario 1: agentId changed - select first chat in filtered list
+        // NOTE: Only set activeChatId here, do NOT call setActiveChatIdAndFetchMessages.
+        // fetchChats() → getChatsAndSetState() already handles the full flow including
+        // chat selection + message fetching. Calling it again here would create duplicate
+        // get_chat_messages + get_chat_notifications requests that pile up on the serial
+        // backend GraphQL handler and cause timeout errors.
         if (normalizedAgentId !== lastAutoSelectAgentId.current) {
             const firstChatId = filteredChats[0].id;
             logger.info(`[Auto-select] Agent filter changed from ${lastAutoSelectAgentId.current || 'none'} to ${normalizedAgentId || 'default'}, selecting first chat: ${firstChatId}`);
-            // Use setTimeout to ensure this runs after filteredChats is fully updated
-            setTimeout(() => {
-                setActiveChatIdAndFetchMessages(firstChatId);
-            }, 0);
+            if (activeChatId !== firstChatId) {
+                setActiveChatId(firstChatId);
+            }
             lastAutoSelectAgentId.current = normalizedAgentId;
             hasAutoSelectedRef.current = false; // Reset for new filter
             return;

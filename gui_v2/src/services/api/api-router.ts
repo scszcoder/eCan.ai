@@ -53,7 +53,7 @@ export class APIRouter {
     this.config = {
       localServerBaseUrl: config.localServerBaseUrl || 'http://localhost:4668',
       enableLogging: config.enableLogging ?? true,
-      defaultTimeout: config.defaultTimeout || 10000  // 降低到 10 秒，避免长时间阻塞
+      defaultTimeout: config.defaultTimeout || 30000  // 30 秒，后端串行处理请求时排队可能超过 10 秒
     };
   }
 

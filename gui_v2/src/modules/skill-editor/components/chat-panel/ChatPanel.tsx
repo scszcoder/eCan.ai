@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
-import { A2UIFormCard } from './a2ui/A2UIFormCard';
+import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
@@ -59,6 +59,13 @@ interface ChatSession {
   updatedAt: Date;
 }
 
+/** Parse a timestamp value into a valid Date. Falls back to `new Date()` when the input is missing or produces an Invalid Date. */
+const safeDate = (value: any): Date => {
+  if (value == null) return new Date();
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
 const parseMaybeJson = (value: any) => {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
@@ -99,7 +106,7 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
         id: String(m.id),
         role: (m.role as 'user' | 'assistant') || 'assistant',
         content: String(m.content ?? ''),
-        timestamp: new Date(m.timestamp || Date.now()),
+        timestamp: safeDate(m.timestamp),
         attachments: Array.isArray(attachments)
           ? attachments.map((a: any) => a?.path || a?.name || String(a)).filter(Boolean)
           : undefined,
@@ -431,7 +438,7 @@ const renderMessageContent = (msg: ChatMessage) => {
     return (
       <>
         {renderTextContent(raw)}
-        <A2UIFormCard
+        <ClarificationCard
           questions={msg.clarification}
           submittedAnswers={msg.clarificationAnswers}
         />
@@ -550,7 +557,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               id: m.id,
               role: m.role as 'user' | 'assistant',
               content: m.content,
-              timestamp: new Date(m.timestamp),
+              timestamp: safeDate(m.timestamp),
               attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
               clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
               plan: m.metadata?.plan as ImplementationPlan | undefined,
@@ -579,7 +586,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     id: m.id,
                     role: m.role as 'user' | 'assistant',
                     content: m.content,
-                    timestamp: new Date(m.timestamp),
+                    timestamp: safeDate(m.timestamp),
                     attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
                     clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
                     plan: m.metadata?.plan as ImplementationPlan | undefined,
@@ -903,7 +910,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: m.id,
           role: m.role as 'user' | 'assistant',
           content: m.content,
-          timestamp: new Date(m.timestamp),
+          timestamp: safeDate(m.timestamp),
           attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
           clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
           plan: m.metadata?.plan as ImplementationPlan | undefined,
@@ -1014,7 +1021,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1127,7 +1134,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1284,7 +1291,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1472,7 +1479,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1637,18 +1644,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     </div>
                   )}
                 </MessageContent>
-                <MessageMeta>{msg.timestamp.toLocaleTimeString()}</MessageMeta>
+                <MessageMeta>{isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}</MessageMeta>
               </MessageBubble>
             ))
           )}
 
           {!isLoading && pendingClarification && pendingClarification.length > 0 && (
-            <A2UIFormCard
+            <ClarificationCard
               questions={pendingClarification}
-              a2uiMessages={pendingA2UI?.messages}
-              surfaceId={pendingA2UI?.surfaceId}
               onSubmit={handleClarificationSubmit}
-              onCancel={handleClarificationCancel}
               isSubmitting={isLoading}
             />
           )}
