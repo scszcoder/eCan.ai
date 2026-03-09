@@ -385,6 +385,7 @@ class SkillEditorAgent:
         self._classified_domain: Optional[str] = None
         self._classified_intent_taxonomy: Optional[str] = None
         self._requirement_answers: Dict[str, Any] = {}  # collected QA answers keyed by question id
+        self._domain_qa_done: bool = False  # True after domain-specific follow-up Q&A has been asked (or skipped)
         self._workflow_description: Optional[str] = None  # natural-language workflow description for user review
         # Accumulated clarification answers across planner rounds (old pipeline)
         self._accumulated_clarification_answers: Dict[str, List[str]] = {}
@@ -527,6 +528,10 @@ class SkillEditorAgent:
         return self._requirement_answers
 
     @property
+    def domain_qa_done(self) -> bool:
+        return self._domain_qa_done
+
+    @property
     def workflow_description(self) -> Optional[str]:
         return self._workflow_description
 
@@ -546,6 +551,7 @@ class SkillEditorAgent:
         classified_domain: Optional[str] = None,
         classified_intent_taxonomy: Optional[str] = None,
         requirement_answers: Optional[Dict[str, Any]] = None,
+        domain_qa_done: bool = False,
         workflow_description: Optional[str] = None,
         accumulated_clarification_answers: Optional[Dict[str, Any]] = None,
         clarification_round: int = 0,
@@ -558,6 +564,7 @@ class SkillEditorAgent:
             self._classified_domain = classified_domain
             self._classified_intent_taxonomy = classified_intent_taxonomy
             self._requirement_answers = requirement_answers or {}
+            self._domain_qa_done = domain_qa_done
             self._workflow_description = workflow_description
             self._accumulated_clarification_answers = accumulated_clarification_answers or {}
             self._clarification_round = clarification_round
@@ -966,11 +973,18 @@ class SkillEditorAgent:
         token_tracker.record(resp, agent="SkillEditorAgent", action=action)
         return resp.content if hasattr(resp, "content") else str(resp)
 
-    def _extract_json_from_text(self, text: str) -> Optional[Dict[str, Any]]:
+    def _extract_json_from_text(self, text: str) -> Optional[Any]:
         try:
             json_match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
             if json_match:
                 return json.loads(json_match.group(1))
+            # Try bare JSON array first, then object
+            json_match = re.search(r"\[[\s\S]*\]", text)
+            if json_match:
+                try:
+                    return json.loads(json_match.group(0))
+                except (json.JSONDecodeError, ValueError):
+                    pass
             json_match = re.search(r"\{[\s\S]*\}", text)
             if json_match:
                 return json.loads(json_match.group(0))
@@ -2714,6 +2728,11 @@ class SkillEditorAgent:
         try:
             response = await self._invoke_llm_async(prompt, action="requirement_collection")
             raw_questions = self._extract_json_from_text(response)
+            if raw_questions is None:
+                logger.warning(
+                    "[SkillEditorAgent] Failed to parse requirement questions from LLM response "
+                    "(first 500 chars): %s", (response or "")[:500]
+                )
             if not isinstance(raw_questions, list):
                 raw_questions = [raw_questions] if isinstance(raw_questions, dict) else []
 
@@ -2770,7 +2789,13 @@ class SkillEditorAgent:
         session_id: Optional[str],
         on_event: Optional[Callable],
     ) -> AgentResponse:
-        """Process the user's answers to requirement questions, then build a workflow description."""
+        """Process the user's answers to requirement questions.
+
+        After the initial (generic) round, check whether domain-specific
+        follow-up Q&A is available.  If so, run a second round of questions
+        sourced from prompts/qa/{domain}.md before proceeding to the
+        workflow description.
+        """
         logger.info(f"[SkillEditorAgent] Handling requirement responses: {list(responses.keys())}")
 
         # Merge freeform text into the corresponding question answers
@@ -2789,6 +2814,25 @@ class SkillEditorAgent:
         for qid, answer_ids in responses.items():
             self._requirement_answers[qid] = answer_ids
 
+        # --- Domain-specific follow-up Q&A (second round) ---
+        if not self._domain_qa_done:
+            self._domain_qa_done = True  # mark so we don't loop a third time
+            domain = self._classified_domain or "need_info"
+            domain_qa = prompt_store.get_domain_qa_for(domain) or ""
+            if domain_qa and domain not in ("need_info", "other"):
+                logger.info(
+                    f"[SkillEditorAgent] Domain QA available for '{domain}', "
+                    "generating domain-specific follow-up questions"
+                )
+                return await self._run_domain_followup_qa(
+                    domain, domain_qa, canvas_context, session_id, on_event
+                )
+            else:
+                logger.info(
+                    f"[SkillEditorAgent] No domain QA for '{domain}', "
+                    "skipping to workflow description"
+                )
+
         # Proceed to workflow description generation
         return await self._generate_workflow_description(
             self._current_request or "",
@@ -2796,6 +2840,130 @@ class SkillEditorAgent:
             session_id,
             on_event,
         )
+
+    async def _run_domain_followup_qa(
+        self,
+        domain: str,
+        domain_qa: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Generate a second round of domain-specific clarification questions.
+
+        Uses the domain QA decision tree (from ``prompts/qa/{domain}.md``) plus
+        the answers already collected in the initial round to produce targeted
+        follow-up questions.
+        """
+        await self._emit_progress(on_event, f"Asking domain-specific questions ({domain})…")
+
+        # Build summary of answers collected so far
+        answers_summary = ""
+        if self._requirement_answers:
+            parts = []
+            for qid, vals in self._requirement_answers.items():
+                parts.append(f"- {qid}: {', '.join(vals) if isinstance(vals, list) else str(vals)}")
+            answers_summary = "\n".join(parts)
+
+        prompt = (
+            "You are a requirement collection assistant for the eCan.ai skill editor.\n\n"
+            "## DOMAIN-SPECIFIC DECISION TREE\n"
+            f"{domain_qa}\n\n"
+        )
+        if answers_summary:
+            prompt += (
+                "## ANSWERS ALREADY COLLECTED IN ROUND 1\n"
+                f"{answers_summary}\n\n"
+            )
+        prompt += (
+            "## TASK\n"
+            "Based on the domain QA decision tree above and the answers the user has already "
+            "provided, generate a focused set of **follow-up clarification questions** (3–6) "
+            "that drill into domain-specific details not yet covered.\n\n"
+            "Guidelines:\n"
+            "- Do NOT re-ask questions whose answers are already captured above.\n"
+            "- Follow the decision-tree branches that match the user's earlier answers.\n"
+            "- Where the tree calls for sub-questions (e.g. Q4 → Q4.1 → Q4.1.1), include "
+            "those sub-questions if the parent answer triggers them.\n"
+            "- Offer multiple-choice options where sensible; always include an 'Other' freeform option.\n"
+            "- Keep the set concise (3–6 questions max).\n\n"
+            "Return **JSON only** (no markdown fences) matching this schema:\n"
+            '[\n'
+            '  {\n'
+            '    "id": "dq1",\n'
+            '    "question": "question text",\n'
+            '    "choices": [\n'
+            '      {"id": "c1", "label": "Choice 1", "description": "optional detail"},\n'
+            '      {"id": "other", "label": "Other", "allow_freeform": true}\n'
+            '    ],\n'
+            '    "context": "why this matters (optional)",\n'
+            '    "allow_multiple": false\n'
+            '  }\n'
+            ']\n\n'
+            f"classified_domain={domain}\n"
+            f"user_message={json.dumps(self._current_request or '')}\n"
+        )
+
+        try:
+            response = await self._invoke_llm_async(prompt, action="domain_followup_qa")
+            raw_questions = self._extract_json_from_text(response)
+            if raw_questions is None:
+                logger.warning(
+                    "[SkillEditorAgent] Failed to parse domain followup questions from LLM response "
+                    "(first 500 chars): %s", (response or "")[:500]
+                )
+            if not isinstance(raw_questions, list):
+                raw_questions = [raw_questions] if isinstance(raw_questions, dict) else []
+
+            questions: List[ClarificationQuestion] = []
+            for rq in raw_questions:
+                if not isinstance(rq, dict):
+                    continue
+                choices = []
+                for rc in (rq.get("choices") or []):
+                    if isinstance(rc, dict) and rc.get("id") and rc.get("label"):
+                        choices.append(ClarificationChoice(
+                            id=str(rc["id"]),
+                            label=str(rc["label"]),
+                            description=rc.get("description"),
+                            allow_freeform=bool(rc.get("allow_freeform", False)),
+                        ))
+                if not choices:
+                    continue
+                questions.append(ClarificationQuestion(
+                    id=str(rq.get("id", f"dq{len(questions)+1}")),
+                    question=str(rq.get("question", "")),
+                    choices=choices,
+                    context=rq.get("context"),
+                    allow_multiple=bool(rq.get("allow_multiple", False)),
+                ))
+
+            if not questions:
+                logger.info("[SkillEditorAgent] No domain follow-up questions generated, proceeding to workflow description")
+                return await self._generate_workflow_description(
+                    self._current_request or "", canvas_context, session_id, on_event
+                )
+
+            self._pending_clarification = questions
+            return AgentResponse(
+                message=(
+                    f"Great — now a few **{domain.replace('_', ' ')}**-specific questions "
+                    "to refine the design:\n"
+                ),
+                intent=IntentType.CREATE_FLOWGRAM,
+                clarification=questions,
+                metadata={
+                    "session_id": session_id,
+                    "state": "collecting_requirements",
+                    "domain": domain,
+                    "domain_qa_round": True,
+                },
+            )
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Domain follow-up QA failed: {e}")
+            return await self._generate_workflow_description(
+                self._current_request or "", canvas_context, session_id, on_event
+            )
 
     async def _generate_workflow_description(
         self,
@@ -2906,11 +3074,16 @@ class SkillEditorAgent:
         ]
         rejection_phrases = [
             "no", "cancel", "stop", "start over", "restart", "never mind",
+            "start fresh", "start afresh", "from scratch",
         ]
 
         is_short = len(msg_words) <= 10
         is_approval = any(msg_lower.startswith(p) for p in approval_phrases) or msg_lower.rstrip(".!") in approval_phrases
         is_rejection = any(msg_lower.startswith(p) for p in rejection_phrases) or msg_lower.rstrip(".!") in rejection_phrases
+
+        # Detect "start over" intent even in longer messages (e.g. "i'd like to start afresh build a new skill")
+        restart_cues = ["start over", "start fresh", "start afresh", "from scratch", "new skill", "build a new", "create a new"]
+        wants_restart = any(cue in msg_lower for cue in restart_cues)
 
         if is_short and is_rejection:
             # User cancelled — reset
@@ -2918,11 +3091,31 @@ class SkillEditorAgent:
             self._pipeline_state = PipelineState.IDLE
             self._workflow_description = None
             self._requirement_answers = {}
+            self._domain_qa_done = False
             self._classified_domain = None
             return AgentResponse(
                 message="Understood. Please describe what you'd like to build and we'll start over.",
                 intent=IntentType.GENERAL_CHAT,
                 metadata={"session_id": session_id},
+            )
+
+        if wants_restart and not is_approval:
+            # User wants to abandon current workflow and start a brand new one.
+            # Reset all pipeline state so the message is treated as a fresh request.
+            logger.info("[SkillEditorAgent] Detected new-skill intent during workflow review, resetting and re-routing")
+            self._pipeline_state = PipelineState.IDLE
+            self._workflow_description = None
+            self._requirement_answers = {}
+            self._domain_qa_done = False
+            self._classified_domain = None
+            self._classified_intent_taxonomy = None
+            self._current_request = message
+            # Classify and route from scratch (replicate the CREATE_FLOWGRAM path)
+            _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
+            self._classified_domain = domain
+            logger.info(f"[SkillEditorAgent] Re-classified domain for fresh start: {domain}")
+            return await self._run_requirement_collection(
+                message, canvas_context, session_id, on_event
             )
 
         if is_approval or (is_short and is_approval):
