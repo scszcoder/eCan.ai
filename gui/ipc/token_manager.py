@@ -20,8 +20,14 @@ class TokenManager:
         self._cleanup_stop_event = threading.Event()
         self._cleanup_thread: Optional[threading.Thread] = None
 
-    def generate_token(self, username: str, role: str = 'user', permissions: Set[str] = None) -> str:
+    def generate_token(self, username: str, role: str = 'user', permissions: Set[str] = None, is_refresh: bool = False) -> str:
         """Generate new token and invalidate any existing session for this user
+        
+        Args:
+            username: Username
+            role: User role
+            permissions: User permissions
+            is_refresh: If True, this is a token refresh operation (not a new login/session replacement)
         
         This implements a 'single active session' policy in desktop mode:
         - Desktop mode: When a user logs in on a new device/session, their old session is invalidated
@@ -34,14 +40,20 @@ class TokenManager:
         ecan_mode = os.getenv('ECAN_MODE', 'desktop').lower()
         is_cloud_mode = ecan_mode == 'cloud'
         
-        # Clean up user's old token (implements single active session in desktop mode only)
         session_replaced = False
-        if not is_cloud_mode and username in self._user_tokens:
+        
+        # Check if user already has a token (session replacement scenario)
+        if username in self._user_tokens:
             old_token = self._user_tokens[username]
             if old_token in self._tokens:
                 session_replaced = True
-                logger.warning(f"[TokenManager] 🔄 Session replacement: User '{username}' logged in from new location. "
-                             f"Old session (token: {old_token[:8]}...) will be invalidated.")
+                if is_refresh:
+                    # Token refresh: Old token will be replaced, but this is expected
+                    logger.info(f"[TokenManager] 🔄 Token refresh: Replacing token for user '{username}' (token: {old_token[:8]}...)")
+                else:
+                    # Session replacement: User logged in from new location
+                    logger.warning(f"[TokenManager] 🔄 Session replacement: User '{username}' logged in from new location. "
+                                 f"Old session (token: {old_token[:8]}...) will be invalidated.")
                 del self._tokens[old_token]
 
         # Generate new token
@@ -61,7 +73,10 @@ class TokenManager:
         self._user_tokens[username] = token
 
         if session_replaced:
-            logger.info(f"[TokenManager] ✅ New session created for user: {username}, role: {role}. Old session invalidated.")
+            if is_refresh:
+                logger.info(f"[TokenManager] ✅ Token refreshed for user: {username}, role: {role}")
+            else:
+                logger.info(f"[TokenManager] ✅ New session created for user: {username}, role: {role}. Old session invalidated.")
         else:
             logger.info(f"[TokenManager] ✅ Generated token for user: {username}, role: {role}")
         return token
@@ -188,10 +203,13 @@ class TokenManager:
             return None
         
         # Generate new token with same user info
+        # IMPORTANT: Pass is_refresh=True to distinguish from session replacement
+        # This prevents the refresh operation from being logged as "session replacement"
         new_token = self.generate_token(
             username=token_info['username'],
             role=token_info['role'],
-            permissions=token_info['permissions']
+            permissions=token_info['permissions'],
+            is_refresh=True  # Mark this as a refresh operation
         )
         
         logger.info(f"[TokenManager] Refreshed token for user: {token_info['username']}")
