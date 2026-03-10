@@ -585,6 +585,9 @@
     "linux": {
       "appimage": {
         "enabled": false
+      },
+      "deb": {
+        "enabled": true
       }
     }
   },
