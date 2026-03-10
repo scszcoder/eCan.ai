@@ -653,8 +653,8 @@ class SkillEditorAgent:
         if any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower):
             return IntentType.SAVE_SKILL
         
-        # Creation intents - explicit creation keywords
-        if any(word in msg_lower for word in ["create", "build", "make", "generate", "new workflow"]):
+        # Creation intents - explicit creation keywords (including -ing forms)
+        if any(word in msg_lower for word in ["create", "creating", "build", "building", "make", "making", "generate", "generating", "new workflow", "new skill"]):
             return IntentType.CREATE_FLOWGRAM
         
         # Creation intents - "workflow" or "skill" with action phrases (e.g., "lets do an ebay workflow")
@@ -2023,7 +2023,9 @@ class SkillEditorAgent:
 
                 has_canvas = self._has_loaded_canvas(canvas_context)
                 if has_canvas:
-                    if tax_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.85:
+                    # Only downgrade ambiguous intents to edit; never override
+                    # an explicit create_flowgram (user said "new skill" etc.).
+                    if tax_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.60:
                         tax_intent = IntentType.MODIFY_NODE
                     elif tax_intent == IntentType.GENERAL_CHAT and confidence < 0.7:
                         tax_intent = IntentType.MODIFY_NODE
