@@ -555,6 +555,7 @@ class SkillEditorAgent:
         workflow_description: Optional[str] = None,
         accumulated_clarification_answers: Optional[Dict[str, Any]] = None,
         clarification_round: int = 0,
+        pending_clarification: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
@@ -568,6 +569,17 @@ class SkillEditorAgent:
             self._workflow_description = workflow_description
             self._accumulated_clarification_answers = accumulated_clarification_answers or {}
             self._clarification_round = clarification_round
+
+            # Restore pending clarification questions (needed to resolve choice IDs → labels)
+            if pending_clarification and isinstance(pending_clarification, list):
+                try:
+                    self._pending_clarification = [
+                        ClarificationQuestion(**q) if isinstance(q, dict) else q
+                        for q in pending_clarification
+                    ]
+                except Exception as pc_err:
+                    logger.warning(f"[SkillEditorAgent] Failed to restore pending_clarification: {pc_err}")
+                    self._pending_clarification = None
             
             if current_plan:
                 # Reconstruct ImplementationPlan from dict
@@ -2802,6 +2814,15 @@ class SkillEditorAgent:
         """
         logger.info(f"[SkillEditorAgent] Handling requirement responses: {list(responses.keys())}")
 
+        # Build a lookup from question_id → {choice_id → label} using
+        # the pending clarification questions (restored from session state).
+        q_text_map: Dict[str, str] = {}     # qid → question text
+        choice_label_map: Dict[str, Dict[str, str]] = {}  # qid → {cid → label}
+        if self._pending_clarification:
+            for q in self._pending_clarification:
+                q_text_map[q.id] = q.question
+                choice_label_map[q.id] = {c.id: c.label for c in q.choices}
+
         # Merge freeform text into the corresponding question answers
         freeform_keys = [k for k in responses if k.startswith("freeform_")]
         for fk in freeform_keys:
@@ -2814,9 +2835,18 @@ class SkillEditorAgent:
                     for v in responses[qid]
                 ]
 
-        # Merge answers into accumulated requirement_answers
+        # Merge answers into accumulated requirement_answers.
+        # Store human-readable text (question text → list of choice labels)
+        # so the workflow-description prompt is meaningful to the LLM.
         for qid, answer_ids in responses.items():
-            self._requirement_answers[qid] = answer_ids
+            q_label = q_text_map.get(qid, qid)
+            resolved_labels = []
+            cid_map = choice_label_map.get(qid, {})
+            for aid in answer_ids:
+                resolved_labels.append(cid_map.get(aid, aid))
+            self._requirement_answers[q_label] = resolved_labels
+
+        logger.info(f"[SkillEditorAgent] Resolved requirement answers: {self._requirement_answers}")
 
         # --- Domain-specific follow-up Q&A (second round) ---
         if not self._domain_qa_done:
