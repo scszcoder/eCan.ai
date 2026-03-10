@@ -1863,6 +1863,12 @@ Continue the JSON output (do not include any text before the continuation):"""
     def _parse_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
         """Parse a node dict into FlowgramNode, handling loop and condition nodes."""
         pos = n.get("position", {"x": 100, "y": 100})
+        # Also accept meta.position (the LLM often outputs {meta:{position:{x,y}}})
+        meta = n.get("meta")
+        if isinstance(meta, dict) and "position" in meta:
+            meta_pos = meta["position"]
+            if isinstance(meta_pos, dict) and "x" in meta_pos:
+                pos = meta_pos
         node_type = n.get("type", "llm")
         # Normalize type naming
         if node_type == "browser-automation":
@@ -1879,6 +1885,21 @@ Continue the JSON output (do not include any text before the continuation):"""
                 config[key] = val.get("content")
             else:
                 config[key] = val
+
+        # LLM may also place values flat in data.* (e.g. data.code, data.modelProvider).
+        # Extract these into config so _node_to_json() can wrap them properly.
+        _skip_data_keys = {
+            "title", "inputsValues", "data", "blocks", "edges",
+            "internal_edges", "breakpoint",
+        }
+        for key, val in data_section.items():
+            if key in _skip_data_keys or key in config:
+                continue
+            config[key] = val
+
+        # Preserve breakpoint flag from data section
+        if "breakpoint" in data_section:
+            config["breakpoint"] = data_section["breakpoint"]
 
         # If prompts are inline and promptSelection is missing/inline, persist a prompt file
         self._maybe_save_inline_prompt(n.get("id", f"node_{index}"), node_type, config)
