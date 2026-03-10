@@ -169,6 +169,8 @@ CODE_GENERATION_PROMPT = """You are a Code Agent for the Skill Editor, specializ
 
 Your role is to translate user requests and implementation plans into concrete flowgram structures (nodes and edges).
 
+**CRITICAL: NEVER use code nodes. Code nodes are FORBIDDEN. Use llm + mcp_tool instead.**
+
 ## AVAILABLE NODE TYPES:
 {node_types}
 
@@ -222,12 +224,10 @@ When you generate a flowgram, the system will automatically:
    - Loop nodes (type="loop"): `loop_<purpose>` (e.g., "loop_process_orders", "loop_messages")
    - Browser automation (type="browser-automation"): `browser_automation_<purpose>` (e.g., "browser_automation_scrape", "browser_automation_login")
    - MCP nodes (type="mcp"): `mcp_<purpose>` (e.g., "mcp_rag_query", "mcp_send_email")
-   - Code nodes (type="code"): `code_<purpose>` (e.g., "code_init_vars", "code_transform_data")
    - Chat nodes (type="chat_node"): `chat_node_<purpose>` (e.g., "chat_node_alert", "chat_node_summary")
    - Pend event (type="pend_event"): `pend_event_<purpose>` (e.g., "pend_event_human_review")
-   - HTTP nodes (type="http"): `http_<purpose>` (e.g., "http_fetch_data", "http_post_result")
-   - RAG nodes (type="rag"): `rag_<purpose>` (e.g., "rag_query_kb", "rag_search")
    **The prefix MUST match the node type (with hyphens replaced by underscores)** - this is validated and will cause errors if wrong.
+   **NEVER use code, http, or rag node types — they are deprecated.**
 4. Position nodes in a logical flow (top to bottom or left to right)
 5. Include proper configuration for each node type
 6. For LLM nodes, include system_prompt and user_prompt in config
@@ -432,10 +432,8 @@ Example: If loop has `block_start_1 → rag_query → condition_check → llm_re
 
 ### IMPORTANT - INITIALIZE LOOP VARIABLES:
 - For loopWhile, the expression variable MUST be initialized BEFORE the loop starts
-- Add a code node BEFORE the loop to set initial value:
-  ```python
-  state["result"]["llm_result"]["not_yet_finished"] = True
-  ```
+- Use an LLM node before the loop with a prompt that outputs the initial JSON state
+- Or use a mapping rule in data_mapping.json to set the initial value
 - This ensures the loop runs at least once
 
 Example loop node (loopFor - simple):
@@ -495,10 +493,10 @@ NOTE: In the above example, EVERY node has incoming AND outgoing edges:
   - state["tool_result"]["status"] == "completed"
   - len(state["result"]["items"]) > 0
 
-## CODE NODE NOTE:
-- In code nodes, the input parameter "state" IS the node_state throughout the workflow
-- Modify state directly: state["my_field"] = value
-- Use code nodes to initialize loop variables before loops
+## CODE NODE NOTE (DEPRECATED — DO NOT USE CODE NODES):
+- Code nodes are FORBIDDEN. NEVER generate code nodes.
+- Use llm + mcp_tool instead for data processing/transformation.
+- Use mapping rules for data routing between state fields.
 
 ## OUTPUT FORMAT:
 You MUST respond with valid JSON containing the flowgram.
@@ -622,7 +620,7 @@ You MUST respond with valid JSON containing the flowgram.
 NOTE: The `data_mapping` field is OPTIONAL. Baseline event-to-state mappings (human_text, qa_form,
 notification, cloud_task_id, async_response) are always included automatically.
 Only add `data_mapping` when the workflow needs EXTRA routing beyond the baseline.
-Prefer mapping rules over code nodes for pure data movement.
+Prefer mapping rules for pure data movement. NEVER use code nodes.
 
 For simple answers without code generation:
 {{
@@ -739,17 +737,11 @@ For LLM and browser_automation nodes, use modular prompts instead of inline text
 Since we use LangGraph as the workflow runtime, node_state is the data carrier between nodes:
 - **LLM node output**: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
 - **MCP tool output**: node_state["tool_result"]
-- **Code node**: node_state is directly accessible - use to move data between fields
-
-Example code node to transform data:
-```python
-# Move tool result to a custom field
-result = node_state["tool_result"]
-node_state["processed_data"] = result["data"]
-return node_state
-```
+- **Browser automation output**: node_state["result"]
+- Use mapping rules in data_mapping.json to route data between node fields.
 
 ## IMPORTANT:
+- **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
 - Generate complete, valid flowgrams
 - Use descriptive node labels
 - Position nodes to avoid overlap
@@ -772,7 +764,7 @@ EDIT_FLOWGRAM_PROMPT = """You are a Code Agent for the Skill Editor, specializin
 {node_schema}
 
 ## MAPPING DSL REFERENCE (data_mapping.json):
-The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state without code nodes. Prefer mapping rules over code nodes when the task is pure data routing.
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state. Use mapping rules for data routing — NEVER use code nodes.
 
 {mapping_dsl}
 
@@ -782,6 +774,7 @@ The Mapping DSL lets you declare data movement rules in data_mapping.json so tha
 3. Maintain valid connections after edits
 4. Update positions if adding/removing nodes to avoid overlap
 5. Keep the start and end nodes
+6. **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
 
 ## CONDITION NODE STRUCTURE (IMPORTANT):
 When adding or editing condition nodes:
@@ -809,17 +802,18 @@ When adding or editing loop nodes, they MUST have:
    - Example: loopWhileExpr = "state['result']['llm_result']['not_yet_finished']"
 
 ### INITIALIZE LOOP VARIABLES:
-- For loopWhile, add a code node BEFORE the loop to initialize the expression variable
-- Example: state["result"]["llm_result"]["not_yet_finished"] = True
+- For loopWhile, use an LLM node BEFORE the loop to initialize the expression variable via its JSON output
+- Or use a mapping rule in data_mapping.json
 
 ## CONDITION NODE IF FIELD:
 - Default: "state.condition" (uses node_state["condition"])
 - Custom: Set "if" to "custom", "customExpr" to Python expression
 - Examples: state["result"]["llm_result"]["success"] == True
 
-## CODE NODE NOTE:
-- Input parameter "state" IS the node_state throughout the workflow
-- Use to initialize loop variables or transform data between nodes
+## CODE NODE PROHIBITION (CRITICAL):
+- **NEVER generate code nodes.** Code nodes are FORBIDDEN.
+- Use llm + mcp_tool instead of code nodes for any data processing or transformation.
+- Use mapping rules in data_mapping.json for moving data between state fields.
 
 ## EDITING NODES INSIDE A LOOP:
 When the user asks to add/remove/update nodes "inside", "in", or "within" a loop:
@@ -850,7 +844,7 @@ Use for ANY task involving web page interaction. Key guidelines:
 2. Set mcp_tool's tool_name to "llm auto select" for dynamic tool selection
 3. LLM output: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
 4. MCP tool output: node_state["tool_result"]
-5. Use code node to move data between node_state fields
+5. Use mapping rules to move data between node_state fields. Never use code nodes.
 
 ### PROMPT MODULARITY:
 For LLM and browser_automation nodes, use modular prompts:

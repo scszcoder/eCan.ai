@@ -36,7 +36,7 @@ from .prompt_store import safe_format
 # Constants
 # ============================================================
 
-MAX_CLARIFICATION_QUESTIONS = 4
+MAX_CLARIFICATION_QUESTIONS = 8
 MAX_PLANNING_ITERATIONS = 3
 
 
@@ -79,7 +79,7 @@ This maximizes work completion and minimizes human interruptions during executio
 
 ## CLARIFICATION POLICY:
 - require_clarification flag: {require_clarification}
-- If require_clarification is true and the user has NOT explicitly opted out (e.g., "skip clarifications", "no questions", "直接生成", "不用问"), you MUST return action=ask_clarification with 2-3 targeted questions BEFORE generating a plan, even if the request seems clear.
+- If require_clarification is true and the user has NOT explicitly opted out (e.g., "skip clarifications", "no questions", "直接生成", "不用问"), you MUST return action=ask_clarification with up to {max_questions} targeted questions BEFORE generating a plan, even if the request seems clear.
 - Only skip clarifications when the user explicitly opts out OR require_clarification is false and you are confident the request is fully specified.
 
 
@@ -266,7 +266,7 @@ When you have enough information to generate a plan:
 
 1. **Minimum 3 meaningful steps** for any workflow
 2. **Each step = one functional unit**: e.g., "Fetch orders", "Process messages", "Send notifications"
-3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, code, etc.
+3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, pend_event, chat_node. **NEVER plan code nodes — they are forbidden.**
 4. **DO NOT include start/end as steps** - they are automatically added
 
 **BAD PLAN:**
@@ -277,9 +277,9 @@ When you have enough information to generate a plan:
 - Step 1: "Fetch unshipped orders from Seller Hub" - browser-automation
 - Step 2: "Check each order for cancellation messages" - loop + browser-automation
 - Step 3: "Generate shipping labels for valid orders" - browser-automation
-- Step 4: "Handle buyer Q&A with RAG→human→auto pattern" - rag + condition + pend_event
+- Step 4: "Handle buyer Q&A with RAG→human→auto pattern" - mcp (rag tool) + condition + pend_event
 - Step 5: "Process return requests" - browser-automation + condition
-- Step 6: "Send consolidated summary email" - http or mcp
+- Step 6: "Send consolidated summary email" - mcp (email tool)
 
 When the request is clear and simple enough to proceed directly:
 {{
@@ -624,7 +624,7 @@ class PlannerAgent:
                                 ClarificationChoice(id="other", label="Other / specify", description=None, allow_freeform=True),
                                 ClarificationChoice(id="none", label="Doesn't apply", description=None),
                             ],
-                            allow_multiple=False,
+                            allow_multiple=True,
                         ),
                         ClarificationQuestion(
                             id="wf_outputs",

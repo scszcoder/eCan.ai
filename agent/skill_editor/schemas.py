@@ -435,18 +435,20 @@ NODE_TYPES = {
         },
     },
     "code": {
-        "description": "Custom code execution node",
+        "description": "DEPRECATED — DO NOT USE. Custom code execution node. Use llm + mcp instead.",
         "has_inputs": True,
         "has_outputs": True,
+        "deprecated": True,
         "config_schema": {
             "language": "string",
             "code": "string",
         }
     },
     "http": {
-        "description": "HTTP request node for API calls",
+        "description": "DEPRECATED — DO NOT USE. HTTP request node. Use mcp_tool with appropriate tool instead.",
         "has_inputs": True,
         "has_outputs": True,
+        "deprecated": True,
         "config_schema": {
             "url": "string",
             "method": "string",
@@ -498,9 +500,10 @@ NODE_TYPES = {
         }
     },
     "rag": {
-        "description": "RAG (Retrieval Augmented Generation) node for knowledge retrieval",
+        "description": "DEPRECATED — DO NOT USE. RAG node. Use mcp_tool with rag_query tool instead.",
         "has_inputs": True,
         "has_outputs": True,
+        "deprecated": True,
         "config_schema": {
             "query_path": "string",  # Dotted path to extract query from state
         }
@@ -509,8 +512,10 @@ NODE_TYPES = {
 
 
 def get_node_types_description() -> str:
-    """Format node types for prompts"""
+    """Format node types for prompts, excluding deprecated types."""
     lines = []
     for name, info in NODE_TYPES.items():
+        if info.get("deprecated"):
+            continue
         lines.append(f"- **{name}**: {info['description']}")
     return "\n".join(lines)
