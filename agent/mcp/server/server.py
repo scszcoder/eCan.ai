@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 import traceback
+import sys
 
 # Configure browser_use timeouts BEFORE importing browser_use modules
 # Increase screenshot timeout from default 8s to 30s for complex pages
@@ -14,7 +15,19 @@ os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to
 
 # Third-party library imports
 import pyautogui
-import pygetwindow as gw
+
+# NOTE:
+# - pygetwindow does NOT support Linux and raises NotImplementedError at import time.
+# - Importing it unconditionally breaks LocalServer startup on Linux desktop,
+#   which in turn causes all Local GraphQL/WebSocket calls (login, initialization)
+#   to fail with "Failed to fetch".
+# - Window management features that rely on pygetwindow are only meaningful on
+#   Windows/macOS; on Linux we gracefully disable them instead of crashing.
+if sys.platform in ("win32", "darwin"):
+    import pygetwindow as gw
+else:
+    gw = None
+
 from pynput.mouse import Controller
 from starlette.types import Receive, Scope, Send
 
@@ -280,9 +293,52 @@ def _find_and_bring_to_front_window(app_name: str):
     """Search for a window by app_name (using alias table) and bring it to front.
     Returns the window object if found, None otherwise.
     Skips tiny windows (e.g. tray icons) and prefers the largest matching window."""
+    # Linux: respect the current display server (X11 vs Wayland).
+    # - On Wayland sessions, aggressive "bring to front" is often blocked by compositor policy.
+    #   We intentionally skip to avoid false promises / flaky behavior.
+    if sys.platform.startswith("linux"):
+        session_type = (os.environ.get("XDG_SESSION_TYPE") or "").strip().lower()
+        if not session_type:
+            session_type = "wayland" if os.environ.get("WAYLAND_DISPLAY") else ("x11" if os.environ.get("DISPLAY") else "")
+        if session_type == "wayland":
+            logger.info("[_find_and_bring_to_front_window] Wayland session detected; skipping window activation.")
+            return None
+
+    # Prefer pygetwindow when available (Windows/macOS; and Linux X11 if installed).
+    # If unavailable, fall back to Linux X11 window tools (wmctrl/xdotool) where possible.
     app_key = app_name.strip().lower().replace(".exe", "")
     alias = _APP_ALIASES.get(app_key, None)
     search_titles = alias["titles"] if alias else [app_name]
+
+    if gw is None:
+        if sys.platform.startswith("linux"):
+            try:
+                from agent.mcp.server.wechat.platform_utils import find_windows_by_title, bring_window_to_front
+            except Exception as e:
+                logger.warning(f"[_find_and_bring_to_front_window] Linux window tools unavailable: {e}")
+                return None
+
+            wins = find_windows_by_title(search_titles + [app_name])
+            if not wins:
+                return None
+
+            MIN_WIDTH = 200
+            real_wins = [w for w in wins if getattr(w, "width", 0) >= MIN_WIDTH]
+            best = max(real_wins, key=lambda w: w.width * w.height) if real_wins else wins[0]
+
+            logger.info(
+                f"[_find_and_bring_to_front_window] Found window (linux/x11): title='{best.title}', "
+                f"size={best.width}x{best.height}"
+            )
+            try:
+                bring_window_to_front(best)
+            except Exception:
+                pass
+            return best
+
+        logger.warning("[_find_and_bring_to_front_window] pygetwindow not available on this platform; "
+                       "window activation is disabled.")
+        return None
 
     # Collect ALL candidate windows across all alias titles + raw name
     candidates = []
@@ -2334,6 +2390,10 @@ async def os_open_app(mainwin, args):
             """Return the best matching window or None.
             Prefers exact title matches over substring to avoid picking
             wrong windows (e.g. VS Code with 'wechat_chat.csk' in title)."""
+            # On platforms without pygetwindow (e.g. Linux), skip window-based detection.
+            if gw is None:
+                return None, None
+
             all_candidates = []
             for title_query in search_titles + [app_name]:
                 try:
@@ -2488,6 +2548,11 @@ async def os_open_app(mainwin, args):
 async def os_close_app(mainwin, args):
     try:
         win_title = args["input"]["win_title"]
+        if gw is None:
+            msg = "Window management is not supported on this platform (pygetwindow unavailable)."
+            logger.warning(f"[os_close_app] {msg}")
+            return [TextContent(type="text", text=msg)]
+
         windows = gw.getWindowsWithTitle(win_title)
         if not windows:
             return [TextContent(type="text", text=f"Window '{win_title}' not found. Is the app running?")]

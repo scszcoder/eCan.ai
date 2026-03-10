@@ -639,9 +639,9 @@ class LinuxUpdater:
             current_version = self.ota_manager.app_version
             latest_item = select_latest_for_platform(
                 items,
-                current_version=current_version,
-                platform_name='linux',
-                arch=arch
+                'linux',
+                current_version,
+                arch
             )
 
             if not latest_item:
@@ -657,20 +657,24 @@ class LinuxUpdater:
             except Exception as e:
                 logger.warning(f"[OTA] Version comparison failed: {e}, proceeding with update check")
 
-            # Update available
-            logger.info(f"[OTA] Update available: {latest_item.version} (current: {current_version})")
-            
+            # Update available (match Mac/Windows update_info shape for OTA flow)
+            logger.info(f"[OTA] ✅ Update available!")
+            logger.info(f"[OTA]    Current version:  {current_version}")
+            logger.info(f"[OTA]    Latest version:   {latest_item.version}")
+            logger.info(f"[OTA]    Download URL:     {latest_item.url}")
+            alternate_url = latest_item.alternate_url
+            if not alternate_url and '.s3.' in latest_item.url and 'amazonaws.com' in latest_item.url:
+                alternate_url = latest_item.url.replace('.s3.', '.s3-accelerate.')
             if return_info:
                 update_info = {
-                    'version': latest_item.version,
-                    'url': latest_item.url,
-                    'description': latest_item.description or '',
-                    'release_notes_url': latest_item.release_notes_url,
-                    'pub_date': latest_item.pub_date,
-                    'length': latest_item.length,
-                    'signature': latest_item.signature,
-                    'os': latest_item.os,
-                    'arch': latest_item.arch
+                    'update_available': True,
+                    'latest_version': latest_item.version,
+                    'download_url': latest_item.url,
+                    'alternate_url': alternate_url,
+                    'file_size': latest_item.length or 0,
+                    'signature': latest_item.ed_signature or '',
+                    'description': latest_item.description_html or '',
+                    'source': 'linux_appcast'
                 }
                 return (True, update_info)
             else:
@@ -695,21 +699,20 @@ class LinuxUpdater:
                 logger.info("[OTA] Development mode: Linux installation simulated")
                 return True
 
-            if not package_manager:
-                logger.error("[OTA] Package manager required for Linux installation")
+            if not package_manager or not package_manager.current_package:
+                logger.error("[OTA] No package available for Linux installation")
                 return False
 
-            # Get downloaded package
-            package = package_manager.get_downloaded_package()
-            if not package:
-                logger.error("[OTA] No downloaded package available")
+            package = package_manager.current_package
+            if not package.is_downloaded or not package.download_path:
+                logger.error("[OTA] Package not downloaded")
                 return False
 
             # Install based on package type
             from .installer import InstallationManager
             installer = InstallationManager()
             
-            package_path = Path(package.local_path)
+            package_path = Path(package.download_path)
             
             if package_path.suffix.lower() == '.appimage':
                 return self._install_appimage(package_path, installer)
