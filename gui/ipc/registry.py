@@ -258,17 +258,9 @@ class IPCHandlerRegistry:
         if 'id' not in request:
             request['id'] = f"middleware_check_{method}"
 
-        # Optimization: check system ready status first (usually faster, and has cache)
-        system_ready, system_error = cls._check_system_ready()
-        if not system_ready:
-            # Reduce log output to improve performance, only log when needed
-            logger.debug(f"[registry] System not ready for method {method}: {system_error}")
-            return create_error_response(
-                request,
-                system_error or 'SYSTEM_NOT_READY',
-                f"System not ready for method {method}"
-            )
-
+        # IMPORTANT: Token validation MUST come BEFORE system ready check
+        # This ensures unauthenticated users see login prompt instead of "system not ready"
+        
         # In web mode, allow authenticated session_id to bypass token requirement
         if os.getenv("ECAN_MODE", "desktop") == "web":
             session_id = _find_session_id(request, params)
@@ -276,7 +268,8 @@ class IPCHandlerRegistry:
                 try:
                     from gui.context.session_manager import SessionManager
                     if SessionManager.get_instance().get_context(session_id):
-                        return None
+                        # Valid session, skip token validation
+                        pass
                     else:
                         return create_error_response(
                             request,
@@ -285,15 +278,36 @@ class IPCHandlerRegistry:
                         )
                 except Exception as e:
                     logger.error(f"[registry] Error validating session_id {session_id}: {e}")
+            else:
+                # No session_id in web mode, validate token
+                token_valid, token_error = cls._validate_token(request, params)
+                if not token_valid:
+                    logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
+                    return create_error_response(
+                        request,
+                        token_error or 'TOKEN_INVALID',
+                        f"Token validation failed for method {method}"
+                    )
+        else:
+            # Desktop mode: always validate token
+            token_valid, token_error = cls._validate_token(request, params)
+            if not token_valid:
+                logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
+                return create_error_response(
+                    request,
+                    token_error or 'TOKEN_INVALID',
+                    f"Token validation failed for method {method}"
+                )
 
-        # Token validation (after system check, as token validation is not needed when system is not ready)
-        token_valid, token_error = cls._validate_token(request, params)
-        if not token_valid:
-            logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
+        # Check system ready status AFTER token validation
+        # This ensures authenticated users see appropriate initialization messages
+        system_ready, system_error = cls._check_system_ready()
+        if not system_ready:
+            logger.debug(f"[registry] System not ready for method {method}: {system_error}")
             return create_error_response(
                 request,
-                token_error or 'TOKEN_INVALID',
-                f"Token validation failed for method {method}"
+                system_error or 'SYSTEM_NOT_READY',
+                f"System not ready for method {method}"
             )
 
         return None

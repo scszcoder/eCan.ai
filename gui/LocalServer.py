@@ -69,6 +69,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.routing import Route, Mount, WebSocketRoute
 from starlette.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocket, WebSocketDisconnect
+from starlette.requests import Request
 import uvicorn
 
 from agent.mcp.server.server import (
@@ -1038,7 +1039,31 @@ class RouteBuilder:
             logger.info("✅ Added MCP routes")
         else:
             logger.info("🔧 MCP routes not added (disabled or unsupported)")
-        return routes # ==================== Application Creation ====================
+        return routes
+
+    @staticmethod
+    def spa_fallback(frontend_dist_dir: str):
+        """Create SPA fallback handler for client-side routing"""
+        async def fallback_handler(request: Request):
+            """Serve index.html for all unmatched GET routes (SPA fallback)"""
+            # Only handle GET requests for HTML pages
+            if request.method != 'GET':
+                return JSONResponse({"error": "Method not allowed"}, status_code=405)
+            
+            # Check if request is for a file with extension (e.g., .js, .css, .png)
+            # If so, return 404 instead of serving index.html
+            path = request.url.path
+            if '.' in path.split('/')[-1]:
+                return JSONResponse({"error": "File not found"}, status_code=404)
+            
+            # Serve index.html for all other routes (SPA routes like /login, /agents, etc.)
+            index_path = os.path.join(frontend_dist_dir, 'index.html')
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
+            return JSONResponse({"error": "Frontend not found"}, status_code=404)
+        return fallback_handler
+
+# ==================== Application Creation ====================
 
 
 class AppBuilder:
@@ -1050,11 +1075,29 @@ class AppBuilder:
         route_builder = RouteBuilder(request_handlers)
         routes = route_builder.create_routes()
 
-        # Mount frontend static files first (gui_v2/dist) to serve the web UI
-        # This avoids CORS issues by serving frontend and API from the same origin
+        # Mount frontend static files and add SPA fallback
+        # Order matters: API routes first, then static files, then SPA fallback
         if os.path.isdir(frontend_dist_dir):
-            routes.append(Mount('/', StaticFiles(directory=frontend_dist_dir, html=True), name='frontend'))
-            logger.info(f"✅ Mounted frontend static files from: {frontend_dist_dir}")
+            # Mount static assets directory
+            assets_dir = os.path.join(frontend_dist_dir, 'assets')
+            if os.path.isdir(assets_dir):
+                routes.append(Mount('/assets', StaticFiles(directory=assets_dir), name='assets'))
+            
+            # Mount monaco-editor directory if exists
+            monaco_dir = os.path.join(frontend_dist_dir, 'monaco-editor')
+            if os.path.isdir(monaco_dir):
+                routes.append(Mount('/monaco-editor', StaticFiles(directory=monaco_dir), name='monaco'))
+            
+            # Mount skills directory if exists
+            skills_dir = os.path.join(frontend_dist_dir, 'skills')
+            if os.path.isdir(skills_dir):
+                routes.append(Mount('/skills', StaticFiles(directory=skills_dir), name='skills'))
+            
+            # Add catch-all route for SPA (must be last)
+            # This handles all unmatched routes (including /, /login, /agents, etc.) by serving index.html
+            routes.append(Route('/{path:path}', route_builder.spa_fallback(frontend_dist_dir)))
+            
+            logger.info(f"✅ Mounted frontend static files with SPA fallback from: {frontend_dist_dir}")
         else:
             logger.warning(f"⚠️ Frontend dist dir not found: {frontend_dist_dir}")
             # Fallback to agent files if frontend not available
