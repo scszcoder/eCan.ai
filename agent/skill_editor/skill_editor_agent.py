@@ -2767,6 +2767,10 @@ class SkillEditorAgent:
                             description=rc.get("description"),
                             allow_freeform=bool(rc.get("allow_freeform", False)),
                         ))
+                # Auto-tag "Other" choices with allow_freeform if LLM didn't
+                for ch in choices:
+                    if not ch.allow_freeform and (ch.id.lower() in ("other", "other_option") or ch.label.lower().startswith("other")):
+                        ch.allow_freeform = True
                 if not choices:
                     continue
                 questions.append(ClarificationQuestion(
@@ -2964,6 +2968,10 @@ class SkillEditorAgent:
                             description=rc.get("description"),
                             allow_freeform=bool(rc.get("allow_freeform", False)),
                         ))
+                # Auto-tag "Other" choices with allow_freeform if LLM didn't
+                for ch in choices:
+                    if not ch.allow_freeform and (ch.id.lower() in ("other", "other_option") or ch.label.lower().startswith("other")):
+                        ch.allow_freeform = True
                 if not choices:
                     continue
                 questions.append(ClarificationQuestion(
