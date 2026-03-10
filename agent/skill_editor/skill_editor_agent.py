@@ -4868,7 +4868,7 @@ class SkillEditorAgent:
         agent_msg = ""
         if new_agent_config:
             agent_msg = f" A new agent '{new_agent_config['name']}' will be created."
-repo/eCan.ai/lambda_functions/skill_editor_lambda/prompts/sop        elif agent_name:
+        elif agent_name:
             agent_msg = f" Assigned to agent '{agent_name}'."
         
         response_msg = f"Deploying skill '{skill_name}' as task '{task_name}' to run {schedule_msg}.{agent_msg}"
