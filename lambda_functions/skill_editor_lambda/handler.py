@@ -1868,6 +1868,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     workflow_description=session.get("workflowDescription"),
                     accumulated_clarification_answers=session.get("accumulatedClarificationAnswers"),
                     clarification_round=int(session.get("clarificationRound", 0) or 0),
+                    pending_clarification=session.get("pendingClarification"),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -1948,6 +1949,19 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Error publishing commands: {e}")
 
+        # If this request carries clarification answers, attach them to the
+        # previous assistant message that originally asked the questions so the
+        # frontend can render a read-only card after page reload.
+        if clarification and isinstance(history.get("messages"), list):
+            for prev_msg in reversed(history["messages"]):
+                if (
+                    prev_msg.get("role") == "assistant"
+                    and isinstance(prev_msg.get("metadata"), dict)
+                    and prev_msg["metadata"].get("clarification")
+                ):
+                    prev_msg["metadata"]["clarificationAnswers"] = clarification
+                    break
+
         assistant_msg = {
             "id": assistant_message_id,
             "role": "assistant",
@@ -1957,6 +1971,13 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             "metadata": {
                 "state": response.metadata.get("state") if isinstance(getattr(response, "metadata", None), dict) else None,
                 "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+                "clarification": (
+                    [q.model_dump() for q in response.clarification]
+                    if getattr(response, "clarification", None)
+                    else None
+                ),
+                "clarificationAnswers": None,
+                "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
                 "hasClarification": bool(getattr(response, "clarification", None)),
                 "hasPlan": bool(getattr(response, "plan", None)),
                 "hasFlowgram": bool(getattr(response, "flowgram", None)),
@@ -1977,6 +1998,11 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         session["workflowDescription"] = agent.workflow_description
         session["accumulatedClarificationAnswers"] = agent.accumulated_clarification_answers or None
         session["clarificationRound"] = agent.clarification_round
+        session["pendingClarification"] = (
+            [q.model_dump() for q in agent.get_pending_clarification()]
+            if agent.get_pending_clarification()
+            else None
+        )
 
     except Exception as e:
         import traceback
