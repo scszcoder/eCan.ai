@@ -182,49 +182,56 @@ async def extract_entities_with_cancellation(
     logger.info(f"[Optimization] System prompt cached ({len(cached_system_prompt)} chars), will be reused for {len(ordered_chunks)} chunks")
     logger.info(f"[Optimization] Estimated token savings: ~{len(cached_system_prompt) * (len(ordered_chunks) - 1) // 4} tokens")
     
-    # ========== Optimization 2: Smart Batch Merging ==========
-    # Merge small chunks (< 500 tokens) into batches to reduce LLM calls
-    SMALL_CHUNK_THRESHOLD = 500  # characters (~125 tokens)
-    MAX_BATCH_SIZE = 3  # Max chunks per batch
-    
-    def should_batch_chunks(chunks_to_check):
-        """Check if chunks should be batched together"""
-        if len(chunks_to_check) < 2:
-            return False
-        # Only batch if all chunks are small
-        return all(len(chunk[1]["content"]) < SMALL_CHUNK_THRESHOLD for chunk in chunks_to_check[:MAX_BATCH_SIZE])
+    # ========== Optimization 2: Dynamic Batch Merging ==========
+    # DISABLED: Testing shows batch merging actually SLOWS DOWN processing
+    # Reason: Output token generation time increases more than input token savings
+    # - Single chunk: ~38s (500 input + 1500 output tokens)
+    # - 3 chunks batch: ~71s (1350 input + 2200 output tokens)
+    # Conclusion: Keep concurrent processing for best speed
+    MAX_BATCH_TOKENS = 0  # Disabled (set to 0 to skip batching)
+    MAX_BATCH_SIZE = 1  # Process each chunk individually
     
     def create_batched_chunks(chunks):
-        """Group small chunks into batches"""
+        """Dynamically group chunks into batches based on total size"""
         batched = []
         current_batch = []
+        current_size = 0
+        
+        # Log chunk sizes for debugging
+        chunk_sizes = [len(chunk[1]["content"]) for chunk in chunks]
+        total_chars = sum(chunk_sizes)
+        logger.info(f"[Optimization] Chunk sizes: {chunk_sizes}, total: {total_chars} chars (~{total_chars // 4} tokens)")
+        logger.info(f"[Optimization] Max batch: {MAX_BATCH_TOKENS} tokens (~{MAX_BATCH_TOKENS * 4} chars), max size: {MAX_BATCH_SIZE} chunks")
         
         for chunk in chunks:
             chunk_size = len(chunk[1]["content"])
+            chunk_tokens = chunk_size // 4  # Estimate tokens (1 token ≈ 4 chars)
             
-            if chunk_size < SMALL_CHUNK_THRESHOLD and len(current_batch) < MAX_BATCH_SIZE:
-                current_batch.append(chunk)
-            else:
-                # Flush current batch if exists
-                if current_batch:
-                    if len(current_batch) > 1:
-                        batched.append(("batch", current_batch))
-                        logger.info(f"[Optimization] Batching {len(current_batch)} small chunks together")
-                    else:
-                        batched.append(current_batch[0])
-                    current_batch = []
-                
-                # Add current chunk
-                if chunk_size < SMALL_CHUNK_THRESHOLD:
-                    current_batch.append(chunk)
+            # Check if adding this chunk would exceed limits
+            would_exceed_tokens = (current_size + chunk_size) > (MAX_BATCH_TOKENS * 4)
+            would_exceed_size = len(current_batch) >= MAX_BATCH_SIZE
+            
+            if current_batch and (would_exceed_tokens or would_exceed_size):
+                # Flush current batch
+                if len(current_batch) > 1:
+                    batched.append(("batch", current_batch))
+                    logger.info(f"[Optimization] Created batch: {len(current_batch)} chunks, {current_size} chars (~{current_size // 4} tokens)")
                 else:
-                    batched.append(chunk)
+                    batched.append(current_batch[0])
+                
+                # Start new batch with current chunk
+                current_batch = [chunk]
+                current_size = chunk_size
+            else:
+                # Add to current batch
+                current_batch.append(chunk)
+                current_size += chunk_size
         
         # Flush remaining batch
         if current_batch:
             if len(current_batch) > 1:
                 batched.append(("batch", current_batch))
-                logger.info(f"[Optimization] Batching {len(current_batch)} small chunks together")
+                logger.info(f"[Optimization] Created batch: {len(current_batch)} chunks, {current_size} chars (~{current_size // 4} tokens)")
             else:
                 batched.append(current_batch[0])
         
