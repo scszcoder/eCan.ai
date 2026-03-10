@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from build_system.build_utils import process_data_files
+
 
 class LinuxBuilder:
     """Linux-specific build and packaging functionality"""
@@ -55,7 +57,7 @@ class LinuxBuilder:
             ]
             
             # Add icon if available
-            icon_path = self.project_root / "resource" / "images" / "icons" / "eCan.png"
+            icon_path = self.project_root / "resource" / "images" / "logos" / "desktop_256x256.png"
             if icon_path.exists():
                 cmd.extend(["--icon", str(icon_path)])
             
@@ -79,13 +81,21 @@ class LinuxBuilder:
             # Collect data only packages
             for package in pyinstaller_config.get("collect_data_only", []):
                 cmd.extend(["--collect-data", package])
-            
-            # Add data files
-            for data_item in self.config.get("data_files", []):
-                src = data_item.get("src", "")
-                dst = data_item.get("dst", ".")
-                if src:
-                    cmd.extend(["--add-data", f"{src}:{dst}"])
+
+            # Add data files for Linux using shared config ("build.data_files")
+            # This mirrors other platforms: resource, config, auth, etc.
+            try:
+                data_cfg = self.config.get("build", {}).get("data_files", {})
+                if data_cfg:
+                    processed = process_data_files(data_cfg, verbose=True)
+                    for src, dst in processed:
+                        src_path = self.project_root / src
+                        if src_path.exists():
+                            cmd.extend(["--add-data", f"{src_path}:{dst}"])
+                        else:
+                            print(f"[PyInstaller] Warning: data path not found: {src_path}")
+            except Exception as e:
+                print(f"[PyInstaller] Warning: failed to process data_files: {e}")
             
             # Exclude modules
             for exclude in pyinstaller_config.get("excludes", []):
@@ -195,7 +205,7 @@ class LinuxBuilder:
                             copied_count += 1
                 print(f"[AppImage] Copied {copied_count} items")
             
-            # Create desktop file
+            # Create desktop file (StartupWMClass from config app_name for taskbar match)
             desktop_content = f"""[Desktop Entry]
 Name={self.app_name}
 Exec={self.app_name}
@@ -204,12 +214,13 @@ Type=Application
 Categories=Utility;Development;
 Comment=AI-powered automation assistant
 Terminal=false
+StartupWMClass={self.app_name.lower()}
 """
             desktop_file = app_dir / "usr" / "share" / "applications" / f"{self.app_name}.desktop"
             desktop_file.write_text(desktop_content)
             
             # Copy icon
-            icon_src = self.project_root / "resource" / "images" / "icons" / "eCan.png"
+            icon_src = self.project_root / "resource" / "images" / "logos" / "desktop_256x256.png"
             if icon_src.exists():
                 icon_dst = app_dir / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps" / f"{self.app_name}.png"
                 shutil.copy2(icon_src, icon_dst)
@@ -313,6 +324,8 @@ exec "${{HERE}}/usr/bin/{self.app_name}" "$@"
             
             icons_dir = pkg_dir / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
             icons_dir.mkdir(parents=True, exist_ok=True)
+            icons_dir_48 = pkg_dir / "usr" / "share" / "icons" / "hicolor" / "48x48" / "apps"
+            icons_dir_48.mkdir(parents=True, exist_ok=True)
             
             bin_dir = pkg_dir / "usr" / "bin"
             bin_dir.mkdir(parents=True, exist_ok=True)
@@ -336,7 +349,7 @@ exec "${{HERE}}/usr/bin/{self.app_name}" "$@"
             symlink = bin_dir / self.app_name.lower()
             symlink.symlink_to(f"/opt/{self.app_name}/{self.app_name}")
             
-            # Create desktop file
+            # Create desktop file (StartupWMClass from config app_name for taskbar match)
             desktop_content = f"""[Desktop Entry]
 Name={self.app_name}
 Exec=/opt/{self.app_name}/{self.app_name}
@@ -345,15 +358,21 @@ Type=Application
 Categories=Utility;Development;Office;
 Comment=AI-powered automation assistant
 Terminal=false
-StartupWMClass={self.app_name}
+StartupWMClass={self.app_name.lower()}
 """
             desktop_file = apps_dir / f"{self.app_name.lower()}.desktop"
             desktop_file.write_text(desktop_content)
             
-            # Copy icon
-            icon_src = self.project_root / "resource" / "images" / "icons" / "eCan.png"
+            # Copy icon for DEB (launcher + taskbar 48x48)
+            icon_src = self.project_root / "resource" / "images" / "logos" / "desktop_256x256.png"
+            icon_src_48 = self.project_root / "resource" / "images" / "logos" / "desktop_64x64.png"
+            if not icon_src_48.exists():
+                icon_src_48 = icon_src
             if icon_src.exists():
                 shutil.copy2(icon_src, icons_dir / f"{self.app_name}.png")
+                shutil.copy2(icon_src_48, icons_dir_48 / f"{self.app_name}.png")
+            else:
+                print("[DEB] Warning: resource/images/logos/desktop_256x256.png not found, desktop icon may be missing")
             
             # Calculate installed size (in KB)
             total_size = sum(f.stat().st_size for f in opt_dir.rglob('*') if f.is_file())
@@ -456,7 +475,7 @@ exit 0
                 
                 # Verify package
                 print("\n[DEB] Package info:")
-                subprocess.run(["dpkg-deb", "--info", str(deb_file)])
+                subprocess.run(["dpkg-deb", "--info", str(output_file)])
                 
                 return True
             else:

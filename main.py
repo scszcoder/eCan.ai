@@ -536,6 +536,18 @@ try:
     else:
         print(TimeUtil.formatted_now_with_ms() + " QApplication already exists")
 
+    # Linux: set desktop file name from config so WM_CLASS matches .desktop StartupWMClass
+    if sys.platform.startswith("linux"):
+        try:
+            from config.constants import APP_NAME
+            from PySide6.QtGui import QGuiApplication
+            desktop_id = APP_NAME.lower()
+            if hasattr(QGuiApplication, "setDesktopFileName"):
+                QGuiApplication.setDesktopFileName(desktop_id)
+                print(TimeUtil.formatted_now_with_ms() + f" [Linux] setDesktopFileName({desktop_id})")
+        except Exception as e:
+            print(f"[Linux] setDesktopFileName failed: {e}")
+
     # Set application icon early for macOS/Linux (Windows taskbar icon needs window handle, set later)
     # This prevents showing the default Python icon during startup
     print(TimeUtil.formatted_now_with_ms() + " setting application icon...")
