@@ -94,7 +94,7 @@ This maximizes work completion and minimizes human interruptions during executio
 - Each question should have 4-6 clear choices
 - Questions should be actionable and help determine the implementation
 - Set "allow_multiple": true when the user can reasonably select multiple options
-- Always include a "None of the above" or "Other" or "Something else" option, and if this option is selected, always make a otherwise invisible text input box visible to let user input their answer.
+- Always include an "Other" choice with "allow_freeform": true so the user can type a custom answer.
 - Always include a "Doesn't apply" option to let the user mark this question as not applicable.
 - Set "allow_multiple": false when only one option should be selected
 - On the Q&A form, always includes a "Cancel" button to let the user cancel the Q&A process.
@@ -179,7 +179,8 @@ When you need clarification:
       "question": "Clear question text?",
       "choices": [
         {{ "id": "choice_1", "label": "Option A", "description": "What this option means" }},
-        {{ "id": "choice_2", "label": "Option B", "description": "What this option means" }}
+        {{ "id": "choice_2", "label": "Option B", "description": "What this option means" }},
+        {{ "id": "other", "label": "Other", "description": "User provides freeform text", "allow_freeform": true }}
       ],
       "context": "Why this question is important (optional)",
       "allow_multiple": false
@@ -482,10 +483,17 @@ class PlannerAgent:
                         ClarificationChoice(
                             id=c.get("id", f"choice_{i}"),
                             label=c.get("label", "Option"),
-                            description=c.get("description")
+                            description=c.get("description"),
+                            allow_freeform=bool(c.get("allow_freeform", False)),
                         )
                         for i, c in enumerate(q_data.get("choices", []))
                     ]
+                    # Auto-tag "Other" choices with allow_freeform if LLM didn't
+                    for ch in choices:
+                        if not ch.allow_freeform and ch.id.lower() in ("other", "other_option"):
+                            ch.allow_freeform = True
+                        if not ch.allow_freeform and ch.label.lower().startswith("other"):
+                            ch.allow_freeform = True
                     questions.append(ClarificationQuestion(
                         id=q_data.get("id", f"q_{len(questions)}"),
                         question=q_data.get("question", ""),
@@ -613,7 +621,7 @@ class PlannerAgent:
                                 ClarificationChoice(id="manual", label="Manual / ad-hoc", description=None),
                                 ClarificationChoice(id="schedule", label="Scheduled / cron", description=None),
                                 ClarificationChoice(id="webhook", label="Webhook / event-based", description=None),
-                                ClarificationChoice(id="other", label="Other / specify", description=None),
+                                ClarificationChoice(id="other", label="Other / specify", description=None, allow_freeform=True),
                                 ClarificationChoice(id="none", label="Doesn't apply", description=None),
                             ],
                             allow_multiple=False,
@@ -626,7 +634,7 @@ class PlannerAgent:
                                 ClarificationChoice(id="http", label="HTTP/Webhook push", description=None),
                                 ClarificationChoice(id="file", label="Save to file/storage", description=None),
                                 ClarificationChoice(id="none", label="Doesn't apply", description=None),
-                                ClarificationChoice(id="other", label="Other / specify", description=None),
+                                ClarificationChoice(id="other", label="Other / specify", description=None, allow_freeform=True),
                             ],
                             allow_multiple=True,
                         ),
