@@ -1,11 +1,17 @@
 """
 LightRAG Launcher with Module Replacement
 
-Combines:
+Optimized for LightRAG 1.4.10+:
 1. Module replacement for Excel extraction (document_routes_custom)
-2. Essential patches for chunker injection
+2. Custom chunker injection (官方已支持 chunking_func 参数)
 3. SSL patch
-4. Stop controller for immediate cancellation
+4. Extract entities immediate cancellation (立即停止补丁)
+5. HTTP clients cancellation support
+6. Rerank binding conversion
+7. Confidence scoring support
+
+Note: LightRAG 1.4.10+ has /cancel_pipeline API, but it doesn't stop queued documents.
+Our patch provides true immediate cancellation by replacing extract_entities function.
 """
 
 import sys
@@ -74,29 +80,39 @@ def replace_document_routes():
 
 
 def patch_lightrag_init():
-    """Patch LightRAG.__init__ to inject custom chunker"""
-    logger.info("[Launcher] Patching LightRAG.__init__...")
+    """Inject custom chunker into LightRAG initialization
     
+    LightRAG 1.4.10+ natively supports chunking_func parameter.
+    This patch simply injects our custom chunker when enabled.
+    """
     use_custom_chunker = os.getenv('LIGHTRAG_CUSTOM_CHUNKER') == '1'
     if not use_custom_chunker:
+        logger.info("[Launcher] Custom chunker disabled, skipping injection")
         return
     
     try:
         from knowledge.advanced_chunker import universal_chunking_func
         from lightrag import LightRAG
         
+        # LightRAG 1.4.10+ natively supports chunking_func parameter
+        # We just need to inject it during initialization
         original_init = LightRAG.__init__
         
         def patched_init(self, *args, **kwargs):
-            logger.info("[Launcher] ✅ Injecting custom chunker")
-            kwargs['chunking_func'] = universal_chunking_func
+            # Inject custom chunker if not already provided
+            if 'chunking_func' not in kwargs:
+                logger.info("[Launcher] ✅ Injecting custom chunker")
+                kwargs['chunking_func'] = universal_chunking_func
+            
             original_init(self, *args, **kwargs)
         
         LightRAG.__init__ = patched_init
-        logger.info("[Launcher] ✅ LightRAG.__init__ patched")
+        logger.info("[Launcher] ✅ LightRAG.__init__ patched for custom chunker")
         
     except Exception as e:
-        logger.error(f"[Launcher] ❌ Patch failed: {e}")
+        logger.error(f"[Launcher] ❌ Chunker injection failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 
 def patch_ssl():
@@ -131,7 +147,7 @@ def patch_extract_entities_for_cancellation():
     
     try:
         from lightrag import operate
-        from operate_custom import extract_entities_with_cancellation
+        from third_party.lightrag_custom.operate_custom import extract_entities_with_cancellation
         
         # Replace the function in the operate module
         operate.extract_entities = extract_entities_with_cancellation
@@ -154,6 +170,24 @@ def patch_extract_entities_for_cancellation():
         logger.error(traceback.format_exc())
 
 
+def patch_auto_retry_prevention():
+    """Patch LightRAG to prevent auto-retry of user-cancelled documents"""
+    logger.info("[Launcher] Applying auto-retry prevention patch...")
+    
+    try:
+        from third_party.lightrag_custom.lightrag_patch import apply_lightrag_patch
+        
+        if apply_lightrag_patch():
+            logger.info("[Launcher] ✅ Auto-retry prevention patch applied successfully")
+        else:
+            logger.warning("[Launcher] ⚠️ Auto-retry prevention patch failed to apply")
+        
+    except Exception as e:
+        logger.error(f"[Launcher] ❌ Auto-retry prevention patch failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 def patch_http_clients_for_cancellation():
     """Patch HTTP clients (Ollama, OpenAI, httpx) to register for cancellation.
     
@@ -162,7 +196,7 @@ def patch_http_clients_for_cancellation():
     """
     logger.info("[Launcher] Patching HTTP clients for cancellation support...")
     
-    from operate_custom import register_http_client
+    from third_party.lightrag_custom.operate_custom import register_http_client
     
     # Patch Ollama AsyncClient
     try:
@@ -316,12 +350,29 @@ def apply_all_patches():
     # This reads from os.environ which is already populated by parent process
     patch_rerank_binding_for_proxy()           # Rerank binding 转换支持
     
-    replace_document_routes()  # Excel空列清理 + Stop检查 + 立即取消
-    patch_lightrag_init()       # 自定义分块器
-    patch_ssl()                 # SSL
-    patch_extract_entities_for_cancellation()  # 立即取消支持
-    patch_http_clients_for_cancellation()      # HTTP 客户端取消支持 (Ollama + OpenAI + httpx)
-    patch_utils_for_confidence_scoring()       # 置信度评分支持 (references 包含 score)
+    # 1. Replace document_routes (Excel空列清理 + Stop检查)
+    replace_document_routes()
+    
+    # 2. Inject custom chunker (LightRAG 1.4.10+ 官方支持 chunking_func)
+    patch_lightrag_init()
+    
+    # 3. SSL verification control (官方未实现)
+    patch_ssl()
+    
+    # 4. Extract entities immediate cancellation (官方未完全实现)
+    # Note: LightRAG 1.4.10+ has /cancel_pipeline API, but it doesn't stop queued documents
+    patch_extract_entities_for_cancellation()
+    
+    # 5. Auto-retry prevention for user-cancelled documents (官方未实现)
+    # Note: LightRAG auto-retries FAILED documents, even when user manually cancelled
+    patch_auto_retry_prevention()
+    
+    # 6. HTTP clients cancellation support (官方未实现)
+    # Note: LightRAG 1.4.10+ has /cancel_pipeline API, but HTTP clients still need patching
+    patch_http_clients_for_cancellation()
+    
+    # 7. Confidence scoring support (官方未实现)
+    patch_utils_for_confidence_scoring()
     
     logger.info('[Launcher] ==================== Complete ====================')
 

@@ -135,6 +135,65 @@ if sys.platform == 'darwin':
         Foundation = None
         AppKit = None
 
+def _install_linux_desktop_file_for_icon(logger=None):
+    """
+    Write <app>.desktop and <app>-ai.desktop to ~/.local/share/applications/
+    using config.constants.APP_NAME. Taskbar/dock matches window by StartupWMClass.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        from config.constants import APP_NAME
+        from utils.icon_manager import get_icon_manager
+        desktop_id = APP_NAME.lower()
+        display_name = f"{APP_NAME}.ai"
+        icon_mgr = get_icon_manager()
+        if not icon_mgr.icon_path:
+            icon_mgr._find_icon_path()
+        icon_path = icon_mgr.icon_path
+        if not icon_path or not os.path.isfile(icon_path):
+            if logger:
+                logger.warning("[Linux] No icon path for desktop file")
+            return
+        icon_abs = os.path.abspath(icon_path)
+        data_home = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+        apps_dir = os.path.join(data_home, "applications")
+        os.makedirs(apps_dir, exist_ok=True)
+
+        entries = [
+            (f"{desktop_id}.desktop", desktop_id),
+            (f"{desktop_id}-ai.desktop", display_name),
+        ]
+        for filename, wm_class in entries:
+            desktop_path = os.path.join(apps_dir, filename)
+            content = f"""[Desktop Entry]
+Type=Application
+Name={display_name}
+Comment=eCan AI Assistant
+Icon={icon_abs}
+StartupWMClass={wm_class}
+Categories=Utility;Application;
+"""
+            with open(desktop_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        # Refresh desktop database so the taskbar picks up the new file (e.g. GNOME)
+        try:
+            import subprocess
+            subprocess.run(
+                ["update-desktop-database", apps_dir],
+                capture_output=True,
+                timeout=5,
+                cwd=apps_dir,
+            )
+        except Exception:
+            pass
+        if logger:
+            logger.info(f"[Linux] Desktop files installed in {apps_dir} (Icon={icon_abs})")
+    except Exception as e:
+        if logger:
+            logger.warning(f"[Linux] Could not install desktop file: {e}")
+
+
 def setup_application_info(app, logger=None):
     """
     Set up basic application information
@@ -146,11 +205,31 @@ def setup_application_info(app, logger=None):
         return False
     
     try:
-        # Basic application information
-        app.setApplicationName("eCan.ai")
-        app.setApplicationDisplayName("eCan.ai")
+        # Basic application information (from config.constants.APP_NAME)
+        from config.constants import APP_NAME
+        display_name = f"{APP_NAME}.ai"
+        app.setApplicationName(display_name)
+        app.setApplicationDisplayName(display_name)
         app.setOrganizationName("eCan Team")
-        app.setOrganizationDomain("ecan.app")
+        app.setOrganizationDomain(APP_NAME.lower() + ".app")
+
+        # Linux: desktop id from config.constants.APP_NAME (matches .desktop StartupWMClass)
+        if sys.platform.startswith("linux"):
+            try:
+                from PySide6.QtGui import QGuiApplication
+                desktop_id = APP_NAME.lower()
+                if hasattr(QGuiApplication, "setDesktopFileName"):
+                    QGuiApplication.setDesktopFileName(desktop_id)
+                    if logger:
+                        logger.debug(f"Set Linux desktop file name: {desktop_id}")
+            except Exception as e:
+                if logger:
+                    logger.debug(f"Failed to set desktop file name (non-critical): {e}")
+            try:
+                _install_linux_desktop_file_for_icon(logger)
+            except Exception as e:
+                if logger:
+                    logger.debug(f"Linux desktop file install (non-critical): {e}")
         
         # Read version information
         version = "1.0.0"
