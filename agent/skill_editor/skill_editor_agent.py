@@ -3522,7 +3522,7 @@ class SkillEditorAgent:
                 config_for_inputs_values = {
                     k: v
                     for k, v in config.items()
-                    if k not in {"callable", "breakpoint", "data"}
+                    if k not in {"callable", "breakpoint", "data", "tool_name", "tool_input"}
                 }
 
             inputs_values = self._config_to_inputs_values(config_for_inputs_values, type_out)
@@ -3603,7 +3603,31 @@ class SkillEditorAgent:
                 }
         else:
             # For simple nodes (start, end, condition, loop), just spread config
-            data.update(config)
+            # but filter out internal-only keys the UI doesn't need
+            _internal_keys = {"breakpoint"}  # already set above
+            data.update({k: v for k, v in config.items() if k not in _internal_keys})
+
+            # Standard 4-field output schema for condition nodes
+            if type_out == "condition":
+                data.setdefault("outputs", {
+                    "type": "object",
+                    "properties": {
+                        "result": {"type": "object", "description": "Node execution result"},
+                        "condition": {"type": "boolean", "description": "Node execution condition"},
+                        "resolved": {"type": "boolean", "description": "Node execution resolved status"},
+                        "case": {"type": "string", "description": "Node execution case"},
+                    },
+                })
+
+            # Start node: outputs describe the flow's input parameters
+            if type_out == "start":
+                data.setdefault("outputs", {"type": "object", "properties": {}})
+
+            # End node: inputsValues, inputs schema, and nested data.data
+            if type_out == "end":
+                data.setdefault("inputsValues", {})
+                data.setdefault("data", {"inputsValues": {}})
+                data.setdefault("inputs", {"type": "object", "properties": {}})
         
         node_json = {
             "id": node.id,
@@ -3741,6 +3765,16 @@ class SkillEditorAgent:
             now_iso = datetime.now(timezone.utc).isoformat()
 
             # Convert flowgram to JSON-serializable dict in UI shape
+            default_config = {
+                "skill_mapping": {"developing": "", "released": "", "event_data_mapping": ""},
+                "nodes": {},
+                "run_in_cloud": False,
+            }
+            saved_config = metadata.get("config")
+            if isinstance(saved_config, dict):
+                for k, v in saved_config.items():
+                    default_config[k] = v
+
             skill_json = {
                 "skillId": metadata.get("skillId", ""),
                 "skillName": skill_name,
@@ -3761,8 +3795,13 @@ class SkillEditorAgent:
                 },
                 "mode": metadata.get("mode", "development"),
                 "run_mode": metadata.get("run_mode", "developing"),
-                "config": metadata.get("config", {"nodes": {}}),
+                "config": default_config,
                 "schemaVersion": metadata.get("schemaVersion", "1.0.1"),
+                "run_in_cloud": metadata.get("run_in_cloud", False),
+                "hybrid_cloud_mode": metadata.get("hybrid_cloud_mode", False),
+                "local_helper_skill_id": metadata.get("local_helper_skill_id", ""),
+                "local_helper_machine": metadata.get("local_helper_machine", ""),
+                "local_helper_skill_name": metadata.get("local_helper_skill_name", ""),
             }
 
             skill_dir_name = f"{skill_name}_skill"

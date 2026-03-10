@@ -1797,6 +1797,25 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 fg_data = evt.get("data")
                 if not isinstance(fg_data, dict):
                     return
+                # Convert raw Flowgram model_dump → UI-formatted workFlow shape
+                # so the frontend receives {id, type, meta:{position}, data:{title, inputsValues, ...}}
+                try:
+                    from agent.skill_editor.schemas import Flowgram as _Flowgram
+                    _fg = _Flowgram.model_validate(fg_data)
+                    fg_data = {
+                        "nodes": [agent._node_to_json(n) for n in _fg.nodes],
+                        "edges": [
+                            {
+                                "sourceNodeID": e.sourceNodeID,
+                                "targetNodeID": e.targetNodeID,
+                                **({"sourcePortID": e.sourcePortID} if e.sourcePortID else {}),
+                                **({"targetPortID": e.targetPortID} if e.targetPortID else {}),
+                            }
+                            for e in _fg.edges
+                        ],
+                    }
+                except Exception as _conv_err:
+                    logger.warning(f"[sendSkillEditorChatMessage] flowgram UI conversion failed, using raw: {_conv_err}")
                 try:
                     _publish(
                         env,
@@ -1911,9 +1930,28 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
                 "clarification": [q.model_dump() for q in (response.clarification or [])] if getattr(response, "clarification", None) else None,
                 "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
-                "flowgram": response.flowgram.model_dump(exclude_none=True) if getattr(response, "flowgram", None) else None,
+                "flowgram": None,
                 "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
             }
+            # Convert flowgram to UI format (same as on_event conversion)
+            if getattr(response, "flowgram", None):
+                try:
+                    _fg = response.flowgram
+                    stream_end_payload["flowgram"] = {
+                        "nodes": [agent._node_to_json(n) for n in _fg.nodes],
+                        "edges": [
+                            {
+                                "sourceNodeID": e.sourceNodeID,
+                                "targetNodeID": e.targetNodeID,
+                                **({"sourcePortID": e.sourcePortID} if e.sourcePortID else {}),
+                                **({"targetPortID": e.targetPortID} if e.targetPortID else {}),
+                            }
+                            for e in _fg.edges
+                        ],
+                    }
+                except Exception as _conv_err:
+                    logger.warning(f"[sendSkillEditorChatMessage] stream_end flowgram conversion failed: {_conv_err}")
+                    stream_end_payload["flowgram"] = response.flowgram.model_dump(exclude_none=True)
             logger.info(f"[sendSkillEditorChatMessage] stream_end payload keys: {list(stream_end_payload.keys())}, "
                         f"hasClarification={stream_end_payload.get('clarification') is not None}, "
                         f"hasPlan={stream_end_payload.get('plan') is not None}, "
