@@ -39,33 +39,20 @@
 # LINUX-SPECIFIC GUI SUPPORT
 # ============================================================================
 
-# PySide6 for Linux Desktop GUI (Qt6)
-PySide6==6.6.1
-PySide6-Addons==6.6.1
-PySide6-Essentials==6.6.1
+# PySide6 GUI is provided by the common base requirements (requirements-base.txt)
 
 # ============================================================================
 # LINUX-SPECIFIC SYSTEM INTEGRATION
 # ============================================================================
 
-# Screenshot and window management
-python3-xlib>=0.33          # X11 window management
-PyAutoGUI>=0.9.54           # Cross-platform GUI automation
-Pillow>=10.0.0              # Image processing (ensure version compatibility)
-
-# Clipboard support
-pyperclip>=1.8.2            # Clipboard operations
+# Screenshot and window management (Linux-only)
+python-xlib>=0.33           # X11 window management
 
 # ============================================================================
 # LINUX-SPECIFIC UTILITIES
 # ============================================================================
 
-# Terminal and console
-colorama==0.4.6             # Terminal color support
-python-dotenv>=1.0.0        # Environment variable management
-
-# System monitoring
-psutil>=5.9.0               # System and process utilities
+# (All core utilities like colorlog, python-dotenv, psutil, etc. are defined in requirements-base.txt)
 
 # ============================================================================
 # LINUX-SPECIFIC DEVELOPMENT TOOLS
@@ -82,8 +69,7 @@ pytest-xdist>=3.5.0         # Parallel testing
 # ============================================================================
 
 # Web scraping (Linux has better lxml support)
-crawl4ai==0.8.0             # Web crawling with lxml support
-lxml>=5.0.0                 # XML/HTML processing (C extension)
+crawl4ai==0.8.0             # Web crawling with lxml support (Linux-only enable)
 
 # ============================================================================
 # LINUX-SPECIFIC BROWSER AUTOMATION
