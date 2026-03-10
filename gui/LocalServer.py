@@ -1198,8 +1198,30 @@ class ServerManager:
         self.server_ready = threading.Event()  # 服务器启动完成信号
 
     def get_server_url(self) -> str:
-        """Get local server URL"""
+        """Get local server URL
+        
+        Returns:
+            - Linux: http://<actual_ip>:<port> (for remote access)
+            - macOS/Windows: http://localhost:<port> (local only)
+        """
         port = int(self.main_win.get_local_server_port())
+        
+        # On Linux, return actual network IP for remote access
+        import platform
+        if platform.system().lower() == 'linux':
+            try:
+                import socket
+                # Get actual network IP (not 127.0.0.1)
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))  # Connect to Google DNS to get local IP
+                local_ip = s.getsockname()[0]
+                s.close()
+                return f"http://{local_ip}:{port}"
+            except Exception as e:
+                logger.warning(f"Failed to get network IP on Linux: {e}, falling back to localhost")
+                return f"http://localhost:{port}"
+        
+        # macOS/Windows: use localhost
         return f"http://localhost:{port}"
 
     def get_api_url(self, endpoint: str) -> str:
@@ -1292,8 +1314,20 @@ class ServerManager:
         self.request_handlers = request_handlers
         app = AppBuilder.create_app(request_handlers)
 
-        # Optimized host binding strategy - prioritize 127.0.0.1
-        host_candidates = ["127.0.0.1", "0.0.0.0"]
+        # Platform-aware host binding strategy
+        # Linux: Use 0.0.0.0 to support remote access (e.g., web deployment, Docker)
+        # macOS/Windows: Use 127.0.0.1 for better security (desktop only)
+        import platform
+        system = platform.system().lower()
+        
+        if system == 'linux':
+            # Linux: Prioritize 0.0.0.0 for remote access support
+            host_candidates = ["0.0.0.0", "127.0.0.1"]
+            logger.info("🐧 Linux detected: Enabling remote access (0.0.0.0)")
+        else:
+            # macOS/Windows: Prioritize 127.0.0.1 for security
+            host_candidates = ["127.0.0.1", "0.0.0.0"]
+            logger.info(f"🖥️  {system.capitalize()} detected: Using localhost binding (127.0.0.1)")
 
         last_err = None
         for host_bind in host_candidates:
@@ -1362,6 +1396,23 @@ class ServerManager:
 
                     # 标记服务器就绪
                     self.server_ready.set()
+                    
+                    # Log server access information
+                    if host_bind == "0.0.0.0":
+                        # Server is accessible from network
+                        try:
+                            import socket
+                            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                            s.connect(("8.8.8.8", 80))
+                            local_ip = s.getsockname()[0]
+                            s.close()
+                            logger.info(f"🌐 Server accessible at:")
+                            logger.info(f"   - Local:   http://localhost:{port}")
+                            logger.info(f"   - Network: http://{local_ip}:{port}")
+                        except Exception:
+                            logger.info(f"🌐 Server accessible at: http://0.0.0.0:{port}")
+                    else:
+                        logger.info(f"🌐 Server accessible at: http://{host_bind}:{port}")
                     
                     await server.serve()
                 
