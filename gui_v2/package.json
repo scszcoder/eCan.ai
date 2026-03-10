@@ -16,8 +16,8 @@
     "clean:deps": "rimraf node_modules/.vite"
   },
   "dependencies": {
-    "@a2ui/lit": "file:../../A2UI/renderers/lit",
-    "@a2ui/web_core": "file:../../A2UI/renderers/web_core",
+    "@a2ui/lit": "^0.8.3",
+    "@a2ui/web_core": "^0.8.0",
     "@ant-design/icons": "^6.0.0",
     "@ant-design/plots": "^2.4.0",
     "@douyinfe/semi-icons": "^2.82.1",

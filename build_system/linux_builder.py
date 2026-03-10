@@ -360,13 +360,17 @@ StartupWMClass={self.app_name}
             installed_size = total_size // 1024
             
             # Create control file
+            # NOTE: Keep this in sync with system dependencies listed in requirements-linux.txt
             control_content = f"""Package: {self.app_name.lower()}
 Version: {self.version}
 Section: utils
 Priority: optional
 Architecture: amd64
 Installed-Size: {installed_size}
-Depends: libc6, libgcc-s1, libstdc++6, libgl1, libglib2.0-0, libxkbcommon-x11-0
+Depends: libc6, libgcc-s1, libstdc++6, libgl1, libglib2.0-0, libxkbcommon-x11-0, \
+ libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render-util0, \
+ libxcb-shape0, libxcb-xfixes0, libxcb-xinerama0, libxcb-cursor0, python3-tk, \
+ scrot | gnome-screenshot | imagemagick, wmctrl | xdotool, xdg-utils
 Maintainer: eCan.ai Team <support@ecan.ai>
 Description: AI-powered automation assistant
  eCan.ai is an intelligent automation assistant that helps you
