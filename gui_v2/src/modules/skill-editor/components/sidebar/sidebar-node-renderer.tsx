@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNodeRender, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 
@@ -137,6 +137,41 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
     }
   };
 
+  // --- Node Note state ---
+  const getNodeNote = useCallback((): string => {
+    try {
+      const dataAny = (node as any).data as any;
+      return dataAny?.agentNote ?? '';
+    } catch { return ''; }
+  }, [node]);
+
+  const [noteText, setNoteText] = useState(() => getNodeNote());
+  const [noteExpanded, setNoteExpanded] = useState(false);
+
+  // Sync note text when node changes
+  useEffect(() => {
+    setNoteText(getNodeNote());
+  }, [getNodeNote]);
+
+  const saveNote = useCallback((val: string) => {
+    try {
+      setHasUnsavedChanges(true);
+      const current = (node as any).data || {};
+      const next = { ...current, agentNote: val };
+      if (typeof (node as any).setData === 'function') {
+        (node as any).setData(next);
+        return;
+      }
+      if (typeof (node as any).updateData === 'function') {
+        (node as any).updateData(next);
+        return;
+      }
+      (node as any).data = next;
+    } catch (e) {
+      console.error('[NoteSection] persist agentNote failed', e);
+    }
+  }, [node, setHasUnsavedChanges]);
+
   return (
     <NodeRenderContext.Provider value={nodeRender}>
       <div
@@ -153,6 +188,41 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
       >
         <div style={{ padding: '8px 12px 0 12px' }}>
           {nodeRender.form?.render()}
+        </div>
+        {/* --- Note Section --- */}
+        <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>
+          <div
+            style={{ fontWeight: 600, marginBottom: 6, color: '#333', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+            onClick={() => setNoteExpanded(prev => !prev)}
+          >
+            <span>Note</span>
+            <span style={{ fontSize: 12, color: '#999' }}>{noteExpanded ? '▾' : '▸'}</span>
+          </div>
+          {noteExpanded && (
+            <textarea
+              value={noteText}
+              onChange={(e) => {
+                setNoteText(e.target.value);
+                saveNote(e.target.value);
+              }}
+              placeholder="Add a note about this node's purpose…"
+              style={{
+                width: '100%',
+                minHeight: 60,
+                maxHeight: 200,
+                resize: 'vertical',
+                padding: 8,
+                fontSize: 12,
+                lineHeight: '1.5',
+                border: '1px solid #d9d9d9',
+                borderRadius: 4,
+                fontFamily: 'inherit',
+                color: '#333',
+                background: '#fafafa',
+                boxSizing: 'border-box',
+              }}
+            />
+          )}
         </div>
         {shouldShowNodeState && (
           <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>

@@ -3425,7 +3425,7 @@ class SkillEditorAgent:
             "message", "code", "url", "query_path"
         }
         # Fields that should not be emitted into inputsValues
-        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language", "breakpoint"}
+        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language", "breakpoint", "agentNote"}
         
         for key, value in config.items():
             # Skip special fields that aren't inputsValues
@@ -3493,6 +3493,11 @@ class SkillEditorAgent:
         data = {
             "title": getattr(node, "title", None) or node.label or node.id,
         }
+
+        # Persist agent note if present
+        agent_note = config.get("agentNote")
+        if isinstance(agent_note, str) and agent_note.strip():
+            data["agentNote"] = agent_note
 
         try:
             data["breakpoint"] = bool(config.get("breakpoint")) if isinstance(config.get("breakpoint"), bool) else False

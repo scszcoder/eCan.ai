@@ -1860,6 +1860,23 @@ Continue the JSON output (do not include any text before the continuation):"""
             config.setdefault("language", "python")
             if not config.get("code"):
                 config["code"] = CODE_NODE_DEFAULT_TEMPLATE
+        elif node_type == "condition":
+            # Ensure conditions array has meaningful expressions, not the useless default
+            conditions = config.get("conditions", [])
+            if conditions and isinstance(conditions, list):
+                for cond in conditions:
+                    val = cond.get("value", {})
+                    if isinstance(val, dict) and val.get("mode") == "custom" and val.get("expr"):
+                        continue  # already has a custom expression
+                    # If there's a top-level customExpr, push it into the first if-branch
+                    if cond.get("key", "").startswith("if") and config.get("customExpr"):
+                        cond["value"] = {"mode": "custom", "expr": config["customExpr"]}
+        elif node_type == "loop":
+            # Default to loopWhile unless explicitly loopFor
+            config.setdefault("loopMode", "loopWhile")
+            if config["loopMode"] == "loopWhile" and not config.get("loopWhileExpr"):
+                config["loopWhileExpr"] = "not state.get('result', {}).get('llm_result', {}).get('work_done', False)"
+            config.setdefault("loopCountExpr", "")
     def _parse_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
         """Parse a node dict into FlowgramNode, handling loop and condition nodes."""
         pos = n.get("position", {"x": 100, "y": 100})
