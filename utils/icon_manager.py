@@ -7,7 +7,8 @@ import os
 import sys
 from typing import Optional
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import Qt
 
 
 class IconManager:
@@ -63,48 +64,85 @@ class IconManager:
             # Fallback to print during early startup when logger is not yet available
             print(full_message)
     
-    def _find_icon_path(self) -> Optional[str]:
-        """
-        Find the application icon file based on platform requirements.
-        
-        Platform-specific considerations:
-        - macOS: Prefers high-resolution PNG (512x512) for crisp Dock display
-                 Qt will automatically use this for window icon
-        - Windows: Prefers multi-size ICO format (eCan.ico)
-                   Contains 16x16, 32x32, 48x48, 256x256 for different contexts
-                   Taskbar icon setup is separate and delayed (needs window handle)
-        - Linux: Uses ICO or PNG as available
-        
-        Returns:
-            Path to the best available icon file, or None if not found
-        """
+    def _resource_base_paths(self):
+        """Multiple base paths so icon is found in dev (cwd / run from anywhere)."""
+        bases = []
+        # Prefer __file__-relative path first so icon is found regardless of cwd (e.g. run from IDE)
+        try:
+            file_based = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resource"))
+            file_based = os.path.abspath(file_based)
+            bases.append(file_based)
+        except Exception:
+            pass
         try:
             from config.app_info import app_info
-            resource_path = app_info.app_resources_path
-            
-            # Platform-specific icon candidates in priority order
+            p = os.path.abspath(app_info.app_resources_path)
+            if p not in bases:
+                bases.append(p)
+        except Exception:
+            pass
+        cwd_resource = os.path.abspath(os.path.join(os.getcwd(), "resource"))
+        if cwd_resource not in bases:
+            bases.append(cwd_resource)
+        return bases
+
+    def _find_icon_path(self) -> Optional[str]:
+        """
+        Find the application icon file. Tries app_info, cwd, and __file__-relative paths.
+        Linux: prefer PNG for taskbar/dock.
+        """
+        try:
+            bases = self._resource_base_paths()
             if sys.platform == 'darwin':
-                # macOS: Use high-resolution PNG for crisp Dock icon
-                candidates = [
-                    os.path.join(resource_path, "images", "logos", "rounded", "dock_512x512.png"),
-                    os.path.join(resource_path, "images", "logos", "dock_512x512.png"),
-                    os.path.join(resource_path, "images", "logos", "rounded", "dock_256x256.png"),
-                    os.path.join(resource_path, "images", "logos", "dock_256x256.png"),
-                    os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                rels = [
+                    "images/logos/rounded/dock_512x512.png",
+                    "images/logos/dock_512x512.png",
+                    "images/logos/desktop_256x256.png",
+                ]
+            elif sys.platform.startswith("linux"):
+                rels = [
+                    "images/logos/desktop_256x256.png",
+                    "images/logos/desktop_128x128.png",
+                    "images/logos/desktop_64x64.png",
+                    "images/logos/dock_256x256.png",
+                    "images/logos/taskbar_32x32.png",
+                    "images/logos/taskbar_16x16.png",
+                    "images/logos/icon_multi.ico",
                 ]
             else:
-                # Windows/Linux: Use ICO format (contains multiple sizes)
-                candidates = [
-                    os.path.join(os.path.dirname(resource_path), "eCan.ico"),
-                    os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
-                    os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                rels = [
+                    "images/logos/icon_multi.ico",
+                    "images/logos/desktop_256x256.png",
                 ]
-            
-            for candidate in candidates:
-                if os.path.exists(candidate):
-                    self.icon_path = candidate
-                    return candidate
-            
+            # macOS: only rels (original behavior, no root eCan.ico).
+            # Linux: prefer PNG for taskbar; search rels first, then root ICO.
+            # Windows: root ICO first, then rels.
+            is_linux = sys.platform.startswith("linux")
+            is_darwin = sys.platform == "darwin"
+            if is_linux:
+                for base in bases:
+                    for rel in rels:
+                        candidate = os.path.join(base, rel)
+                        if os.path.isfile(candidate):
+                            self.icon_path = os.path.abspath(candidate)
+                            self._log(f"Resolved icon: {self.icon_path}", 'info')
+                            return self.icon_path
+            if not is_darwin:
+                for base in bases:
+                    root_ico = os.path.join(os.path.dirname(base), "eCan.ico")
+                    if os.path.isfile(root_ico):
+                        self.icon_path = os.path.abspath(root_ico)
+                        self._log(f"Resolved icon: {self.icon_path}", 'info')
+                        return self.icon_path
+            for base in bases:
+                for rel in rels:
+                    candidate = os.path.join(base, rel)
+                    if os.path.isfile(candidate):
+                        self.icon_path = os.path.abspath(candidate)
+                        self._log(f"Resolved icon: {self.icon_path}", 'info')
+                        return self.icon_path
+            if os.environ.get("ECAN_ICON_DEBUG"):
+                self._log(f"No icon found. Bases: {bases}", 'warning')
             return None
         except Exception as e:
             if self.logger:
@@ -130,11 +168,18 @@ class IconManager:
             return True
         
         if not self.icon_path:
+            self._find_icon_path()
+        if not self.icon_path:
             self._log("No icon path available", 'warning')
             return False
         
         try:
-            app_icon = QIcon(self.icon_path)
+            if sys.platform.startswith("linux"):
+                app_icon = self._make_icon_with_sizes(self.icon_path)
+                if app_icon.isNull():
+                    app_icon = QIcon(self.icon_path)
+            else:
+                app_icon = QIcon(self.icon_path)
             app.setWindowIcon(app_icon)
             IconManager._icon_set = True
             self._log(f"Application icon set: {self.icon_path}")
@@ -143,6 +188,30 @@ class IconManager:
         except Exception as e:
             self._log(f"Failed to set application icon: {e}", 'error')
             return False
+
+    def _make_icon_with_sizes(self, path: str) -> QIcon:
+        """Build QIcon with explicit sizes for Linux taskbar/dock."""
+        icon = QIcon()
+        for size in (16, 22, 24, 32, 48, 64, 128, 256):
+            pix = QPixmap(path)
+            if pix.isNull():
+                continue
+            scaled = pix.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            if not scaled.isNull():
+                icon.addPixmap(scaled, QIcon.Normal, QIcon.Off)
+        if icon.isNull():
+            icon = QIcon(path)
+        return icon
+
+    def get_icon_for_window(self) -> QIcon:
+        """Return QIcon for setWindowIcon (multi-size on Linux). Re-resolves path if needed."""
+        if not self.icon_path:
+            self._find_icon_path()
+        if not self.icon_path:
+            return QIcon()
+        if sys.platform.startswith("linux"):
+            return self._make_icon_with_sizes(self.icon_path)
+        return QIcon(self.icon_path)
     
     def set_window_taskbar_icon(self, window, app: Optional[QApplication] = None) -> bool:
         """

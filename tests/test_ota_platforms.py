@@ -69,8 +69,9 @@ def test_ota_config():
     else:
         arch = machine
     
-    # 获取 Appcast URL
-    appcast_url = ota_config.get_appcast_url(arch)
+    # 按平台获取 Appcast URL (get_appcast_url(platform, arch))
+    plat = 'macos' if system == 'darwin' else ('windows' if system == 'windows' else 'linux')
+    appcast_url = ota_config.get_appcast_url(plat, arch)
     print(f"[OK] Appcast URL: {appcast_url}")
     
     # 获取平台配置
