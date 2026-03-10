@@ -1,0 +1,515 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "start",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": 100,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "start"
+            }
+          },
+          {
+            "id": "code_load_run_config",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 400,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "code_load_run_config",
+              "code": "from datetime import datetime, timezone\n\n# Schedule note: the platform scheduler should trigger this skill daily at 20:00 local time.\n# This node initializes runtime configuration + run context.\n\nstate.setdefault(\"config\", {})\nstate.setdefault(\"run\", {})\n\n# Runtime parameters (edit as needed)\nstate[\"config\"][\"schedule\"] = {\"type\": \"daily\", \"time\": \"20:00\"}\nstate[\"config\"][\"max_orders_per_run\"] = state[\"config\"].get(\"max_orders_per_run\", 50)\nstate[\"config\"][\"include_statuses\"] = state[\"config\"].get(\"include_statuses\", [\"AWAITING_SHIPMENT\"])  # eBay-like\nstate[\"config\"][\"do_label_creation\"] = state[\"config\"].get(\"do_label_creation\", True)\nstate[\"config\"][\"do_mark_shipped\"] = state[\"config\"].get(\"do_mark_shipped\", True)\nstate[\"config\"][\"email_recipients\"] = state[\"config\"].get(\"email_recipients\", [\"ops@example.com\", \"owner@example.com\"])\nstate[\"config\"][\"email_from\"] = state[\"config\"].get(\"email_from\", \"no-reply@example.com\")\n\nnow = datetime.now(timezone.utc)\nrun_date = now.strftime(\"%Y-%m-%d\")\nstate[\"run\"][\"run_date\"] = run_date\nstate[\"run\"][\"run_started_at\"] = now.isoformat()\nstate[\"run\"][\"subject\"] = f\"eBay Fulfillment Run — {run_date} 8pm\"\n\n# Accumulators\nstate[\"run\"][\"orders_raw\"] = []\nstate[\"run\"][\"orders\"] = []\nstate[\"run\"][\"results\"] = []  # per-order outcomes\nstate[\"run\"][\"human_intervention_needed\"] = []\nstate[\"run\"][\"tool_errors\"] = []\nstate[\"run\"][\"counters\"] = {\n    \"fetched\": 0,\n    \"processed\": 0,\n    \"fulfilled\": 0,\n    \"partial\": 0,\n    \"on_hold\": 0,\n    \"failed\": 0,\n    \"skipped\": 0,\n}\n\nreturn state",
+              "language": "python"
+            }
+          },
+          {
+            "id": "mcp_tool_fetch_awaiting_shipment_orders",
+            "type": "mcp_tool",
+            "meta": {
+              "position": {
+                "x": 700,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "mcp_fetch_awaiting_shipment_orders",
+              "tool_name": "llm auto select",
+              "tool_input": "{\n  \"task\": \"Query eBay (Sell Fulfillment/Order APIs) for orders in Awaiting shipment. Return the raw response JSON.\",\n  \"constraints\": {\n    \"statuses\": {{{{config.include_statuses}}}},\n    \"limit\": {{{{config.max_orders_per_run}}}}\n  }\n}",
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          },
+          {
+            "id": "llm_normalize_orders_schema",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 1000,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "llm_normalize_orders_schema",
+              "modelProvider": "OpenAI",
+              "modelName": "gpt-4o-mini",
+              "temperature": 0.2,
+              "useThinking": false,
+              "systemPrompt": "You normalize e-commerce order API responses into a strict internal schema. Output ONLY valid JSON.",
+              "systemPromptId": "in-line",
+              "prompt": "Normalize the following raw eBay orders response into this JSON shape:\n{\n  \"orders\": [\n    {\n      \"order_id\": \"\",\n      \"order_status\": \"\",\n      \"buyer\": {\"name\":\"\",\"email\":\"\"},\n      \"paid\": true,\n      \"created_at\": \"\",\n      \"last_updated_at\": \"\",\n      \"ship_to\": {\"name\":\"\",\"address1\":\"\",\"address2\":\"\",\"city\":\"\",\"state\":\"\",\"postal_code\":\"\",\"country\":\"\",\"phone\":\"\"},\n      \"items\": [\n        {\"line_id\":\"\",\"sku\":\"\",\"title\":\"\",\"quantity\":1,\"price\":0.0}\n      ],\n      \"already_shipped\": false,\n      \"cancelled\": false,\n      \"hold_flags\": [\"\"],\n      \"raw\": {}\n    }\n  ]\n}\nRules:\n- If a field is missing, use empty string/false/[] as appropriate.\n- Derive already_shipped/cancelled/hold_flags from any signals available.\n- Put the original order JSON into raw.\n\nRaw response JSON:\n{{{{tool_result}}}}",
+              "promptId": "in-line",
+              "promptSelection": "inline",
+              "attachments": [],
+              "apiKey": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          },
+          {
+            "id": "condition_has_orders",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 1300,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "condition_has_orders",
+              "conditions": [
+                {
+                  "key": "if_branch",
+                  "value": {}
+                },
+                {
+                  "key": "else_branch",
+                  "value": {}
+                }
+              ],
+              "if": "custom",
+              "customExpr": "len(state.get('result', {}).get('llm_result', {}).get('orders', [])) > 0"
+            }
+          },
+          {
+            "id": "code_prepare_no_orders_message",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 2721.6,
+                "y": 1172.8000000000002
+              }
+            },
+            "data": {
+              "title": "code_prepare_no_orders_message",
+              "code": "from datetime import datetime, timezone\n\nstate[\"run\"][\"counters\"][\"fetched\"] = 0\nstate[\"run\"][\"summary\"] = \"No orders to fulfill right now (Awaiting shipment: 0).\"\nstate[\"run\"][\"summary_markdown\"] = f\"## eBay Fulfillment Run\\n\\n- Status: No orders to fulfill right now\\n- Checked status(es): {state['config']['include_statuses']}\\n- Time (UTC): {datetime.now(timezone.utc).isoformat()}\\n\"\nreturn state",
+              "language": "python"
+            }
+          },
+          {
+            "id": "loop_process_orders",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 1560,
+                "y": 0
+              }
+            },
+            "data": {
+              "title": "loop_process_orders",
+              "loopMode": "loopFor",
+              "loopCountExpr": "min(len(state.get('result', {}).get('llm_result', {}).get('orders', [])), state.get('config', {}).get('max_orders_per_run', 50))",
+              "loopWhileExpr": "",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "block_start_process_orders",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 30.799999999999955,
+                    "y": 385.6
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "code_select_current_order",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 261.60000000000036,
+                    "y": 349.79999999999995
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "condition_order_valid",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 561.6000000000004,
+                    "y": 349.79999999999995
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "code_record_invalid_order",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 2061.6,
+                    "y": 699.5999999999999
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "mcp_create_shipping_label",
+                "type": "mcp_tool",
+                "meta": {
+                  "position": {
+                    "x": 861.6000000000001,
+                    "y": 233.19999999999982
+                  }
+                },
+                "data": {
+                  "data": {
+                    "inputsValues": {}
+                  }
+                }
+              },
+              {
+                "id": "condition_label_success",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 1161.6,
+                    "y": 233.19999999999993
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "code_record_label_error",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 2061.6,
+                    "y": 466.40000000000003
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "mcp_mark_order_shipped",
+                "type": "mcp_tool",
+                "meta": {
+                  "position": {
+                    "x": 1461.6,
+                    "y": 116.60000000000002
+                  }
+                },
+                "data": {
+                  "data": {
+                    "inputsValues": {}
+                  }
+                }
+              },
+              {
+                "id": "condition_ship_update_success",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 1761.6,
+                    "y": 116.60000000000002
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "code_record_ship_error",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 2061.6,
+                    "y": 233.19999999999993
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "code_record_success_outcome",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 2061.6,
+                    "y": 0
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "block_end_process_orders",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 2292.4,
+                    "y": 385.6
+                  }
+                },
+                "data": {}
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "block_start_process_orders",
+                "targetNodeID": "code_select_current_order"
+              },
+              {
+                "sourceNodeID": "code_select_current_order",
+                "targetNodeID": "condition_order_valid"
+              },
+              {
+                "sourceNodeID": "condition_order_valid",
+                "targetNodeID": "mcp_create_shipping_label",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_order_valid",
+                "targetNodeID": "code_record_invalid_order",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "code_record_invalid_order",
+                "targetNodeID": "block_end_process_orders"
+              },
+              {
+                "sourceNodeID": "mcp_create_shipping_label",
+                "targetNodeID": "condition_label_success"
+              },
+              {
+                "sourceNodeID": "condition_label_success",
+                "targetNodeID": "mcp_mark_order_shipped",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_label_success",
+                "targetNodeID": "code_record_label_error",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "code_record_label_error",
+                "targetNodeID": "block_end_process_orders"
+              },
+              {
+                "sourceNodeID": "mcp_mark_order_shipped",
+                "targetNodeID": "condition_ship_update_success"
+              },
+              {
+                "sourceNodeID": "condition_ship_update_success",
+                "targetNodeID": "code_record_success_outcome",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_ship_update_success",
+                "targetNodeID": "code_record_ship_error",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "code_record_ship_error",
+                "targetNodeID": "block_end_process_orders"
+              },
+              {
+                "sourceNodeID": "code_record_success_outcome",
+                "targetNodeID": "block_end_process_orders"
+              }
+            ]
+          },
+          {
+            "id": "code_compile_run_metrics",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 4143.2,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "code_compile_run_metrics",
+              "code": "orders = state.get('result', {}).get('llm_result', {}).get('orders', [])\nstate['run']['counters']['fetched'] = len(orders)\n\n# Prepare a concise structured input for the summary LLM\nstate['run']['summary_input'] = {\n    'run_date': state['run'].get('run_date'),\n    'subject': state['run'].get('subject'),\n    'config': {\n        'max_orders_per_run': state['config'].get('max_orders_per_run'),\n        'include_statuses': state['config'].get('include_statuses'),\n        'do_label_creation': state['config'].get('do_label_creation'),\n        'do_mark_shipped': state['config'].get('do_mark_shipped'),\n    },\n    'counters': state['run'].get('counters', {}),\n    'results': state['run'].get('results', []),\n    'human_intervention_needed': state['run'].get('human_intervention_needed', []),\n    'tool_errors': state['run'].get('tool_errors', [])\n}\n\nreturn state",
+              "language": "python"
+            }
+          },
+          {
+            "id": "llm_build_consolidated_summary",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 4443.2,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "llm_build_consolidated_summary",
+              "modelProvider": "OpenAI",
+              "modelName": "gpt-4o-mini",
+              "temperature": 0.3,
+              "useThinking": false,
+              "systemPrompt": "You write clear operational summaries for fulfillment runs. Output ONLY valid JSON with keys: subject, body_text, body_markdown.",
+              "systemPromptId": "in-line",
+              "prompt": "Create an email-ready summary for this eBay fulfillment run.\nRequirements:\n- Include totals: fetched/processed/fulfilled/partial/on_hold/failed/skipped.\n- Include per-order bullet list: order_id, outcome, reason (if any), tracking numbers (if any).\n- Include a section \"Human intervention needed\" listing tool errors/ambiguous cases.\n- Be concise and scannable.\n\nInput JSON:\n{{{{run.summary_input}}}}",
+              "promptId": "in-line",
+              "promptSelection": "inline",
+              "attachments": [],
+              "apiKey": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          },
+          {
+            "id": "code_store_summary_outputs",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 4743.2,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "code_store_summary_outputs",
+              "code": "summ = state.get('result', {}).get('llm_result', {}) or {}\n\n# Prefer LLM-produced subject/body; fallback to earlier subject\nstate['run']['subject'] = summ.get('subject') or state['run'].get('subject')\nstate['run']['summary'] = summ.get('body_text') or state['run'].get('summary') or ''\nstate['run']['summary_markdown'] = summ.get('body_markdown') or state['run'].get('summary_markdown') or state['run']['summary']\n\nreturn state",
+              "language": "python"
+            }
+          },
+          {
+            "id": "mcp_tool_send_summary_email",
+            "type": "mcp_tool",
+            "meta": {
+              "position": {
+                "x": 5043.2,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "mcp_send_summary_email",
+              "tool_name": "llm auto select",
+              "tool_input": "{\n  \"task\": \"Send an email summary to multiple recipients.\",\n  \"from\": \"{{config.email_from}}\",\n  \"to\": {{config.email_recipients}},\n  \"subject\": \"{{run.subject}}\",\n  \"body\": \"{{run.summary_markdown}}\",\n  \"format\": \"markdown\"\n}",
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          },
+          {
+            "id": "http_send_summary_email_fallback",
+            "type": "http",
+            "meta": {
+              "position": {
+                "x": 5343.2,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "http_send_summary_email_fallback",
+              "method": "POST",
+              "url": "https://api.emailprovider.example/v1/send",
+              "body": "{\n  \"from\": \"{{config.email_from}}\",\n  \"to\": {{config.email_recipients}},\n  \"subject\": \"{{run.subject}}\",\n  \"text\": \"{{run.summary}}\"\n}",
+              "timeoutSeconds": 60
+            }
+          },
+          {
+            "id": "end",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 5643.2,
+                "y": 821.3
+              }
+            },
+            "data": {
+              "title": "end",
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start",
+            "targetNodeID": "code_load_run_config"
+          },
+          {
+            "sourceNodeID": "code_load_run_config",
+            "targetNodeID": "mcp_tool_fetch_awaiting_shipment_orders"
+          },
+          {
+            "sourceNodeID": "mcp_tool_fetch_awaiting_shipment_orders",
+            "targetNodeID": "llm_normalize_orders_schema"
+          },
+          {
+            "sourceNodeID": "llm_normalize_orders_schema",
+            "targetNodeID": "condition_has_orders"
+          },
+          {
+            "sourceNodeID": "condition_has_orders",
+            "targetNodeID": "loop_process_orders",
+            "sourcePortID": "if_branch"
+          },
+          {
+            "sourceNodeID": "condition_has_orders",
+            "targetNodeID": "code_prepare_no_orders_message",
+            "sourcePortID": "else_branch"
+          },
+          {
+            "sourceNodeID": "code_prepare_no_orders_message",
+            "targetNodeID": "code_compile_run_metrics"
+          },
+          {
+            "sourceNodeID": "loop_process_orders",
+            "targetNodeID": "code_compile_run_metrics"
+          },
+          {
+            "sourceNodeID": "code_compile_run_metrics",
+            "targetNodeID": "llm_build_consolidated_summary"
+          },
+          {
+            "sourceNodeID": "llm_build_consolidated_summary",
+            "targetNodeID": "code_store_summary_outputs"
+          },
+          {
+            "sourceNodeID": "code_store_summary_outputs",
+            "targetNodeID": "mcp_tool_send_summary_email"
+          },
+          {
+            "sourceNodeID": "mcp_tool_send_summary_email",
+            "targetNodeID": "http_send_summary_email_fallback"
+          },
+          {
+            "sourceNodeID": "http_send_summary_email_fallback",
+            "targetNodeID": "end"
+          }
+        ]
+      },
+      "createdAt": 1773106058534,
+      "lastOpenedAt": 1773106058535
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}

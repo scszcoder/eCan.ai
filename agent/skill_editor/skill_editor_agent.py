@@ -2702,21 +2702,43 @@ class SkillEditorAgent:
         domain_qa = prompt_store.get_domain_qa_for(domain) or ""
         req_collector_prompt = prompt_store.get("requirement_collector", default="")
 
+        # Extract the Domain Definitions section from the taxonomy so the LLM
+        # knows what business areas to probe for.
+        taxonomy_text = prompt_store.get_taxonomy() or ""
+        domain_defs_section = ""
+        if taxonomy_text:
+            import re as _re
+            m = _re.search(r"(## Domain Definitions.*?)(?=\n## |\Z)", taxonomy_text, _re.DOTALL)
+            if m:
+                domain_defs_section = m.group(1).strip()
+
         prompt = (
             "You are a requirement collection assistant for the eCan.ai skill editor.\n\n"
             "## REQUIREMENT COLLECTOR INSTRUCTIONS\n"
             f"{req_collector_prompt}\n\n"
         )
+        if domain_defs_section:
+            prompt += (
+                "## BUSINESS DOMAIN REFERENCE\n"
+                "Use the following domain definitions to ask domain-relevant questions. "
+                "Questions MUST probe the specific concerns of the classified domain.\n\n"
+                f"{domain_defs_section}\n\n"
+            )
         if domain_qa:
             prompt += (
-                "## DOMAIN-SPECIFIC DECISION TREE (for this domain)\n"
+                "## DOMAIN-SPECIFIC DECISION TREE (for this domain — FOLLOW THIS)\n"
+                "You MUST use the questions in this decision tree as the **primary source** "
+                "of your clarification questions. Convert each tree question into a "
+                "multiple-choice question. Only add extra questions if the tree does not "
+                "cover an important aspect of the user's request.\n\n"
                 f"{domain_qa}\n\n"
             )
         prompt += (
             "## TASK\n"
-            "The user wants to create a new workflow. Based on their message and the domain QA above, "
-            "generate a JSON array of 3-6 clarification questions to gather the most critical "
-            "requirements. Each question should have multiple-choice options where possible.\n\n"
+            "The user wants to create a new workflow. Based on their message, the domain "
+            "definitions, and the domain QA decision tree above, generate a JSON array of "
+            "3-8 clarification questions to gather the most critical requirements. "
+            "Each question should have multiple-choice options where possible.\n\n"
             "Return **JSON only** (no markdown fences) with this schema:\n"
             '[\n'
             '  {\n'
@@ -2732,11 +2754,14 @@ class SkillEditorAgent:
             '  }\n'
             ']\n\n'
             "Guidelines:\n"
-            "- Use the domain QA tree questions as a starting point, but adapt them to the user's request.\n"
-            "- Add domain-specific questions that the QA tree might not cover.\n"
+            "- **PRIORITY**: Convert the domain QA decision tree questions into the JSON format "
+            "FIRST. These are the most important questions.\n"
+            "- Then add any extra domain-specific questions the tree does not cover.\n"
             "- Propose reasonable defaults as first choices.\n"
             "- Keep questions concise and actionable.\n"
-            "- Batch the 3-6 most critical questions — don't ask more.\n"
+            "- Generate up to 8 questions — aim for completeness over brevity.\n"
+            "- Set \"allow_multiple\": true when the user can reasonably select more than one option "
+            "(e.g. trigger types, output destinations, notification channels).\n"
             "- ALWAYS include an 'Other' choice (with \"allow_freeform\": true) as the last option "
             "so the user can provide a custom answer.\n\n"
             f"classified_domain={domain}\n"
@@ -2918,7 +2943,7 @@ class SkillEditorAgent:
         prompt += (
             "## TASK\n"
             "Based on the domain QA decision tree above and the answers the user has already "
-            "provided, generate a focused set of **follow-up clarification questions** (3–6) "
+            "provided, generate a focused set of **follow-up clarification questions** (3–8) "
             "that drill into domain-specific details not yet covered.\n\n"
             "Guidelines:\n"
             "- Do NOT re-ask questions whose answers are already captured above.\n"
@@ -2926,7 +2951,8 @@ class SkillEditorAgent:
             "- Where the tree calls for sub-questions (e.g. Q4 → Q4.1 → Q4.1.1), include "
             "those sub-questions if the parent answer triggers them.\n"
             "- Offer multiple-choice options where sensible; always include an 'Other' freeform option.\n"
-            "- Keep the set concise (3–6 questions max).\n\n"
+            "- Set \"allow_multiple\": true when the user can reasonably select more than one option.\n"
+            "- Keep the set concise (3–8 questions max).\n\n"
             "Return **JSON only** (no markdown fences) matching this schema:\n"
             '[\n'
             '  {\n'
@@ -4842,7 +4868,7 @@ class SkillEditorAgent:
         agent_msg = ""
         if new_agent_config:
             agent_msg = f" A new agent '{new_agent_config['name']}' will be created."
-        elif agent_name:
+repo/eCan.ai/lambda_functions/skill_editor_lambda/prompts/sop        elif agent_name:
             agent_msg = f" Assigned to agent '{agent_name}'."
         
         response_msg = f"Deploying skill '{skill_name}' as task '{task_name}' to run {schedule_msg}.{agent_msg}"
