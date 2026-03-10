@@ -588,6 +588,10 @@ const DocumentsTab: React.FC = () => {
     try {
       if (!silentRefresh) {
         setLoading(true);
+        // Clear documents list on first load to avoid duplicates during retry
+        if (retryCount === 0) {
+          setDocuments([]);
+        }
       }
       
       // Use paginated API
