@@ -255,16 +255,29 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         {/* Browser selector */}
         <FormItem name="browser" label={getCommonFieldLabel('browser', t)} type="string" vertical>
           <Field<string> name="inputsValues.browser.content">
-            {({ field }) => (
-              <Select
-                value={(field.value as string) || BROWSER_OPTIONS[0].value}
-                onChange={(val) => field.onChange(val as string)}
-                optionList={BROWSER_OPTIONS}
-                style={{ width: '100%' }}
-                dropdownMatchSelectWidth
-                size="small"
-              />
-            )}
+            {({ field }) => {
+              const browserValue = (field.value as string) || BROWSER_OPTIONS[0].value;
+              return (
+                <>
+                  <Select
+                    value={browserValue}
+                    onChange={(val) => field.onChange(val as string)}
+                    optionList={BROWSER_OPTIONS}
+                    style={{ width: '100%' }}
+                    dropdownMatchSelectWidth
+                    size="small"
+                  />
+                  {browserValue === 'existing chrome' && (
+                    <div style={{ marginTop: 6, padding: '6px 8px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: 4, fontSize: 11, lineHeight: 1.5 }}>
+                      <strong style={{ color: '#000' }}>Please be sure to launch Chrome using the following command:</strong>
+                      <div style={{ marginTop: 4, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-all', color: '#333' }}>
+                        chrome.exe --remote-debugging-port=9228 --user-data-dir="C:\chrome_data" --disable-features=SharedStorage,InterestCohort
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            }}
           </Field>
         </FormItem>
 

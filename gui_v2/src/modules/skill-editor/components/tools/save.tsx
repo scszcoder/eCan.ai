@@ -14,6 +14,7 @@ import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
@@ -33,6 +34,9 @@ import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
  * Prepare diagram for saving: handle flip states and remove breakpoints
  */
 function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean): void {
+  // Read all notes from the store once (avoids per-node getState calls)
+  const allNotes = useNodeNoteStore.getState().notes;
+
   // Recursive function to process nodes (including subcanvas)
   const processNodes = (nodes: any[]) => {
     nodes.forEach((node: any) => {
@@ -49,6 +53,14 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
       // Remove breakpoints (not persisted)
       if (node.data.break_point) {
         delete node.data.break_point;
+      }
+
+      // Inject agentNote from the external note store.
+      // The flowgram form model doesn't expose setFieldValue, so notes are
+      // stored externally and merged into the serialised diagram here.
+      const note = allNotes.get(node.id);
+      if (note) {
+        node.data.agentNote = note;
       }
       
       // Recursively process subcanvas nodes
@@ -316,22 +328,40 @@ export async function saveFile(
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;
         if (!filePath) {
-          // 问题2FIX: 不要在Default文件名中Add _skill 后缀
-          // UserInput的Name就是文件夹Name，Backend会自动Add _skill 后缀到文件夹
-          const fileName = (dataToSave.skillName || 'untitled') + '.json';
-          console.log('[SKILL_IO][FRONTEND][DEFAULT_FILENAME]', fileName);
-          const dialogResponse = await ipcApi.showSaveDialog(fileName, [
-            { name: 'Skill Files', extensions: ['json'] },
-            { name: 'All Files', extensions: ['*'] }
-          ]);
-          if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
-            filePath = (dialogResponse.data as any).filePath || (dialogResponse.data as any).filePaths?.[0];
+          // First-time save: use scaffoldSkill to create proper directory structure
+          // my_skills/<name>_skill/diagram_dir/<name>_skill.json
+          const baseName = normalizeSkillBaseName(dataToSave.skillName);
+          console.log('[SKILL_IO][FRONTEND][SCAFFOLD] Creating skill structure for:', baseName);
+          const scaffoldResp = await ipcApi.scaffoldSkill(
+            baseName,
+            (dataToSave as any).description || '',
+            'diagram',
+            dataToSave,
+            bundleJson ? JSON.parse(bundleJson) : undefined,
+            dataMappingJson ? JSON.parse(dataMappingJson) : undefined
+          );
+          if (scaffoldResp.success && scaffoldResp.data) {
+            const scaffoldData = scaffoldResp.data as any;
+            console.log('[SKILL_IO][FRONTEND][SCAFFOLD_OK]', scaffoldData);
+            return {
+              success: true,
+              filePath: scaffoldData.diagramPath,
+              skillName: scaffoldData.name,
+            };
           } else {
-            console.log('Save operation was cancelled by user');
-            return { cancelled: true };
+            // Skill dir already exists — fall back to writing directly to expected path
+            const errorStr = String((scaffoldResp as any).error || '');
+            if (errorStr.includes('already exists')) {
+              console.warn('[SKILL_IO][FRONTEND][SCAFFOLD_EXISTS] Falling back to direct write for:', baseName);
+              filePath = `my_skills/${baseName}_skill/diagram_dir/${baseName}_skill.json`;
+              // Continue to the normal writeSkillFile flow below
+            } else {
+              console.error('[SKILL_IO][FRONTEND][SCAFFOLD_ERROR]', scaffoldResp.error);
+              throw new Error(errorStr || 'Failed to scaffold skill');
+            }
           }
         }
-        // Enforce _skill.json suffix
+        // Existing file: enforce _skill.json suffix
         if (filePath) {
           if (/\.(json)$/i.test(filePath) && !/_skill\.json$/i.test(filePath)) {
             filePath = filePath.replace(/\.json$/i, '_skill.json');
@@ -471,6 +501,13 @@ async function syncSkillToDBAndStore(
 
     console.log('[SKILL_IO][DB_SYNC] Syncing skill to DB:', skillPayload.name, 'id:', skillPayload.id);
 
+    // If no skill ID, the skill was just scaffolded (first-time save) and sync_skill_from_file
+    // already created the DB entry. Skip save_agent_skill to avoid "Skill ID is required" error.
+    if (!skillPayload.id) {
+      console.log('[SKILL_IO][DB_SYNC] No skill ID — skipping save_agent_skill (scaffold already synced)');
+      return;
+    }
+
     const resp = await api.saveAgentSkill(owner, skillPayload);
 
     if (resp && resp.success) {
@@ -524,7 +561,6 @@ export const Save = ({ disabled }: SaveProps) => {
   const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
   const setDataMappingDirty = useSkillInfoStore((state) => state.setDataMappingDirty);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
-  const removeRecentFile = useRecentFilesStore((state) => state.removeRecentFile);
   const username = useUserStore((state) => state.username);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
@@ -549,68 +585,11 @@ export const Save = ({ disabled }: SaveProps) => {
     if (!skillInfo) return;
 
     try {
-      // 1. Get base diagram from document.toJSON()
+      // 1. Get and prepare diagram
       const diagram = document.toJSON();
-      
-      // 2. Extract subcanvas data from runtime Loop nodes
-      // Loop nodes store their children in 'blocks' field at runtime, but need to be saved as 'data.subcanvas.nodes'
-      diagram.nodes?.forEach((node: any) => {
-        if (node.type === 'loop' || node.id.startsWith('loop_')) {
-          const runtimeNode = document.getNode(node.id);
-          if (runtimeNode?.blocks && runtimeNode.blocks.length > 0) {
-            if (!node.data) node.data = {};
-            if (!node.data.subcanvas) node.data.subcanvas = {};
-            
-            // Serialize blocks to JSON format
-            node.data.subcanvas.nodes = runtimeNode.blocks.map((block: any) => 
-              block.toJSON ? block.toJSON() : block
-            );
-          }
-        }
-      });
-      
-      // 3. Clean up orphaned flip states
-      const flipStore = useNodeFlipStore.getState();
-      const flippedNodeIds = Array.from(flipStore.flippedNodes);
-      
-      // Collect all node IDs recursively (including subcanvas)
-      const collectAllNodeIds = (nodes: any[]): Set<string> => {
-        const ids = new Set<string>();
-        const traverse = (nodeList: any[]) => {
-          for (const n of nodeList) {
-            ids.add(n.id);
-            if (n.data?.subcanvas?.nodes) {
-              traverse(n.data.subcanvas.nodes);
-            }
-          }
-        };
-        traverse(nodes);
-        return ids;
-      };
-      
-      const currentNodeIds = collectAllNodeIds(diagram.nodes);
-      const orphanedFlips = flippedNodeIds.filter(id => !currentNodeIds.has(id));
-      if (orphanedFlips.length > 0) {
-        orphanedFlips.forEach(id => flipStore.setFlipped(id, false));
-      }
-      
-      // 4. Clean up orphaned runtime states
-      try {
-        const { useRuntimeStateStore } = await import('../../stores/runtime-state-store');
-        const runtimeStore = useRuntimeStateStore.getState();
-        const runtimeNodeIds = Object.keys(runtimeStore.byNodeId);
-        const orphanedRuntimeStates = runtimeNodeIds.filter(id => !currentNodeIds.has(id));
-        if (orphanedRuntimeStates.length > 0) {
-          orphanedRuntimeStates.forEach(id => runtimeStore.clearNode(id));
-        }
-      } catch (e) {
-        console.warn('[Save] Failed to clean up runtime states:', e);
-      }
-      
-      // 5. Persist flip states to diagram
       prepareDiagramForSave(diagram, isFlipped);
 
-      // 6. Prepare sanitized copy for file persistence
+      // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
 
@@ -618,7 +597,7 @@ export const Save = ({ disabled }: SaveProps) => {
       const configNodes = extractConfigNodes(diagram);
       const updatedSkillInfo = {
         ...skillInfo,
-        workFlow: sanitizedDiagram,  // Use sanitizedDiagram which contains hFlip from prepareDiagramForSave
+        workFlow: diagram,
         lastModified: new Date().toISOString(),
         schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
         mode: (skillInfo as any)?.mode ?? 'development',
@@ -639,12 +618,8 @@ export const Save = ({ disabled }: SaveProps) => {
         },
       } as any;
 
-      console.log('[Save] updatedSkillInfo.skillName:', updatedSkillInfo.skillName);
-
-      const skillInfoForSave = updatedSkillInfo;
+      const skillInfoForSave = { ...updatedSkillInfo, workFlow: sanitizedDiagram } as any;
       sanitizeApiKeysDeep(skillInfoForSave);
-      
-      console.log('[Save] skillInfoForSave.skillName (after sanitize):', skillInfoForSave.skillName);
 
       let dataMappingForSave: string | null = null;
       if (dataMappingDirty && dataMappingJson) {
@@ -664,84 +639,22 @@ export const Save = ({ disabled }: SaveProps) => {
       }
 
       // 4. Handle skill rename if name changed
-      // Compare directory name with skillName in file content to detect mismatch
       let effectivePath = currentFilePath || null;
-      let renameSucceeded = false;
       try {
         if (effectivePath) {
           const norm = effectivePath.replace(/\\/g, '/');
           const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
-          const dirBase = m?.[1] || '';  // Name from directory path
-          const contentBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();  // Name from file content
+          const oldBase = m?.[1] || '';
+          const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
 
-          console.log(`[Save] Directory name: ${dirBase}, Content skillName: ${contentBase}`);
-
-          if (dirBase && contentBase && dirBase !== contentBase) {
-            console.log(`[Save] ⚠️ Mismatch detected! Renaming directory: ${dirBase} -> ${contentBase}`);
-            console.log(`[Save] Current path: ${effectivePath}`);
-            
+          if (oldBase && proposedBase && oldBase !== proposedBase) {
             const api = IPCAPI.getInstance();
-            
-            // Call renameSkill with currentFilePath parameter (supports both my_skills and external directories)
-            const resp = await api.renameSkill(dirBase, contentBase, effectivePath);
+            const resp = await api.renameSkill(oldBase, proposedBase);
             if (resp.success && resp.data?.skillRoot) {
               const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
-              const newPath = `${newRoot}/diagram_dir/${contentBase}_skill.json`;
-              console.log(`[Save] ✅ Rename succeeded!`);
-              console.log(`[Save] Old path: ${effectivePath}`);
-              console.log(`[Save] New path: ${newPath}`);
-              
-              // Update recent files: remove old path, add new path
-              try {
-                console.log(`[Save] Before remove - old path: ${effectivePath}`);
-                removeRecentFile(effectivePath);
-                console.log(`[Save] Removed old path from recent files: ${effectivePath}`);
-              } catch (e) {
-                console.warn('[Save] Failed to remove old path from recent files:', e);
-              }
-              
-              effectivePath = newPath;
-              setCurrentFilePath(newPath);
-              
-              // Add new path to recent files so it loads after refresh
-              try {
-                const recentFile = {
-                  filePath: newPath,
-                  fileName: `${contentBase}_skill.json`,
-                  lastOpened: new Date().toISOString(),
-                  skillName: contentBase
-                };
-                addRecentFile(recentFile);
-                console.log(`[Save] Added new path to recent files: ${newPath}`);
-                
-                // Force persist to localStorage immediately
-                // Wait a bit to ensure zustand persist middleware has time to save
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
-                // Verify recent files were updated correctly
-                const { getRecentFiles } = useRecentFilesStore.getState();
-                const currentRecent = getRecentFiles();
-                console.log(`[Save] Recent files after update (count: ${currentRecent.length}):`, 
-                  currentRecent.slice(0, 3).map(f => f.filePath));
-                
-                // Double-check localStorage directly
-                const stored = localStorage.getItem('skill-editor-recent-files');
-                if (stored) {
-                  const parsed = JSON.parse(stored);
-                  console.log(`[Save] localStorage recent files:`, 
-                    parsed?.state?.recentFiles?.slice(0, 3).map((f: any) => f.filePath));
-                }
-              } catch (e) {
-                console.warn('[Save] Failed to add new path to recent files:', e);
-              }
-              
-              renameSucceeded = true;
-            } else {
-              console.warn(`[Save] ⚠️ Rename failed:`, resp.error || 'Unknown error');
-              console.warn(`[Save] Directory and file names remain unchanged.`);
+              effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
+              setCurrentFilePath(effectivePath);
             }
-          } else if (dirBase === contentBase) {
-            console.log(`[Save] Directory and content names match (${dirBase}), no rename needed`);
           }
         }
       } catch (e) {
@@ -756,8 +669,6 @@ export const Save = ({ disabled }: SaveProps) => {
       }
 
       // 5. Save the file
-      console.log('[Save] About to save file with skillName:', skillInfoForSave.skillName);
-      console.log('[Save] Save path:', effectivePath);
       const saveResult = await saveFile(
         skillInfoForSave,
         username || undefined,
@@ -767,32 +678,21 @@ export const Save = ({ disabled }: SaveProps) => {
       );
 
       if (saveResult && !saveResult.cancelled) {
-        // If rename succeeded, use effectivePath (new path), otherwise use saveResult.filePath
-        const finalPath = renameSucceeded ? (effectivePath || '') : (saveResult.filePath || effectivePath || '');
-        
-        // Only derive name from path if rename succeeded, otherwise keep user's modified name
-        const derivedName = renameSucceeded 
-          ? deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName)
-          : updatedSkillInfo.skillName;
+        const finalPath = saveResult.filePath || effectivePath || '';
+        const derivedName = deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName);
         const finalSkillInfo = { ...updatedSkillInfo, skillName: derivedName } as any;
-
-        console.log('[Save] Final path after save:', finalPath);
-        console.log('[Save] Final skill name:', derivedName);
 
         setSkillInfo(finalSkillInfo);
         setHasUnsavedChanges(false);
 
-        // Always update currentFilePath to finalPath (especially important after rename)
-        if (finalPath && finalPath !== currentFilePath) {
-          setCurrentFilePath(finalPath);
-          console.log('[Save] Updated currentFilePath to:', finalPath);
+        if (saveResult.filePath && saveResult.filePath !== currentFilePath) {
+          setCurrentFilePath(saveResult.filePath);
         }
 
         const mappingPath = deriveDataMappingPath(finalPath, finalSkillInfo.skillName);
         try { useSkillInfoStore.getState().setDataMappingPath(mappingPath); } catch {}
 
-        // Only add to recent files if not a rename (rename already updated recent files)
-        if (finalPath && !renameSucceeded) {
+        if (finalPath) {
           addRecentFile(createRecentFile(finalPath, finalSkillInfo.skillName));
         }
 
