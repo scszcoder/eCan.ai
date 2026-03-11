@@ -3,6 +3,7 @@
  */
 import { Field, FormMeta, FormRenderProps, FlowNodeJSON } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, InputNumber, Radio, Button, Input, Typography } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { defaultFormMeta } from '../default-form-meta';
 import { IPCAPI } from '../../../../services/ipc/api';
@@ -20,11 +21,12 @@ const EVENT_TYPES = [
 ];
 
 export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
+  const { t } = useTranslation('skillEditor');
   return (
     <>
       <FormHeader />
       <FormContent>
-        <FormItem name="Event Type" type="string" vertical>
+        <FormItem name="eventType" label={t('nodes.pendEvent.eventType')} type="string" vertical>
           <Field<any> name="inputsValues.eventType">
             {({ field }) => (
               <Select
@@ -40,7 +42,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
             const et = String(field.value?.content ?? 'human_chat');
             if (["websocket", "sse", "webhook", "system"].includes(et)) {
               return (
-                <FormItem key={`main-extra-${et}`} name="Message Type" type="string" vertical>
+                <FormItem key={`main-extra-${et}`} name="messageType" label={t('nodes.pendEvent.messageType')} type="string" vertical>
                   <Field<any> name="inputsValues.messageType">
                     {({ field: mtField }) => (
                       <Input
@@ -54,7 +56,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
             }
             if (et === 'a2a') {
               return (
-                <FormItem key={`main-extra-${et}`} name="Agent Ids" type="string" vertical>
+                <FormItem key={`main-extra-${et}`} name="agentIds" label={t('nodes.pendEvent.agentIds')} type="string" vertical>
                   <Field<any> name="inputsValues.agentIds">
                     {({ field: aiField }) => (
                       <Input
@@ -68,7 +70,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
             }
             if (et === 'timer') {
               return (
-                <FormItem key={`main-extra-${et}`} name="Timer Name" type="string" vertical>
+                <FormItem key={`main-extra-${et}`} name="timerName" label={t('nodes.pendEvent.timerName')} type="string" vertical>
                   <Field<any> name="inputsValues.timerName">
                     {({ field: tnField }) => (
                       <Input
@@ -83,7 +85,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
             }
             if (et === 'browser_event') {
               return (
-                <FormItem key={`main-extra-${et}`} name="Event Label" type="string" vertical>
+                <FormItem key={`main-extra-${et}`} name="eventLabel" label={t('nodes.pendEvent.eventLabel')} type="string" vertical>
                   <Field<any> name="inputsValues.browserEventLabel">
                     {({ field: beField }) => (
                       <Input
@@ -96,11 +98,11 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 </FormItem>
               );
             }
-            return null;
+            return <></>;
           }}
         </Field>
         <Divider />
-        <FormItem name="Pending Sources" type="array" vertical>
+        <FormItem name="pendingSources" label={t('nodes.pendEvent.pendingSources')} type="array" vertical>
           <Field<any> name="inputsValues.pendingSources">
             {({ field }) => {
               const raw = Array.isArray(field.value?.content) ? (field.value.content as any[]) : [];
@@ -140,11 +142,11 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                             style={{ flex: 1 }}
                           />
                           <Button type="danger" theme="borderless" onClick={() => removeAt(i)}>
-                            Delete
+                            {t('nodes.pendEvent.delete')}
                           </Button>
                         </div>
                         {['websocket', 'sse', 'webhook', 'system'].includes(et) && (
-                          <FormItem key={`list-extra-${i}-${et}`} name="Message Type" type="string" vertical>
+                          <FormItem key={`list-extra-${i}-${et}`} name="messageType" label={t('nodes.pendEvent.messageType')} type="string" vertical>
                             <Input
                               value={item.messageType ?? ''}
                               onChange={(val) => updateExtraAt(i, 'messageType', String(val))}
@@ -152,7 +154,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                           </FormItem>
                         )}
                         {et === 'a2a' && (
-                          <FormItem key={`list-extra-${i}-${et}`} name="Agent Ids" type="string" vertical>
+                          <FormItem key={`list-extra-${i}-${et}`} name="agentIds" label={t('nodes.pendEvent.agentIds')} type="string" vertical>
                             <Input
                               value={item.agentIds ?? ''}
                               onChange={(val) => updateExtraAt(i, 'agentIds', String(val))}
@@ -160,7 +162,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                           </FormItem>
                         )}
                         {et === 'timer' && (
-                          <FormItem key={`list-extra-${i}-timer`} name="Timer Name" type="string" vertical>
+                          <FormItem key={`list-extra-${i}-timer`} name="timerName" label={t('nodes.pendEvent.timerName')} type="string" vertical>
                             <Input
                               value={item.timerName ?? ''}
                               placeholder="e.g. check_orders"
@@ -169,7 +171,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                           </FormItem>
                         )}
                         {et === 'browser_event' && (
-                          <FormItem key={`list-extra-${i}-browser`} name="Event Label" type="string" vertical>
+                          <FormItem key={`list-extra-${i}-browser`} name="eventLabel" label={t('nodes.pendEvent.eventLabel')} type="string" vertical>
                             <Input
                               value={item.browserEventLabel ?? ''}
                               placeholder="e.g. price_api, page_loaded"
@@ -181,7 +183,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                     );
                   })}
                   <div>
-                    <Button onClick={addOne}>Add</Button>
+                    <Button onClick={addOne}>{t('nodes.pendEvent.add')}</Button>
                   </div>
                 </div>
               );
@@ -189,7 +191,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
           </Field>
         </FormItem>
         <Divider />
-        <FormItem name="Timeout (sec)" type="number" vertical>
+        <FormItem name="timeoutSec" label={t('nodes.pendEvent.timeoutSec')} type="number" vertical>
           <Field<any> name="inputsValues.timeoutSec">
             {({ field }) => (
               <InputNumber
@@ -201,7 +203,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
           </Field>
         </FormItem>
         <Divider />
-        <FormItem name="Resume Policy" type="string" vertical>
+        <FormItem name="resumePolicy" label={t('nodes.pendEvent.resumePolicy')} type="string" vertical>
           <Field<any> name="inputsValues.resumePolicy">
             {({ field }) => (
               <Radio.Group
@@ -209,25 +211,22 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 value={field.value?.content ?? 'first'}
                 onChange={(e) => field.onChange({ type: 'constant', content: String((e as any).target?.value ?? 'first') })}
               >
-                <Radio value="first">First</Radio>
-                <Radio value="all">All</Radio>
+                <Radio value="first">{t('nodes.pendEvent.first')}</Radio>
+                <Radio value="all">{t('nodes.pendEvent.all')}</Radio>
               </Radio.Group>
             )}
           </Field>
         </FormItem>
         <Divider />
-        <FormItem name="Routing Match Fields" type="array" vertical>
+        <FormItem name="matchFields" label={t('nodes.pendEvent.routingMatchFields')} type="array" vertical>
           <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
-            Match fields for routing events to the correct task. Event Field is a dot-path
-            in the normalized event envelope (type, source, tag, data.*, context.*).
-            Task Field is a dot-path in the task (state.*, skill.*, id, name).
-            Task Field can be blank if auto-filled at runtime (e.g. task id).{' '}
+            {t('nodes.pendEvent.routingMatchFieldsDesc')}{' '}
             <Typography.Text
               link={{ onClick: openDocFile }}
               size="small"
               style={{ cursor: 'pointer' }}
             >
-              View Specification
+              {t('nodes.pendEvent.viewSpecification')}
             </Typography.Text>
           </Typography.Text>
           <Field<any> name="inputsValues.matchFields">
@@ -255,25 +254,25 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                     <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Input
                         value={item.event_path}
-                        placeholder="Event Field (e.g. data.order_id)"
+                        placeholder={t('nodes.pendEvent.eventFieldPlaceholder')}
                         onChange={(val) => updateRow(i, 'event_path', String(val))}
                         style={{ flex: 1 }}
                         size="small"
                       />
                       <Input
                         value={item.task_path}
-                        placeholder="Task Field (e.g. state.order_id)"
+                        placeholder={t('nodes.pendEvent.taskFieldPlaceholder')}
                         onChange={(val) => updateRow(i, 'task_path', String(val))}
                         style={{ flex: 1 }}
                         size="small"
                       />
                       <Button type="danger" theme="borderless" size="small" onClick={() => removeRow(i)}>
-                        Del
+                        {t('nodes.pendEvent.delete')}
                       </Button>
                     </div>
                   ))}
                   <div>
-                    <Button size="small" onClick={addRow}>Add Match Field</Button>
+                    <Button size="small" onClick={addRow}>{t('nodes.pendEvent.addMatchField')}</Button>
                   </div>
                 </div>
               );

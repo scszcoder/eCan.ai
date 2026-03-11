@@ -59,6 +59,13 @@ interface ChatSession {
   updatedAt: Date;
 }
 
+/** Parse a timestamp value into a valid Date. Falls back to `new Date()` when the input is missing or produces an Invalid Date. */
+const safeDate = (value: any): Date => {
+  if (value == null) return new Date();
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
 const parseMaybeJson = (value: any) => {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
@@ -99,7 +106,7 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
         id: String(m.id),
         role: (m.role as 'user' | 'assistant') || 'assistant',
         content: String(m.content ?? ''),
-        timestamp: new Date(m.timestamp || Date.now()),
+        timestamp: safeDate(m.timestamp),
         attachments: Array.isArray(attachments)
           ? attachments.map((a: any) => a?.path || a?.name || String(a)).filter(Boolean)
           : undefined,
@@ -425,7 +432,7 @@ const formatSessionDate = (date: Date, t: (key: string, options?: any) => string
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // If message has clarification with submitted answers, render read-only ClarificationCard
+  // If message has clarification with submitted answers, render read-only A2UIFormCard
   // Only render if clarification data is valid
   if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
     return (
@@ -550,7 +557,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               id: m.id,
               role: m.role as 'user' | 'assistant',
               content: m.content,
-              timestamp: new Date(m.timestamp),
+              timestamp: safeDate(m.timestamp),
               attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
               clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
               plan: m.metadata?.plan as ImplementationPlan | undefined,
@@ -565,36 +572,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           setSessions(convertedSessions);
           console.log(`[ChatPanel] Loaded ${convertedSessions.length} sessions from backend`);
           
-          // Auto-select the most recent session if none selected
-          if (!activeSessionId && convertedSessions.length > 0) {
-            const firstId = convertedSessions[0].id;
-            setActiveSessionId(firstId);
-
-            // Cloud getSessions only returns metadata — fetch messages
-            if (!convertedSessions[0].messages.length) {
-              try {
-                const history = await skillEditorChatService.getHistory(firstId);
-                if (history && history.length > 0) {
-                  const mapped: ChatMessage[] = history.map(m => ({
-                    id: m.id,
-                    role: m.role as 'user' | 'assistant',
-                    content: m.content,
-                    timestamp: new Date(m.timestamp),
-                    attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
-                    clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
-                    plan: m.metadata?.plan as ImplementationPlan | undefined,
-                    state: m.metadata?.state as PipelineState | undefined,
-                  }));
-                  setSessions(prev => prev.map(s =>
-                    s.id === firstId ? { ...s, messages: mapped } : s
-                  ));
-                  console.log(`[ChatPanel] Auto-loaded ${mapped.length} messages for session ${firstId}`);
-                }
-              } catch (err) {
-                console.warn('[ChatPanel] Failed to auto-load history:', err);
-              }
-            }
-          }
+          // Don't auto-select any session — let the user either pick one from
+          // history or type a new message (which creates a fresh session).
+          // This mirrors the "coding agent" UX: history is visible, but a blank
+          // input box always starts a new conversation.
         } else {
           console.log('[ChatPanel] No sessions found in backend');
         }
@@ -903,7 +884,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: m.id,
           role: m.role as 'user' | 'assistant',
           content: m.content,
-          timestamp: new Date(m.timestamp),
+          timestamp: safeDate(m.timestamp),
           attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
           clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
           plan: m.metadata?.plan as ImplementationPlan | undefined,
@@ -1014,7 +995,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1127,7 +1108,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1284,7 +1265,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1472,7 +1453,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1528,6 +1509,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setIsLoading(false);
     }
   }, [activeSessionId, canvasController, inputValue, isLoading, streamingStatus, pendingClarification, pipelineState, setMessages, setPendingPlan]);
+
+  // Handle clarification cancel — dismiss the form and reset pipeline state
+  const handleClarificationCancel = useCallback(() => {
+    console.log('[ChatPanel] Clarification cancelled by user');
+    setPendingClarification(null);
+    setPendingA2UI(null);
+    setPipelineState('idle');
+    const cancelMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: 'Clarification cancelled. Feel free to describe what you\'d like to build whenever you\'re ready.',
+      timestamp: new Date(),
+      state: 'idle',
+    };
+    setMessages(prev => [...prev, cancelMsg]);
+  }, [setMessages]);
 
 // ...
 
@@ -1621,7 +1618,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     </div>
                   )}
                 </MessageContent>
-                <MessageMeta>{msg.timestamp.toLocaleTimeString()}</MessageMeta>
+                <MessageMeta>{isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}</MessageMeta>
               </MessageBubble>
             ))
           )}

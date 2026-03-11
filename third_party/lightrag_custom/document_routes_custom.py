@@ -812,13 +812,21 @@ class DocumentManager:
         self.input_dir.mkdir(parents=True, exist_ok=True)
 
     def scan_directory_for_new_files(self) -> List[Path]:
-        """Scan input directory for new files"""
+        """Scan input directory for new files (only files that actually exist)"""
         new_files = []
         for ext in self.supported_extensions:
             logger.debug(f"Scanning for {ext} files in {self.input_dir}")
             for file_path in self.input_dir.glob(f"*{ext}"):
-                if file_path not in self.indexed_files:
-                    new_files.append(file_path)
+                # Only include files that actually exist on disk
+                if file_path.exists() and file_path.is_file():
+                    # Check if not already indexed in memory
+                    if file_path not in self.indexed_files:
+                        new_files.append(file_path)
+                else:
+                    # File was deleted, remove from indexed_files if present
+                    self.indexed_files.discard(file_path)
+        
+        logger.info(f"[DocumentManager] Scanned {self.input_dir}, found {len(new_files)} new files")
         return new_files
 
     def mark_as_indexed(self, file_path: Path):
@@ -949,6 +957,20 @@ async def pipeline_enqueue_file(
         ext = file_path.suffix.lower()
         file_size = 0
 
+        # Check if file exists before processing
+        if not file_path.exists():
+            error_files = [
+                {
+                    "file_path": str(file_path.name),
+                    "error_description": "[File Extraction]File not found - file may have been deleted or moved",
+                    "original_error": f"File does not exist at path: {file_path}",
+                    "file_size": 0,
+                }
+            ]
+            await rag.apipeline_enqueue_error_documents(error_files, track_id)
+            logger.error(f"[File Extraction]File not found (does not exist): {file_path.name}")
+            return False, track_id
+
         # Get file size for error reporting
         try:
             file_size = file_path.stat().st_size
@@ -1039,8 +1061,47 @@ async def pipeline_enqueue_file(
                     | ".less"
                 ):
                     try:
-                        # Try to decode as UTF-8
-                        content = file.decode("utf-8")
+                        # Try to decode with automatic encoding detection
+                        # First try UTF-8, then try to detect encoding for non-UTF-8 files
+                        try:
+                            content = file.decode("utf-8")
+                        except UnicodeDecodeError:
+                            # UTF-8 failed, try to detect encoding
+                            logger.info(f"[File Extraction]UTF-8 decoding failed for {file_path.name}, attempting encoding detection...")
+                            
+                            # Try common encodings for Chinese files
+                            encodings_to_try = ['gbk', 'gb2312', 'gb18030', 'big5', 'latin1', 'cp1252']
+                            
+                            content = None
+                            detected_encoding = None
+                            
+                            for encoding in encodings_to_try:
+                                try:
+                                    content = file.decode(encoding)
+                                    detected_encoding = encoding
+                                    logger.info(f"[File Extraction]Successfully decoded {file_path.name} using {encoding} encoding")
+                                    break
+                                except (UnicodeDecodeError, LookupError):
+                                    continue
+                            
+                            # If all encodings failed, try with chardet library if available
+                            if content is None:
+                                try:
+                                    if not pm.is_installed("chardet"):  # type: ignore
+                                        pm.install("chardet")
+                                    import chardet
+                                    
+                                    detected = chardet.detect(file)
+                                    if detected and detected.get('encoding'):
+                                        detected_encoding = detected['encoding']
+                                        content = file.decode(detected_encoding)
+                                        logger.info(f"[File Extraction]Successfully decoded {file_path.name} using chardet-detected {detected_encoding} encoding (confidence: {detected.get('confidence', 0):.2%})")
+                                except Exception as e:
+                                    logger.warning(f"[File Extraction]Chardet detection failed: {e}")
+                            
+                            # If still failed, raise the original error
+                            if content is None:
+                                raise UnicodeDecodeError('utf-8', file, 0, len(file), 'Unable to decode file with any known encoding')
 
                         # Validate content
                         if not content or len(content.strip()) == 0:
@@ -1212,13 +1273,54 @@ async def pipeline_enqueue_file(
                                 except Exception:
                                     pm.install("docx")
                             from docx import Document  # type: ignore
+                            from docx.table import Table  # type: ignore
+                            from docx.text.paragraph import Paragraph  # type: ignore
                             from io import BytesIO
 
                             docx_file = BytesIO(file)
                             doc = Document(docx_file)
-                            content = "\n".join(
-                                [paragraph.text for paragraph in doc.paragraphs]
-                            )
+                            
+                            # Extract content including tables in document order
+                            def escape_cell(cell_value: str | None) -> str:
+                                """Escape special characters in table cells"""
+                                if cell_value is None:
+                                    return ""
+                                text = str(cell_value)
+                                return (
+                                    text.replace("\\", "\\\\")
+                                    .replace("\t", "&emsp;&emsp;")
+                                    .replace("\r\n", "<br>")
+                                    .replace("\r", "<br>")
+                                    .replace("\n", "<br>")
+                                )
+                            
+                            content_parts = []
+                            in_table = False
+                            
+                            # Iterate through all body elements in document order
+                            for element in doc.element.body:
+                                # Check if element is a paragraph
+                                if element.tag.endswith("p"):
+                                    if in_table:
+                                        content_parts.append("")  # Blank line after table
+                                        in_table = False
+                                    paragraph = Paragraph(element, doc)
+                                    content_parts.append(paragraph.text)
+                                
+                                # Check if element is a table
+                                elif element.tag.endswith("tbl"):
+                                    if content_parts and not in_table:
+                                        content_parts.append("")  # Blank line before table
+                                    in_table = True
+                                    table = Table(element, doc)
+                                    for row in table.rows:
+                                        row_text = []
+                                        for cell in row.cells:
+                                            row_text.append(escape_cell(cell.text))
+                                        if any(cell for cell in row_text):
+                                            content_parts.append("\t".join(row_text))
+                            
+                            content = "\n".join(content_parts)
                     except Exception as e:
                         error_files = [
                             {
@@ -1254,10 +1356,24 @@ async def pipeline_enqueue_file(
 
                             pptx_file = BytesIO(file)
                             prs = Presentation(pptx_file)
-                            for slide in prs.slides:
+                            for slide_num, slide in enumerate(prs.slides, 1):
+                                content += f"\n--- Slide {slide_num} ---\n"
                                 for shape in slide.shapes:
-                                    if hasattr(shape, "text"):
+                                    # Extract text from text boxes
+                                    if hasattr(shape, "text") and shape.text.strip():
                                         content += shape.text + "\n"
+                                    
+                                    # Extract tables
+                                    if shape.has_table:
+                                        table = shape.table
+                                        for row in table.rows:
+                                            row_text = []
+                                            for cell in row.cells:
+                                                cell_text = cell.text.strip() if cell.text else ""
+                                                row_text.append(cell_text)
+                                            if any(cell for cell in row_text):
+                                                content += "\t".join(row_text) + "\n"
+                                        content += "\n"
                     except Exception as e:
                         error_files = [
                             {
@@ -1386,6 +1502,84 @@ async def pipeline_enqueue_file(
                 )
                 return False, track_id
 
+            # ========== FIX: Check and clean old document records BEFORE re-upload ==========
+            # IMPORTANT: This must be done BEFORE apipeline_enqueue_documents to avoid conflicts
+            try:
+                # Access _data directly to find document with matching file_path
+                # Note: get_doc_by_file_path returns doc_data without doc_id, so we need to search manually
+                old_doc_id = None
+                existing_doc = None
+                
+                async with rag.doc_status._storage_lock:
+                    for doc_id, doc_data in rag.doc_status._data.items():
+                        if doc_data.get("file_path") == file_path.name:
+                            old_doc_id = doc_id
+                            existing_doc = doc_data
+                            break
+                
+                if existing_doc and old_doc_id:
+                    old_status = existing_doc.get("status", "").lower()
+                    logger.warning(
+                        f"[Upload] Found existing document record for {file_path.name} "
+                        f"(doc_id: {old_doc_id}, status: {old_status})"
+                    )
+                    
+                    # Use complete deletion method to clean up ALL related data
+                    try:
+                        # Use adelete_by_doc_id to ensure complete cleanup:
+                        # - doc_status, full_docs, text_chunks, entity_chunks
+                        # - full_relations, graph database, vector database, llm_response_cache
+                        deletion_result = await rag.adelete_by_doc_id(
+                            old_doc_id, 
+                            delete_llm_cache=True
+                        )
+                        
+                        if deletion_result.status == "success":
+                            logger.info(
+                                f"[Upload] ✅ Completely deleted old document for {file_path.name} "
+                                f"(doc_id: {old_doc_id}, including all related data)"
+                            )
+                        elif deletion_result.status == "not_found":
+                            logger.info(
+                                f"[Upload] Old document {old_doc_id} not found, proceeding with upload"
+                            )
+                        elif deletion_result.status == "not_allowed":
+                            logger.warning(
+                                f"[Upload] Could not delete old document {old_doc_id}: {deletion_result.message}"
+                            )
+                            # Fallback: try basic cleanup
+                            try:
+                                await rag.doc_status.delete([old_doc_id])
+                                await rag.full_docs.delete([old_doc_id])
+                                logger.info(
+                                    f"[Upload] ⚠️ Fallback: deleted basic records for {file_path.name}"
+                                )
+                            except Exception as fallback_err:
+                                logger.warning(
+                                    f"[Upload] Fallback cleanup failed: {fallback_err}"
+                                )
+                        else:
+                            logger.warning(
+                                f"[Upload] Deletion returned status: {deletion_result.status}"
+                            )
+                    except Exception as del_err:
+                        logger.warning(
+                            f"[Upload] Could not delete old document for {file_path.name}: {del_err}"
+                        )
+                        # Fallback: try basic cleanup
+                        try:
+                            await rag.doc_status.delete([old_doc_id])
+                            await rag.full_docs.delete([old_doc_id])
+                            logger.info(
+                                f"[Upload] ⚠️ Fallback: deleted basic records for {file_path.name}"
+                            )
+                        except Exception as fallback_err:
+                            logger.warning(
+                                f"[Upload] Fallback cleanup failed: {fallback_err}"
+                            )
+            except Exception as check_err:
+                logger.debug(f"[Upload] Could not check existing document: {check_err}")
+
             try:
                 await rag.apipeline_enqueue_documents(
                     content, file_paths=file_path.name, track_id=track_id
@@ -1485,7 +1679,9 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = No
             rag, file_path, track_id
         )
         if success:
-            await rag.apipeline_process_enqueue_documents()
+            # Process queue in background to avoid blocking
+            import asyncio
+            asyncio.create_task(rag.apipeline_process_enqueue_documents())
 
     except Exception as e:
         logger.error(f"Error indexing file {file_path.name}: {str(e)}")
@@ -1520,7 +1716,9 @@ async def pipeline_index_files(
 
         # Process the queue only if at least one file was successfully enqueued
         if enqueued:
-            await rag.apipeline_process_enqueue_documents()
+            # Process queue in background to avoid blocking
+            import asyncio
+            asyncio.create_task(rag.apipeline_process_enqueue_documents())
     except Exception as e:
         logger.error(f"Error indexing files: {str(e)}")
         logger.error(traceback.format_exc())
@@ -1551,7 +1749,9 @@ async def pipeline_index_texts(
     await rag.apipeline_enqueue_documents(
         input=texts, file_paths=file_sources, track_id=track_id
     )
-    await rag.apipeline_process_enqueue_documents()
+    # Process queue in background to avoid blocking
+    import asyncio
+    asyncio.create_task(rag.apipeline_process_enqueue_documents())
 
 
 async def run_scanning_process(
@@ -1576,6 +1776,12 @@ async def run_scanning_process(
 
             for file_path in new_files:
                 filename = file_path.name
+                
+                # ========== Fix: Check if file actually exists on disk ==========
+                if not file_path.exists():
+                    logger.warning(f"[Scan] File in scan list but doesn't exist on disk: {filename}, skipping")
+                    continue
+                
                 existing_doc_data = await rag.doc_status.get_doc_by_file_path(filename)
 
                 if existing_doc_data:
@@ -1583,14 +1789,16 @@ async def run_scanning_process(
                     if doc_status == "processed":
                         # File is already PROCESSED, skip it with warning
                         processed_files.append(filename)
-                        logger.warning(f"Skipping already processed file: {filename}")
+                        logger.warning(f"[Scan] Skipping already processed file: {filename}")
                     elif doc_status == "failed":
                         # File is FAILED (stopped/cancelled), allow re-processing via scan/retry
-                        logger.info(f"Re-processing failed file: {filename}")
+                        logger.info(f"[Scan] Re-processing failed file: {filename}")
                         valid_files.append(file_path)
                     else:
-                        # File is in other status (PENDING, PROCESSING, PREPROCESSED), add to processing list
-                        valid_files.append(file_path)
+                        # File is in other status (PENDING, PROCESSING, PREPROCESSED)
+                        # Skip it to avoid race condition with upload operation
+                        logger.info(f"[Scan] Skipping file already in queue: {filename} (status: {doc_status})")
+                        processed_files.append(filename)
                 else:
                     # File is new, add to processing list
                     valid_files.append(file_path)
@@ -1615,7 +1823,9 @@ async def run_scanning_process(
             logger.info(
                 "No upload file found, check if there are any documents in the queue..."
             )
-            await rag.apipeline_process_enqueue_documents()
+            # Process queue in background to avoid blocking
+            import asyncio
+            asyncio.create_task(rag.apipeline_process_enqueue_documents())
 
     except Exception as e:
         logger.error(f"Error during scanning process: {str(e)}")
@@ -1705,6 +1915,19 @@ async def background_delete_documents(
                     logger.info(success_msg)
                     async with pipeline_status_lock:
                         pipeline_status["history_messages"].append(success_msg)
+                    
+                    # ========== FIX: Remove from indexed_files to allow re-upload ==========
+                    # Clear the file from indexed_files so it can be re-uploaded
+                    if result.file_path and result.file_path != "unknown_source":
+                        try:
+                            file_path_obj = Path(result.file_path)
+                            # Try to construct the full path
+                            full_path = doc_manager.input_dir / file_path_obj.name
+                            if full_path in doc_manager.indexed_files:
+                                doc_manager.indexed_files.discard(full_path)
+                                logger.info(f"[Delete] Removed {file_path_obj.name} from indexed_files")
+                        except Exception as e:
+                            logger.debug(f"[Delete] Could not remove from indexed_files: {e}")
 
                     # Handle file deletion if requested and file_path is available
                     if (
@@ -1862,7 +2085,9 @@ async def background_delete_documents(
                 logger.info(
                     "Processing pending document indexing requests after deletion"
                 )
-                await rag.apipeline_process_enqueue_documents()
+                # Process queue in background to avoid blocking
+                import asyncio
+                asyncio.create_task(rag.apipeline_process_enqueue_documents())
             except Exception as e:
                 logger.error(f"Error processing pending documents after deletion: {e}")
 
@@ -2999,6 +3224,7 @@ def create_document_routes(
             # ========== End eCan.ai Custom ==========
 
             # Mark all PROCESSING documents as FAILED
+            # IMPORTANT: Add metadata flag to prevent auto-retry by LightRAG
             processing_count = 0
             try:
                 processing_docs = await rag.doc_status.get_docs_by_status(DocStatus.PROCESSING)
@@ -3007,17 +3233,18 @@ def create_document_routes(
                         await rag.doc_status.upsert({
                             doc_id: {
                                 "status": DocStatus.FAILED,
-                                "error_msg": "User cancelled",
+                                "error_msg": "User cancelled - manual intervention required",
                                 "content_summary": doc_status.content_summary,
                                 "content_length": doc_status.content_length,
                                 "created_at": doc_status.created_at,
                                 "updated_at": datetime.now(timezone.utc).isoformat(),
                                 "file_path": doc_status.file_path,
                                 "track_id": doc_status.track_id,
+                                "metadata": {"user_cancelled": True, "auto_retry_disabled": True},
                             }
                         })
                     processing_count = len(processing_docs)
-                    logger.info(f"[cancel_pipeline] Marked {processing_count} PROCESSING documents as FAILED")
+                    logger.info(f"[cancel_pipeline] Marked {processing_count} PROCESSING documents as FAILED (auto-retry disabled)")
             except Exception as mark_err:
                 logger.error(f"[cancel_pipeline] Error marking documents as FAILED: {mark_err}")
 

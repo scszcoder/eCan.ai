@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Callable
 
 from utils.logger_helper import logger_helper as logger
 
+from .token_tracker import token_tracker
+
 from .schemas import (
     CodeAgentAction,
     CodeAgentOutput,
@@ -39,6 +41,7 @@ from .schemas import (
 )
 from .placement import place_nodes, LOOP_INTERNAL_CFG
 from .prompt_store import prompt_store
+from .prompt_store import safe_format
 
 
 # ============================================================
@@ -50,6 +53,83 @@ DEFAULT_NODE_SPACING_X = 250
 DEFAULT_NODE_SPACING_Y = 150
 START_POSITION_X = 100
 START_POSITION_Y = 100
+
+# ---------------------------------------------------------------------------
+# Baseline data_mapping.json rules
+# These are always present; the LLM can add workflow-specific rules on top.
+# ---------------------------------------------------------------------------
+
+_BASE_MAPPINGS = [
+    {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+            {"target": "state.attributes.forms.qa_form"},
+            {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+    },
+    {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+            {"target": "state.attributes.notifications.latest"},
+            {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+    },
+    {
+        "from": ["event.data.human_text"],
+        "to": [
+            {"target": "state.attributes.human.last_message"},
+            {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+    },
+    {
+        "from": ["event.tag"],
+        "to": [
+            {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+    },
+    # Async response mode: controls whether send_response_back sends via A2A or skips
+    {
+        "from": ["event.data.metadata.async_response", "event.context.async_response"],
+        "to": [
+            {"target": "state.attributes.async_response"}
+        ],
+        "on_conflict": "overwrite"
+    },
+]
+
+_DEV_DEBUG_MAPPING = {
+    "from": ["event.data.metadata"],
+    "to": [
+        {"target": "state.attributes.debug.last_event_metadata"}
+    ],
+    "on_conflict": "overwrite"
+}
+
+DEFAULT_BASELINE_MAPPINGS: Dict[str, Any] = {
+    "developing": {
+        "mappings": _BASE_MAPPINGS + [_DEV_DEBUG_MAPPING],
+        "options": {
+            "strict": False,
+            "default_on_missing": None,
+            "apply_order": "top_down"
+        }
+    },
+    "released": {
+        "mappings": list(_BASE_MAPPINGS),
+        "options": {
+            "strict": True,
+            "default_on_missing": None,
+            "apply_order": "top_down"
+        }
+    },
+    "node_transfers": {},
+    "event_routing": {},
+}
 
 # Preferred prompt pool IDs (fallback defaults when config is missing)
 DEFAULT_LLM_PROMPT_ID = "pr-454780"
@@ -89,8 +169,18 @@ CODE_GENERATION_PROMPT = """You are a Code Agent for the Skill Editor, specializ
 
 Your role is to translate user requests and implementation plans into concrete flowgram structures (nodes and edges).
 
+**CRITICAL: NEVER use code nodes. Code nodes are FORBIDDEN. Use llm + mcp_tool instead.**
+
 ## AVAILABLE NODE TYPES:
 {node_types}
+
+## NODE SCHEMA REFERENCE:
+{node_schema}
+
+## MAPPING DSL REFERENCE (data_mapping.json):
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state without code nodes. Prefer mapping rules over code nodes when the task is pure data routing.
+
+{mapping_dsl}
 
 ## CURRENT CANVAS STATE:
 {canvas_context}
@@ -134,12 +224,10 @@ When you generate a flowgram, the system will automatically:
    - Loop nodes (type="loop"): `loop_<purpose>` (e.g., "loop_process_orders", "loop_messages")
    - Browser automation (type="browser-automation"): `browser_automation_<purpose>` (e.g., "browser_automation_scrape", "browser_automation_login")
    - MCP nodes (type="mcp"): `mcp_<purpose>` (e.g., "mcp_rag_query", "mcp_send_email")
-   - Code nodes (type="code"): `code_<purpose>` (e.g., "code_init_vars", "code_transform_data")
    - Chat nodes (type="chat_node"): `chat_node_<purpose>` (e.g., "chat_node_alert", "chat_node_summary")
    - Pend event (type="pend_event"): `pend_event_<purpose>` (e.g., "pend_event_human_review")
-   - HTTP nodes (type="http"): `http_<purpose>` (e.g., "http_fetch_data", "http_post_result")
-   - RAG nodes (type="rag"): `rag_<purpose>` (e.g., "rag_query_kb", "rag_search")
    **The prefix MUST match the node type (with hyphens replaced by underscores)** - this is validated and will cause errors if wrong.
+   **NEVER use code, http, or rag node types — they are deprecated.**
 4. Position nodes in a logical flow (top to bottom or left to right)
 5. Include proper configuration for each node type
 6. For LLM nodes, include system_prompt and user_prompt in config
@@ -162,6 +250,19 @@ Before finalizing your flowgram, VERIFY these connectivity rules:
 4. **Loop nodes**: Must have incoming edge from previous node and outgoing edge to next node
 5. **Double-check**: After creating ALL edges, trace the flow from start to end - every node must be reachable
 6. **DO NOT WRITE NULLS INTO EDGES**: Never emit `"sourcePortID": null` or `"targetNodeID": null` etc. If a field is unknown, omit it entirely. Null-valued edge fields cause the canvas to render condition connections incorrectly.
+
+## AGENTIC DESIGN PHILOSOPHY (CRITICAL — Defines How You Build Workflows):
+You are building **agentic** workflows, NOT RPA macros.
+
+**RPA (WRONG):** Every decision is an explicit condition node. Many condition → branch → merge patterns.
+**Agentic (RIGHT):** Each sub-agent receives a rich prompt with goals/rules/guidelines and makes decisions internally.
+
+### Core Rules:
+1. **MINIMIZE CONDITION NODES.** Before adding any condition, ask: "Can the sub-agent handle both outcomes via its prompt?" If yes — skip the condition.
+2. **EMBED GOALS IN EVERY SUB-AGENT PROMPT.** Every LLM and browser_automation prompt MUST include: Background, Goals (measurable), Guidelines, Rules, Exceptions, Instructions, Examples, and Output format.
+3. **LET SUB-AGENTS VERIFY THEIR OWN GOALS.** Instead of `node → condition (check success?)`, write a prompt that says "Verify you achieved X before reporting done."
+4. **CONDITION NODES ARE FOR STRUCTURAL DIVERGENCE ONLY.** Use only when different node types are needed per branch, a human decision determines the path, or fundamentally different flows are required.
+5. **PREFER FEWER, SMARTER NODES.** A single node with a detailed 20-line prompt beats 5 nodes with 3 conditions.
 
 ## MULTI-SHEET SYNC (CRITICAL):
 - Each skill has two files: `<name>_skill.json` (current sheet) AND `<name>_skill_bundle.json` (all sheets).
@@ -299,7 +400,7 @@ Loop nodes are container nodes that hold internal nodes. They have a special str
    - A "block-start" node (type: "block-start") at the beginning
    - A "block-end" node (type: "block-end") at the end
    - Any content nodes (llm, mcp, code, etc.) between them
-3. Loop nodes MUST have an `edges` array (or `internal_edges`) connecting ALL blocks
+3. Loop nodes MUST have an `internal_edges` array connecting ALL blocks (use key `internal_edges`, NOT `edges`)
 4. Internal node positions are RELATIVE to the loop's internal coordinate system:
    - block-start: position around (30, 0)
    - Content nodes: y ~16, x spread between 120 and 450
@@ -344,10 +445,8 @@ Example: If loop has `block_start_1 → rag_query → condition_check → llm_re
 
 ### IMPORTANT - INITIALIZE LOOP VARIABLES:
 - For loopWhile, the expression variable MUST be initialized BEFORE the loop starts
-- Add a code node BEFORE the loop to set initial value:
-  ```python
-  state["result"]["llm_result"]["not_yet_finished"] = True
-  ```
+- Use an LLM node before the loop with a prompt that outputs the initial JSON state
+- Or use a mapping rule in data_mapping.json to set the initial value
 - This ensures the loop runs at least once
 
 Example loop node (loopFor - simple):
@@ -362,7 +461,7 @@ Example loop node (loopFor - simple):
     {{"id": "llm_in_loop", "type": "llm", "label": "Process", "position": {{"x": 200, "y": 16}}, "config": {{}}}},
     {{"id": "block_end_1", "type": "block-end", "label": "Loop End", "position": {{"x": 450, "y": 16}}, "config": {{}}}}
   ],
-  "edges": [
+  "internal_edges": [
     {{"source": "block_start_1", "target": "llm_in_loop"}},
     {{"source": "llm_in_loop", "target": "block_end_1"}}
   ]
@@ -383,7 +482,7 @@ Example loop node (with condition - NOTICE ALL EDGES):
     {{"id": "pend_event_human", "type": "pend_event", "label": "Wait Human", "position": {{"x": 450, "y": 100}}, "config": {{}}}},
     {{"id": "block_end_msg", "type": "block-end", "label": "Loop End", "position": {{"x": 600, "y": 50}}, "config": {{}}}}
   ],
-  "edges": [
+  "internal_edges": [
     {{"source": "block_start_msg", "target": "rag_query_kb"}},
     {{"source": "rag_query_kb", "target": "condition_has_answer"}},
     {{"source": "condition_has_answer", "target": "llm_respond", "source_handle": "if_yes"}},
@@ -407,10 +506,10 @@ NOTE: In the above example, EVERY node has incoming AND outgoing edges:
   - state["tool_result"]["status"] == "completed"
   - len(state["result"]["items"]) > 0
 
-## CODE NODE NOTE:
-- In code nodes, the input parameter "state" IS the node_state throughout the workflow
-- Modify state directly: state["my_field"] = value
-- Use code nodes to initialize loop variables before loops
+## CODE NODE NOTE (DEPRECATED — DO NOT USE CODE NODES):
+- Code nodes are FORBIDDEN. NEVER generate code nodes.
+- Use llm + mcp_tool instead for data processing/transformation.
+- Use mapping rules for data routing between state fields.
 
 ## OUTPUT FORMAT:
 You MUST respond with valid JSON containing the flowgram.
@@ -506,8 +605,35 @@ You MUST respond with valid JSON containing the flowgram.
       "skillName": "workflow_name",
       "description": "What this workflow does"
     }}
+  }},
+  "data_mapping": {{
+    "developing": {{
+      "mappings": [
+        {{
+          "from": ["event.data.custom_field"],
+          "to": [{{"target": "state.attributes.custom"}}],
+          "on_conflict": "overwrite"
+        }}
+      ]
+    }},
+    "released": {{
+      "mappings": [
+        {{
+          "from": ["event.data.custom_field"],
+          "to": [{{"target": "state.attributes.custom"}}],
+          "on_conflict": "overwrite"
+        }}
+      ]
+    }},
+    "node_transfers": {{}},
+    "event_routing": {{}}
   }}
 }}
+
+NOTE: The `data_mapping` field is OPTIONAL. Baseline event-to-state mappings (human_text, qa_form,
+notification, cloud_task_id, async_response) are always included automatically.
+Only add `data_mapping` when the workflow needs EXTRA routing beyond the baseline.
+Prefer mapping rules for pure data movement. NEVER use code nodes.
 
 For simple answers without code generation:
 {{
@@ -593,7 +719,16 @@ When LLM node works with mcp_tool as a sub-agent for multi-step tasks, the promp
    - Verify tool name matches exactly before calling
    - Fall back to run_code/run_shell_script if no suitable tool
    - NEVER skip verification after tool calls
-6. **tools_to_use**: List of available tool names (dynamically injected)
+6. **guidelines**:
+   - Be concise and clear in tool inputs
+   - When parsing outputs, look for key info and error signals
+   - For multi-step tasks, keep track of progress and next steps
+7. **exceptions**:
+   - If a tool fails repeatedly, try an alternative approach
+   - If stuck, log the issue and move on to the next task item 
+8. **examples**: Provide 1-2 examples of how to break down a task, call tools, and verify results
+9. **output_format**: Always return a JSON object with keys: work_done (boolean), next_tool_name (string), next_tool_input (object)
+10. **tools_to_use**: List of available tool names (dynamically injected)
 
 **User Prompt Sections:**
 - **goals**: Specific measurable objectives for this task
@@ -624,17 +759,11 @@ For LLM and browser_automation nodes, use modular prompts instead of inline text
 Since we use LangGraph as the workflow runtime, node_state is the data carrier between nodes:
 - **LLM node output**: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
 - **MCP tool output**: node_state["tool_result"]
-- **Code node**: node_state is directly accessible - use to move data between fields
-
-Example code node to transform data:
-```python
-# Move tool result to a custom field
-result = node_state["tool_result"]
-node_state["processed_data"] = result["data"]
-return node_state
-```
+- **Browser automation output**: node_state["result"]
+- Use mapping rules in data_mapping.json to route data between node fields.
 
 ## IMPORTANT:
+- **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
 - Generate complete, valid flowgrams
 - Use descriptive node labels
 - Position nodes to avoid overlap
@@ -653,12 +782,22 @@ EDIT_FLOWGRAM_PROMPT = """You are a Code Agent for the Skill Editor, specializin
 ## AVAILABLE NODE TYPES:
 {node_types}
 
+## NODE SCHEMA REFERENCE:
+{node_schema}
+
+## MAPPING DSL REFERENCE (data_mapping.json):
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state. Use mapping rules for data routing — NEVER use code nodes.
+
+{mapping_dsl}
+
 ## EDIT RULES:
 1. Preserve existing node IDs when modifying nodes
 2. Only change what's necessary for the edit
 3. Maintain valid connections after edits
 4. Update positions if adding/removing nodes to avoid overlap
 5. Keep the start and end nodes
+6. **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
+7. **AGENTIC PHILOSOPHY**: Minimize condition nodes. Prefer enriching sub-agent prompts with goals/rules/guidelines over adding explicit branching. Only add conditions for structural divergence (different node types per branch, human decisions).
 
 ## CONDITION NODE STRUCTURE (IMPORTANT):
 When adding or editing condition nodes:
@@ -686,17 +825,18 @@ When adding or editing loop nodes, they MUST have:
    - Example: loopWhileExpr = "state['result']['llm_result']['not_yet_finished']"
 
 ### INITIALIZE LOOP VARIABLES:
-- For loopWhile, add a code node BEFORE the loop to initialize the expression variable
-- Example: state["result"]["llm_result"]["not_yet_finished"] = True
+- For loopWhile, use an LLM node BEFORE the loop to initialize the expression variable via its JSON output
+- Or use a mapping rule in data_mapping.json
 
 ## CONDITION NODE IF FIELD:
 - Default: "state.condition" (uses node_state["condition"])
 - Custom: Set "if" to "custom", "customExpr" to Python expression
 - Examples: state["result"]["llm_result"]["success"] == True
 
-## CODE NODE NOTE:
-- Input parameter "state" IS the node_state throughout the workflow
-- Use to initialize loop variables or transform data between nodes
+## CODE NODE PROHIBITION (CRITICAL):
+- **NEVER generate code nodes.** Code nodes are FORBIDDEN.
+- Use llm + mcp_tool instead of code nodes for any data processing or transformation.
+- Use mapping rules in data_mapping.json for moving data between state fields.
 
 ## EDITING NODES INSIDE A LOOP:
 When the user asks to add/remove/update nodes "inside", "in", or "within" a loop:
@@ -727,7 +867,7 @@ Use for ANY task involving web page interaction. Key guidelines:
 2. Set mcp_tool's tool_name to "llm auto select" for dynamic tool selection
 3. LLM output: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
 4. MCP tool output: node_state["tool_result"]
-5. Use code node to move data between node_state fields
+5. Use mapping rules to move data between node_state fields. Never use code nodes.
 
 ### PROMPT MODULARITY:
 For LLM and browser_automation nodes, use modular prompts:
@@ -859,10 +999,14 @@ class CodeAgent:
             logger.info(f"[CodeAgent] Using LLM from Settings: {llm_config['provider_id']}, model: {model_name or llm_config['model_name']}")
             
             # Increase max_tokens for complex flowgram generation
-            # Default is often 4096, but complex workflows need more
+            # Default is often 4096, but complex workflows need much more
+            # (a 14-node eBay workflow needed ~17k tokens → 50k chars)
             if hasattr(llm_instance, 'max_tokens'):
-                llm_instance.max_tokens = 16384
-                logger.info(f"[CodeAgent] Set max_tokens to 16384 for complex flowgram generation")
+                llm_instance.max_tokens = 65536
+                logger.info(f"[CodeAgent] Set max_tokens to 65536 for complex flowgram generation")
+            # Also try max_completion_tokens for newer OpenAI models (o-series, gpt-5+)
+            if hasattr(llm_instance, 'max_completion_tokens'):
+                llm_instance.max_completion_tokens = 65536
             
             return llm_instance
             
@@ -906,12 +1050,23 @@ class CodeAgent:
             f"Summary: {plan.summary}",
             f"Complexity: {plan.complexity}",
             f"Estimated nodes: {', '.join(plan.estimated_nodes)}",
-            "\n## PLAN STEPS (YOU MUST IMPLEMENT EACH STEP):"
         ]
+
+        # Thread goals through to the coder
+        if getattr(plan, 'goals', None):
+            lines.append("\n## WORKFLOW GOALS (MUST BE ACHIEVED):")
+            for i, goal in enumerate(plan.goals, 1):
+                lines.append(f"{i}. {goal}")
+            lines.append("\nEvery sub-agent prompt you write MUST reference the relevant goal(s) above.")
+            lines.append("Delegate goal verification to the sub-agent — do NOT add a condition node just to check if a goal was met.")
+
+        lines.append("\n## PLAN STEPS (YOU MUST IMPLEMENT EACH STEP):")
         
         for i, step in enumerate(plan.steps, 1):
             lines.append(f"\n### Step {i}: {step.title}")
             lines.append(f"Description: {step.description}")
+            if getattr(step, 'goal', ''):
+                lines.append(f"Goal: {step.goal}")
             if step.node_types:
                 lines.append(f"**REQUIRED NODE TYPES FOR THIS STEP: {', '.join(step.node_types)}**")
                 lines.append(f"You MUST create nodes of these types to implement this step.")
@@ -923,26 +1078,56 @@ class CodeAgent:
         lines.append("4. If a step says 'browser_automation', you MUST create a browser_automation node")
         lines.append("5. If a step says 'mcp_tool', you MUST create an mcp_tool node")
         lines.append("6. Connect the nodes from each step in sequence to form the complete workflow")
+        lines.append("7. **EMBED GOALS into sub-agent prompts** — each LLM/browser-automation node prompt must state what goal(s) it serves")
+        lines.append("8. **MINIMIZE condition nodes** — let sub-agents make decisions internally via their prompts")
         
         return "\n".join(lines)
-    
-    async def _invoke_llm_async(self, prompt: str) -> str:
+
+    @staticmethod
+    async def _emit_progress(on_event, message: str) -> None:
+        """Send a progress event to the client (best-effort)."""
+        if not on_event:
+            return
+        try:
+            import asyncio
+            result = on_event({"type": "progress", "data": {"message": message}})
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            pass
+
+    async def _invoke_llm_async(self, prompt: str, *, action: str = "") -> str:
         """Invoke LLM asynchronously"""
         logger.debug(f"[CodeAgent] Invoking LLM, prompt length: {len(prompt)}")
+        self._last_response_truncated = False  # Reset per-call
         try:
             if hasattr(self.llm, 'ainvoke'):
                 response = await self.llm.ainvoke(prompt)
+                token_tracker.record(response, agent="CodeAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
-                logger.debug(f"[CodeAgent] LLM response length: {len(result)}")
+                self._check_finish_reason(response, len(result))
                 return result
             else:
                 response = self.llm.invoke(prompt)
+                token_tracker.record(response, agent="CodeAgent", action=action)
                 result = response.content if hasattr(response, 'content') else str(response)
-                logger.debug(f"[CodeAgent] LLM response length: {len(result)}")
+                self._check_finish_reason(response, len(result))
                 return result
         except Exception as e:
             logger.error(f"[CodeAgent] LLM invocation failed: {e}")
             raise
+
+    def _check_finish_reason(self, response, result_len: int):
+        """Check LLM response metadata for truncation (finish_reason == 'length')."""
+        try:
+            meta = getattr(response, 'response_metadata', None) or {}
+            finish = meta.get('finish_reason') or meta.get('finish_reasons', [None])[0]
+            logger.debug(f"[CodeAgent] LLM response length: {result_len}, finish_reason: {finish}")
+            if finish == 'length':
+                logger.warning(f"[CodeAgent] LLM output TRUNCATED (finish_reason=length, {result_len} chars). Flagging for continuation.")
+                self._last_response_truncated = True
+        except Exception:
+            logger.debug(f"[CodeAgent] LLM response length: {result_len} (finish_reason unavailable)")
     
     async def _stream_llm_async(self, prompt: str):
         """Stream LLM response asynchronously"""
@@ -1022,7 +1207,9 @@ class CodeAgent:
         # If direct parsing failed, use ValidatorAgent to fix the JSON
         if not parsed_data:
             logger.info("[CodeAgent] Direct JSON parsing failed, using ValidatorAgent to repair")
-            parsed_data = self._parse_with_validator(response)
+            # Pass finish_reason truncation flag to validator
+            force_truncated = getattr(self, '_last_response_truncated', False)
+            parsed_data = self._parse_with_validator(response, force_truncated=force_truncated)
         
         # Always fix disconnected nodes if we have a flowgram
         if parsed_data:
@@ -1045,8 +1232,15 @@ class CodeAgent:
             logger.warning(f"[CodeAgent] Failed to fix disconnected nodes: {e}")
             return data
     
-    def _parse_with_validator(self, response: str, continuation_attempt: int = 0) -> Optional[Dict]:
-        """Use ValidatorAgent to parse and fix malformed JSON"""
+    def _parse_with_validator(self, response: str, continuation_attempt: int = 0, force_truncated: bool = False) -> Optional[Dict]:
+        """Use ValidatorAgent to parse and fix malformed JSON
+        
+        Args:
+            response: Raw LLM response string
+            continuation_attempt: Current continuation attempt number
+            force_truncated: If True, treat as truncated even if validator doesn't detect it
+                            (e.g., finish_reason == 'length' from LLM metadata)
+        """
         import asyncio
         
         MAX_CONTINUATION_ATTEMPTS = 2
@@ -1083,11 +1277,15 @@ class CodeAgent:
                         return {"action": "generate_flowgram", "flowgram": data, "message": ""}
                     return data
             
-            elif result.action == ValidatorAction.TRUNCATED:
+            elif result.action == ValidatorAction.TRUNCATED or (force_truncated and result.action == ValidatorAction.UNFIXABLE):
                 # Output was truncated - try to continue generation
+                # Also handle case where finish_reason='length' but validator said UNFIXABLE
+                if force_truncated and result.action == ValidatorAction.UNFIXABLE:
+                    logger.info("[CodeAgent] Overriding UNFIXABLE → TRUNCATED (finish_reason=length detected)")
                 if continuation_attempt < MAX_CONTINUATION_ATTEMPTS:
                     logger.info(f"[CodeAgent] Output truncated, requesting continuation (attempt {continuation_attempt + 1})")
-                    continued_response = self._request_continuation(result.truncated_content)
+                    truncated_content = result.truncated_content or validator._extract_json_string(response) or response
+                    continued_response = self._request_continuation(truncated_content)
                     if continued_response:
                         # Combine original + continuation and try again
                         combined = response.rstrip() + continued_response
@@ -1309,21 +1507,23 @@ Continue the JSON output (do not include any text before the continuation):"""
                     if block.id in id_mapping:
                         block.id = id_mapping[block.id]
         
-        # Update edge references
+        # Update edge references — use field names directly, NOT @property aliases
+        # (edge.source is a read-only @property returning sourceNodeID; assignment
+        #  via the property raises AttributeError in Pydantic v2)
         for edge in flowgram.edges:
-            if edge.source in id_mapping:
-                edge.source = id_mapping[edge.source]
-            if edge.target in id_mapping:
-                edge.target = id_mapping[edge.target]
+            if edge.sourceNodeID in id_mapping:
+                edge.sourceNodeID = id_mapping[edge.sourceNodeID]
+            if edge.targetNodeID in id_mapping:
+                edge.targetNodeID = id_mapping[edge.targetNodeID]
         
         # Update internal edges in loop nodes
         for node in flowgram.nodes:
             if node.internal_edges:
                 for edge in node.internal_edges:
-                    if edge.source in id_mapping:
-                        edge.source = id_mapping[edge.source]
-                    if edge.target in id_mapping:
-                        edge.target = id_mapping[edge.target]
+                    if edge.sourceNodeID in id_mapping:
+                        edge.sourceNodeID = id_mapping[edge.sourceNodeID]
+                    if edge.targetNodeID in id_mapping:
+                        edge.targetNodeID = id_mapping[edge.targetNodeID]
     
     def _apply_layout(self, flowgram: Flowgram) -> None:
         """
@@ -1690,9 +1890,32 @@ Continue the JSON output (do not include any text before the continuation):"""
             config.setdefault("language", "python")
             if not config.get("code"):
                 config["code"] = CODE_NODE_DEFAULT_TEMPLATE
+        elif node_type == "condition":
+            # Ensure conditions array has meaningful expressions, not the useless default
+            conditions = config.get("conditions", [])
+            if conditions and isinstance(conditions, list):
+                for cond in conditions:
+                    val = cond.get("value", {})
+                    if isinstance(val, dict) and val.get("mode") == "custom" and val.get("expr"):
+                        continue  # already has a custom expression
+                    # If there's a top-level customExpr, push it into the first if-branch
+                    if cond.get("key", "").startswith("if") and config.get("customExpr"):
+                        cond["value"] = {"mode": "custom", "expr": config["customExpr"]}
+        elif node_type == "loop":
+            # Default to loopWhile unless explicitly loopFor
+            config.setdefault("loopMode", "loopWhile")
+            if config["loopMode"] == "loopWhile" and not config.get("loopWhileExpr"):
+                config["loopWhileExpr"] = "not state.get('result', {}).get('llm_result', {}).get('work_done', False)"
+            config.setdefault("loopCountExpr", "")
     def _parse_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
         """Parse a node dict into FlowgramNode, handling loop and condition nodes."""
         pos = n.get("position", {"x": 100, "y": 100})
+        # Also accept meta.position (the LLM often outputs {meta:{position:{x,y}}})
+        meta = n.get("meta")
+        if isinstance(meta, dict) and "position" in meta:
+            meta_pos = meta["position"]
+            if isinstance(meta_pos, dict) and "x" in meta_pos:
+                pos = meta_pos
         node_type = n.get("type", "llm")
         # Normalize type naming
         if node_type == "browser-automation":
@@ -1709,6 +1932,21 @@ Continue the JSON output (do not include any text before the continuation):"""
                 config[key] = val.get("content")
             else:
                 config[key] = val
+
+        # LLM may also place values flat in data.* (e.g. data.code, data.modelProvider).
+        # Extract these into config so _node_to_json() can wrap them properly.
+        _skip_data_keys = {
+            "title", "inputsValues", "data", "blocks", "edges",
+            "internal_edges", "breakpoint",
+        }
+        for key, val in data_section.items():
+            if key in _skip_data_keys or key in config:
+                continue
+            config[key] = val
+
+        # Preserve breakpoint flag from data section
+        if "breakpoint" in data_section:
+            config["breakpoint"] = data_section["breakpoint"]
 
         # If prompts are inline and promptSelection is missing/inline, persist a prompt file
         self._maybe_save_inline_prompt(n.get("id", f"node_{index}"), node_type, config)
@@ -1841,18 +2079,78 @@ Continue the JSON output (do not include any text before the continuation):"""
                 self._ensure_start_end_nodes(flowgram)
                 self._fix_missing_incoming_edges(flowgram)
                 self._fix_node_naming(flowgram)
+
+                # Safety net: if edges were lost (e.g. node renaming failed earlier),
+                # rebuild the sequential chain so nodes are never fully isolated.
+                node_ids = {n.id for n in flowgram.nodes}
+                valid_edges = [e for e in flowgram.edges if e.sourceNodeID in node_ids and e.targetNodeID in node_ids]
+                if len(valid_edges) < len(flowgram.edges):
+                    dropped = len(flowgram.edges) - len(valid_edges)
+                    logger.warning(f"[CodeAgent] Dropped {dropped} invalid edge(s) referencing non-existent nodes")
+                    flowgram.edges = valid_edges
+                if len(flowgram.nodes) > 1 and not flowgram.edges:
+                    logger.warning("[CodeAgent] No valid edges after parsing — rebuilding sequential chain")
+                    self._fix_missing_incoming_edges(flowgram)
+                    self._ensure_start_end_nodes(flowgram)
+
                 logger.info(f"[CodeAgent] Parsed flowgram: {len(flowgram.nodes)} nodes, {len(flowgram.edges)} edges")
             except Exception as e:
-                logger.warning(f"[CodeAgent] Error parsing flowgram: {e}")
+                import traceback as _tb
+                logger.warning(f"[CodeAgent] Error parsing flowgram: {e}\n{_tb.format_exc()}")
 
         message = self._finalize_message(data.get("message"), flowgram)
+
+        # Extract data_mapping from LLM response and merge with baseline defaults
+        data_mapping = self._build_data_mapping(data.get("data_mapping"))
 
         return CodeAgentOutput(
             action=action,
             message=message,
-            flowgram=flowgram
+            flowgram=flowgram,
+            data_mapping=data_mapping,
         )
     
+    # ------------------------------------------------------------------
+    # data_mapping.json construction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_data_mapping(llm_mapping: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Build a data_mapping.json payload by merging LLM-generated rules on
+        top of the baseline defaults.
+
+        The baseline covers event→state routing for human_text, qa_form,
+        notification, cloud_task_id, and async_response.  The LLM may add
+        workflow-specific rules (e.g. webhook fields, node transfers).
+
+        Returns a ready-to-persist ``data_mapping.json`` dict.
+        """
+        import copy
+        mapping = copy.deepcopy(DEFAULT_BASELINE_MAPPINGS)
+
+        if not llm_mapping or not isinstance(llm_mapping, dict):
+            return mapping
+
+        # Merge extra mappings produced by the LLM into each run-mode section
+        for mode in ("developing", "released"):
+            extra = llm_mapping.get(mode)
+            if isinstance(extra, dict):
+                extra_rules = extra.get("mappings")
+                if isinstance(extra_rules, list):
+                    mapping[mode]["mappings"].extend(extra_rules)
+                # Let LLM override options if explicitly provided
+                extra_opts = extra.get("options")
+                if isinstance(extra_opts, dict):
+                    mapping[mode]["options"].update(extra_opts)
+
+        # Merge node_transfers & event_routing if provided
+        for key in ("node_transfers", "event_routing"):
+            extra_section = llm_mapping.get(key)
+            if isinstance(extra_section, dict):
+                mapping[key].update(extra_section)
+
+        return mapping
+
     def validate_flowgram(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> ValidationResult:
         """Validate a flowgram structure"""
         logger.debug(f"[CodeAgent] Validating flowgram with {len(flowgram.nodes)} nodes")
@@ -2124,18 +2422,25 @@ Continue the JSON output (do not include any text before the continuation):"""
         self._current_task_context = user_message
         
         try:
-            # Build prompt
-            prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
+            await self._emit_progress(on_event, "Building generation prompt…")
+
+            # Build prompt — safe_format leaves JSON braces in .md files intact
+            raw_prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT)
+            prompt = safe_format(
+                raw_prompt,
                 node_types=get_node_types_description(),
+                node_schema=prompt_store.get_node_schema(),
+                mapping_dsl=prompt_store.get_mapping_dsl(),
                 canvas_context=self._format_canvas_context(canvas_context),
-                plan_context=self._format_plan_context(plan)
+                plan_context=self._format_plan_context(plan),
             )
             
             prompt += f"\n\n## USER REQUEST:\n{user_message}"
             
             # Invoke LLM
+            await self._emit_progress(on_event, "Generating workflow — this may take 1-2 minutes for complex skills…")
             logger.debug("[CodeAgent] Invoking LLM for generation")
-            response = await self._invoke_llm_async(prompt)
+            response = await self._invoke_llm_async(prompt, action="generate")
             
             # Check for empty response
             if not response or not response.strip():
@@ -2150,6 +2455,7 @@ Continue the JSON output (do not include any text before the continuation):"""
             
             # Validate if flowgram was generated
             if output.flowgram:
+                await self._emit_progress(on_event, f"Validating generated workflow ({len(output.flowgram.nodes)} nodes)…")
                 validation = self.validate_flowgram(output.flowgram, plan)
                 output.validation = validation
                 
@@ -2158,18 +2464,21 @@ Continue the JSON output (do not include any text before the continuation):"""
                 
                 # Retry if validation failed
                 if not validation.valid and MAX_VALIDATION_RETRIES > 0:
+                    n_errors = len(validation.errors)
+                    await self._emit_progress(on_event, f"Validation found {n_errors} error(s) — auto-fixing…")
                     logger.info("[CodeAgent] Validation failed, attempting fix...")
                     output = await self._fix_validation_errors(
-                        output, validation, user_message, canvas_context, plan
+                        output, validation, user_message, canvas_context, plan,
+                        on_event=on_event,
                     )
                 
                 # Send flowgram event
                 if on_event and output.flowgram:
                     import asyncio
-                    logger.info(f"[CodeAgent] 🎨 Sending flowgram event with {len(output.flowgram.nodes)} nodes")
+                    logger.info(f"[CodeAgent] 🎨 Sending flowgram event with {len(output.flowgram.nodes)} nodes, {len(output.flowgram.edges)} edges")
                     result = on_event({
                         "type": "flowgram",
-                        "data": output.flowgram.model_dump()
+                        "data": output.flowgram.model_dump(exclude_none=True)
                     })
                     # Handle both sync and async callbacks
                     if asyncio.iscoroutine(result):
@@ -2197,7 +2506,8 @@ Continue the JSON output (do not include any text before the continuation):"""
         user_message: str,
         canvas_context: Optional[Dict],
         plan: Optional[ImplementationPlan],
-        retry_count: int = 0
+        retry_count: int = 0,
+        on_event: Optional[Callable] = None,
     ) -> CodeAgentOutput:
         """Attempt to fix validation errors by re-generating"""
         if retry_count >= MAX_VALIDATION_RETRIES:
@@ -2205,6 +2515,7 @@ Continue the JSON output (do not include any text before the continuation):"""
             return output
         
         logger.info(f"[CodeAgent] Fix attempt {retry_count + 1}/{MAX_VALIDATION_RETRIES}")
+        await self._emit_progress(on_event, f"Fix attempt {retry_count + 1}/{MAX_VALIDATION_RETRIES} — regenerating…")
         
         # Build fix prompt
         error_messages = [e.message for e in validation.errors]
@@ -2218,30 +2529,37 @@ ORIGINAL REQUEST: {user_message}
 Please regenerate the flowgram with these errors fixed.
 """
         
-        prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT).format(
+        raw_prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT)
+        prompt = safe_format(
+            raw_prompt,
             node_types=get_node_types_description(),
+            node_schema=prompt_store.get_node_schema(),
+            mapping_dsl=prompt_store.get_mapping_dsl(),
             canvas_context=self._format_canvas_context(canvas_context),
-            plan_context=self._format_plan_context(plan)
+            plan_context=self._format_plan_context(plan),
         )
         prompt += f"\n\n{fix_prompt}"
         
         # Re-invoke LLM
-        response = await self._invoke_llm_async(prompt)
+        response = await self._invoke_llm_async(prompt, action=f"fix_attempt_{retry_count + 1}")
         new_output = self._parse_code_agent_output(response)
         
         if new_output.flowgram:
+            await self._emit_progress(on_event, f"Validating fix attempt {retry_count + 1}…")
             new_validation = self.validate_flowgram(new_output.flowgram, plan)
             new_output.validation = new_validation
             
             if new_validation.valid:
                 logger.info("[CodeAgent] Fix successful, flowgram is now valid")
+                await self._emit_progress(on_event, "Validation passed ✓")
                 self._current_flowgram = new_output.flowgram
                 return new_output
             else:
                 # Recurse
                 return await self._fix_validation_errors(
                     new_output, new_validation, user_message, 
-                    canvas_context, plan, retry_count + 1
+                    canvas_context, plan, retry_count + 1,
+                    on_event=on_event,
                 )
         
         return output
@@ -2274,15 +2592,22 @@ Please regenerate the flowgram with these errors fixed.
         logger.info(f"[CodeAgent] Editing flowgram: {edit_request[:100]}...")
         
         try:
+            await self._emit_progress(on_event, "Preparing edit…")
+
             # Build edit prompt
-            prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT).format(
+            raw_edit_prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT)
+            prompt = safe_format(
+                raw_edit_prompt,
                 current_flowgram=json.dumps(flowgram.model_dump(), indent=2),
                 edit_request=edit_request,
-                node_types=get_node_types_description()
+                node_types=get_node_types_description(),
+                node_schema=prompt_store.get_node_schema(),
+                mapping_dsl=prompt_store.get_mapping_dsl(),
             )
             
             # Invoke LLM
-            response = await self._invoke_llm_async(prompt)
+            await self._emit_progress(on_event, "Applying edit — please wait…")
+            response = await self._invoke_llm_async(prompt, action="edit")
             output = self._parse_code_agent_output(response)
             
             if output.flowgram:
@@ -2299,7 +2624,7 @@ Please regenerate the flowgram with these errors fixed.
                     import asyncio
                     result = on_event({
                         "type": "flowgram",
-                        "data": output.flowgram.model_dump()
+                        "data": output.flowgram.model_dump(exclude_none=True)
                     })
                     # Handle both sync and async callbacks
                     if asyncio.iscoroutine(result):

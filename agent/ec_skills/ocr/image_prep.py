@@ -176,6 +176,86 @@ def get_top_visible_window(win_title_keyword: str):
             size = lazy.pyautogui.size()
             return (win_title_keyword or "", [0, 0, size[0], size[1]])
 
+        elif sys.platform.startswith('linux'):
+            # Linux window management using wmctrl or xdotool
+            try:
+                import shutil
+                
+                # Method 1: Try wmctrl (most reliable)
+                if shutil.which('wmctrl'):
+                    result = subprocess.run(
+                        ['wmctrl', '-lG'],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    
+                    if result.returncode == 0:
+                        windows = []
+                        for line in result.stdout.strip().split('\n'):
+                            parts = line.split(None, 7)
+                            if len(parts) >= 8:
+                                win_id, desktop, x, y, w, h, host, title = parts
+                                if win_title_keyword and win_title_keyword.lower() in title.lower():
+                                    windows.append({
+                                        'title': title,
+                                        'rect': [int(x), int(y), int(w), int(h)],
+                                        'area': int(w) * int(h)
+                                    })
+                        
+                        if windows:
+                            # Return largest matching window
+                            best = max(windows, key=lambda w: w['area'])
+                            return best['title'], best['rect']
+                
+                # Method 2: Try xdotool for active window
+                if shutil.which('xdotool'):
+                    # Get active window ID
+                    win_id_result = subprocess.run(
+                        ['xdotool', 'getactivewindow'],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    
+                    if win_id_result.returncode == 0:
+                        win_id = win_id_result.stdout.strip()
+                        
+                        # Get window geometry
+                        geo_result = subprocess.run(
+                            ['xdotool', 'getwindowgeometry', win_id],
+                            capture_output=True,
+                            text=True,
+                            timeout=1
+                        )
+                        
+                        if geo_result.returncode == 0:
+                            import re
+                            geo = geo_result.stdout
+                            pos_match = re.search(r'Position: (\d+),(\d+)', geo)
+                            size_match = re.search(r'Geometry: (\d+)x(\d+)', geo)
+                            
+                            if pos_match and size_match:
+                                x, y = map(int, pos_match.groups())
+                                w, h = map(int, size_match.groups())
+                                
+                                # Get window title
+                                title_result = subprocess.run(
+                                    ['xdotool', 'getwindowname', win_id],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=1
+                                )
+                                
+                                title = title_result.stdout.strip() if title_result.returncode == 0 else win_title_keyword
+                                return title, [x, y, w, h]
+            except Exception as e:
+                logger.debug(f"Linux window detection failed: {e}")
+            
+            # Fallback to full screen
+            size = lazy.pyautogui.size()
+            return (win_title_keyword or "", [0, 0, size[0], size[1]])
+        
         else:
             size = lazy.pyautogui.size()
             return (win_title_keyword or "", [0, 0, size[0], size[1]])
@@ -612,6 +692,96 @@ def captureScreen(win_title_keyword, subArea=None):
                             raise
                     except Exception as e3:
                         logger.debug(f"screencapture command failed: {e3}")
+                
+                # Alternative 3: Try Linux screenshot tools
+                if platform.system() == "Linux":
+                    import tempfile
+                    from PIL import Image
+                    import shutil
+                    
+                    # Try scrot (most reliable on Linux)
+                    if shutil.which('scrot'):
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                                tmp_path = tmp.name
+                            try:
+                                subprocess.run(
+                                    ['scrot', tmp_path],
+                                    capture_output=True,
+                                    check=True,
+                                    timeout=5
+                                )
+                                if os.path.exists(tmp_path):
+                                    im0 = Image.open(tmp_path)
+                                    if im0 and im0.size[0] > 0 and im0.size[1] > 0:
+                                        logger.info(f"✅ Linux scrot succeeded: {im0.size}")
+                                        window_rect = [0, 0, im0.size[0], im0.size[1]]
+                                        os.unlink(tmp_path)
+                                        break
+                                if os.path.exists(tmp_path):
+                                    os.unlink(tmp_path)
+                            except Exception:
+                                if os.path.exists(tmp_path):
+                                    os.unlink(tmp_path)
+                                raise
+                        except Exception as e4:
+                            logger.debug(f"scrot command failed: {e4}")
+                    
+                    # Try gnome-screenshot
+                    if shutil.which('gnome-screenshot'):
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                                tmp_path = tmp.name
+                            try:
+                                subprocess.run(
+                                    ['gnome-screenshot', '-f', tmp_path],
+                                    capture_output=True,
+                                    check=True,
+                                    timeout=5
+                                )
+                                if os.path.exists(tmp_path):
+                                    im0 = Image.open(tmp_path)
+                                    if im0 and im0.size[0] > 0 and im0.size[1] > 0:
+                                        logger.info(f"✅ Linux gnome-screenshot succeeded: {im0.size}")
+                                        window_rect = [0, 0, im0.size[0], im0.size[1]]
+                                        os.unlink(tmp_path)
+                                        break
+                                if os.path.exists(tmp_path):
+                                    os.unlink(tmp_path)
+                            except Exception:
+                                if os.path.exists(tmp_path):
+                                    os.unlink(tmp_path)
+                                raise
+                        except Exception as e5:
+                            logger.debug(f"gnome-screenshot command failed: {e5}")
+                    
+                    # Try ImageMagick import
+                    if shutil.which('import'):
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                                tmp_path = tmp.name
+                            try:
+                                subprocess.run(
+                                    ['import', '-window', 'root', tmp_path],
+                                    capture_output=True,
+                                    check=True,
+                                    timeout=5
+                                )
+                                if os.path.exists(tmp_path):
+                                    im0 = Image.open(tmp_path)
+                                    if im0 and im0.size[0] > 0 and im0.size[1] > 0:
+                                        logger.info(f"✅ Linux ImageMagick import succeeded: {im0.size}")
+                                        window_rect = [0, 0, im0.size[0], im0.size[1]]
+                                        os.unlink(tmp_path)
+                                        break
+                                if os.path.exists(tmp_path):
+                                    os.unlink(tmp_path)
+                            except Exception:
+                                if os.path.exists(tmp_path):
+                                    os.unlink(tmp_path)
+                                raise
+                        except Exception as e6:
+                            logger.debug(f"ImageMagick import command failed: {e6}")
 
                 # All methods failed
                 logger.error(f"All screenshot methods failed")

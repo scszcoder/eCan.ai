@@ -35,7 +35,7 @@ except ImportError:
 
 from ota.config.loader import ota_config
 from .package_manager import package_manager, UpdatePackage
-from .platforms import MacOSUpdater, WindowsUpdater, GenericUpdater
+from .platforms import MacOSUpdater, WindowsUpdater, LinuxUpdater, GenericUpdater
 from .errors import UpdateError, UpdateErrorCode, get_user_friendly_message
 
 
@@ -84,6 +84,8 @@ class OTAUpdater:
             return MacOSUpdater(self)
         elif self.platform == "Windows":
             return WindowsUpdater(self)
+        elif self.platform == "Linux":
+            return LinuxUpdater(self)
         else:
             return GenericUpdater(self)
 

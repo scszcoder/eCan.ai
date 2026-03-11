@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNodeRender, FlowNodeEntity } from '@flowgram.ai/free-layout-editor';
 
@@ -15,6 +15,7 @@ import SkillLevelMappingEditor, { type SkillLevelMappingConfig } from '../mappin
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRuntimeStateStore } from '../../stores/runtime-state-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { WorkflowNodeType } from '../../nodes/constants';
 
 export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
@@ -137,6 +138,30 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
     }
   };
 
+  // --- Node Note state (backed by useNodeNoteStore) ---
+  // The flowgram form model does not expose setFieldValue, so we use an
+  // external zustand store. prepareDiagramForSave injects notes from this
+  // store into the serialised diagram before writing.
+  const noteFromStore = useNodeNoteStore((s) => s.getNote(node.id));
+  const setNoteInStore = useNodeNoteStore((s) => s.setNote);
+
+  const [noteText, setNoteText] = useState(() => noteFromStore);
+  const [noteExpanded, setNoteExpanded] = useState(false);
+
+  // Sync note text when node / store value changes
+  useEffect(() => {
+    setNoteText(noteFromStore);
+  }, [noteFromStore]);
+
+  const saveNote = useCallback((val: string) => {
+    try {
+      setHasUnsavedChanges(true);
+      setNoteInStore(node.id, val);
+    } catch (e) {
+      console.error('[NoteSection] persist agentNote failed', e);
+    }
+  }, [node.id, setHasUnsavedChanges, setNoteInStore]);
+
   return (
     <NodeRenderContext.Provider value={nodeRender}>
       <div
@@ -153,6 +178,41 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
       >
         <div style={{ padding: '8px 12px 0 12px' }}>
           {nodeRender.form?.render()}
+        </div>
+        {/* --- Note Section --- */}
+        <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>
+          <div
+            style={{ fontWeight: 600, marginBottom: 6, color: '#333', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+            onClick={() => setNoteExpanded(prev => !prev)}
+          >
+            <span>Note</span>
+            <span style={{ fontSize: 12, color: '#999' }}>{noteExpanded ? '▾' : '▸'}</span>
+          </div>
+          {noteExpanded && (
+            <textarea
+              value={noteText}
+              onChange={(e) => {
+                setNoteText(e.target.value);
+                saveNote(e.target.value);
+              }}
+              placeholder="Add a note about this node's purpose…"
+              style={{
+                width: '100%',
+                minHeight: 60,
+                maxHeight: 200,
+                resize: 'vertical',
+                padding: 8,
+                fontSize: 12,
+                lineHeight: '1.5',
+                border: '1px solid #d9d9d9',
+                borderRadius: 4,
+                fontFamily: 'inherit',
+                color: '#333',
+                background: '#fafafa',
+                boxSizing: 'border-box',
+              }}
+            />
+          )}
         </div>
         {shouldShowNodeState && (
           <div style={{ marginTop: 8, borderTop: '1px solid #eee', padding: '8px 12px', background: '#fff' }}>

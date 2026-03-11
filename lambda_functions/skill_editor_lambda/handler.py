@@ -10,30 +10,10 @@ import boto3
 
 from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
 from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_dir_name
-from agent.skill_editor.prompt_store import prompt_store
+from agent.skill_editor.token_tracker import token_tracker
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# Pre-fetch all prompts from DynamoDB during cold start so sub-agents
-# never block on individual gets.
-_PROMPT_IDS = [
-    "intent_classifier",
-    "planner",
-    "code_gen",
-    "edit_flowgram",
-    "validator",
-    # Log analysis sub-agents
-    "log_analysis_orchestrator",
-    "log_parser",
-    "flowgram_correlator",
-    "root_cause_analyzer",
-]
-try:
-    prompt_store.preload(_PROMPT_IDS)
-    logger.info("Prompt store preloaded successfully")
-except Exception as _pre_err:
-    logger.warning("Prompt store preload failed (will fall back to defaults): %s", _pre_err)
 
 # Cache detected S3 base prefixes per owner to avoid repeated list calls within
 # the same warm Lambda environment.
@@ -78,24 +58,9 @@ def _generate_dev_mode_client_id(username: str, skill: Dict[str, Any]) -> str:
     client_id = f"{user_part}_{site}"
     return client_id
 
-DEFAULT_DATA_MAPPING: Dict[str, Any] = {
-    "developing": {
-        "mappings": [],
-        "options": {
-            "strict": False,
-            "apply_order": "top_down",
-        },
-    },
-    "released": {
-        "mappings": [],
-        "options": {
-            "strict": True,
-            "apply_order": "top_down",
-        },
-    },
-    "node_transfers": {},
-    "event_routing": {},
-}
+# Re-use the authoritative baseline mappings from code_agent so that
+# scaffold, lazy-create, and code-generation all produce the same defaults.
+from agent.skill_editor.code_agent import DEFAULT_BASELINE_MAPPINGS as DEFAULT_DATA_MAPPING
 
 
 @dataclass(frozen=True)
@@ -1802,6 +1767,25 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 fg_data = evt.get("data")
                 if not isinstance(fg_data, dict):
                     return
+                # Convert raw Flowgram model_dump → UI-formatted workFlow shape
+                # so the frontend receives {id, type, meta:{position}, data:{title, inputsValues, ...}}
+                try:
+                    from agent.skill_editor.schemas import Flowgram as _Flowgram
+                    _fg = _Flowgram.model_validate(fg_data)
+                    fg_data = {
+                        "nodes": [agent._node_to_json(n) for n in _fg.nodes],
+                        "edges": [
+                            {
+                                "sourceNodeID": e.sourceNodeID,
+                                "targetNodeID": e.targetNodeID,
+                                **({"sourcePortID": e.sourcePortID} if e.sourcePortID else {}),
+                                **({"targetPortID": e.targetPortID} if e.targetPortID else {}),
+                            }
+                            for e in _fg.edges
+                        ],
+                    }
+                except Exception as _conv_err:
+                    logger.warning(f"[sendSkillEditorChatMessage] flowgram UI conversion failed, using raw: {_conv_err}")
                 try:
                     _publish(
                         env,
@@ -1866,6 +1850,14 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     pipeline_state=pipeline_state,
                     current_plan=session.get("currentPlan") if isinstance(session.get("currentPlan"), dict) else session.get("currentPlan"),
                     current_request=session.get("currentRequest") if isinstance(session.get("currentRequest"), str) else None,
+                    classified_domain=session.get("classifiedDomain"),
+                    classified_intent_taxonomy=session.get("classifiedIntentTaxonomy"),
+                    requirement_answers=session.get("requirementAnswers"),
+                    domain_qa_done=bool(session.get("domainQaDone", False)),
+                    workflow_description=session.get("workflowDescription"),
+                    accumulated_clarification_answers=session.get("accumulatedClarificationAnswers"),
+                    clarification_round=int(session.get("clarificationRound", 0) or 0),
+                    pending_clarification=session.get("pendingClarification"),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -1879,6 +1871,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             canvas_context = {"contextSessions": recent_context_sessions}
 
         logger.info(f"[sendSkillEditorChatMessage] Calling agent.process_message_sync, canvas_context_type={type(canvas_context).__name__}")
+        token_tracker.reset()   # clear any stale data from warm-Lambda reuse
         response = agent.process_message_sync(
             message=content,
             canvas_context=canvas_context,
@@ -1887,6 +1880,16 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             on_event=on_event,
         )
         logger.info(f"[sendSkillEditorChatMessage] Agent response received, intent={getattr(response, 'intent', None)}, message_len={len(response.message or '')}")
+
+        # --- Flush token usage to S3 (best-effort) ---
+        try:
+            token_tracker.flush_to_s3(
+                owner=owner,
+                session_id=session_id,
+                request_summary=content[:200] if content else "",
+            )
+        except Exception as _tok_err:
+            logger.warning(f"[sendSkillEditorChatMessage] token_tracker flush failed: {_tok_err}")
 
         logger.info("[sendSkillEditorChatMessage] Publishing stream_end event...")
         try:
@@ -1897,9 +1900,28 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
                 "clarification": [q.model_dump() for q in (response.clarification or [])] if getattr(response, "clarification", None) else None,
                 "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
-                "flowgram": response.flowgram.model_dump() if getattr(response, "flowgram", None) else None,
+                "flowgram": None,
                 "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
             }
+            # Convert flowgram to UI format (same as on_event conversion)
+            if getattr(response, "flowgram", None):
+                try:
+                    _fg = response.flowgram
+                    stream_end_payload["flowgram"] = {
+                        "nodes": [agent._node_to_json(n) for n in _fg.nodes],
+                        "edges": [
+                            {
+                                "sourceNodeID": e.sourceNodeID,
+                                "targetNodeID": e.targetNodeID,
+                                **({"sourcePortID": e.sourcePortID} if e.sourcePortID else {}),
+                                **({"targetPortID": e.targetPortID} if e.targetPortID else {}),
+                            }
+                            for e in _fg.edges
+                        ],
+                    }
+                except Exception as _conv_err:
+                    logger.warning(f"[sendSkillEditorChatMessage] stream_end flowgram conversion failed: {_conv_err}")
+                    stream_end_payload["flowgram"] = response.flowgram.model_dump(exclude_none=True)
             logger.info(f"[sendSkillEditorChatMessage] stream_end payload keys: {list(stream_end_payload.keys())}, "
                         f"hasClarification={stream_end_payload.get('clarification') is not None}, "
                         f"hasPlan={stream_end_payload.get('plan') is not None}, "
@@ -1935,6 +1957,19 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Error publishing commands: {e}")
 
+        # If this request carries clarification answers, attach them to the
+        # previous assistant message that originally asked the questions so the
+        # frontend can render a read-only card after page reload.
+        if clarification and isinstance(history.get("messages"), list):
+            for prev_msg in reversed(history["messages"]):
+                if (
+                    prev_msg.get("role") == "assistant"
+                    and isinstance(prev_msg.get("metadata"), dict)
+                    and prev_msg["metadata"].get("clarification")
+                ):
+                    prev_msg["metadata"]["clarificationAnswers"] = clarification
+                    break
+
         assistant_msg = {
             "id": assistant_message_id,
             "role": "assistant",
@@ -1944,6 +1979,13 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             "metadata": {
                 "state": response.metadata.get("state") if isinstance(getattr(response, "metadata", None), dict) else None,
                 "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+                "clarification": (
+                    [q.model_dump() for q in response.clarification]
+                    if getattr(response, "clarification", None)
+                    else None
+                ),
+                "clarificationAnswers": None,
+                "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
                 "hasClarification": bool(getattr(response, "clarification", None)),
                 "hasPlan": bool(getattr(response, "plan", None)),
                 "hasFlowgram": bool(getattr(response, "flowgram", None)),
@@ -1957,6 +1999,18 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         session["pipelineState"] = agent.pipeline_state.value
         session["currentPlan"] = agent.current_plan.model_dump() if agent.current_plan else None
         session["currentRequest"] = agent.current_request
+        session["classifiedDomain"] = agent.classified_domain
+        session["classifiedIntentTaxonomy"] = agent.classified_intent_taxonomy
+        session["requirementAnswers"] = agent.requirement_answers or None
+        session["domainQaDone"] = agent.domain_qa_done
+        session["workflowDescription"] = agent.workflow_description
+        session["accumulatedClarificationAnswers"] = agent.accumulated_clarification_answers or None
+        session["clarificationRound"] = agent.clarification_round
+        session["pendingClarification"] = (
+            [q.model_dump() for q in agent.get_pending_clarification()]
+            if agent.get_pending_clarification()
+            else None
+        )
 
     except Exception as e:
         import traceback
@@ -2068,7 +2122,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         "message": _to_message_gql(assistant_msg),
         "clarification": [q.model_dump() for q in (response.clarification or [])] if response and getattr(response, "clarification", None) else None,
         "plan": response.plan.model_dump() if response and getattr(response, "plan", None) else None,
-        "flowgram": response.flowgram.model_dump() if response and getattr(response, "flowgram", None) else None,
+        "flowgram": response.flowgram.model_dump(exclude_none=True) if response and getattr(response, "flowgram", None) else None,
         "validation": response.validation.model_dump() if response and getattr(response, "validation", None) else None,
     }
 

@@ -57,7 +57,10 @@
       "loopWhileExpr": "Loop While Expression",
       "loopCountExpr": "Loop Count Expression",
       "loopOutputs": "Loop Outputs",
-      "apiKey": "API Key"
+      "apiKey": "API Key",
+      "inputs": "Inputs",
+      "outputs": "Outputs",
+      "tool": "Tool"
     }
   },
   "sidebar": {
@@ -402,7 +405,10 @@
       "remove": "Remove",
       "edit": "Edit",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "pleaseInputInteger": "Please input integer",
+      "pleaseInputNumber": "Please input number",
+      "pleaseInputText": "Please input text"
     },
     "loop": {
       "name": "Loop",
@@ -451,7 +457,17 @@
     },
     "code": {
       "name": "Code",
-      "description": "Run the Script"
+      "description": "Run the Script",
+      "resetToTemplate": "Reset to template",
+      "fileName": "File Name",
+      "fileNamePlaceholder": "myskills/skill0/file_name0.py",
+      "save": "Save",
+      "loadFile": "Load File",
+      "saveSuccess": "File saved as: {{name}}",
+      "loadSuccess": "Loaded file: {{name}}",
+      "fileNameRequired": "File name is required to save.",
+      "saveFailed": "Failed to save file: {{error}}",
+      "loadFailed": "Failed to load file: {{error}}"
     },
     "chat": {
       "name": "Chat",
@@ -509,7 +525,26 @@
     "pendEvent": {
       "name": "Pend Event",
       "description": "Pause the flow until a specified event type arrives, then resume",
-      "eventType": "Event Type"
+      "eventType": "Event Type",
+      "messageType": "Message Type",
+      "agentIds": "Agent IDs",
+      "timerName": "Timer Name",
+      "eventLabel": "Event Label",
+      "pendingSources": "Pending Sources",
+      "timeoutSec": "Timeout (sec)",
+      "resumePolicy": "Resume Policy",
+      "first": "First",
+      "all": "All",
+      "routingMatchFields": "Routing Match Fields",
+      "routingMatchFieldsDesc": "Match fields for routing events to the correct task. Event Field is a dot-path in the normalized event envelope (type, source, tag, data.*, context.*). Task Field is a dot-path in the task (state.*, skill.*, id, name). Task Field can be blank if auto-filled at runtime (e.g. task id).",
+      "viewSpecification": "View Specification",
+      "eventField": "Event Field",
+      "taskField": "Task Field",
+      "eventFieldPlaceholder": "Event Field (e.g. data.order_id)",
+      "taskFieldPlaceholder": "Task Field (e.g. state.order_id)",
+      "addMatchField": "Add Match Field",
+      "delete": "Delete",
+      "add": "Add"
     },
     "sheetCall": {
       "name": "Sheet Call",

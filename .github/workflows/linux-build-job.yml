@@ -1,0 +1,518 @@
+# ============================================================================
+# Linux Build Job Configuration
+# ============================================================================
+# This is a complete workflow file for testing Linux builds independently.
+# To integrate into release.yml, copy only the build-linux job section under jobs.
+#
+# Location in release.yml: After build-macos job, before upload-to-s3 job
+# ============================================================================
+
+name: Linux Build (Standalone)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (branch/tag) to build'
+        required: false
+        default: ''
+      platform:
+        description: 'Platform to build'
+        required: false
+        default: 'linux'
+      arch:
+        description: 'Architecture'
+        required: false
+        default: 'amd64'
+      upload_artifacts:
+        description: 'Upload artifacts to GitHub'
+        required: false
+        default: 'false'
+
+jobs:
+  # Minimal validate-tag job for standalone testing
+  validate-tag:
+    name: Validate Tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag-valid: ${{ steps.validate.outputs.valid }}
+      version: ${{ steps.validate.outputs.version }}
+      environment: ${{ steps.validate.outputs.environment }}
+    steps:
+      - name: Validate
+        id: validate
+        run: |
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "version=1.0.0-test" >> $GITHUB_OUTPUT
+          echo "environment=development" >> $GITHUB_OUTPUT
+
+  # ============================================================================
+  # BUILD LAYER: Linux amd64
+  # ============================================================================
+  # Builds Linux packages with the following steps:
+  #   1. Environment Setup: Python, Node.js, System Dependencies
+  #   2. Build Process: Frontend + PyInstaller + AppImage + DEB
+  #   3. Artifact Upload: Short-term (S3 transfer) + Optional long-term
+  # ============================================================================
+  build-linux:
+    name: Build Linux amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all')
+    runs-on: ubuntu-22.04
+    env:
+      BUILD_ARCH: amd64
+      DEBIAN_FRONTEND: noninteractive
+    timeout-minutes: 60
+
+    steps:
+    # ------------------------------------------------------------------------
+    # Step Group 1: Repository Setup
+    # ------------------------------------------------------------------------
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 1
+
+    # ------------------------------------------------------------------------
+    # Step Group 2: Environment Setup
+    # ------------------------------------------------------------------------
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        platform: linux
+        requirements-file: requirements-linux.txt
+        architecture: x64
+
+    - name: Setup Playwright Browsers
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: linux
+        browsers: chromium
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
+
+    - name: Setup Node.js Environment
+      uses: ./.github/actions/setup-node-env
+
+    # ------------------------------------------------------------------------
+    # Step Group 3: Linux-Specific System Dependencies
+    # ------------------------------------------------------------------------
+    - name: Install Linux system dependencies
+      run: |
+        echo "=== Installing Linux System Dependencies ==="
+        
+        # Update package list
+        sudo apt-get update -qq
+        
+        # Install build tools
+        sudo apt-get install -y -qq \
+          gcc g++ make \
+          pkg-config \
+          libffi-dev libssl-dev
+        
+        # Install Qt/GUI dependencies
+        sudo apt-get install -y -qq \
+          libgl1 \
+          libglib2.0-0 \
+          libxkbcommon-x11-0 \
+          libxcb-icccm4 \
+          libxcb-image0 \
+          libxcb-keysyms1 \
+          libxcb-randr0 \
+          libxcb-render-util0 \
+          libxcb-shape0 \
+          libxcb-xfixes0 \
+          libxcb-xinerama0 \
+          libxcb-cursor0 \
+          libdbus-1-3 \
+          libxcb-xkb1 \
+          libxkbcommon0
+        
+        # Install screenshot and automation tools
+        sudo apt-get install -y -qq \
+          scrot \
+          wmctrl \
+          xdotool \
+          xdg-utils
+        
+        # Install printing support
+        sudo apt-get install -y -qq \
+          cups \
+          cups-client
+        
+        # Install OCR support
+        sudo apt-get install -y -qq \
+          tesseract-ocr \
+          tesseract-ocr-eng
+        
+        # Install packaging tools
+        sudo apt-get install -y -qq \
+          dpkg-dev \
+          fakeroot
+        
+        echo "✅ System dependencies installed"
+
+    - name: Install AppImage tools
+      run: |
+        echo "=== Installing AppImage Tools ==="
+        
+        # Download appimagetool
+        wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        
+        # Make executable
+        chmod +x appimagetool-x86_64.AppImage
+        
+        # Move to system path
+        sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+        
+        # Verify installation
+        if command -v appimagetool &> /dev/null; then
+          echo "✅ appimagetool installed successfully"
+          appimagetool --version || echo "Version check skipped (normal for AppImage)"
+        else
+          echo "❌ Failed to install appimagetool"
+          exit 1
+        fi
+
+    - name: Setup virtual display (Xvfb)
+      run: |
+        echo "=== Setting up Virtual Display ==="
+        
+        # Install Xvfb
+        sudo apt-get install -y -qq xvfb
+        
+        # Start Xvfb
+        Xvfb :99 -screen 0 1920x1080x24 &
+        export DISPLAY=:99
+        
+        # Wait for Xvfb to start
+        sleep 2
+        
+        # Verify display
+        if xdpyinfo -display :99 &> /dev/null; then
+          echo "✅ Virtual display :99 is running"
+        else
+          echo "⚠️  Virtual display check failed (may be normal)"
+        fi
+        
+        # Export for subsequent steps
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    # ------------------------------------------------------------------------
+    # Step Group 4: Verify Build Environment
+    # ------------------------------------------------------------------------
+    - name: Verify build environment
+      run: |
+        echo "=== Verifying Build Environment ==="
+        
+        # Python version
+        python3 --version
+        
+        # System info
+        echo "OS: $(lsb_release -d | cut -f2)"
+        echo "Kernel: $(uname -r)"
+        echo "Architecture: $(uname -m)"
+        
+        # Check display server
+        echo "DISPLAY: $DISPLAY"
+        
+        # Check key tools
+        echo ""
+        echo "Build Tools:"
+        gcc --version | head -n1
+        make --version | head -n1
+        
+        echo ""
+        echo "Packaging Tools:"
+        dpkg-deb --version | head -n1
+        command -v appimagetool && echo "appimagetool: installed" || echo "appimagetool: not found"
+        
+        echo ""
+        echo "System Tools:"
+        command -v scrot && echo "scrot: installed" || echo "scrot: not found"
+        command -v wmctrl && echo "wmctrl: installed" || echo "wmctrl: not found"
+        command -v xdotool && echo "xdotool: installed" || echo "xdotool: not found"
+        
+        echo ""
+        echo "Python Packages:"
+        python3 -c "
+        packages = ['PyInstaller', 'PySide6', 'requests', 'playwright']
+        for pkg in packages:
+            try:
+                __import__(pkg)
+                print(f'✅ {pkg}')
+            except ImportError:
+                print(f'❌ {pkg}')
+        "
+
+    # ------------------------------------------------------------------------
+    # Step Group 5: Check System Permissions and Dependencies
+    # ------------------------------------------------------------------------
+    - name: Check Linux system permissions
+      continue-on-error: true
+      run: |
+        echo "=== Checking Linux System Permissions ==="
+        python3 -m utils.linux_permissions || echo "⚠️  Some dependencies missing (non-critical)"
+
+    # ------------------------------------------------------------------------
+    # Step Group 6: Setup OTA Signing Key
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        echo "=== Setting up OTA signing key ==="
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        
+        # Create certificates directory
+        mkdir -p build_system/certificates
+        
+        # Check if secret is available
+        if [ -z "$OTA_PRIVATE_KEY" ]; then
+          echo "❌ OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+          echo ""
+          echo "To fix this issue:"
+          echo "1. Generate key: ssh-keygen -t ed25519 -f ed25519_private_key.pem"
+          echo "2. Encode: cat ed25519_private_key.pem | base64 -w 0"
+          echo "3. Add to GitHub Secrets: OTA_ED25519_PRIVATE_KEY"
+          echo ""
+          exit 1
+        fi
+        
+        # Decode and save private key
+        echo "$OTA_PRIVATE_KEY" | base64 -d > build_system/certificates/ed25519_private_key.pem
+        chmod 600 build_system/certificates/ed25519_private_key.pem
+        
+        # Verify key format
+        if grep -q "BEGIN PRIVATE KEY" build_system/certificates/ed25519_private_key.pem; then
+          echo "✅ OTA signing key configured successfully"
+        else
+          echo "❌ Invalid key format"
+          exit 1
+        fi
+
+    # ------------------------------------------------------------------------
+    # Step Group 7: Build Application
+    # ------------------------------------------------------------------------
+    - name: Build Linux packages
+      env:
+        ECAN_SKIP_FRONTEND_BUILD: '0'
+        ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+      run: |
+        echo "=== Starting Linux Build ==="
+        echo "Version: ${{ needs.validate-tag.outputs.version }}"
+        echo "Architecture: $BUILD_ARCH"
+        echo "Environment: $ECAN_ENVIRONMENT"
+        
+        # Run build
+        python3 build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        
+        # Check build success
+        if [ $? -eq 0 ]; then
+          echo "✅ Build completed successfully"
+        else
+          echo "❌ Build failed"
+          exit 1
+        fi
+
+    # ------------------------------------------------------------------------
+    # Step Group 8: Verify Build Artifacts
+    # ------------------------------------------------------------------------
+    - name: Verify build artifacts
+      run: |
+        echo "=== Verifying Build Artifacts ==="
+        
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="$BUILD_ARCH"
+        
+        # Check PyInstaller output
+        if [ -f "dist/eCan/eCan" ]; then
+          echo "✅ PyInstaller executable found"
+          ls -lh dist/eCan/eCan
+        else
+          echo "❌ PyInstaller executable not found"
+          exit 1
+        fi
+        
+        # Check AppImage
+        APPIMAGE="dist/eCan-${VERSION}-x86_64.AppImage"
+        if [ -f "$APPIMAGE" ]; then
+          echo "✅ AppImage found: $APPIMAGE"
+          ls -lh "$APPIMAGE"
+        else
+          echo "⚠️  AppImage not found (may be disabled)"
+        fi
+        
+        # Check DEB package
+        DEB="dist/ecan-${VERSION}_amd64.deb"
+        if [ -f "$DEB" ]; then
+          echo "✅ DEB package found: $DEB"
+          ls -lh "$DEB"
+          
+          # Show package info
+          echo ""
+          echo "DEB Package Info:"
+          dpkg-deb --info "$DEB" | head -20
+        else
+          echo "⚠️  DEB package not found (may be disabled)"
+        fi
+        
+        # List all artifacts
+        echo ""
+        echo "All artifacts in dist/:"
+        find dist -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "eCan" \) -ls
+
+    - name: Dump dist tree on failure
+      if: failure()
+      run: |
+        echo "=== dist/ tree (failure only) ==="
+        if [ -d "dist" ]; then
+          find dist -ls
+        else
+          echo "dist directory not found"
+        fi
+
+    # ------------------------------------------------------------------------
+    # Step Group 9: Generate Ed25519 Signatures
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      run: |
+        echo "=== Generating Ed25519 Signatures ==="
+        
+        # Install cryptography library
+        pip install cryptography --quiet
+        
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        
+        # Check if private key exists
+        if [ ! -f "$KEY_PATH" ]; then
+          echo "❌ Private key not found: $KEY_PATH"
+          exit 1
+        fi
+        
+        echo "✅ Private key found"
+        
+        # Sign AppImage
+        APPIMAGE="dist/eCan-${VERSION}-x86_64.AppImage"
+        if [ -f "$APPIMAGE" ]; then
+          echo "Signing: $(basename $APPIMAGE)"
+          python3 build_system/signing_manager.py "$APPIMAGE" "$KEY_PATH" "${APPIMAGE}.sig"
+          
+          if [ -f "${APPIMAGE}.sig" ]; then
+            SIG_SIZE=$(stat -f%z "${APPIMAGE}.sig" 2>/dev/null || stat -c%s "${APPIMAGE}.sig")
+            echo "  ✅ Signature generated: $SIG_SIZE bytes"
+            
+            if [ "$SIG_SIZE" -ne 64 ]; then
+              echo "  ❌ Invalid signature size: expected 64 bytes"
+              exit 1
+            fi
+          else
+            echo "  ❌ Failed to generate signature"
+            exit 1
+          fi
+        fi
+        
+        # Sign DEB package
+        DEB="dist/ecan-${VERSION}_amd64.deb"
+        if [ -f "$DEB" ]; then
+          echo "Signing: $(basename $DEB)"
+          python3 build_system/signing_manager.py "$DEB" "$KEY_PATH" "${DEB}.sig"
+          
+          if [ -f "${DEB}.sig" ]; then
+            SIG_SIZE=$(stat -f%z "${DEB}.sig" 2>/dev/null || stat -c%s "${DEB}.sig")
+            echo "  ✅ Signature generated: $SIG_SIZE bytes"
+          fi
+        fi
+        
+        echo "✅ All signatures generated"
+
+    # ------------------------------------------------------------------------
+    # Step Group 10: Prepare Artifacts Directory (Same as Windows/macOS)
+    # ------------------------------------------------------------------------
+    - name: Prepare artifacts directory
+      run: |
+        echo "=== Preparing Artifacts Directory ==="
+        
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="$BUILD_ARCH"
+        
+        # Create artifacts directory (same structure as Windows/macOS)
+        mkdir -p artifacts
+        
+        # Copy AppImage and signature
+        if [ -f "dist/eCan-${VERSION}-x86_64.AppImage" ]; then
+          cp "dist/eCan-${VERSION}-x86_64.AppImage" artifacts/
+          echo "✅ Copied AppImage to artifacts/"
+          
+          if [ -f "dist/eCan-${VERSION}-x86_64.AppImage.sig" ]; then
+            cp "dist/eCan-${VERSION}-x86_64.AppImage.sig" artifacts/
+            echo "✅ Copied AppImage signature"
+          fi
+        fi
+        
+        # Copy DEB package and signature
+        if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
+          cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
+          echo "✅ Copied DEB package to artifacts/"
+          
+          if [ -f "dist/ecan-${VERSION}_amd64.deb.sig" ]; then
+            cp "dist/ecan-${VERSION}_amd64.deb.sig" artifacts/
+            echo "✅ Copied DEB signature"
+          fi
+        fi
+        
+        # List artifacts
+        echo ""
+        echo "Artifacts directory contents:"
+        ls -lh artifacts/
+
+    # ------------------------------------------------------------------------
+    # Step Group 11: Upload Artifacts (Same naming as Windows/macOS)
+    # ------------------------------------------------------------------------
+    - name: Upload Linux artifacts for S3 transfer (always, short retention)
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: warn
+
+    - name: Upload Linux artifacts for users (optional, long retention)
+      if: github.event.inputs.upload_artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
+        path: artifacts/
+        retention-days: 7
+        compression-level: 6
+
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-build-logs-${{ env.BUILD_ARCH }}
+        path: |
+          build.log
+          build_system/build.log
+        retention-days: 7
+        if-no-files-found: ignore

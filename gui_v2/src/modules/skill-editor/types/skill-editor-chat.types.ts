@@ -71,6 +71,8 @@ export interface ClarificationChoice {
   label: string;
   /** Additional description */
   description?: string;
+  /** When selected, show a text input for custom user input */
+  allow_freeform?: boolean;
 }
 
 /** A clarification question to ask the user */

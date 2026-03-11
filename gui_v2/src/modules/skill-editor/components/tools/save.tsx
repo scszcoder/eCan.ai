@@ -14,6 +14,7 @@ import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
@@ -33,22 +34,43 @@ import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
  * Prepare diagram for saving: handle flip states and remove breakpoints
  */
 function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean): void {
-  diagram.nodes.forEach((node: any) => {
-    if (!node.data) node.data = {};
-    
-    // Persist flip states
-    const flipState = isFlipped(node.id);
-    if (flipState) {
-      node.data.hFlip = true;
-    } else if (node.data.hFlip) {
-      delete node.data.hFlip;
-    }
-    
-    // Remove breakpoints (not persisted)
-    if (node.data.break_point) {
-      delete node.data.break_point;
-    }
-  });
+  // Read all notes from the store once (avoids per-node getState calls)
+  const allNotes = useNodeNoteStore.getState().notes;
+
+  // Recursive function to process nodes (including subcanvas)
+  const processNodes = (nodes: any[]) => {
+    nodes.forEach((node: any) => {
+      if (!node.data) node.data = {};
+      
+      // Persist flip states
+      const flipState = isFlipped(node.id);
+      if (flipState) {
+        node.data.hFlip = true;
+      } else if (node.data.hFlip) {
+        delete node.data.hFlip;
+      }
+      
+      // Remove breakpoints (not persisted)
+      if (node.data.break_point) {
+        delete node.data.break_point;
+      }
+
+      // Inject agentNote from the external note store.
+      // The flowgram form model doesn't expose setFieldValue, so notes are
+      // stored externally and merged into the serialised diagram here.
+      const note = allNotes.get(node.id);
+      if (note) {
+        node.data.agentNote = note;
+      }
+      
+      // Recursively process subcanvas nodes
+      if (node.data?.subcanvas?.nodes) {
+        processNodes(node.data.subcanvas.nodes);
+      }
+    });
+  };
+  
+  processNodes(diagram.nodes || []);
 }
 
 /**
@@ -306,22 +328,40 @@ export async function saveFile(
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;
         if (!filePath) {
-          // 问题2FIX: 不要在Default文件名中Add _skill 后缀
-          // UserInput的Name就是文件夹Name，Backend会自动Add _skill 后缀到文件夹
-          const fileName = (dataToSave.skillName || 'untitled') + '.json';
-          console.log('[SKILL_IO][FRONTEND][DEFAULT_FILENAME]', fileName);
-          const dialogResponse = await ipcApi.showSaveDialog(fileName, [
-            { name: 'Skill Files', extensions: ['json'] },
-            { name: 'All Files', extensions: ['*'] }
-          ]);
-          if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
-            filePath = (dialogResponse.data as any).filePath || (dialogResponse.data as any).filePaths?.[0];
+          // First-time save: use scaffoldSkill to create proper directory structure
+          // my_skills/<name>_skill/diagram_dir/<name>_skill.json
+          const baseName = normalizeSkillBaseName(dataToSave.skillName);
+          console.log('[SKILL_IO][FRONTEND][SCAFFOLD] Creating skill structure for:', baseName);
+          const scaffoldResp = await ipcApi.scaffoldSkill(
+            baseName,
+            (dataToSave as any).description || '',
+            'diagram',
+            dataToSave,
+            bundleJson ? JSON.parse(bundleJson) : undefined,
+            dataMappingJson ? JSON.parse(dataMappingJson) : undefined
+          );
+          if (scaffoldResp.success && scaffoldResp.data) {
+            const scaffoldData = scaffoldResp.data as any;
+            console.log('[SKILL_IO][FRONTEND][SCAFFOLD_OK]', scaffoldData);
+            return {
+              success: true,
+              filePath: scaffoldData.diagramPath,
+              skillName: scaffoldData.name,
+            };
           } else {
-            console.log('Save operation was cancelled by user');
-            return { cancelled: true };
+            // Skill dir already exists — fall back to writing directly to expected path
+            const errorStr = String((scaffoldResp as any).error || '');
+            if (errorStr.includes('already exists')) {
+              console.warn('[SKILL_IO][FRONTEND][SCAFFOLD_EXISTS] Falling back to direct write for:', baseName);
+              filePath = `my_skills/${baseName}_skill/diagram_dir/${baseName}_skill.json`;
+              // Continue to the normal writeSkillFile flow below
+            } else {
+              console.error('[SKILL_IO][FRONTEND][SCAFFOLD_ERROR]', scaffoldResp.error);
+              throw new Error(errorStr || 'Failed to scaffold skill');
+            }
           }
         }
-        // Enforce _skill.json suffix
+        // Existing file: enforce _skill.json suffix
         if (filePath) {
           if (/\.(json)$/i.test(filePath) && !/_skill\.json$/i.test(filePath)) {
             filePath = filePath.replace(/\.json$/i, '_skill.json');
@@ -460,6 +500,13 @@ async function syncSkillToDBAndStore(
     };
 
     console.log('[SKILL_IO][DB_SYNC] Syncing skill to DB:', skillPayload.name, 'id:', skillPayload.id);
+
+    // If no skill ID, the skill was just scaffolded (first-time save) and sync_skill_from_file
+    // already created the DB entry. Skip save_agent_skill to avoid "Skill ID is required" error.
+    if (!skillPayload.id) {
+      console.log('[SKILL_IO][DB_SYNC] No skill ID — skipping save_agent_skill (scaffold already synced)');
+      return;
+    }
 
     const resp = await api.saveAgentSkill(owner, skillPayload);
 
