@@ -73,16 +73,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r build_system/scripts/requirements.txt
       
-      - name: Create dist directory
-        run: mkdir -p dist
-      
       - name: Download all artifacts for S3 transfer
         uses: actions/download-artifact@v4
         with:
           pattern: '*-s3-transfer'
           path: dist/
           merge-multiple: true
-        continue-on-error: true
       
       - name: List downloaded artifacts
         run: |
