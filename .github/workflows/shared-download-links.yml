@@ -46,6 +46,11 @@ on:
         description: 'Result of macOS build job (success/skipped/failure)'
         required: true
         type: string
+      linux-result:
+        description: 'Result of Linux build job (success/skipped/failure)'
+        required: false
+        type: string
+        default: 'skipped'
       macos-built-amd64:
         description: 'Whether macOS amd64 artifacts were built in this run'
         required: false
