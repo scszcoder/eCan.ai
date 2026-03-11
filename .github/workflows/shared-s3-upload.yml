@@ -40,6 +40,11 @@ on:
         required: false
         type: string
         default: 'success'
+      linux-build-result:
+        description: 'Result of Linux build job'
+        required: false
+        type: string
+        default: 'success'
     outputs:
       upload-success:
         description: 'Whether upload was successful'
