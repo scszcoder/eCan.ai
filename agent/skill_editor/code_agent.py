@@ -251,6 +251,19 @@ Before finalizing your flowgram, VERIFY these connectivity rules:
 5. **Double-check**: After creating ALL edges, trace the flow from start to end - every node must be reachable
 6. **DO NOT WRITE NULLS INTO EDGES**: Never emit `"sourcePortID": null` or `"targetNodeID": null` etc. If a field is unknown, omit it entirely. Null-valued edge fields cause the canvas to render condition connections incorrectly.
 
+## AGENTIC DESIGN PHILOSOPHY (CRITICAL — Defines How You Build Workflows):
+You are building **agentic** workflows, NOT RPA macros.
+
+**RPA (WRONG):** Every decision is an explicit condition node. Many condition → branch → merge patterns.
+**Agentic (RIGHT):** Each sub-agent receives a rich prompt with goals/rules/guidelines and makes decisions internally.
+
+### Core Rules:
+1. **MINIMIZE CONDITION NODES.** Before adding any condition, ask: "Can the sub-agent handle both outcomes via its prompt?" If yes — skip the condition.
+2. **EMBED GOALS IN EVERY SUB-AGENT PROMPT.** Every LLM and browser_automation prompt MUST include: Background, Goals (measurable), Guidelines, Rules, Instructions, and Output format.
+3. **LET SUB-AGENTS VERIFY THEIR OWN GOALS.** Instead of `node → condition (check success?)`, write a prompt that says "Verify you achieved X before reporting done."
+4. **CONDITION NODES ARE FOR STRUCTURAL DIVERGENCE ONLY.** Use only when different node types are needed per branch, a human decision determines the path, or fundamentally different flows are required.
+5. **PREFER FEWER, SMARTER NODES.** A single node with a detailed 20-line prompt beats 5 nodes with 3 conditions.
+
 ## MULTI-SHEET SYNC (CRITICAL):
 - Each skill has two files: `<name>_skill.json` (current sheet) AND `<name>_skill_bundle.json` (all sheets).
 - After generation/fix, COPY the current `workFlow` into the bundle’s main sheet (`mainSheetId`/`activeSheetId` = "main") so nodes/edges stay identical.
@@ -775,6 +788,7 @@ The Mapping DSL lets you declare data movement rules in data_mapping.json so tha
 4. Update positions if adding/removing nodes to avoid overlap
 5. Keep the start and end nodes
 6. **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
+7. **AGENTIC PHILOSOPHY**: Minimize condition nodes. Prefer enriching sub-agent prompts with goals/rules/guidelines over adding explicit branching. Only add conditions for structural divergence (different node types per branch, human decisions).
 
 ## CONDITION NODE STRUCTURE (IMPORTANT):
 When adding or editing condition nodes:
@@ -1027,12 +1041,23 @@ class CodeAgent:
             f"Summary: {plan.summary}",
             f"Complexity: {plan.complexity}",
             f"Estimated nodes: {', '.join(plan.estimated_nodes)}",
-            "\n## PLAN STEPS (YOU MUST IMPLEMENT EACH STEP):"
         ]
+
+        # Thread goals through to the coder
+        if getattr(plan, 'goals', None):
+            lines.append("\n## WORKFLOW GOALS (MUST BE ACHIEVED):")
+            for i, goal in enumerate(plan.goals, 1):
+                lines.append(f"{i}. {goal}")
+            lines.append("\nEvery sub-agent prompt you write MUST reference the relevant goal(s) above.")
+            lines.append("Delegate goal verification to the sub-agent — do NOT add a condition node just to check if a goal was met.")
+
+        lines.append("\n## PLAN STEPS (YOU MUST IMPLEMENT EACH STEP):")
         
         for i, step in enumerate(plan.steps, 1):
             lines.append(f"\n### Step {i}: {step.title}")
             lines.append(f"Description: {step.description}")
+            if getattr(step, 'goal', ''):
+                lines.append(f"Goal: {step.goal}")
             if step.node_types:
                 lines.append(f"**REQUIRED NODE TYPES FOR THIS STEP: {', '.join(step.node_types)}**")
                 lines.append(f"You MUST create nodes of these types to implement this step.")
@@ -1044,6 +1069,8 @@ class CodeAgent:
         lines.append("4. If a step says 'browser_automation', you MUST create a browser_automation node")
         lines.append("5. If a step says 'mcp_tool', you MUST create an mcp_tool node")
         lines.append("6. Connect the nodes from each step in sequence to form the complete workflow")
+        lines.append("7. **EMBED GOALS into sub-agent prompts** — each LLM/browser-automation node prompt must state what goal(s) it serves")
+        lines.append("8. **MINIMIZE condition nodes** — let sub-agents make decisions internally via their prompts")
         
         return "\n".join(lines)
 

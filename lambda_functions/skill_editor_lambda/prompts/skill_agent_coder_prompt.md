@@ -135,6 +135,64 @@ You do **not** need to repeat these rules. If the workflow needs additional data
 
 ---
 
+## AGENTIC DESIGN PHILOSOPHY (CRITICAL — Defines How You Build Workflows)
+
+You are building **agentic** workflows, NOT RPA macros. The fundamental difference:
+
+- **RPA macro (WRONG):** Every decision is an explicit condition node. The flowgram micromanages each step. Many condition → branch → merge patterns. Brittle, hard to maintain, doesn't leverage LLM reasoning.
+- **Agentic workflow (RIGHT):** Each sub-agent node (browser_automation, LLM+MCP) receives a **rich prompt** with background, goals, guidelines, rules, and instructions. The sub-agent reasons, decides, adapts, and self-corrects internally. The flowgram orchestrates at a high level.
+
+### Core Rules:
+
+1. **MINIMIZE CONDITION NODES.** Before adding any condition node, ask: "Can the sub-agent handle BOTH outcomes internally via its prompt?" If yes — skip the condition, write a richer prompt instead.
+
+2. **EMBED GOALS IN EVERY SUB-AGENT PROMPT.** Every LLM and browser_automation node prompt MUST include:
+   - **Background/Context**: What business scenario is this? What happened before this node?
+   - **Goals**: Specific, measurable objectives (what "done" looks like for this node)
+   - **Guidelines**: Preferred approaches, heuristics, priorities
+   - **Rules**: Hard constraints and boundaries (what the agent must NOT do)
+   - **Instructions**: Step-by-step guidance (but the agent may adapt if needed)
+   - **Output format**: What JSON structure to return, including status flags
+
+3. **LET SUB-AGENTS VERIFY THEIR OWN GOALS.** Instead of: `browser_automation → condition (check success?) → retry/fail`, write: `browser_automation` with a prompt that says "Verify you achieved X before reporting done. If X failed, retry up to 3 times, then report failure with details."
+
+4. **USE LOOPS FOR VARIABLE-COUNT WORK, NOT CONDITIONS FOR EACH ITEM.** Instead of: `condition (has item 1?) → process → condition (has item 2?) → process → ...`, use: `loop (while not all_done) → browser_automation/LLM with prompt "process next batch of items, set all_done when finished"`.
+
+5. **CONDITION NODES ARE FOR STRUCTURAL DIVERGENCE ONLY.** Use condition nodes ONLY when:
+   - The workflow must use **different node types** per branch (e.g., browser_automation vs MCP)
+   - A **human decision** (from pend_event) determines the path
+   - The workflow must take **fundamentally different paths** that cannot be handled by one sub-agent
+   
+   Do NOT use condition nodes for:
+   - Checking if a browser action succeeded (sub-agent retries internally)
+   - Checking if data was found (sub-agent reports in its JSON output)
+   - Validating LLM output format (sub-agent self-corrects)
+   - Simple error checking (sub-agent error handling pattern covers this)
+
+6. **PREFER FEWER, SMARTER NODES.** A single browser_automation node with a 20-line prompt is better than 5 nodes with 3 conditions. A single LLM+MCP sub-agent loop is better than a chain of LLM → condition → MCP → condition → LLM.
+
+### Example — BAD (RPA style, too many conditions):
+```
+start → browser_automation_login → condition_login_ok →
+  YES → browser_automation_navigate → condition_has_orders →
+    YES → browser_automation_process_order → condition_order_ok →
+      YES → llm_summarize → end
+      NO → llm_handle_error → end
+    NO → llm_no_orders → end
+  NO → llm_login_failed → end
+```
+(9 nodes, 4 condition nodes — fragile, micromanaged)
+
+### Example — GOOD (Agentic style):
+```
+start → loop(browser_automation_process_orders) → llm_summarize → end
+```
+Where `browser_automation_process_orders` prompt says:
+"Login to eBay Seller Hub. If login fails, retry once then report failure. Navigate to orders. Process each unshipped order: check for cancellation messages, generate shipping label if valid. Batch up to 5 orders per run. Return JSON: {orders_processed: [...], errors: [...], all_done: bool}."
+(3 core nodes + loop — robust, adaptive, leverages sub-agent intelligence)
+
+---
+
 ## Edge Connectivity Validation (CRITICAL — Most Common Error)
 
 Before finalizing your flowgram, **verify** these rules:
