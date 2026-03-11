@@ -14,6 +14,7 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 
@@ -115,6 +116,7 @@ const OpenPickerModalContent = () => {
           }
           
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           setTimeout(() => {
             if (!workflowDocument) return;
             diagram.nodes.forEach((node: any) => {
@@ -134,6 +136,11 @@ const OpenPickerModalContent = () => {
                   try { (loadedNode as any).update?.(); } catch {}
                 }
               }
+              // Restore agentNote to note store
+              if (node?.data?.agentNote) {
+                useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+              }
+
             });
           }, 100);
           
@@ -145,6 +152,7 @@ const OpenPickerModalContent = () => {
             workflowDocument.fromJSON(data as any);
           }
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           if ((data as any).nodes && workflowDocument) {
             (data as any).nodes.forEach((node: any) => {
               if (node?.data?.hFlip === true) setFlipped(node.id, true);
