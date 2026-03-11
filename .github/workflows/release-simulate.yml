@@ -37,15 +37,16 @@ name: Release Flow Simulation (Current Architecture)
 #   2. platform=macos, arch=amd64        - Build macOS Intel only
 #   3. platform=macos, arch=aarch64      - Build macOS ARM only
 #   4. platform=macos, arch=all          - Build all macOS
-#   5. platform=all, arch=amd64          - Build all Intel
-#   6. platform=all, arch=aarch64        - Build macOS ARM only (Windows doesn't support ARM)
-#   7. platform=all, arch=all            - Complete build
+#   5. platform=linux, arch=amd64        - Build Linux only
+#   6. platform=all, arch=amd64          - Build all platforms (Intel/x64)
+#   7. platform=all, arch=aarch64        - Build macOS ARM only (Windows/Linux don't support ARM)
+#   8. platform=all, arch=all            - Complete build (all platforms and architectures)
 
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Build platform (windows, macos, all)'
+        description: 'Build platform (windows, macos, linux, all)'
         required: true
         default: 'all'
         type: choice
@@ -53,6 +54,7 @@ on:
           - all
           - windows
           - macos
+          - linux
       arch:
         description: 'CPU architecture (all, amd64, aarch64)'
         required: true

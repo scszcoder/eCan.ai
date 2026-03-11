@@ -24,8 +24,8 @@ class LinuxBuilder:
     def __init__(self, project_root: Path, config: Dict[str, Any]):
         self.project_root = project_root
         self.config = config
-        self.app_name = config.get("app_name", "eCan")
-        self.version = config.get("version", "1.0.0")
+        self.app_name = config.get("app", {}).get("name", "eCan")
+        self.version = config.get("app", {}).get("version", "1.0.0")
         self.dist_dir = project_root / "dist"
         self.build_dir = project_root / "build"
         
