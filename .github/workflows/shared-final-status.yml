@@ -33,6 +33,11 @@ on:
         description: 'Result of build-macos job'
         required: true
         type: string
+      linux-result:
+        description: 'Result of build-linux job'
+        required: false
+        type: string
+        default: 'skipped'
       upload-result:
         description: 'Result of upload-to-s3 job'
         required: true
@@ -59,6 +64,7 @@ jobs:
       VERSION: ${{ inputs.version }}
       WINDOWS_RESULT: ${{ inputs.windows-result }}
       MACOS_RESULT: ${{ inputs.macos-result }}
+      LINUX_RESULT: ${{ inputs.linux-result }}
       UPLOAD_RESULT: ${{ inputs.upload-result }}
       APPCAST_RESULT: ${{ inputs.appcast-result }}
       LINKS_RESULT: ${{ inputs.links-result }}
@@ -85,6 +91,7 @@ jobs:
           echo "Build Status:"
           echo "  - Windows: ${WINDOWS_RESULT}"
           echo "  - macOS:   ${MACOS_RESULT}"
+          echo "  - Linux:   ${LINUX_RESULT}"
           echo ""
           echo "Distribution Status:"
           echo "  - S3 Upload:        ${UPLOAD_RESULT}"
@@ -100,6 +107,7 @@ jobs:
             echo "  Base URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
             echo "  Windows:  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/windows/"
             echo "  macOS:    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/"
+            echo "  Linux:    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/linux/"
             echo "  Appcast:  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/"
           else
             echo "⚠️  S3 not fully configured - artifacts may be available as GitHub Artifacts only"
