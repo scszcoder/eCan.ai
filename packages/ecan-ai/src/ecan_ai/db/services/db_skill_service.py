@@ -143,6 +143,70 @@ class DBSkillService(BaseService):
     def update_skill(self, skill_id, fields):
         """Update a skill"""
         return self._update(DBAgentSkill, skill_id, fields)
+    
+    def update_skill_references(self, old_skill_id: str, new_skill_id: str):
+        """Update all references from old skill ID to new skill ID
+        
+        This is used when renaming a skill to update all agent-skill and task-skill relationships.
+        
+        Args:
+            old_skill_id: The old skill ID to replace
+            new_skill_id: The new skill ID to use
+            
+        Returns:
+            Dict with success status and counts of updated relationships
+        """
+        try:
+            from sqlalchemy import update
+            from packages.ecan_ai.src.ecan_ai.db.models.association_models import (
+                DBAgentSkillRel, 
+                DBAgentTaskSkillRel,
+                DBAgentSkillKnowledgeRel
+            )
+            
+            with self.session_scope() as session:
+                agent_count = 0
+                task_count = 0
+                knowledge_count = 0
+                
+                # Update agent-skill relationships
+                agent_skill_update = update(DBAgentSkillRel).where(
+                    DBAgentSkillRel.skill_id == old_skill_id
+                ).values(skill_id=new_skill_id)
+                result = session.execute(agent_skill_update)
+                agent_count = result.rowcount
+                
+                # Update task-skill relationships
+                task_skill_update = update(DBAgentTaskSkillRel).where(
+                    DBAgentTaskSkillRel.skill_id == old_skill_id
+                ).values(skill_id=new_skill_id)
+                result = session.execute(task_skill_update)
+                task_count = result.rowcount
+                
+                # Update skill-knowledge relationships
+                knowledge_update = update(DBAgentSkillKnowledgeRel).where(
+                    DBAgentSkillKnowledgeRel.skill_id == old_skill_id
+                ).values(skill_id=new_skill_id)
+                result = session.execute(knowledge_update)
+                knowledge_count = result.rowcount
+                
+                session.commit()
+                
+                return {
+                    "success": True,
+                    "data": {
+                        "agent_count": agent_count,
+                        "task_count": task_count,
+                        "knowledge_count": knowledge_count
+                    },
+                    "error": None
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e)
+            }
 
     def query_skills(self, id=None, name=None, description=None):
         """Query skills"""

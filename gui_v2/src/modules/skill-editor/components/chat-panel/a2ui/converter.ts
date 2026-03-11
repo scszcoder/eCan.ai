@@ -13,6 +13,7 @@ import type {
   A2UIUpdateDataModelMessage,
   A2UIComponent,
   A2UITextComponent,
+  A2UITextFieldComponent,
   A2UIChoicePickerComponent,
   A2UIButtonComponent,
   A2UIColumnComponent,
@@ -47,6 +48,8 @@ export function clarificationToA2UI(
   const sid = surfaceId || generateSurfaceId();
   const components: A2UIComponent[] = [];
   const initialDataModel: Record<string, string[]> = {};
+  const freeformInitial: Record<string, string> = {};
+  const freeformQuestionIds: string[] = [];
   const questionComponentIds: string[] = [];
 
   // 1. Header text
@@ -116,13 +119,31 @@ export function clarificationToA2UI(
     };
     components.push(choicePicker);
 
+    // Check if any choice has allow_freeform ("Other"-style option)
+    const hasFreeform = q.choices.some(c => c.allow_freeform);
+    if (hasFreeform) {
+      const freeformField: A2UITextFieldComponent = {
+        id: `freeform_${q.id}`,
+        component: 'TextField',
+        label: 'If you selected "Other", please specify:',
+        value: { path: `/freeform/${q.id}` },
+        variant: 'shortText',
+      };
+      components.push(freeformField);
+      freeformInitial[q.id] = '';
+      freeformQuestionIds.push(q.id);
+    }
+
     // Column container for this question
+    const columnChildren = q.context
+      ? [`text_${q.id}`, `context_${q.id}`, questionId]
+      : [`text_${q.id}`, questionId];
+    if (hasFreeform) columnChildren.push(`freeform_${q.id}`);
+
     const questionContainer: A2UIColumnComponent = {
       id: questionContainerId,
       component: 'Column',
-      children: q.context
-        ? [`text_${q.id}`, `context_${q.id}`, questionId]
-        : [`text_${q.id}`, questionId],
+      children: columnChildren,
       align: 'stretch',
     };
     components.push(questionContainer);
@@ -146,10 +167,16 @@ export function clarificationToA2UI(
     child: 'submit-btn-text',
     action: {
       name: 'submit_clarification',
-      context: questions.map(q => ({
-        key: q.id,
-        value: { path: `/answers/${q.id}` },
-      })),
+      context: [
+        ...questions.map(q => ({
+          key: q.id,
+          value: { path: `/answers/${q.id}` },
+        })),
+        ...freeformQuestionIds.map(qId => ({
+          key: `freeform_${qId}`,
+          value: { path: `/freeform/${qId}` },
+        })),
+      ],
     },
   };
   components.push(submitButton);
@@ -223,29 +250,61 @@ export function clarificationToA2UI(
     },
   };
 
+  const messages: A2UIServerMessage[] = [createSurface, updateComponents, updateDataModel];
+
+  // Initialize freeform data model for "Other" text fields
+  if (Object.keys(freeformInitial).length > 0) {
+    const updateFreeformModel: A2UIUpdateDataModelMessage = {
+      version: 'v0.10',
+      updateDataModel: {
+        surfaceId: sid,
+        path: '/freeform',
+        value: freeformInitial,
+      },
+    };
+    messages.push(updateFreeformModel);
+  }
+
   return {
     surfaceId: sid,
-    messages: [createSurface, updateComponents, updateDataModel],
+    messages,
     initialDataModel,
   };
 }
 
 /**
- * Convert A2UI action context to ClarificationResponse answers format
+ * Convert A2UI action context to ClarificationResponse answers format.
+ *
+ * Freeform text values (from "Other" text fields) are passed through
+ * as `freeform_<questionId>` keys so the backend can merge them.
  */
 export function extractAnswersFromA2UIAction(
   context: Record<string, unknown>
 ): Record<string, string[]> {
   const answers: Record<string, string[]> = {};
-  
+  const freeformTexts: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(context)) {
-    if (Array.isArray(value)) {
+    if (key.startsWith('freeform_')) {
+      // Collect freeform text separately first
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text) {
+        const questionId = key.slice('freeform_'.length);
+        freeformTexts[questionId] = text;
+      }
+    } else if (Array.isArray(value)) {
       answers[key] = value.map(v => String(v));
     } else if (typeof value === 'string') {
       answers[key] = [value];
     }
   }
-  
+
+  // Merge freeform text into answers: append ` (Other: <text>)` detail
+  // and keep freeform_* keys for backend consumption
+  for (const [qId, text] of Object.entries(freeformTexts)) {
+    answers[`freeform_${qId}`] = [text];
+  }
+
   return answers;
 }
 

@@ -53,7 +53,7 @@ export class APIRouter {
     this.config = {
       localServerBaseUrl: config.localServerBaseUrl || 'http://localhost:4668',
       enableLogging: config.enableLogging ?? true,
-      defaultTimeout: config.defaultTimeout || 10000  // 降低到 10 秒，避免长时间阻塞
+      defaultTimeout: config.defaultTimeout || 30000  // 30 秒，后端串行处理请求时排队可能超过 10 秒
     };
   }
 
@@ -227,6 +227,50 @@ export class APIRouter {
       if (result.errors && result.errors.length > 0) {
         const error = result.errors[0];
         const errorCode = String(error.extensions?.code || 'GRAPHQL_ERROR');
+        
+        // Handle SYSTEM_NOT_READY: Check if user has valid token, if not redirect to login
+        if (errorCode === 'SYSTEM_NOT_READY' || errorCode === 'MAIN_WINDOW_NOT_AVAILABLE') {
+          logger.warn(`[APIRouter] System not ready for ${method}: ${errorCode}`);
+          
+          // Check if user has a valid token
+          const token = this.getAuthToken();
+          if (!token) {
+            // No token - user should be on login page
+            logger.info('[APIRouter] System not ready and no token found, redirecting to login');
+            
+            // Clear any stale data
+            try {
+              const { userStorageManager } = await import('../storage/UserStorageManager');
+              userStorageManager.removeToken();
+            } catch (error) {
+              logger.error('[APIRouter] Error clearing token:', error);
+            }
+            
+            // Redirect to login if not already there
+            if (window.location.hash !== '#/login') {
+              setTimeout(() => {
+                window.location.replace(window.location.origin + '/#/login');
+              }, 100);
+            }
+            
+            return {
+              success: true,
+              data: null as any
+            };
+          }
+          
+          // Has token but system not ready - this is normal during initialization
+          // Return error to let UI handle it (e.g., show loading state)
+          logger.debug('[APIRouter] System not ready but token exists, waiting for initialization');
+          return {
+            success: false,
+            error: {
+              code: errorCode,
+              message: 'System is initializing, please wait...',
+              details: error.extensions
+            }
+          };
+        }
         
         // Handle INVALID_TOKEN error by clearing stored token and redirecting to login
         if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {

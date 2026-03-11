@@ -226,16 +226,67 @@ class UnifiedBuildSystem:
         try:
             # Setup URL scheme configuration before building
             self.setup_url_scheme()
+            
+            # Check if this is Linux platform
+            if platform.system() == "Linux":
+                return self.build_linux(mode)
+            
             minispec = MiniSpecBuilder()
             # Apply profile settings to the build
             return minispec.build(mode, profile)
         except Exception as e:
             raise BuildError(f"Core build failed: {e}", 1)
     
+    def build_linux(self, mode: str, formats: Optional[list] = None, parallel: bool = True) -> bool:
+        """Build Linux packages (PyInstaller + AppImage + DEB)
+        
+        Args:
+            mode: Build mode (dev, prod, fast)
+            formats: List of formats to build. If None, read from config.
+            parallel: Enable parallel building of packages (default: True)
+        """
+        print(f"[LINUX] Building Linux packages in {mode} mode...")
+        try:
+            from build_system.linux_builder import LinuxBuilder
+            
+            # Create Linux builder
+            builder = LinuxBuilder(self.project_root, self.config.config)
+            
+            # Determine which formats to build
+            if formats is None:
+                linux_config = self.config.config.get("platforms", {}).get("linux", {})
+                formats = []
+                if linux_config.get("appimage", {}).get("enabled", False):
+                    formats.append("appimage")
+                if linux_config.get("deb", {}).get("enabled", False):
+                    formats.append("deb")
+            
+            # Build all formats with parallel support
+            results = builder.build_all(mode, formats, parallel=parallel)
+            
+            # Check if PyInstaller build succeeded (required)
+            if not results.get("pyinstaller", False):
+                raise BuildError("Linux PyInstaller build failed", 1)
+            
+            # Package builds are optional - warn if they fail
+            for format_name, success in results.items():
+                if format_name != "pyinstaller" and not success:
+                    print(f"[WARNING] {format_name} package creation failed")
+            
+            return True
+            
+        except Exception as e:
+            raise BuildError(f"Linux build failed: {e}", 1)
+    
     def build_installer(self, mode: str, skip_installer: bool = False) -> bool:
         """Build installer package"""
         if skip_installer:
             print("[INSTALLER] Skipped")
+            return True
+        
+        # Linux packages are built in build_linux(), skip installer step
+        if platform.system() == "Linux":
+            print("[INSTALLER] Linux packages already created in build step")
             return True
             
         print("[INSTALLER] Creating installer package...")

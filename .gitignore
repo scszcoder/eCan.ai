@@ -55,3 +55,6 @@ debug/workflows/
 /lambda_functions/ecbAccountManager/
 /lambda_functions/myAPIKeygen/
 /my_prompts/
+
+# Proprietary prompt files (not for version control)
+lambda_functions/skill_editor_lambda/prompts/

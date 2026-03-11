@@ -69,6 +69,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.routing import Route, Mount, WebSocketRoute
 from starlette.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocket, WebSocketDisconnect
+from starlette.requests import Request
 import uvicorn
 
 from agent.mcp.server.server import (
@@ -1038,7 +1039,31 @@ class RouteBuilder:
             logger.info("✅ Added MCP routes")
         else:
             logger.info("🔧 MCP routes not added (disabled or unsupported)")
-        return routes # ==================== Application Creation ====================
+        return routes
+
+    @staticmethod
+    def spa_fallback(frontend_dist_dir: str):
+        """Create SPA fallback handler for client-side routing"""
+        async def fallback_handler(request: Request):
+            """Serve index.html for all unmatched GET routes (SPA fallback)"""
+            # Only handle GET requests for HTML pages
+            if request.method != 'GET':
+                return JSONResponse({"error": "Method not allowed"}, status_code=405)
+            
+            # Check if request is for a file with extension (e.g., .js, .css, .png)
+            # If so, return 404 instead of serving index.html
+            path = request.url.path
+            if '.' in path.split('/')[-1]:
+                return JSONResponse({"error": "File not found"}, status_code=404)
+            
+            # Serve index.html for all other routes (SPA routes like /login, /agents, etc.)
+            index_path = os.path.join(frontend_dist_dir, 'index.html')
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
+            return JSONResponse({"error": "Frontend not found"}, status_code=404)
+        return fallback_handler
+
+# ==================== Application Creation ====================
 
 
 class AppBuilder:
@@ -1050,11 +1075,29 @@ class AppBuilder:
         route_builder = RouteBuilder(request_handlers)
         routes = route_builder.create_routes()
 
-        # Mount frontend static files first (gui_v2/dist) to serve the web UI
-        # This avoids CORS issues by serving frontend and API from the same origin
+        # Mount frontend static files and add SPA fallback
+        # Order matters: API routes first, then static files, then SPA fallback
         if os.path.isdir(frontend_dist_dir):
-            routes.append(Mount('/', StaticFiles(directory=frontend_dist_dir, html=True), name='frontend'))
-            logger.info(f"✅ Mounted frontend static files from: {frontend_dist_dir}")
+            # Mount static assets directory
+            assets_dir = os.path.join(frontend_dist_dir, 'assets')
+            if os.path.isdir(assets_dir):
+                routes.append(Mount('/assets', StaticFiles(directory=assets_dir), name='assets'))
+            
+            # Mount monaco-editor directory if exists
+            monaco_dir = os.path.join(frontend_dist_dir, 'monaco-editor')
+            if os.path.isdir(monaco_dir):
+                routes.append(Mount('/monaco-editor', StaticFiles(directory=monaco_dir), name='monaco'))
+            
+            # Mount skills directory if exists
+            skills_dir = os.path.join(frontend_dist_dir, 'skills')
+            if os.path.isdir(skills_dir):
+                routes.append(Mount('/skills', StaticFiles(directory=skills_dir), name='skills'))
+            
+            # Add catch-all route for SPA (must be last)
+            # This handles all unmatched routes (including /, /login, /agents, etc.) by serving index.html
+            routes.append(Route('/{path:path}', route_builder.spa_fallback(frontend_dist_dir)))
+            
+            logger.info(f"✅ Mounted frontend static files with SPA fallback from: {frontend_dist_dir}")
         else:
             logger.warning(f"⚠️ Frontend dist dir not found: {frontend_dist_dir}")
             # Fallback to agent files if frontend not available
@@ -1155,8 +1198,30 @@ class ServerManager:
         self.server_ready = threading.Event()  # 服务器启动完成信号
 
     def get_server_url(self) -> str:
-        """Get local server URL"""
+        """Get local server URL
+        
+        Returns:
+            - Linux: http://<actual_ip>:<port> (for remote access)
+            - macOS/Windows: http://localhost:<port> (local only)
+        """
         port = int(self.main_win.get_local_server_port())
+        
+        # On Linux, return actual network IP for remote access
+        import platform
+        if platform.system().lower() == 'linux':
+            try:
+                import socket
+                # Get actual network IP (not 127.0.0.1)
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))  # Connect to Google DNS to get local IP
+                local_ip = s.getsockname()[0]
+                s.close()
+                return f"http://{local_ip}:{port}"
+            except Exception as e:
+                logger.warning(f"Failed to get network IP on Linux: {e}, falling back to localhost")
+                return f"http://localhost:{port}"
+        
+        # macOS/Windows: use localhost
         return f"http://localhost:{port}"
 
     def get_api_url(self, endpoint: str) -> str:
@@ -1249,8 +1314,20 @@ class ServerManager:
         self.request_handlers = request_handlers
         app = AppBuilder.create_app(request_handlers)
 
-        # Optimized host binding strategy - prioritize 127.0.0.1
-        host_candidates = ["127.0.0.1", "0.0.0.0"]
+        # Platform-aware host binding strategy
+        # Linux: Use 0.0.0.0 to support remote access (e.g., web deployment, Docker)
+        # macOS/Windows: Use 127.0.0.1 for better security (desktop only)
+        import platform
+        system = platform.system().lower()
+        
+        if system == 'linux':
+            # Linux: Prioritize 0.0.0.0 for remote access support
+            host_candidates = ["0.0.0.0", "127.0.0.1"]
+            logger.info("🐧 Linux detected: Enabling remote access (0.0.0.0)")
+        else:
+            # macOS/Windows: Prioritize 127.0.0.1 for security
+            host_candidates = ["127.0.0.1", "0.0.0.0"]
+            logger.info(f"🖥️  {system.capitalize()} detected: Using localhost binding (127.0.0.1)")
 
         last_err = None
         for host_bind in host_candidates:
@@ -1319,6 +1396,23 @@ class ServerManager:
 
                     # 标记服务器就绪
                     self.server_ready.set()
+                    
+                    # Log server access information
+                    if host_bind == "0.0.0.0":
+                        # Server is accessible from network
+                        try:
+                            import socket
+                            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                            s.connect(("8.8.8.8", 80))
+                            local_ip = s.getsockname()[0]
+                            s.close()
+                            logger.info(f"🌐 Server accessible at:")
+                            logger.info(f"   - Local:   http://localhost:{port}")
+                            logger.info(f"   - Network: http://{local_ip}:{port}")
+                        except Exception:
+                            logger.info(f"🌐 Server accessible at: http://0.0.0.0:{port}")
+                    else:
+                        logger.info(f"🌐 Server accessible at: http://{host_bind}:{port}")
                     
                     await server.serve()
                 

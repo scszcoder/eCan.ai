@@ -3,6 +3,8 @@ import { useClientContext, usePlayground, usePlaygroundTools, useService, Workfl
 import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -117,45 +119,67 @@ export const ActiveSheetBinder = () => {
         try {
           ctx.document.fromJSON(docToLoad);
         
-        // Restore flip states from loaded document
+        // Restore flip states from loaded document (including subcanvas nodes)
         if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
           addTimeout(() => {
-            docToLoad.nodes.forEach((node: any) => {
-              if (node?.data?.hFlip === true) {
-                const loadedNode = ctx.document.getNode(node.id);
-                if (loadedNode) {
-                  // Set in raw data
-                  if (!loadedNode.raw) (loadedNode as any).raw = {};
-                  if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
-                  loadedNode.raw.data.hFlip = true;
-                  
-                  // Set in JSON
-                  const json = (loadedNode as any).json;
-                  if (json) {
-                    if (!json.data) json.data = {};
-                    json.data.hFlip = true;
-                  }
-                  
-                  // Set in form using setFieldValue (same as node-menu)
-                  try {
-                    const formData = (loadedNode as any).getData?.(FlowNodeFormData);
-                    const formModel = formData?.getFormModel?.();
-                    const formControl = formModel?.formControl as any;
-                    if (formControl?.setFieldValue) {
-                      formControl.setFieldValue('data.hFlip', true);
+            // Recursive function to restore flip states for all nodes (including subcanvas)
+            const restoreFlipStates = (nodes: any[]) => {
+              nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) {
+                  const loadedNode = ctx.document.getNode(node.id);
+                  if (loadedNode) {
+                    // Set in raw data
+                    if (!loadedNode.raw) (loadedNode as any).raw = {};
+                    if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
+                    loadedNode.raw.data.hFlip = true;
+                    
+                    // Set in JSON
+                    const json = (loadedNode as any).json;
+                    if (json) {
+                      if (!json.data) json.data = {};
+                      json.data.hFlip = true;
                     }
-                  } catch (err) {
-                    console.warn('[ActiveSheetBinder] Could not set hFlip form field:', err);
+                    
+                    // Set in form using setFieldValue (same as node-menu)
+                    try {
+                      const formData = (loadedNode as any).getData?.(FlowNodeFormData);
+                      const formModel = formData?.getFormModel?.();
+                      const formControl = formModel?.formControl as any;
+                      if (formControl?.setFieldValue) {
+                        formControl.setFieldValue('data.hFlip', true);
+                      }
+                    } catch (err) {
+                      console.warn('[ActiveSheetBinder] Could not set hFlip form field:', err);
+                    }
+                    
+                    // Sync to Zustand store to trigger visual update
+                    try {
+                      const { setFlipped } = useNodeFlipStore.getState();
+                      setFlipped(node.id, true);
+                    } catch {}
                   }
                 }
-              }
-            });
+
+                // Restore agentNote to note store
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                }
+                
+                // Recursively restore flip states for subcanvas nodes
+                if (node?.data?.subcanvas?.nodes && Array.isArray(node.data.subcanvas.nodes)) {
+                  restoreFlipStates(node.data.subcanvas.nodes);
+                }
+              });
+            };
+            
+            restoreFlipStates(docToLoad.nodes);
           }, 200); // Increased delay to ensure forms are ready
         }
-      } catch (err) {
-        console.error('[ActiveSheetBinder] Error loading document:', err);
+        } catch (err) {
+          console.error('[ActiveSheetBinder] Error loading document:', err);
+        }
       }
-    }
+    
     // Restore view state (zoom) if available, otherwise fit view
     // Use a small delay to ensure the document is fully rendered before fitView
     const isInitialLoad = !initialFitViewDoneRef.current;

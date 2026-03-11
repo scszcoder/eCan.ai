@@ -145,6 +145,10 @@ class OTAConfig:
         """
         return self._config.get('advanced', {}).get(key, default)
     
+    def get_app_name(self) -> str:
+        """Return application display name from common config (e.g. 'eCan')."""
+        return str(self.get_common('app_name', 'eCan'))
+    
     def get_appcast_url(self, platform: str, arch: Optional[str] = None, language: Optional[str] = None) -> str:
         """
         Get appcast URL for platform and architecture (with i18n support)

@@ -142,7 +142,8 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         is_session_replacement = existing_token is not None and ecan_mode != 'cloud'
         
         if is_session_replacement:
-            # Session replacement: Skip full login flow, just validate credentials and extend existing token
+            # Session replacement: Skip full login flow, but ALWAYS generate new token
+            # This ensures old sessions are properly invalidated (kicked offline)
             logger.info(f"[user_handler] 🔄 Session replacement detected for user: {username}")
             
             # Validate credentials directly via auth_manager (skip handleLogin to avoid re-initialization)
@@ -154,15 +155,11 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
                 logger.warning(f"Login failed for user {username}: {error_code}")
                 return create_error_response(request, 'INVALID_CREDENTIALS', message)
             
-            # Extend existing token instead of generating new one
-            # This prevents invalidating the token that's currently being used by other requests
-            token = existing_token
-            if token_manager.extend_token(token):
-                logger.info(f"[user_handler] ✅ Token extended for user: {username} (skipped full initialization)")
-            else:
-                # If extend fails (token expired or invalid), generate new token
-                logger.warning(f"[user_handler] Failed to extend token, generating new one for user: {username}")
-                token = token_manager.generate_token(username, machine_role)
+            # IMPORTANT: Generate new token to invalidate old session
+            # The old token will be automatically deleted by token_manager.generate_token()
+            # This ensures the user is kicked offline from the previous location
+            token = token_manager.generate_token(username, machine_role)
+            logger.info(f"[user_handler] ✅ New token generated for user: {username} (old session invalidated)")
         else:
             # First login: Execute full login flow with initialization
             logger.info(f"[user_handler] 🆕 First login for user: {username}")

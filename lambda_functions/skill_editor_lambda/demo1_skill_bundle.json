@@ -1,0 +1,1350 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "start_0",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": 180,
+                "y": 573.7
+              }
+            },
+            "data": {
+              "title": "Start",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "default": "Hello Flow."
+                  },
+                  "enable": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "array_obj": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "int": {
+                          "type": "number"
+                        },
+                        "str": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "end_0",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 4102.6068640552385,
+                "y": 589.0723394318164
+              }
+            },
+            "data": {
+              "title": "End",
+              "inputsValues": {
+                "success": {
+                  "type": "constant",
+                  "content": true,
+                  "schema": {
+                    "type": "boolean"
+                  }
+                },
+                "query": {
+                  "type": "ref",
+                  "content": [
+                    "start_0",
+                    "query"
+                  ]
+                }
+              },
+              "data": {
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "success": {
+                    "type": "boolean"
+                  },
+                  "query": {
+                    "type": "string"
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "159623",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": 180,
+                "y": 756.7
+              }
+            },
+            "data": {
+              "size": {
+                "width": 240,
+                "height": 150
+              },
+              "note": "hi ~\n\nthis is a comment node\n\n- flowgram.ai",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "llm_ePhbu",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 904.3364690503471,
+                "y": 589.0723394318164
+              }
+            },
+            "data": {
+              "title": "LLM_1",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-5.1"
+                },
+                "attachments": {
+                  "type": "constant",
+                  "content": []
+                },
+                "apiKey": {
+                  "type": "constant",
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                "apiHost": {
+                  "type": "constant",
+                  "content": "https://api.openai.com/v1"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 1,
+                  "schema": {
+                    "type": "number"
+                  }
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "# Role\nYou are an AI assistant.\n"
+                },
+                "prompt": {
+                  "type": "constant",
+                  "content": "who is the ceo of palantire, please return result in json like this schema: {{\"palantire_ceo\": \"string\"}}"
+                },
+                "promptSelection": {
+                  "content": "pr-469151"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "attachments": {
+                    "type": "object"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "apiHost": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "promptSelection": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "mcp_am0uS",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": 581.0905822170357,
+                "y": 613.4539177992392
+              }
+            },
+            "data": {
+              "title": "MCP_1",
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "callable": {
+                  "name": "api_ecan_ai_img2text_icons",
+                  "desc": "run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "input"
+                    ],
+                    "properties": {
+                      "input": {
+                        "type": "object",
+                        "required": [
+                          "win_title_keyword"
+                        ],
+                        "properties": {
+                          "win_title_keyword": {
+                            "type": "string",
+                            "description": "do OCR on the window whose window title with the keyword"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "returns": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "type": "system",
+                  "source": ""
+                },
+                "inputsValues": {}
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "code_SF2WX",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 1220.4274479324063,
+                "y": 573.7
+              }
+            },
+            "data": {
+              "title": "Code_1",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in code node.........\",state)\n  time.sleep(8)\n  print(\"code node woke now, outa here.....\")\n  state[\"condition\"] = True\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "condition_Vd_PJ",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 1520.3702166048047,
+                "y": 539.5532133398765
+              }
+            },
+            "data": {
+              "title": "Condition",
+              "conditions": [
+                {
+                  "key": "if_Pol6-",
+                  "value": {}
+                },
+                {
+                  "key": "else_GMko-",
+                  "value": {}
+                }
+              ],
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "chat_R41Pc",
+            "type": "chat_node",
+            "meta": {
+              "position": {
+                "x": 2061.4447073580695,
+                "y": 765.1000000000001
+              }
+            },
+            "data": {
+              "title": "Chat_1",
+              "inputsValues": {
+                "party": {
+                  "type": "constant",
+                  "content": "human"
+                },
+                "messageTemplate": {
+                  "type": "template",
+                  "content": "Hi, how can i assist you today!"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "required": [
+                  "party"
+                ],
+                "properties": {
+                  "party": {
+                    "type": "string"
+                  },
+                  "messageTemplate": {
+                    "type": "string",
+                    "extra": {
+                      "formComponent": "prompt-editor"
+                    }
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "pend_event_cQ3fQ",
+            "type": "pend_event_node",
+            "meta": {
+              "position": {
+                "x": 2404.116702617296,
+                "y": 746.6539177992393
+              }
+            },
+            "data": {
+              "title": "PendEvent_1",
+              "inputsValues": {
+                "eventType": {
+                  "type": "constant",
+                  "content": "human_chat"
+                },
+                "pendingSources": {
+                  "type": "constant",
+                  "content": []
+                },
+                "timeoutSec": {
+                  "type": "constant",
+                  "content": 0
+                },
+                "resumePolicy": {
+                  "type": "constant",
+                  "content": "first"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "required": [
+                  "eventType"
+                ],
+                "properties": {
+                  "eventType": {
+                    "type": "string"
+                  },
+                  "pendingSources": {
+                    "type": "array"
+                  },
+                  "timeoutSec": {
+                    "type": "number"
+                  },
+                  "resumePolicy": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "rag_C_k-G",
+            "type": "rag",
+            "meta": {
+              "position": {
+                "x": 2682.2311823921586,
+                "y": 373.8214024603488
+              }
+            },
+            "data": {
+              "title": "RAG_1",
+              "inputsValues": {
+                "knowledgeBase": {
+                  "type": "constant",
+                  "content": "default"
+                },
+                "retrievalMode": {
+                  "type": "constant",
+                  "content": "vector"
+                },
+                "topK": {
+                  "type": "constant",
+                  "content": 5
+                },
+                "scoreThreshold": {
+                  "type": "constant",
+                  "content": 0.7
+                },
+                "embeddingModel": {
+                  "type": "constant",
+                  "content": "text-embedding-ada-002"
+                },
+                "query": {
+                  "type": "constant",
+                  "content": "which registers to set to disable interupt?"
+                },
+                "filters": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "knowledgeBase": {
+                    "type": "string"
+                  },
+                  "retrievalMode": {
+                    "type": "string"
+                  },
+                  "topK": {
+                    "type": "number"
+                  },
+                  "scoreThreshold": {
+                    "type": "number"
+                  },
+                  "embeddingModel": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "filters": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          },
+          {
+            "id": "loop_x_Kns",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 1898.1119721100604,
+                "y": 371.03528271586083
+              }
+            },
+            "data": {
+              "title": "Loop_1",
+              "loopMode": "loopFor",
+              "loopCountExpr": "",
+              "loopWhileExpr": "",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "block_start_JiwWN",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 30.8,
+                    "y": 35.80000000000001
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "block_end_ACUKV",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 410.8,
+                    "y": 35.80000000000001
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "919780",
+                "type": "browser-automation",
+                "meta": {
+                  "position": {
+                    "x": 220.80000000000007,
+                    "y": 0
+                  }
+                },
+                "data": {
+                  "title": "Browser_1",
+                  "inputsValues": {
+                    "tool": {
+                      "type": "constant",
+                      "content": "browser-use"
+                    },
+                    "browser": {
+                      "type": "constant",
+                      "content": "existing chrome"
+                    },
+                    "browserDriver": {
+                      "type": "constant",
+                      "content": "native"
+                    },
+                    "cdpPort": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "shopName": {
+                      "type": "constant",
+                      "content": "amazon"
+                    },
+                    "customShopName": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-5.3"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.3
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "profile": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "You are a helpful browser automation agent."
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": ""
+                    },
+                    "promptSelection": {
+                      "type": "constant",
+                      "content": "pr-935241"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "tool": {
+                        "type": "string"
+                      },
+                      "browser": {
+                        "type": "string"
+                      },
+                      "browserDriver": {
+                        "type": "string"
+                      },
+                      "cdpPort": {
+                        "type": "string"
+                      },
+                      "shopName": {
+                        "type": "string"
+                      },
+                      "customShopName": {
+                        "type": "string"
+                      },
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "profile": {
+                        "type": "string"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "block_start_JiwWN",
+                "targetNodeID": "919780"
+              },
+              {
+                "sourceNodeID": "919780",
+                "targetNodeID": "block_end_ACUKV"
+              }
+            ]
+          },
+          {
+            "id": "807016",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": 2682.2311823921586,
+                "y": 746.6539177992393
+              }
+            },
+            "data": {
+              "title": "MCP_1",
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "callable": {
+                  "id": "llm-auto-select",
+                  "name": "llm auto select",
+                  "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                  "params": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "returns": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "type": "system",
+                  "source": ""
+                },
+                "inputsValues": {}
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "loop_4RoyG",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 1672.5119721100607,
+                "y": 1330.7801698788999
+              }
+            },
+            "data": {
+              "title": "Loop_1",
+              "loopMode": "loopWhile",
+              "loopCountExpr": "",
+              "loopWhileExpr": "not state[\"result\"][\"llm_result\"][\"all_done\"]",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "block_start_p5hcU",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 30.8,
+                    "y": 90.83676824571418
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "block_end_ZX6sD",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 1860.9173019015127,
+                    "y": 251.2409421808404
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "loop_ubbgP",
+                "type": "loop",
+                "meta": {
+                  "position": {
+                    "x": 648.9589979738932,
+                    "y": 0
+                  }
+                },
+                "data": {
+                  "title": "Loop_2",
+                  "loopMode": "loopWhile",
+                  "loopCountExpr": "",
+                  "loopWhileExpr": "not state[\"result\"][\"llm_result\"][\"all_done\"]",
+                  "data": {
+                    "inputsValues": {}
+                  }
+                },
+                "blocks": [
+                  {
+                    "id": "block_start_NoFdp",
+                    "type": "block-start",
+                    "meta": {
+                      "position": {
+                        "x": 30.8,
+                        "y": 0
+                      }
+                    },
+                    "data": {}
+                  },
+                  {
+                    "id": "block_end_QDMXn",
+                    "type": "block-end",
+                    "meta": {
+                      "position": {
+                        "x": 962.4565639831935,
+                        "y": 154.46383791529408
+                      }
+                    },
+                    "data": {}
+                  },
+                  {
+                    "id": "llm_evIWz",
+                    "type": "llm",
+                    "meta": {
+                      "position": {
+                        "x": 310.65677638062834,
+                        "y": 61.59999999999991
+                      }
+                    },
+                    "data": {
+                      "title": "LLM_1",
+                      "inputsValues": {
+                        "modelProvider": {
+                          "type": "constant",
+                          "content": "OpenAI"
+                        },
+                        "modelName": {
+                          "type": "constant",
+                          "content": "gpt-4o-mini"
+                        },
+                        "attachments": {
+                          "type": "constant",
+                          "content": []
+                        },
+                        "apiKey": {
+                          "type": "constant",
+                          "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        },
+                        "apiHost": {
+                          "type": "constant",
+                          "content": "https://api.openai.com/v1"
+                        },
+                        "temperature": {
+                          "type": "constant",
+                          "content": 0.5
+                        },
+                        "useThinking": {
+                          "type": "constant",
+                          "content": false
+                        },
+                        "systemPrompt": {
+                          "type": "template",
+                          "content": "# Role\nYou are an AI assistant.\n"
+                        },
+                        "systemPromptId": {
+                          "type": "constant",
+                          "content": "in-line"
+                        },
+                        "prompt": {
+                          "type": "template",
+                          "content": ""
+                        },
+                        "promptId": {
+                          "type": "constant",
+                          "content": "in-line"
+                        },
+                        "promptSelection": {
+                          "type": "constant",
+                          "content": "pr-4adab1"
+                        }
+                      },
+                      "inputs": {
+                        "type": "object",
+                        "properties": {
+                          "modelProvider": {
+                            "type": "string"
+                          },
+                          "modelName": {
+                            "type": "string"
+                          },
+                          "attachments": {
+                            "type": "object"
+                          },
+                          "apiKey": {
+                            "type": "string"
+                          },
+                          "apiHost": {
+                            "type": "string"
+                          },
+                          "temperature": {
+                            "type": "number"
+                          },
+                          "useThinking": {
+                            "type": "boolean"
+                          },
+                          "systemPrompt": {
+                            "type": "string"
+                          },
+                          "systemPromptId": {
+                            "type": "string"
+                          },
+                          "prompt": {
+                            "type": "string"
+                          },
+                          "promptId": {
+                            "type": "string"
+                          },
+                          "promptSelection": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "outputs": {
+                        "type": "object",
+                        "properties": {
+                          "result": {
+                            "type": "object",
+                            "description": "Node execution result"
+                          },
+                          "condition": {
+                            "type": "boolean",
+                            "description": "Node execution condition"
+                          },
+                          "resolved": {
+                            "type": "boolean",
+                            "description": "Node execution resolved status"
+                          },
+                          "case": {
+                            "type": "string",
+                            "description": "Node execution case"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "mcp_f9BF5",
+                    "type": "mcp",
+                    "meta": {
+                      "position": {
+                        "x": 682.6567763806283,
+                        "y": 61.59999999999991
+                      }
+                    },
+                    "data": {
+                      "title": "MCP_1",
+                      "run_local": false,
+                      "run_code_language": "python",
+                      "run_code_source": "",
+                      "callable": {
+                        "id": "llm-auto-select",
+                        "name": "llm auto select",
+                        "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                        "params": {
+                          "type": "object",
+                          "properties": {}
+                        },
+                        "returns": {
+                          "type": "object",
+                          "properties": {}
+                        },
+                        "type": "system",
+                        "source": ""
+                      },
+                      "inputsValues": {},
+                      "inputs": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "outputs": {
+                        "type": "object",
+                        "properties": {
+                          "result": {
+                            "type": "object",
+                            "description": "Node execution result"
+                          },
+                          "condition": {
+                            "type": "boolean",
+                            "description": "Node execution condition"
+                          },
+                          "resolved": {
+                            "type": "boolean",
+                            "description": "Node execution resolved status"
+                          },
+                          "case": {
+                            "type": "string",
+                            "description": "Node execution case"
+                          }
+                        }
+                      },
+                      "data": {
+                        "callable": {
+                          "id": "llm-auto-select",
+                          "name": "llm auto select",
+                          "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                          "params": {
+                            "type": "object",
+                            "properties": {}
+                          },
+                          "returns": {
+                            "type": "object",
+                            "properties": {}
+                          },
+                          "type": "system",
+                          "source": ""
+                        },
+                        "inputsValues": {}
+                      }
+                    }
+                  }
+                ],
+                "edges": [
+                  {
+                    "sourceNodeID": "block_start_NoFdp",
+                    "targetNodeID": "llm_evIWz"
+                  },
+                  {
+                    "sourceNodeID": "mcp_f9BF5",
+                    "targetNodeID": "block_end_QDMXn"
+                  },
+                  {
+                    "sourceNodeID": "llm_evIWz",
+                    "targetNodeID": "mcp_f9BF5"
+                  }
+                ]
+              },
+              {
+                "id": "pend_event_C6Jig",
+                "type": "pend_event_node",
+                "meta": {
+                  "position": {
+                    "x": 219.6157743545216,
+                    "y": 66.43396891842528
+                  }
+                },
+                "data": {
+                  "title": "PendEvent_1",
+                  "inputsValues": {
+                    "eventType": {
+                      "type": "constant",
+                      "content": "human_chat"
+                    },
+                    "messageType": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "agentIds": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "timerName": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "pendingSources": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "timeoutSec": {
+                      "type": "constant",
+                      "content": 0
+                    },
+                    "resumePolicy": {
+                      "type": "constant",
+                      "content": "first"
+                    },
+                    "matchFields": {
+                      "type": "constant",
+                      "content": []
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "required": [
+                      "eventType"
+                    ],
+                    "properties": {
+                      "eventType": {
+                        "type": "string"
+                      },
+                      "messageType": {
+                        "type": "string"
+                      },
+                      "agentIds": {
+                        "type": "string"
+                      },
+                      "timerName": {
+                        "type": "string"
+                      },
+                      "pendingSources": {
+                        "type": "array"
+                      },
+                      "timeoutSec": {
+                        "type": "number"
+                      },
+                      "resumePolicy": {
+                        "type": "string"
+                      },
+                      "matchFields": {
+                        "type": "array"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "block_start_p5hcU",
+                "targetNodeID": "pend_event_C6Jig"
+              },
+              {
+                "sourceNodeID": "loop_ubbgP",
+                "targetNodeID": "block_end_ZX6sD"
+              },
+              {
+                "sourceNodeID": "pend_event_C6Jig",
+                "targetNodeID": "loop_ubbgP"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start_0",
+            "targetNodeID": "mcp_am0uS"
+          },
+          {
+            "sourceNodeID": "rag_C_k-G",
+            "targetNodeID": "end_0"
+          },
+          {
+            "sourceNodeID": "807016",
+            "targetNodeID": "end_0"
+          },
+          {
+            "sourceNodeID": "loop_4RoyG",
+            "targetNodeID": "end_0"
+          },
+          {
+            "sourceNodeID": "mcp_am0uS",
+            "targetNodeID": "llm_ePhbu"
+          },
+          {
+            "sourceNodeID": "llm_ePhbu",
+            "targetNodeID": "code_SF2WX"
+          },
+          {
+            "sourceNodeID": "code_SF2WX",
+            "targetNodeID": "condition_Vd_PJ"
+          },
+          {
+            "sourceNodeID": "code_SF2WX",
+            "targetNodeID": "loop_4RoyG"
+          },
+          {
+            "sourceNodeID": "condition_Vd_PJ",
+            "targetNodeID": "chat_R41Pc",
+            "sourcePortID": "else_GMko-"
+          },
+          {
+            "sourceNodeID": "condition_Vd_PJ",
+            "targetNodeID": "loop_x_Kns",
+            "sourcePortID": "if_Pol6-"
+          },
+          {
+            "sourceNodeID": "chat_R41Pc",
+            "targetNodeID": "pend_event_cQ3fQ"
+          },
+          {
+            "sourceNodeID": "pend_event_cQ3fQ",
+            "targetNodeID": "807016"
+          },
+          {
+            "sourceNodeID": "loop_x_Kns",
+            "targetNodeID": "rag_C_k-G"
+          }
+        ]
+      },
+      "lastOpenedAt": 1773087705364,
+      "createdAt": 1760057867632,
+      "view": {
+        "zoom": 0.25
+      },
+      "selectionIds": []
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}

@@ -8,6 +8,7 @@ import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
@@ -124,27 +125,41 @@ export const Open = ({ disabled }: OpenProps) => {
             workflowDocument.fromJSON(diagram);
           }
           
-          // Restore flip states from saved node data
+          // Restore flip states from saved node data (including subcanvas)
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           setTimeout(() => {
-            diagram.nodes.forEach((node: any) => {
-              if (node?.data?.hFlip === true) {
-                console.log('[Open] Restoring hFlip state for node:', node.id);
-                setFlipped(node.id, true);
-                const loadedNode = workflowDocument.getNode(node.id) as any;
-                if (loadedNode) {
-                  if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
-                  if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
-                  try {
-                    const form = (loadedNode as any).form;
-                    if (form?.patchValue) {
-                      form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
-                    }
-                  } catch {}
-                  try { (loadedNode as any).update?.(); } catch {}
+            // Recursive function to restore flip states for all nodes
+            const restoreFlipStates = (nodes: any[]) => {
+              nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) {
+                  console.log('[Open] Restoring hFlip state for node:', node.id);
+                  setFlipped(node.id, true);
+                  const loadedNode = workflowDocument.getNode(node.id) as any;
+                  if (loadedNode) {
+                    if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
+                    if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
+                    try {
+                      const form = (loadedNode as any).form;
+                      if (form?.patchValue) {
+                        form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
+                      }
+                    } catch {}
+                    try { (loadedNode as any).update?.(); } catch {}
+                  }
                 }
-              }
-            });
+                // Restore agentNote to note store
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                }
+                
+                // Recursively restore flip states for subcanvas nodes
+                if (node?.data?.subcanvas?.nodes) {
+                  restoreFlipStates(node.data.subcanvas.nodes);
+                }
+              });
+            };
+            restoreFlipStates(diagram.nodes);
           }, 100);
           
           workflowDocument.fitView && workflowDocument.fitView();
@@ -154,10 +169,21 @@ export const Open = ({ disabled }: OpenProps) => {
           workflowDocument.clear();
           workflowDocument.fromJSON(data as any);
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           if ((data as any).nodes) {
-            (data as any).nodes.forEach((node: any) => {
-              if (node?.data?.hFlip === true) setFlipped(node.id, true);
-            });
+            // Recursive function to restore flip states and notes
+            const restoreStates = (nodes: any[]) => {
+              nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) setFlipped(node.id, true);
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                }
+                if (node?.data?.subcanvas?.nodes) {
+                  restoreStates(node.data.subcanvas.nodes);
+                }
+              });
+            };
+            restoreStates((data as any).nodes);
           }
           workflowDocument.fitView && workflowDocument.fitView();
           setSkillInfo(data);

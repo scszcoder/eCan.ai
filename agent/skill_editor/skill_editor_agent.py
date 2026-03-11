@@ -25,6 +25,8 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from utils.logger_helper import logger_helper as logger
 
+from agent.skill_editor.token_tracker import token_tracker
+
 # Import skill scaffolding utility
 from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, user_skills_root
 
@@ -34,6 +36,7 @@ from .schemas import (
     PlannerAction,
     AgentResponse,
     CanvasCommand,
+    ClarificationChoice,
     ClarificationQuestion,
     ImplementationPlan,
     PlanStep,
@@ -332,6 +335,8 @@ class PipelineState(str, Enum):
     GENERATING = "generating"
     EDITING = "editing"
     CONFIGURING_NODE = "configuring_node"  # Node configuration mode
+    COLLECTING_REQUIREMENTS = "collecting_requirements"  # Domain QA collection
+    REVIEWING_WORKFLOW_DESCRIPTION = "reviewing_workflow_description"  # User reviewing SOP-based workflow desc
     COMPLETE = "complete"
 
 
@@ -376,6 +381,17 @@ class SkillEditorAgent:
         self._casual_chat_rounds_by_session: Dict[str, int] = {}
         self._loaded_context_key: Optional[str] = None
         self._log_analysis_context: Optional[Dict[str, str]] = None  # {file_path, log_content, last_analysis}
+        # --- Taxonomy / domain-aware requirement collection ---
+        self._classified_domain: Optional[str] = None
+        self._classified_intent_taxonomy: Optional[str] = None
+        self._requirement_answers: Dict[str, Any] = {}  # collected QA answers keyed by question id
+        self._domain_qa_done: bool = False  # True after domain-specific follow-up Q&A has been asked (or skipped)
+        self._workflow_description: Optional[str] = None  # natural-language workflow description for user review
+        # Accumulated clarification answers across planner rounds (old pipeline)
+        self._accumulated_clarification_answers: Dict[str, List[str]] = {}
+        self._all_asked_questions: Dict[str, ClarificationQuestion] = {}  # all questions keyed by id across rounds
+        self._clarification_round: int = 0
+        self._MAX_CLARIFICATION_ROUNDS: int = 3
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -498,18 +514,72 @@ class SkillEditorAgent:
     def current_request(self) -> Optional[str]:
         """Get current user request"""
         return self._current_request
-    
+
+    @property
+    def classified_domain(self) -> Optional[str]:
+        return self._classified_domain
+
+    @property
+    def classified_intent_taxonomy(self) -> Optional[str]:
+        return self._classified_intent_taxonomy
+
+    @property
+    def requirement_answers(self) -> Dict[str, Any]:
+        return self._requirement_answers
+
+    @property
+    def domain_qa_done(self) -> bool:
+        return self._domain_qa_done
+
+    @property
+    def workflow_description(self) -> Optional[str]:
+        return self._workflow_description
+
+    @property
+    def accumulated_clarification_answers(self) -> Dict[str, Any]:
+        return self._accumulated_clarification_answers
+
+    @property
+    def clarification_round(self) -> int:
+        return self._clarification_round
+
     def restore_state(
         self,
         pipeline_state: str,
         current_plan: Optional[Dict[str, Any]] = None,
-        current_request: Optional[str] = None
+        current_request: Optional[str] = None,
+        classified_domain: Optional[str] = None,
+        classified_intent_taxonomy: Optional[str] = None,
+        requirement_answers: Optional[Dict[str, Any]] = None,
+        domain_qa_done: bool = False,
+        workflow_description: Optional[str] = None,
+        accumulated_clarification_answers: Optional[Dict[str, Any]] = None,
+        clarification_round: int = 0,
+        pending_clarification: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
             logger.info(f"[SkillEditorAgent] restore_state called: pipeline_state={pipeline_state}, has_plan={current_plan is not None}")
             self._pipeline_state = PipelineState(pipeline_state)
             self._current_request = current_request
+            self._classified_domain = classified_domain
+            self._classified_intent_taxonomy = classified_intent_taxonomy
+            self._requirement_answers = requirement_answers or {}
+            self._domain_qa_done = domain_qa_done
+            self._workflow_description = workflow_description
+            self._accumulated_clarification_answers = accumulated_clarification_answers or {}
+            self._clarification_round = clarification_round
+
+            # Restore pending clarification questions (needed to resolve choice IDs → labels)
+            if pending_clarification and isinstance(pending_clarification, list):
+                try:
+                    self._pending_clarification = [
+                        ClarificationQuestion(**q) if isinstance(q, dict) else q
+                        for q in pending_clarification
+                    ]
+                except Exception as pc_err:
+                    logger.warning(f"[SkillEditorAgent] Failed to restore pending_clarification: {pc_err}")
+                    self._pending_clarification = None
             
             if current_plan:
                 # Reconstruct ImplementationPlan from dict
@@ -583,8 +653,8 @@ class SkillEditorAgent:
         if any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower):
             return IntentType.SAVE_SKILL
         
-        # Creation intents - explicit creation keywords
-        if any(word in msg_lower for word in ["create", "build", "make", "generate", "new workflow"]):
+        # Creation intents - explicit creation keywords (including -ing forms)
+        if any(word in msg_lower for word in ["create", "creating", "build", "building", "make", "making", "generate", "generating", "new workflow", "new skill"]):
             return IntentType.CREATE_FLOWGRAM
         
         # Creation intents - "workflow" or "skill" with action phrases (e.g., "lets do an ebay workflow")
@@ -899,7 +969,7 @@ class SkillEditorAgent:
         except Exception as e:
             return {"provider": "unknown", "model": "unknown", "class": "unknown", "base_url": "", "error": str(e)}
 
-    async def _invoke_llm_async(self, prompt: str) -> str:
+    async def _invoke_llm_async(self, prompt: str, *, action: str = "") -> str:
         llm = self.planner.llm
         llm_info = self._get_llm_info()
         logger.info(
@@ -909,15 +979,24 @@ class SkillEditorAgent:
         )
         if hasattr(llm, "ainvoke"):
             resp = await llm.ainvoke(prompt)
+            token_tracker.record(resp, agent="SkillEditorAgent", action=action)
             return resp.content if hasattr(resp, "content") else str(resp)
         resp = llm.invoke(prompt)
+        token_tracker.record(resp, agent="SkillEditorAgent", action=action)
         return resp.content if hasattr(resp, "content") else str(resp)
 
-    def _extract_json_from_text(self, text: str) -> Optional[Dict[str, Any]]:
+    def _extract_json_from_text(self, text: str) -> Optional[Any]:
         try:
             json_match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
             if json_match:
                 return json.loads(json_match.group(1))
+            # Try bare JSON array first, then object
+            json_match = re.search(r"\[[\s\S]*\]", text)
+            if json_match:
+                try:
+                    return json.loads(json_match.group(0))
+                except (json.JSONDecodeError, ValueError):
+                    pass
             json_match = re.search(r"\{[\s\S]*\}", text)
             if json_match:
                 return json.loads(json_match.group(0))
@@ -1068,6 +1147,71 @@ class SkillEditorAgent:
         except Exception as e:
             logger.error(f"[SkillEditorAgent] LLM intent classification failed: {e}")
             return IntentType.GENERAL_CHAT, 0.0, ""
+
+    # Mapping from taxonomy intent strings → IntentType enum values
+    _TAXONOMY_INTENT_MAP: Dict[str, IntentType] = {
+        "new_feature": IntentType.CREATE_FLOWGRAM,
+        "explain": IntentType.EXPLAIN,
+        "find_content": IntentType.EXPLAIN,
+        "research": IntentType.EXPLAIN,
+        "review": IntentType.EXPLAIN,
+        "generate_docs": IntentType.EXPLAIN,
+        "troubleshoot_debug": IntentType.ANALYZE_LOG,
+        "git_ops": IntentType.GENERAL_CHAT,
+        "run_workflow": IntentType.RUN_FLOWGRAM,
+        "config_mgmt": IntentType.MODIFY_NODE,
+        "refactor": IntentType.MODIFY_NODE,
+        "data_analysis_viz": IntentType.GENERAL_CHAT,
+        "need_info": IntentType.GENERAL_CHAT,
+        "other": IntentType.GENERAL_CHAT,
+    }
+
+    async def _classify_with_taxonomy(
+        self, message: str, canvas_context: Optional[Dict]
+    ) -> Tuple[IntentType, str, float, str]:
+        """Classify both intent AND domain using the prompt categorization taxonomy.
+
+        Returns:
+            (intent: IntentType, domain: str, confidence: float, reasoning: str)
+        """
+        taxonomy_text = prompt_store.get_taxonomy()
+        if not taxonomy_text:
+            # Fallback to legacy classifier if taxonomy file unavailable
+            intent, conf, reason = await self._classify_intent_llm(message, canvas_context)
+            return intent, "need_info", conf, reason
+
+        has_canvas = self._has_loaded_canvas(canvas_context)
+        canvas_summary = self._format_canvas_context_for_intent(canvas_context)
+
+        prompt = (
+            f"{taxonomy_text}\n\n"
+            "---\n"
+            "Classify the following user message using the taxonomy above.\n"
+            "Return **JSON only** (no markdown fences) matching the `categorize_prompt` tool schema.\n\n"
+            f"has_canvas={str(has_canvas).lower()}\n"
+            f"canvas_summary={canvas_summary}\n\n"
+            f"user_message={json.dumps(message)}\n"
+        )
+
+        try:
+            response = await self._invoke_llm_async(prompt, action="classify_taxonomy")
+            data = self._extract_json_from_text(response) or {}
+            tax_intent_str = str(data.get("intent", "need_info")).strip()
+            domain = str(data.get("domain", "need_info")).strip()
+            confidence = float(data.get("confidence", 0.0) or 0.0)
+            reasoning = str(data.get("reasoning", "")).strip()
+
+            intent = self._TAXONOMY_INTENT_MAP.get(tax_intent_str, IntentType.GENERAL_CHAT)
+
+            logger.info(
+                f"[SkillEditorAgent] Taxonomy classification: "
+                f"tax_intent={tax_intent_str} → {intent.value}, domain={domain}, "
+                f"confidence={confidence:.2f}, reasoning={reasoning[:120]}"
+            )
+            return intent, domain, max(0.0, min(1.0, confidence)), reasoning
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Taxonomy classification failed: {e}")
+            return IntentType.GENERAL_CHAT, "need_info", 0.0, ""
 
     def _should_use_planner(self, intent: IntentType, canvas_context: Optional[Dict] = None) -> bool:
         """Determine if the planner should be used for this intent"""
@@ -1740,7 +1884,7 @@ class SkillEditorAgent:
         
         try:
             # If we're waiting on clarification answers, don't let casual messages derail the flow.
-            if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE] and not clarification_responses:
+            if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE, PipelineState.COLLECTING_REQUIREMENTS] and not clarification_responses:
                 if self._is_casual_chat_message(message):
                     response = AgentResponse(
                         message=(
@@ -1760,12 +1904,30 @@ class SkillEditorAgent:
                     clarification_responses, canvas_context, session_id, on_event
                 )
             
+            # Handle requirement collection responses (domain QA stage)
+            if clarification_responses and self._pipeline_state == PipelineState.COLLECTING_REQUIREMENTS:
+                logger.info("[SkillEditorAgent] Processing requirement collection responses")
+                response = await self._handle_requirement_responses(
+                    clarification_responses, canvas_context, session_id, on_event
+                )
+                self._add_response_to_history(response)
+                return response
+
             # Handle clarification responses
             if clarification_responses and self._pipeline_state == PipelineState.AWAITING_CLARIFICATION:
                 logger.info("[SkillEditorAgent] Processing clarification responses")
                 return await self._handle_clarification_response(
                     clarification_responses, canvas_context, session_id, on_event
                 )
+
+            # Handle workflow description review (user approve / modify)
+            if self._pipeline_state == PipelineState.REVIEWING_WORKFLOW_DESCRIPTION:
+                logger.info("[SkillEditorAgent] Handling workflow description response")
+                response = await self._handle_workflow_description_response(
+                    message, canvas_context, session_id, on_event
+                )
+                self._add_response_to_history(response)
+                return response
             
             # Handle plan approval
             if self._pipeline_state == PipelineState.AWAITING_PLAN_APPROVAL:
@@ -1851,22 +2013,34 @@ class SkillEditorAgent:
                     self._casual_chat_rounds_by_session[session_key] = 0
 
             if intent == IntentType.GENERAL_CHAT:
-                llm_intent, confidence, reason = await self._classify_intent_llm(message, canvas_context)
+                tax_intent, domain, confidence, reasoning = await self._classify_with_taxonomy(message, canvas_context)
                 logger.info(
-                    f"[SkillEditorAgent] LLM intent: {llm_intent.value} (confidence={confidence:.2f}) reason={reason}"
+                    f"[SkillEditorAgent] Taxonomy classification: {tax_intent.value} domain={domain} "
+                    f"(confidence={confidence:.2f}) reasoning={reasoning[:120]}"
                 )
+                self._classified_intent_taxonomy = tax_intent.value
+                self._classified_domain = domain
 
                 has_canvas = self._has_loaded_canvas(canvas_context)
                 if has_canvas:
-                    if llm_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.85:
-                        llm_intent = IntentType.MODIFY_NODE
-                    elif llm_intent == IntentType.GENERAL_CHAT and confidence < 0.7:
-                        llm_intent = IntentType.MODIFY_NODE
+                    # Only downgrade ambiguous intents to edit; never override
+                    # an explicit create_flowgram (user said "new skill" etc.).
+                    if tax_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.60:
+                        tax_intent = IntentType.MODIFY_NODE
+                    elif tax_intent == IntentType.GENERAL_CHAT and confidence < 0.7:
+                        tax_intent = IntentType.MODIFY_NODE
 
-                if confidence >= 0.6 and llm_intent != IntentType.GENERAL_CHAT:
-                    intent = llm_intent
-                elif has_canvas and llm_intent == IntentType.MODIFY_NODE:
+                if confidence >= 0.6 and tax_intent != IntentType.GENERAL_CHAT:
+                    intent = tax_intent
+                elif has_canvas and tax_intent == IntentType.MODIFY_NODE:
                     intent = IntentType.MODIFY_NODE
+
+            # When the simple classifier already detected CREATE_FLOWGRAM we still
+            # need the taxonomy classifier to derive the domain.
+            if intent == IntentType.CREATE_FLOWGRAM and not self._classified_domain:
+                _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
+                self._classified_domain = domain
+                logger.info(f"[SkillEditorAgent] Domain derived via taxonomy: {domain}")
 
             logger.info(f"[SkillEditorAgent] Classified intent: {intent.value}")
 
@@ -1887,8 +2061,15 @@ class SkillEditorAgent:
                 return response
 
             if intent == IntentType.CREATE_FLOWGRAM:
-                await self._emit_progress(on_event, "Planning or generating a new workflow...")
-            elif intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+                # --- NEW PIPELINE: taxonomy → requirement collection → workflow description → planner ---
+                self._current_request = message
+                response = await self._run_requirement_collection(
+                    message, canvas_context, session_id, on_event
+                )
+                self._add_response_to_history(response)
+                return response
+
+            if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
                 await self._emit_progress(on_event, "Preparing to modify the current workflow...")
             
             # Store current request
@@ -1967,6 +2148,26 @@ class SkillEditorAgent:
             
             # Decide whether to use planner or go directly to code
             if self._should_use_planner(intent, canvas_context):
+                # For GENERAL_CHAT on an empty canvas, route through the new
+                # requirement-collection pipeline (domain-specific QA → workflow
+                # description → planner) instead of the old planner-only path
+                # that generates only 3 generic questions.
+                # NOTE: use nodes-only check (not _has_loaded_canvas which also
+                # considers skillName — the frontend may send skillName even when
+                # the canvas has zero nodes, which would incorrectly skip this).
+                canvas_nodes = (canvas_context or {}).get("nodes")
+                has_real_nodes = isinstance(canvas_nodes, list) and len(canvas_nodes) > 0
+                if intent == IntentType.GENERAL_CHAT and not has_real_nodes:
+                    logger.info(
+                        "[SkillEditorAgent] GENERAL_CHAT + empty canvas → routing "
+                        "through requirement collection pipeline (domain QA)"
+                    )
+                    self._current_request = message
+                    response = await self._run_requirement_collection(
+                        message, canvas_context, session_id, on_event
+                    )
+                    self._add_response_to_history(response)
+                    return response
                 response = await self._run_planning_phase(
                     message=message,
                     canvas_context=canvas_context,
@@ -2309,14 +2510,26 @@ class SkillEditorAgent:
         """Run the planning phase with PlannerAgent"""
         logger.info("[SkillEditorAgent] Running planning phase")
         self._pipeline_state = PipelineState.PLANNING
+
+        # Reset accumulated clarification state for a fresh planning run
+        self._accumulated_clarification_answers = {}
+        self._all_asked_questions = {}
+        self._clarification_round = 0
         
         # Run planner with forced clarification policy when applicable
         require_clarification = self._should_require_clarification(message, intent)
+
+        # When a domain has been classified, supply domain-specific QA instead of all domains
+        domain_qa_override: Optional[str] = None
+        if self._classified_domain and self._classified_domain not in ("need_info", "other"):
+            domain_qa_override = prompt_store.get_domain_qa_for(self._classified_domain) or None
+
         planner_output = await self.planner.plan(
             user_message=message,
             canvas_context=canvas_context,
             on_event=on_event,
             require_clarification=require_clarification,
+            domain_questions=domain_qa_override,
         )
         
         logger.info(f"[SkillEditorAgent] Planner action: {planner_output.action.value}")
@@ -2325,6 +2538,10 @@ class SkillEditorAgent:
             # Need clarification from user
             self._pipeline_state = PipelineState.AWAITING_CLARIFICATION
             self._pending_clarification = planner_output.questions
+            # Track all asked questions for enrichment across rounds
+            if planner_output.questions:
+                for q in planner_output.questions:
+                    self._all_asked_questions[q.id] = q
             
             return AgentResponse(
                 message=planner_output.message or "I have some questions to better understand your requirements:",
@@ -2352,6 +2569,32 @@ class SkillEditorAgent:
             # Request is clear enough, proceed directly
             return await self._generate_from_plan(canvas_context, session_id, on_event)
     
+    def _build_enriched_request_with_answers(self) -> str:
+        """Build a richer user_message that includes the original request plus
+        all accumulated clarification answers so the planner/code-agent sees
+        the full picture — not just the original (possibly trivial) message."""
+        parts: List[str] = []
+        base = (self._current_request or "").strip()
+        if base:
+            parts.append(f"Original user request: {base}")
+        if self._accumulated_clarification_answers:
+            qa_lines: List[str] = []
+            q_map = self._all_asked_questions or {}
+            for qid, answer_ids in self._accumulated_clarification_answers.items():
+                q_obj = q_map.get(qid)
+                q_text = q_obj.question if q_obj else qid
+                # Resolve answer labels when possible
+                labels: List[str] = []
+                for aid in answer_ids:
+                    if q_obj:
+                        match = next((c for c in q_obj.choices if c.id == aid), None)
+                        labels.append(match.label if match else aid)
+                    else:
+                        labels.append(aid)
+                qa_lines.append(f"- {q_text}: {', '.join(labels)}")
+            parts.append("User's answers to clarification questions:\n" + "\n".join(qa_lines))
+        return "\n\n".join(parts) if parts else base
+
     async def _handle_clarification_response(
         self,
         responses: Dict[str, List[str]],
@@ -2361,19 +2604,40 @@ class SkillEditorAgent:
     ) -> AgentResponse:
         """Handle user's clarification responses"""
         logger.info("[SkillEditorAgent] Handling clarification response")
-        
-        # Continue planning with responses
+
+        # Accumulate answers across rounds
+        for qid, answer_ids in responses.items():
+            self._accumulated_clarification_answers[qid] = answer_ids
+        self._clarification_round += 1
+        logger.info(
+            f"[SkillEditorAgent] Clarification round {self._clarification_round}, "
+            f"accumulated {len(self._accumulated_clarification_answers)} answer(s)"
+        )
+
+        # Build enriched request that includes all accumulated answers
+        enriched_request = self._build_enriched_request_with_answers()
+
+        # Cap clarification rounds — if we've already asked enough, force plan generation
+        force_plan = self._clarification_round >= self._MAX_CLARIFICATION_ROUNDS
+        if force_plan:
+            logger.info("[SkillEditorAgent] Max clarification rounds reached — forcing plan generation")
+
+        # Continue planning with ALL accumulated responses
         planner_output = await self.planner.plan(
-            user_message=self._current_request or "",
+            user_message=enriched_request,
             canvas_context=canvas_context,
-            clarification_responses=responses,
+            clarification_responses=self._accumulated_clarification_answers,
             on_event=on_event,
             require_clarification=False,
         )
         
-        if planner_output.action == PlannerAction.ASK_CLARIFICATION:
+        if planner_output.action == PlannerAction.ASK_CLARIFICATION and not force_plan:
             # More clarification needed
             self._pending_clarification = planner_output.questions
+            # Track all asked questions for enrichment across rounds
+            if planner_output.questions:
+                for q in planner_output.questions:
+                    self._all_asked_questions[q.id] = q
             return AgentResponse(
                 message=planner_output.message or "I have a few more questions:",
                 intent=IntentType.CREATE_FLOWGRAM,
@@ -2381,21 +2645,585 @@ class SkillEditorAgent:
                 metadata={"session_id": session_id, "state": "awaiting_clarification"}
             )
         
-        elif planner_output.action == PlannerAction.GENERATE_PLAN:
+        elif planner_output.action == PlannerAction.GENERATE_PLAN or force_plan:
             self._pipeline_state = PipelineState.AWAITING_PLAN_APPROVAL
-            self._current_plan = planner_output.plan
-            plan_text = self._format_plan_for_display(planner_output.plan)
-            
-            return AgentResponse(
-                message=f"Based on your answers, here's my plan:\n\n{plan_text}\n\nShall I proceed?",
-                intent=IntentType.CREATE_FLOWGRAM,
-                plan=planner_output.plan,
-                metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
-            )
+            plan = planner_output.plan
+            if not plan and force_plan:
+                # Ask plannerAgent one final time with explicit instruction to produce a plan
+                logger.info("[SkillEditorAgent] Force-generating plan after max rounds")
+                planner_output2 = await self.planner.plan(
+                    user_message=enriched_request,
+                    canvas_context=canvas_context,
+                    clarification_responses=self._accumulated_clarification_answers,
+                    on_event=on_event,
+                    require_clarification=False,
+                )
+                plan = planner_output2.plan
+            self._current_plan = plan
+            if plan:
+                plan_text = self._format_plan_for_display(plan)
+                return AgentResponse(
+                    message=f"Based on your answers, here's my plan:\n\n{plan_text}\n\nShall I proceed?",
+                    intent=IntentType.CREATE_FLOWGRAM,
+                    plan=plan,
+                    metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
+                )
+            # Fallback: proceed directly to code generation with enriched context
+            self._current_request = enriched_request
+            return await self._generate_from_plan(canvas_context, session_id, on_event)
         
         else:
+            # Update _current_request with enriched context so code gen has full picture
+            self._current_request = enriched_request
             return await self._generate_from_plan(canvas_context, session_id, on_event)
-    
+
+    # ------------------------------------------------------------------
+    # Domain-aware requirement collection  (NEW PIPELINE STAGES)
+    # ------------------------------------------------------------------
+
+    async def _run_requirement_collection(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Start domain-specific requirement collection.
+
+        Loads the domain QA tree + the requirement collector prompt, then asks an
+        LLM to produce a batch of clarification questions tailored to this domain
+        and the user's stated goal.
+        """
+        domain = self._classified_domain or "need_info"
+        logger.info(f"[SkillEditorAgent] Starting requirement collection for domain={domain}")
+        self._pipeline_state = PipelineState.COLLECTING_REQUIREMENTS
+        await self._emit_progress(on_event, f"Gathering domain requirements ({domain})…")
+
+        domain_qa = prompt_store.get_domain_qa_for(domain) or ""
+        req_collector_prompt = prompt_store.get("requirement_collector", default="")
+
+        # Extract the Domain Definitions section from the taxonomy so the LLM
+        # knows what business areas to probe for.
+        taxonomy_text = prompt_store.get_taxonomy() or ""
+        domain_defs_section = ""
+        if taxonomy_text:
+            import re as _re
+            m = _re.search(r"(## Domain Definitions.*?)(?=\n## |\Z)", taxonomy_text, _re.DOTALL)
+            if m:
+                domain_defs_section = m.group(1).strip()
+
+        prompt = (
+            "You are a requirement collection assistant for the eCan.ai skill editor.\n\n"
+            "## REQUIREMENT COLLECTOR INSTRUCTIONS\n"
+            f"{req_collector_prompt}\n\n"
+        )
+        if domain_defs_section:
+            prompt += (
+                "## BUSINESS DOMAIN REFERENCE\n"
+                "Use the following domain definitions to ask domain-relevant questions. "
+                "Questions MUST probe the specific concerns of the classified domain.\n\n"
+                f"{domain_defs_section}\n\n"
+            )
+        if domain_qa:
+            prompt += (
+                "## DOMAIN-SPECIFIC DECISION TREE (for this domain — FOLLOW THIS)\n"
+                "You MUST use the questions in this decision tree as the **primary source** "
+                "of your clarification questions. Convert each tree question into a "
+                "multiple-choice question. Only add extra questions if the tree does not "
+                "cover an important aspect of the user's request.\n\n"
+                f"{domain_qa}\n\n"
+            )
+        prompt += (
+            "## TASK\n"
+            "The user wants to create a new workflow. Based on their message, the domain "
+            "definitions, and the domain QA decision tree above, generate a JSON array of "
+            "3-8 clarification questions to gather the most critical requirements. "
+            "Each question should have multiple-choice options where possible.\n\n"
+            "Return **JSON only** (no markdown fences) with this schema:\n"
+            '[\n'
+            '  {\n'
+            '    "id": "q1",\n'
+            '    "question": "question text",\n'
+            '    "choices": [\n'
+            '      {"id": "c1", "label": "Choice 1", "description": "optional detail"},\n'
+            '      {"id": "c2", "label": "Choice 2"},\n'
+            '      {"id": "other", "label": "Other", "allow_freeform": true}\n'
+            '    ],\n'
+            '    "context": "why this matters (optional)",\n'
+            '    "allow_multiple": false\n'
+            '  }\n'
+            ']\n\n'
+            "Guidelines:\n"
+            "- **PRIORITY**: Convert the domain QA decision tree questions into the JSON format "
+            "FIRST. These are the most important questions.\n"
+            "- Then add any extra domain-specific questions the tree does not cover.\n"
+            "- Propose reasonable defaults as first choices.\n"
+            "- Keep questions concise and actionable.\n"
+            "- Generate up to 8 questions — aim for completeness over brevity.\n"
+            "- Set \"allow_multiple\": true when the user can reasonably select more than one option "
+            "(e.g. trigger types, output destinations, notification channels).\n"
+            "- ALWAYS include an 'Other' choice (with \"allow_freeform\": true) as the last option "
+            "so the user can provide a custom answer.\n\n"
+            f"classified_domain={domain}\n"
+            f"user_message={json.dumps(message)}\n"
+        )
+
+        try:
+            response = await self._invoke_llm_async(prompt, action="requirement_collection")
+            raw_questions = self._extract_json_from_text(response)
+            if raw_questions is None:
+                logger.warning(
+                    "[SkillEditorAgent] Failed to parse requirement questions from LLM response "
+                    "(first 500 chars): %s", (response or "")[:500]
+                )
+            if not isinstance(raw_questions, list):
+                raw_questions = [raw_questions] if isinstance(raw_questions, dict) else []
+
+            questions: List[ClarificationQuestion] = []
+            for rq in raw_questions:
+                if not isinstance(rq, dict):
+                    continue
+                choices = []
+                for rc in (rq.get("choices") or []):
+                    if isinstance(rc, dict) and rc.get("id") and rc.get("label"):
+                        choices.append(ClarificationChoice(
+                            id=str(rc["id"]),
+                            label=str(rc["label"]),
+                            description=rc.get("description"),
+                            allow_freeform=bool(rc.get("allow_freeform", False)),
+                        ))
+                # Auto-tag "Other" choices with allow_freeform if LLM didn't
+                for ch in choices:
+                    if not ch.allow_freeform and (ch.id.lower() in ("other", "other_option") or ch.label.lower().startswith("other")):
+                        ch.allow_freeform = True
+                if not choices:
+                    continue
+                questions.append(ClarificationQuestion(
+                    id=str(rq.get("id", f"q{len(questions)+1}")),
+                    question=str(rq.get("question", "")),
+                    choices=choices,
+                    context=rq.get("context"),
+                    allow_multiple=bool(rq.get("allow_multiple", False)),
+                ))
+
+            if not questions:
+                # Fallback: skip requirement collection, go straight to workflow description
+                logger.warning("[SkillEditorAgent] No clarification questions generated, skipping to workflow description")
+                return await self._generate_workflow_description(message, canvas_context, session_id, on_event)
+
+            self._pending_clarification = questions
+            return AgentResponse(
+                message=(
+                    "Before I design the workflow, I need a few details about your requirements:\n"
+                ),
+                intent=IntentType.CREATE_FLOWGRAM,
+                clarification=questions,
+                metadata={
+                    "session_id": session_id,
+                    "state": "collecting_requirements",
+                    "domain": domain,
+                },
+            )
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Requirement collection failed: {e}")
+            # Fallback: skip to workflow description
+            return await self._generate_workflow_description(message, canvas_context, session_id, on_event)
+
+    async def _handle_requirement_responses(
+        self,
+        responses: Dict[str, List[str]],
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Process the user's answers to requirement questions.
+
+        After the initial (generic) round, check whether domain-specific
+        follow-up Q&A is available.  If so, run a second round of questions
+        sourced from prompts/qa/{domain}.md before proceeding to the
+        workflow description.
+        """
+        logger.info(f"[SkillEditorAgent] Handling requirement responses: {list(responses.keys())}")
+
+        # Build a lookup from question_id → {choice_id → label} using
+        # the pending clarification questions (restored from session state).
+        q_text_map: Dict[str, str] = {}     # qid → question text
+        choice_label_map: Dict[str, Dict[str, str]] = {}  # qid → {cid → label}
+        if self._pending_clarification:
+            for q in self._pending_clarification:
+                q_text_map[q.id] = q.question
+                choice_label_map[q.id] = {c.id: c.label for c in q.choices}
+
+        # Merge freeform text into the corresponding question answers
+        freeform_keys = [k for k in responses if k.startswith("freeform_")]
+        for fk in freeform_keys:
+            qid = fk[len("freeform_"):]
+            freeform_text = (responses.pop(fk) or [""])[0]
+            if freeform_text and qid in responses:
+                # Replace generic "other" ID with the actual freeform text
+                responses[qid] = [
+                    f"other: {freeform_text}" if v.lower() in ("other", "other_option") else v
+                    for v in responses[qid]
+                ]
+
+        # Merge answers into accumulated requirement_answers.
+        # Store human-readable text (question text → list of choice labels)
+        # so the workflow-description prompt is meaningful to the LLM.
+        for qid, answer_ids in responses.items():
+            q_label = q_text_map.get(qid, qid)
+            resolved_labels = []
+            cid_map = choice_label_map.get(qid, {})
+            for aid in answer_ids:
+                resolved_labels.append(cid_map.get(aid, aid))
+            self._requirement_answers[q_label] = resolved_labels
+
+        logger.info(f"[SkillEditorAgent] Resolved requirement answers: {self._requirement_answers}")
+
+        # --- Domain-specific follow-up Q&A (second round) ---
+        if not self._domain_qa_done:
+            self._domain_qa_done = True  # mark so we don't loop a third time
+            domain = self._classified_domain or "need_info"
+            domain_qa = prompt_store.get_domain_qa_for(domain) or ""
+            if domain_qa and domain not in ("need_info", "other"):
+                logger.info(
+                    f"[SkillEditorAgent] Domain QA available for '{domain}', "
+                    "generating domain-specific follow-up questions"
+                )
+                return await self._run_domain_followup_qa(
+                    domain, domain_qa, canvas_context, session_id, on_event
+                )
+            else:
+                logger.info(
+                    f"[SkillEditorAgent] No domain QA for '{domain}', "
+                    "skipping to workflow description"
+                )
+
+        # Proceed to workflow description generation
+        return await self._generate_workflow_description(
+            self._current_request or "",
+            canvas_context,
+            session_id,
+            on_event,
+        )
+
+    async def _run_domain_followup_qa(
+        self,
+        domain: str,
+        domain_qa: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Generate a second round of domain-specific clarification questions.
+
+        Uses the domain QA decision tree (from ``prompts/qa/{domain}.md``) plus
+        the answers already collected in the initial round to produce targeted
+        follow-up questions.
+        """
+        await self._emit_progress(on_event, f"Asking domain-specific questions ({domain})…")
+
+        # Build summary of answers collected so far
+        answers_summary = ""
+        if self._requirement_answers:
+            parts = []
+            for qid, vals in self._requirement_answers.items():
+                parts.append(f"- {qid}: {', '.join(vals) if isinstance(vals, list) else str(vals)}")
+            answers_summary = "\n".join(parts)
+
+        prompt = (
+            "You are a requirement collection assistant for the eCan.ai skill editor.\n\n"
+            "## DOMAIN-SPECIFIC DECISION TREE\n"
+            f"{domain_qa}\n\n"
+        )
+        if answers_summary:
+            prompt += (
+                "## ANSWERS ALREADY COLLECTED IN ROUND 1\n"
+                f"{answers_summary}\n\n"
+            )
+        prompt += (
+            "## TASK\n"
+            "Based on the domain QA decision tree above and the answers the user has already "
+            "provided, generate a focused set of **follow-up clarification questions** (3–8) "
+            "that drill into domain-specific details not yet covered.\n\n"
+            "Guidelines:\n"
+            "- Do NOT re-ask questions whose answers are already captured above.\n"
+            "- Follow the decision-tree branches that match the user's earlier answers.\n"
+            "- Where the tree calls for sub-questions (e.g. Q4 → Q4.1 → Q4.1.1), include "
+            "those sub-questions if the parent answer triggers them.\n"
+            "- Offer multiple-choice options where sensible; always include an 'Other' freeform option.\n"
+            "- Set \"allow_multiple\": true when the user can reasonably select more than one option.\n"
+            "- Keep the set concise (3–8 questions max).\n\n"
+            "Return **JSON only** (no markdown fences) matching this schema:\n"
+            '[\n'
+            '  {\n'
+            '    "id": "dq1",\n'
+            '    "question": "question text",\n'
+            '    "choices": [\n'
+            '      {"id": "c1", "label": "Choice 1", "description": "optional detail"},\n'
+            '      {"id": "other", "label": "Other", "allow_freeform": true}\n'
+            '    ],\n'
+            '    "context": "why this matters (optional)",\n'
+            '    "allow_multiple": false\n'
+            '  }\n'
+            ']\n\n'
+            f"classified_domain={domain}\n"
+            f"user_message={json.dumps(self._current_request or '')}\n"
+        )
+
+        try:
+            response = await self._invoke_llm_async(prompt, action="domain_followup_qa")
+            raw_questions = self._extract_json_from_text(response)
+            if raw_questions is None:
+                logger.warning(
+                    "[SkillEditorAgent] Failed to parse domain followup questions from LLM response "
+                    "(first 500 chars): %s", (response or "")[:500]
+                )
+            if not isinstance(raw_questions, list):
+                raw_questions = [raw_questions] if isinstance(raw_questions, dict) else []
+
+            questions: List[ClarificationQuestion] = []
+            for rq in raw_questions:
+                if not isinstance(rq, dict):
+                    continue
+                choices = []
+                for rc in (rq.get("choices") or []):
+                    if isinstance(rc, dict) and rc.get("id") and rc.get("label"):
+                        choices.append(ClarificationChoice(
+                            id=str(rc["id"]),
+                            label=str(rc["label"]),
+                            description=rc.get("description"),
+                            allow_freeform=bool(rc.get("allow_freeform", False)),
+                        ))
+                # Auto-tag "Other" choices with allow_freeform if LLM didn't
+                for ch in choices:
+                    if not ch.allow_freeform and (ch.id.lower() in ("other", "other_option") or ch.label.lower().startswith("other")):
+                        ch.allow_freeform = True
+                if not choices:
+                    continue
+                questions.append(ClarificationQuestion(
+                    id=str(rq.get("id", f"dq{len(questions)+1}")),
+                    question=str(rq.get("question", "")),
+                    choices=choices,
+                    context=rq.get("context"),
+                    allow_multiple=bool(rq.get("allow_multiple", False)),
+                ))
+
+            if not questions:
+                logger.info("[SkillEditorAgent] No domain follow-up questions generated, proceeding to workflow description")
+                return await self._generate_workflow_description(
+                    self._current_request or "", canvas_context, session_id, on_event
+                )
+
+            self._pending_clarification = questions
+            return AgentResponse(
+                message=(
+                    f"Great — now a few **{domain.replace('_', ' ')}**-specific questions "
+                    "to refine the design:\n"
+                ),
+                intent=IntentType.CREATE_FLOWGRAM,
+                clarification=questions,
+                metadata={
+                    "session_id": session_id,
+                    "state": "collecting_requirements",
+                    "domain": domain,
+                    "domain_qa_round": True,
+                },
+            )
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Domain follow-up QA failed: {e}")
+            return await self._generate_workflow_description(
+                self._current_request or "", canvas_context, session_id, on_event
+            )
+
+    async def _generate_workflow_description(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Generate a natural-language workflow description for user approval.
+
+        Uses SOP (if found for domain), the collected QA answers, and the user's
+        original request to synthesise a workflow description.
+        """
+        domain = self._classified_domain or "need_info"
+        logger.info(f"[SkillEditorAgent] Generating workflow description for domain={domain}")
+        self._pipeline_state = PipelineState.REVIEWING_WORKFLOW_DESCRIPTION
+        await self._emit_progress(on_event, "Drafting workflow description…")
+
+        sop_content = prompt_store.get_sop_for(domain) or ""
+        domain_qa = prompt_store.get_domain_qa_for(domain) or ""
+
+        # Build collected answers summary
+        answers_summary = ""
+        if self._requirement_answers:
+            parts = []
+            for qid, vals in self._requirement_answers.items():
+                parts.append(f"- {qid}: {', '.join(vals) if isinstance(vals, list) else str(vals)}")
+            answers_summary = "\n".join(parts)
+
+        prompt = (
+            "You are a workflow architect for the eCan.ai skill editor.\n\n"
+            "## GOAL\n"
+            "Produce a clear, detailed **natural-language description** of the workflow that "
+            "will be built. The description should be understandable by a non-technical user "
+            "so they can confirm or request changes before implementation begins.\n\n"
+        )
+        if sop_content:
+            prompt += (
+                "## STANDARD OPERATING PROCEDURE (SOP) FOR THIS DOMAIN\n"
+                "Follow this SOP closely when designing the workflow steps:\n\n"
+                f"{sop_content}\n\n"
+            )
+        if domain_qa:
+            prompt += (
+                "## DOMAIN Q&A REFERENCE\n"
+                f"{domain_qa}\n\n"
+            )
+        if answers_summary:
+            prompt += (
+                "## USER'S ANSWERS TO REQUIREMENT QUESTIONS\n"
+                f"{answers_summary}\n\n"
+            )
+        prompt += (
+            "## FORMAT\n"
+            "Return a response in this structure (plain text, no JSON):\n\n"
+            "**Skill Name**: <suggested name>\n\n"
+            "**Summary**: <1-2 sentence overview>\n\n"
+            "**Workflow Steps**:\n"
+            "1. <Step name> — <what this step does>\n"
+            "2. …\n\n"
+            "**Branches / Conditions** (if any):\n"
+            "- After step N: if <condition> then <A>, else <B>\n\n"
+            "**Inputs**: <what triggers the workflow and what data it needs>\n\n"
+            "**Outputs**: <what the workflow produces>\n\n"
+            f"classified_domain={domain}\n"
+            f"user_message={json.dumps(message)}\n"
+        )
+
+        try:
+            response = await self._invoke_llm_async(prompt, action="generate_workflow_description")
+            self._workflow_description = response.strip()
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Workflow description generation failed: {e}")
+            self._workflow_description = (
+                f"(Auto-generation failed — proceeding with original request.)\n\n{message}"
+            )
+
+        return AgentResponse(
+            message=(
+                "Here is the workflow I'm planning to build:\n\n"
+                f"{self._workflow_description}\n\n"
+                "---\n"
+                "Would you like me to **proceed** with this design, or do you have any **changes**?"
+            ),
+            intent=IntentType.CREATE_FLOWGRAM,
+            metadata={
+                "session_id": session_id,
+                "state": "reviewing_workflow_description",
+                "domain": domain,
+            },
+        )
+
+    async def _handle_workflow_description_response(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Handle user's response to the workflow description (approve / modify)."""
+        msg_lower = message.lower().strip()
+        msg_words = msg_lower.split()
+
+        approval_phrases = [
+            "yes", "ok", "okay", "approve", "proceed", "do it", "go ahead",
+            "let's go", "sounds good", "looks good", "go for it", "confirmed",
+            "confirm", "build it", "let's build",
+        ]
+        rejection_phrases = [
+            "no", "cancel", "stop", "start over", "restart", "never mind",
+            "start fresh", "start afresh", "from scratch",
+        ]
+
+        is_short = len(msg_words) <= 10
+        is_approval = any(msg_lower.startswith(p) for p in approval_phrases) or msg_lower.rstrip(".!") in approval_phrases
+        is_rejection = any(msg_lower.startswith(p) for p in rejection_phrases) or msg_lower.rstrip(".!") in rejection_phrases
+
+        # Detect "start over" intent even in longer messages (e.g. "i'd like to start afresh build a new skill")
+        restart_cues = ["start over", "start fresh", "start afresh", "from scratch", "new skill", "build a new", "create a new"]
+        wants_restart = any(cue in msg_lower for cue in restart_cues)
+
+        if is_short and is_rejection:
+            # User cancelled — reset
+            logger.info("[SkillEditorAgent] Workflow description rejected, resetting")
+            self._pipeline_state = PipelineState.IDLE
+            self._workflow_description = None
+            self._requirement_answers = {}
+            self._domain_qa_done = False
+            self._classified_domain = None
+            return AgentResponse(
+                message="Understood. Please describe what you'd like to build and we'll start over.",
+                intent=IntentType.GENERAL_CHAT,
+                metadata={"session_id": session_id},
+            )
+
+        if wants_restart and not is_approval:
+            # User wants to abandon current workflow and start a brand new one.
+            # Reset all pipeline state so the message is treated as a fresh request.
+            logger.info("[SkillEditorAgent] Detected new-skill intent during workflow review, resetting and re-routing")
+            self._pipeline_state = PipelineState.IDLE
+            self._workflow_description = None
+            self._requirement_answers = {}
+            self._domain_qa_done = False
+            self._classified_domain = None
+            self._classified_intent_taxonomy = None
+            self._current_request = message
+            # Classify and route from scratch (replicate the CREATE_FLOWGRAM path)
+            _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
+            self._classified_domain = domain
+            logger.info(f"[SkillEditorAgent] Re-classified domain for fresh start: {domain}")
+            return await self._run_requirement_collection(
+                message, canvas_context, session_id, on_event
+            )
+
+        if is_approval or (is_short and is_approval):
+            # Approved — feed workflow description into planner
+            logger.info("[SkillEditorAgent] Workflow description approved, proceeding to planner")
+            await self._emit_progress(on_event, "Workflow design approved — planning implementation…")
+
+            # Enrich the current request with the approved workflow description
+            enriched_request = (
+                f"## APPROVED WORKFLOW DESCRIPTION\n{self._workflow_description}\n\n"
+                f"## ORIGINAL USER REQUEST\n{self._current_request or message}\n"
+            )
+            self._current_request = enriched_request
+
+            # Proceed to planning phase (existing flow)
+            return await self._run_planning_phase(
+                message=enriched_request,
+                canvas_context=canvas_context,
+                session_id=session_id,
+                on_event=on_event,
+                intent=IntentType.CREATE_FLOWGRAM,
+            )
+
+        # User has modifications — regenerate description with their feedback
+        logger.info("[SkillEditorAgent] User provided feedback on workflow description, regenerating")
+        await self._emit_progress(on_event, "Updating workflow description with your feedback…")
+
+        # Append feedback to context and regenerate
+        feedback_message = (
+            f"{self._current_request or ''}\n\n"
+            f"## USER FEEDBACK ON PREVIOUS DESCRIPTION\n"
+            f"Previous description:\n{self._workflow_description}\n\n"
+            f"User's modification request: {message}\n"
+        )
+        return await self._generate_workflow_description(
+            feedback_message, canvas_context, session_id, on_event,
+        )
+
     def _canvas_context_to_flowgram(self, canvas_context: Optional[Dict]) -> Optional[Flowgram]:
         """
         Convert canvas context (from frontend) to a Flowgram object for editing.
@@ -2623,7 +3451,7 @@ class SkillEditorAgent:
             "message", "code", "url", "query_path"
         }
         # Fields that should not be emitted into inputsValues
-        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language", "breakpoint"}
+        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language", "breakpoint", "agentNote"}
         
         for key, value in config.items():
             # Skip special fields that aren't inputsValues
@@ -2692,6 +3520,11 @@ class SkillEditorAgent:
             "title": getattr(node, "title", None) or node.label or node.id,
         }
 
+        # Persist agent note if present
+        agent_note = config.get("agentNote")
+        if isinstance(agent_note, str) and agent_note.strip():
+            data["agentNote"] = agent_note
+
         try:
             data["breakpoint"] = bool(config.get("breakpoint")) if isinstance(config.get("breakpoint"), bool) else False
         except Exception:
@@ -2720,7 +3553,7 @@ class SkillEditorAgent:
                 config_for_inputs_values = {
                     k: v
                     for k, v in config.items()
-                    if k not in {"callable", "breakpoint", "data"}
+                    if k not in {"callable", "breakpoint", "data", "tool_name", "tool_input"}
                 }
 
             inputs_values = self._config_to_inputs_values(config_for_inputs_values, type_out)
@@ -2801,7 +3634,31 @@ class SkillEditorAgent:
                 }
         else:
             # For simple nodes (start, end, condition, loop), just spread config
-            data.update(config)
+            # but filter out internal-only keys the UI doesn't need
+            _internal_keys = {"breakpoint"}  # already set above
+            data.update({k: v for k, v in config.items() if k not in _internal_keys})
+
+            # Standard 4-field output schema for condition nodes
+            if type_out == "condition":
+                data.setdefault("outputs", {
+                    "type": "object",
+                    "properties": {
+                        "result": {"type": "object", "description": "Node execution result"},
+                        "condition": {"type": "boolean", "description": "Node execution condition"},
+                        "resolved": {"type": "boolean", "description": "Node execution resolved status"},
+                        "case": {"type": "string", "description": "Node execution case"},
+                    },
+                })
+
+            # Start node: outputs describe the flow's input parameters
+            if type_out == "start":
+                data.setdefault("outputs", {"type": "object", "properties": {}})
+
+            # End node: inputsValues, inputs schema, and nested data.data
+            if type_out == "end":
+                data.setdefault("inputsValues", {})
+                data.setdefault("data", {"inputsValues": {}})
+                data.setdefault("inputs", {"type": "object", "properties": {}})
         
         node_json = {
             "id": node.id,
@@ -2883,31 +3740,32 @@ class SkillEditorAgent:
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle: {e}")
 
-    _DEFAULT_DATA_MAPPING: Dict[str, Any] = {
-        "developing": {"mappings": [], "options": {"strict": False, "apply_order": "top_down"}},
-        "released":   {"mappings": [], "options": {"strict": True,  "apply_order": "top_down"}},
-        "node_transfers": {},
-        "event_data_mapping": {},
-    }
-
-    def _write_skill_and_bundle_to_s3(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_dir_name: str) -> None:
+    def _write_skill_and_bundle_to_s3(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_dir_name: str, data_mapping: Optional[Dict[str, Any]] = None) -> None:
         try:
             self._mirror_workflow_into_bundle(skill_json, bundle_json)
             skill_key = self._s3_skill_json_key(skill_dir_name)
             bundle_key = self._s3_bundle_json_key(skill_dir_name)
             self._s3_put_json(skill_key, skill_json)
             self._s3_put_json(bundle_key, bundle_json)
-            # Write default data_mapping.json if it doesn't exist yet
+            # Write data_mapping.json — always overwrite when caller supplies one,
+            # otherwise create default if the file doesn't exist yet.
             dm_key = self._s3_data_mapping_key(skill_dir_name)
-            if not self._s3_exists(dm_key):
-                self._s3_put_json(dm_key, self._DEFAULT_DATA_MAPPING)
+            if data_mapping:
+                self._s3_put_json(dm_key, data_mapping)
+            elif not self._s3_exists(dm_key):
+                from agent.skill_editor.code_agent import DEFAULT_BASELINE_MAPPINGS
+                self._s3_put_json(dm_key, DEFAULT_BASELINE_MAPPINGS)
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle to S3: {e}")
 
-    def _save_flowgram_to_disk(self, flowgram: Flowgram) -> Optional[str]:
+    def _save_flowgram_to_disk(self, flowgram: Flowgram, data_mapping: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Save a flowgram to disk (skill + bundle) ensuring dual-write and bundle mirroring.
         Works for both create and edit operations.
+
+        If *data_mapping* is provided it is persisted as ``data_mapping.json``
+        alongside the skill files.  When ``None`` the existing mapping is left
+        untouched (or a baseline default is created if the file is missing).
         """
         try:
             original_metadata: Dict[str, Any] = dict(flowgram.metadata or {})
@@ -2938,6 +3796,16 @@ class SkillEditorAgent:
             now_iso = datetime.now(timezone.utc).isoformat()
 
             # Convert flowgram to JSON-serializable dict in UI shape
+            default_config = {
+                "skill_mapping": {"developing": "", "released": "", "event_data_mapping": ""},
+                "nodes": {},
+                "run_in_cloud": False,
+            }
+            saved_config = metadata.get("config")
+            if isinstance(saved_config, dict):
+                for k, v in saved_config.items():
+                    default_config[k] = v
+
             skill_json = {
                 "skillId": metadata.get("skillId", ""),
                 "skillName": skill_name,
@@ -2958,8 +3826,13 @@ class SkillEditorAgent:
                 },
                 "mode": metadata.get("mode", "development"),
                 "run_mode": metadata.get("run_mode", "developing"),
-                "config": metadata.get("config", {"nodes": {}}),
+                "config": default_config,
                 "schemaVersion": metadata.get("schemaVersion", "1.0.1"),
+                "run_in_cloud": metadata.get("run_in_cloud", False),
+                "hybrid_cloud_mode": metadata.get("hybrid_cloud_mode", False),
+                "local_helper_skill_id": metadata.get("local_helper_skill_id", ""),
+                "local_helper_machine": metadata.get("local_helper_machine", ""),
+                "local_helper_skill_name": metadata.get("local_helper_skill_name", ""),
             }
 
             skill_dir_name = f"{skill_name}_skill"
@@ -2973,7 +3846,7 @@ class SkillEditorAgent:
                 existing_bundle = self._read_bundle_json_from_s3(skill_dir_name)
                 if isinstance(existing_bundle, dict) and existing_bundle:
                     bundle_json = existing_bundle
-                self._write_skill_and_bundle_to_s3(skill_json, bundle_json, skill_dir_name)
+                self._write_skill_and_bundle_to_s3(skill_json, bundle_json, skill_dir_name, data_mapping=data_mapping)
                 skill_root_uri = self._get_skill_root_uri(skill_dir_name)
                 logger.info(f"[SkillEditorAgent] Saved flowgram to S3 (dual-write): {skill_root_uri}")
                 return str(skill_root_uri)
@@ -3006,6 +3879,14 @@ class SkillEditorAgent:
 
                 # Dual-write skill + bundle with mirroring
                 self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
+
+                # Write data_mapping.json
+                dm_path = skill_root / "data_mapping.json"
+                if data_mapping:
+                    dm_path.write_text(json.dumps(data_mapping, indent=2, ensure_ascii=False))
+                elif not dm_path.exists():
+                    from agent.skill_editor.code_agent import DEFAULT_BASELINE_MAPPINGS
+                    dm_path.write_text(json.dumps(DEFAULT_BASELINE_MAPPINGS, indent=2, ensure_ascii=False))
 
                 logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_json_path}")
                 # Return skill root directory; frontend appends diagram_dir/<name>_skill.json
@@ -3262,6 +4143,13 @@ class SkillEditorAgent:
         path = ctx_dir / f"{session_id}.json"
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def _is_trivial_message(self, msg: Optional[str]) -> bool:
+        """Return True when *msg* carries no actionable task info."""
+        if not msg:
+            return True
+        m = (msg or "").strip().lower()
+        return len(m) < 12 and not any(kw in m for kw in ("create", "build", "make", "automate", "workflow", "skill"))
+
     async def _generate_from_plan(
         self,
         canvas_context: Optional[Dict],
@@ -3271,7 +4159,8 @@ class SkillEditorAgent:
         """Generate flowgram from the current plan"""
         logger.info("[SkillEditorAgent] Generating flowgram from plan")
         self._pipeline_state = PipelineState.GENERATING
-        
+        await self._emit_progress(on_event, "Plan approved — starting code generation…")
+
         # Build full context from conversation history
         # This ensures the code agent has the complete picture of what user wants
         context_messages = []
@@ -3280,12 +4169,21 @@ class SkillEditorAgent:
             content = msg.get("content", "")
             if content:
                 context_messages.append(f"[{role.upper()}]: {content}")
+
+        # If the original request is trivial (e.g. "hello"), derive a richer task
+        # description from accumulated clarification answers + conversation history.
+        effective_request = self._current_request or ""
+        if self._is_trivial_message(effective_request):
+            enriched = self._build_enriched_request_with_answers()
+            if enriched and len(enriched) > len(effective_request):
+                effective_request = enriched
+                logger.info("[SkillEditorAgent] Enriched trivial request for code gen")
         
         # Combine conversation context with current request
         full_context = ""
         if len(context_messages) > 1:
             full_context = "## CONVERSATION HISTORY (for context):\n" + "\n".join(context_messages[:-1]) + "\n\n"
-        full_context += "## CURRENT REQUEST:\n" + (self._current_request or "")
+        full_context += "## CURRENT REQUEST:\n" + effective_request
         
         # Generate with code agent
         code_output = await self.code_agent.generate(
@@ -3295,6 +4193,21 @@ class SkillEditorAgent:
             on_event=on_event
         )
         
+        # If no flowgram was produced, surface a clear failure message rather
+        # than passing through raw LLM text that looks like a generic greeting.
+        if not code_output.flowgram:
+            logger.warning("[SkillEditorAgent] Code generation produced no flowgram — returning error to user")
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message=(
+                    "I wasn't able to generate the workflow from the plan. "
+                    "This can happen when the model returns an incomplete response. "
+                    "Please try again — you can start a new session or re-describe your workflow."
+                ),
+                intent=IntentType.CREATE_FLOWGRAM,
+                metadata={"session_id": session_id, "state": "idle", "generation_failed": True},
+            )
+
         self._pipeline_state = PipelineState.COMPLETE
         
         # Generate canvas commands if flowgram was created
@@ -3302,7 +4215,8 @@ class SkillEditorAgent:
         skill_path = None
         if code_output.flowgram:
             # Dual-write skill + bundle to disk
-            skill_path = self._save_flowgram_to_disk(code_output.flowgram)
+            await self._emit_progress(on_event, "Saving workflow…")
+            skill_path = self._save_flowgram_to_disk(code_output.flowgram, data_mapping=code_output.data_mapping)
             
             # If skill was scaffolded to disk, only send load_flowgram command
             # The frontend will load the nodes from disk via loadSkillFile
@@ -3336,7 +4250,8 @@ class SkillEditorAgent:
         """Run direct code generation without planning"""
         logger.info(f"[SkillEditorAgent] Direct code generation for intent: {intent.value}")
         self._pipeline_state = PipelineState.GENERATING
-        
+        await self._emit_progress(on_event, f"Working on your request ({intent.value})\u2026")
+
         msg_lower = (message or "").lower()
 
         # When editing, we must preserve the currently loaded skill identity.
@@ -3465,7 +4380,7 @@ class SkillEditorAgent:
 
             # Always dual-write to disk for both create and edit operations
             # This ensures the skill file and bundle stay in sync and frontend can reload
-            skill_path = self._save_flowgram_to_disk(code_output.flowgram)
+            skill_path = self._save_flowgram_to_disk(code_output.flowgram, data_mapping=code_output.data_mapping)
             
             # Send load_flowgram command to reload the updated skill
             # The frontend will load the nodes from disk via loadSkillFile
