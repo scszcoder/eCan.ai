@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next';
 import {get_ipc_api} from '../../services/ipc_api';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { isDesktopPlatform } from '../../config/platform';
+import { isDesktopPlatform, detectPlatform } from '../../config/platform';
+import { useNavigate } from 'react-router-dom';
+import { canvasController } from '../../modules/skill-editor/services/canvas-controller';
 import {
     downloadWithPresignedUrl,
     uploadWithPresignedUrl,
@@ -25,6 +27,7 @@ const Tests: React.FC = () => {
     const username = useUserStore((state) => state.username);
     const settings = useSettingsStore((state) => state.settings);
     const loadSettings = useSettingsStore((state) => state.loadSettings);
+    const navigate = useNavigate();
 
     const appendTestOutput = (line: string) => {
         setTestOutput(prev => (prev ? `${prev}\n${line}` : line));
@@ -1472,6 +1475,67 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleTestRxSkill = async () => {
+        setTestOutput('');
+        appendTestOutput('Test RX Skill: Emulating cloud-generated skill receive + load...');
+        appendTestOutput(`Platform: ${detectPlatform()}`);
+        appendTestOutput(`Username: ${username || '(none)'}`);
+
+        // Build a mock flowgram identical to what ChatPanel receives from the cloud agent
+        const mockFlowgram = {
+            nodes: [
+                {
+                    id: 'start',
+                    type: 'start',
+                    meta: { position: { x: 100, y: 200 } },
+                    data: { title: 'Start', outputs: { type: 'object', properties: {} } },
+                },
+                {
+                    id: 'code_1',
+                    type: 'code',
+                    meta: { position: { x: 400, y: 200 } },
+                    data: { title: 'Code Node', inputsValues: { code: 'print("hello")' } },
+                },
+                {
+                    id: 'end',
+                    type: 'end',
+                    meta: { position: { x: 700, y: 200 } },
+                    data: { title: 'End' },
+                },
+            ],
+            edges: [
+                { sourceNodeID: 'start', targetNodeID: 'code_1' },
+                { sourceNodeID: 'code_1', targetNodeID: 'end' },
+            ],
+            metadata: {
+                skillName: 'generated',
+                description: 'Test RX mock skill',
+            },
+        };
+
+        appendTestOutput(`Mock flowgram: ${mockFlowgram.nodes.length} nodes, ${mockFlowgram.edges.length} edges`);
+        appendTestOutput('Loading flowgram into canvasController (same as ChatPanel does)...');
+
+        try {
+            const loadResult = await canvasController.loadFlowgram(mockFlowgram);
+            appendTestOutput('--- loadFlowgram result ---');
+            appendTestOutput(JSON.stringify(loadResult, null, 2));
+
+            if (loadResult.success) {
+                appendTestOutput('Flowgram loaded OK. Navigating to Skill Editor in 1s...');
+                appendTestOutput('Once there, click Save to test the save path.');
+                setTimeout(() => {
+                    navigate('/skill_editor');
+                }, 1000);
+            } else {
+                appendTestOutput('FAIL: loadFlowgram returned error: ' + (loadResult.error || 'unknown'));
+            }
+        } catch (error) {
+            appendTestOutput('ERROR: ' + (error instanceof Error ? error.message : String(error)));
+            console.error('[Tests] handleTestRxSkill error:', error);
+        }
+    };
+
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
         const target = e.target as HTMLElement;
         console.log('[Tests] Page click:', {
@@ -1634,6 +1698,17 @@ const Tests: React.FC = () => {
                             }}
                         >
                             Test OCR Local
+                        </Button>
+                        <Button
+                            onClick={handleTestRxSkill}
+                            style={{
+                                marginLeft: 8,
+                                background: '#1890ff',
+                                borderColor: '#1890ff',
+                                color: '#fff',
+                            }}
+                        >
+                            Test RX Skill
                         </Button>
                     </Space>
                     {/* Test Selection */}

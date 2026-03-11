@@ -288,13 +288,29 @@ export async function saveFile(
   bundleJson?: string | null
 ) {
   try {
-    console.log('--- Debug Save: Data to Save ---', dataToSave);
+    console.log('[SKILL_IO][SAVE_V2] saveFile called', {
+      platform: detectPlatform(),
+      hasCurrentPath: !!currentFilePath,
+      currentFilePath,
+      skillName: dataToSave.skillName,
+    });
     const jsonString = JSON.stringify(dataToSave, null, 2);
     // console.log('--- Debug Save: Final JSON String ---', jsonString);
 
     if (detectPlatform() === 'web') {
       try {
         let filePath = currentFilePath;
+        // Defense-in-depth: rewrite flat my_skills paths to nested convention
+        if (filePath) {
+          const normCheck = String(filePath).replace(/\\/g, '/');
+          if (!normCheck.includes('/diagram_dir/') && normCheck.includes('/my_skills/')) {
+            const fileName = normCheck.split('/').pop() || '';
+            const base = fileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+            const parentDir = normCheck.replace(/\/[^/]+$/, '');
+            filePath = `${parentDir}/${base}_skill/diagram_dir/${base}_skill.json`;
+            console.log('[SKILL_IO][FRONTEND][WEB_PATH_REWRITE] Flat path rewritten to nested:', filePath);
+          }
+        }
         if (!filePath) {
           filePath = buildWebSkillPath(dataToSave.skillName, _username);
           console.log('[SKILL_IO][FRONTEND][WEB_DEFAULT_PATH]', filePath);
@@ -327,38 +343,47 @@ export async function saveFile(
         const ipcApi = IPCAPI.getInstance();
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;
+        // Defense-in-depth: if filePath is set but flat (no diagram_dir), rewrite to nested
+        if (filePath) {
+          const normCheck = String(filePath).replace(/\\/g, '/');
+          if (!normCheck.includes('/diagram_dir/') && normCheck.includes('/my_skills/')) {
+            const fileName = normCheck.split('/').pop() || '';
+            const base = fileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+            const parentDir = normCheck.replace(/\/[^/]+$/, '');
+            filePath = `${parentDir}/${base}_skill/diagram_dir/${base}_skill.json`;
+            console.log('[SKILL_IO][FRONTEND][PATH_REWRITE] Flat path rewritten to nested:', filePath);
+          }
+        }
         if (!filePath) {
-          // First-time save: use scaffoldSkill to create proper directory structure
-          // my_skills/<name>_skill/diagram_dir/<name>_skill.json
+          // First-time save: show native dialog with a default path that follows
+          // the nested convention: my_skills/<name>_skill/diagram_dir/<name>_skill.json
           const baseName = normalizeSkillBaseName(dataToSave.skillName);
-          console.log('[SKILL_IO][FRONTEND][SCAFFOLD] Creating skill structure for:', baseName);
-          const scaffoldResp = await ipcApi.scaffoldSkill(
-            baseName,
-            (dataToSave as any).description || '',
-            'diagram',
-            dataToSave,
-            bundleJson ? JSON.parse(bundleJson) : undefined,
-            dataMappingJson ? JSON.parse(dataMappingJson) : undefined
-          );
-          if (scaffoldResp.success && scaffoldResp.data) {
-            const scaffoldData = scaffoldResp.data as any;
-            console.log('[SKILL_IO][FRONTEND][SCAFFOLD_OK]', scaffoldData);
-            return {
-              success: true,
-              filePath: scaffoldData.diagramPath,
-              skillName: scaffoldData.name,
-            };
-          } else {
-            // Skill dir already exists — fall back to writing directly to expected path
-            const errorStr = String((scaffoldResp as any).error || '');
-            if (errorStr.includes('already exists')) {
-              console.warn('[SKILL_IO][FRONTEND][SCAFFOLD_EXISTS] Falling back to direct write for:', baseName);
-              filePath = `my_skills/${baseName}_skill/diagram_dir/${baseName}_skill.json`;
-              // Continue to the normal writeSkillFile flow below
-            } else {
-              console.error('[SKILL_IO][FRONTEND][SCAFFOLD_ERROR]', scaffoldResp.error);
-              throw new Error(errorStr || 'Failed to scaffold skill');
+          const defaultFileName = `${baseName}_skill.json`;
+          console.log('[SKILL_IO][FRONTEND][FIRST_SAVE] Showing save dialog, default:', defaultFileName);
+          const dialogResponse = await ipcApi.showSaveDialog(defaultFileName, [
+            { name: 'Skill Files', extensions: ['json'] },
+            { name: 'All Files', extensions: ['*'] }
+          ]);
+          if (dialogResponse.success && dialogResponse.data && !(dialogResponse.data as any).cancelled) {
+            const chosenPath = (dialogResponse.data as any).filePath || (dialogResponse.data as any).filePaths?.[0];
+            if (chosenPath) {
+              // If user picked a flat path (e.g. my_skills/foo_skill.json), rewrite it
+              // to the nested convention: my_skills/foo_skill/diagram_dir/foo_skill.json
+              const norm = String(chosenPath).replace(/\\/g, '/');
+              if (!norm.includes('/diagram_dir/')) {
+                // Extract the base name from the chosen file name
+                const chosenFileName = norm.split('/').pop() || '';
+                const chosenBase = chosenFileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+                const parentDir = norm.replace(/\/[^/]+$/, ''); // directory user saved into
+                filePath = `${parentDir}/${chosenBase}_skill/diagram_dir/${chosenBase}_skill.json`;
+                console.log('[SKILL_IO][FRONTEND][FIRST_SAVE] Rewritten to nested path:', filePath);
+              } else {
+                filePath = chosenPath;
+              }
             }
+          } else {
+            console.log('[SKILL_IO][FRONTEND] Save cancelled by user');
+            return { cancelled: true };
           }
         }
         // Existing file: enforce _skill.json suffix
@@ -501,10 +526,11 @@ async function syncSkillToDBAndStore(
 
     console.log('[SKILL_IO][DB_SYNC] Syncing skill to DB:', skillPayload.name, 'id:', skillPayload.id);
 
-    // If no skill ID, the skill was just scaffolded (first-time save) and sync_skill_from_file
-    // already created the DB entry. Skip save_agent_skill to avoid "Skill ID is required" error.
+    // For brand-new skills there is no DB record yet (no skill ID).
+    // save_agent_skill requires an ID, so skip to avoid "Skill ID is required" error.
+    // The backend will create the DB entry on the next sync_skill_from_file call.
     if (!skillPayload.id) {
-      console.log('[SKILL_IO][DB_SYNC] No skill ID — skipping save_agent_skill (scaffold already synced)');
+      console.log('[SKILL_IO][DB_SYNC] No skill ID — skipping save_agent_skill for new skill');
       return;
     }
 
