@@ -1,39 +1,18 @@
 """
-Prompt Store – loads skill-editor sub-agent prompts with a 3-tier fallback:
+Prompt Store - loads skill-editor sub-agent prompts with a 2-tier fallback:
 
-    1. DynamoDB  (Agent_Prompts table – hot-swappable, no redeploy)
-    2. Local .md files  (prompts/ directory – version-controlled, always fresh)
-    3. Caller-supplied default string  (inline Python constant – last resort)
-
-DynamoDB table: Agent_Prompts  (configurable via env PROMPT_TABLE_NAME)
-
-Existing Schema
----------------
-Partition key : owner_id  (S)
-Sort key      : agent_id  (S)
-
-For skill-editor system prompts we use:
-    owner_id = "system"
-    agent_id = "skill_editor~<prompt_id>"
-        e.g. "skill_editor~intent_classifier", "skill_editor~planner",
-             "skill_editor~code_gen", "skill_editor~edit_flowgram",
-             "skill_editor~validator"
-
-The prompt text is stored in the `prompt` attribute (S).
+    1. Local .md files  (prompts/ directory - version-controlled, always fresh)
+    2. Caller-supplied default string  (inline Python constant - last resort)
 
 Usage
 -----
     from agent.skill_editor.prompt_store import prompt_store
 
-    # Simple – DynamoDB → .md file → None
+    # Simple - .md file -> None
     text = prompt_store.get("planner")
 
-    # With inline fallback – DynamoDB → .md file → PLANNER_SYSTEM_PROMPT
+    # With inline fallback - .md file -> PLANNER_SYSTEM_PROMPT
     text = prompt_store.get("planner", default=PLANNER_SYSTEM_PROMPT)
-
-The store falls back through the tiers if:
-  • the table does not exist / is unreachable, or
-  • no item with the given prompt_id is found.
 """
 
 from __future__ import annotations
@@ -41,7 +20,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -73,30 +51,13 @@ def safe_format(template: str, **kwargs) -> str:
         template,
     )
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 
-TABLE_NAME = os.environ.get("PROMPT_TABLE_NAME", "Agent_Prompts")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-
-# owner_id used for all skill-editor system prompts
-SYSTEM_OWNER_ID = os.environ.get("PROMPT_OWNER_ID", "system")
-
-# Prefix added to prompt_id to form the agent_id sort key
-AGENT_ID_PREFIX = "skill_editor~"
-
-# How long (seconds) a cached value is considered fresh.  Set to 0 to disable
-# TTL (cache lives until Lambda cold-starts again).
-CACHE_TTL_SECONDS = int(os.environ.get("PROMPT_CACHE_TTL", "0"))
 
 # ---------------------------------------------------------------------------
 # Prompt-ID → .md filename mapping
 # ---------------------------------------------------------------------------
 
-# Maps each DynamoDB prompt_id to its corresponding .md file under prompts/.
-# This allows the store to fall back to version-controlled .md files when
-# DynamoDB is unavailable or the row hasn't been seeded yet.
+# Maps each prompt_id to its corresponding .md file under prompts/.
 _PROMPT_FILE_MAP: Dict[str, str] = {
     "intent_classifier":        "skill_agent_main_prompt.md",
     "main_orchestrator":        "skill_agent_main_prompt.md",
@@ -291,243 +252,55 @@ def _load_mapping_dsl() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Internal cache
-# ---------------------------------------------------------------------------
-
-_cache: Dict[str, "_CacheEntry"] = {}
-
-
-class _CacheEntry:
-    __slots__ = ("value", "fetched_at")
-
-    def __init__(self, value: str):
-        self.value = value
-        self.fetched_at = time.monotonic()
-
-    def is_fresh(self) -> bool:
-        if CACHE_TTL_SECONDS <= 0:
-            return True  # never expire
-        return (time.monotonic() - self.fetched_at) < CACHE_TTL_SECONDS
-
-
-# ---------------------------------------------------------------------------
-# Lazy boto3 client
-# ---------------------------------------------------------------------------
-
-_ddb_client = None
-
-
-def _get_client():
-    global _ddb_client
-    if _ddb_client is None:
-        import boto3
-        _ddb_client = boto3.client("dynamodb", region_name=AWS_REGION)
-    return _ddb_client
-
-
-# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
 class PromptStore:
-    """Singleton-ish prompt loader backed by DynamoDB → .md files → inline defaults."""
+    """Prompt loader backed by .md files → inline defaults."""
 
     def get(self, prompt_id: str, *, default: Optional[str] = None) -> Optional[str]:
         """Return the prompt text for *prompt_id*.
 
         Fallback order:
-          1. In-memory cache (if fresh)
-          2. DynamoDB Agent_Prompts table
-          3. Local .md file from prompts/ directory
-          4. Caller-supplied *default* string
+          1. Local .md file from prompts/ directory
+          2. Caller-supplied *default* string
         """
-        # 1. Check cache
-        entry = _cache.get(prompt_id)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-
-        # 2. Fetch from DynamoDB
-        agent_id = f"{AGENT_ID_PREFIX}{prompt_id}"
-        try:
-            client = _get_client()
-            resp = client.get_item(
-                TableName=TABLE_NAME,
-                Key={
-                    "owner_id": {"S": SYSTEM_OWNER_ID},
-                    "agent_id": {"S": agent_id},
-                },
-                ProjectionExpression="prompt",
-            )
-            item = resp.get("Item")
-            if item and "prompt" in item:
-                text = item["prompt"].get("S", "")
-                if text:
-                    _cache[prompt_id] = _CacheEntry(text)
-                    logger.info(
-                        "[PromptStore] Loaded prompt_id=%s from DynamoDB (%d chars)",
-                        prompt_id,
-                        len(text),
-                    )
-                    return text
-        except Exception as exc:
-            # DynamoDB unreachable or table missing – try file fallback.
-            logger.warning(
-                "[PromptStore] DynamoDB fetch failed for prompt_id=%s: %s",
-                prompt_id,
-                exc,
-            )
-
-        # 3. File-based fallback (.md files)
+        # 1. File-based (.md files)
         file_text = _load_prompt_file(prompt_id)
         if file_text:
-            _cache[prompt_id] = _CacheEntry(file_text)
             return file_text
 
-        # 4. Caller-supplied inline default
-        if default is not None:
-            _cache[prompt_id] = _CacheEntry(default)
+        # 2. Caller-supplied inline default
         return default
 
     def get_domain_qa(self) -> str:
         """Return concatenated domain Q&A content from prompts/qa/*.md."""
-        cache_key = "__domain_qa__"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_qa_files()
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
+        return _load_qa_files()
 
     def get_sop(self) -> str:
         """Return concatenated SOP content from prompts/sop/*.md."""
-        cache_key = "__sop__"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_sop_files()
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
+        return _load_sop_files()
 
     def get_taxonomy(self) -> str:
         """Return the prompt categorization taxonomy (promptCategorizationTaxonomy.md)."""
-        cache_key = "__taxonomy__"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_taxonomy()
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
+        return _load_taxonomy()
 
     def get_domain_qa_for(self, domain: str) -> str:
         """Return Q&A content for a specific domain (e.g. 'customer_support')."""
-        cache_key = f"__domain_qa__{domain}"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_qa_for_domain(domain)
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
+        return _load_qa_for_domain(domain)
 
     def get_sop_for(self, domain: str) -> str:
         """Return SOP content matching a specific domain."""
-        cache_key = f"__sop__{domain}"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_sop_for_domain(domain)
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
+        return _load_sop_for_domain(domain)
 
     def get_node_schema(self) -> str:
         """Return the full node schema reference (SKILL_EDITOR_NODE_SCHEMA.md)."""
-        cache_key = "__node_schema__"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_node_schema()
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
+        return _load_node_schema()
 
     def get_mapping_dsl(self) -> str:
         """Return the Mapping DSL reference (mapping-dsl.md)."""
-        cache_key = "__mapping_dsl__"
-        entry = _cache.get(cache_key)
-        if entry is not None and entry.is_fresh():
-            return entry.value
-        text = _load_mapping_dsl()
-        if text:
-            _cache[cache_key] = _CacheEntry(text)
-        return text
-
-    def put(self, prompt_id: str, prompt_text: str, *, version: str = "1") -> bool:
-        """Write a prompt to DynamoDB (convenience for seeding / admin)."""
-        import datetime as _dt
-
-        agent_id = f"{AGENT_ID_PREFIX}{prompt_id}"
-        try:
-            client = _get_client()
-            client.put_item(
-                TableName=TABLE_NAME,
-                Item={
-                    "owner_id": {"S": SYSTEM_OWNER_ID},
-                    "agent_id": {"S": agent_id},
-                    "prompt_id": {"S": prompt_id},
-                    "prompt": {"S": prompt_text},
-                    "prompt_name": {"S": f"skill_editor_{prompt_id}"},
-                    "suitable_modes": {"S": "all"},
-                    "metadata": {"S": "{}"},
-                    "last_mod_date": {"S": _dt.datetime.utcnow().isoformat() + "Z"},
-                },
-            )
-            _cache[prompt_id] = _CacheEntry(prompt_text)
-            logger.info("[PromptStore] Wrote prompt_id=%s (%d chars)", prompt_id, len(prompt_text))
-            return True
-        except Exception as exc:
-            logger.error("[PromptStore] put failed for prompt_id=%s: %s", prompt_id, exc)
-            return False
-
-    def invalidate(self, prompt_id: Optional[str] = None) -> None:
-        """Clear cache for one prompt or all prompts."""
-        if prompt_id:
-            _cache.pop(prompt_id, None)
-        else:
-            _cache.clear()
-
-    def preload(self, prompt_ids: list[str], defaults: Optional[Dict[str, str]] = None) -> None:
-        """Bulk-load multiple prompts in one shot (still individual GetItem calls
-        for simplicity, but called once at cold-start).
-
-        For each prompt_id the fallback chain is:
-          DynamoDB → .md file → defaults dict → skip
-        """
-        defaults = defaults or {}
-        for pid in prompt_ids:
-            self.get(pid, default=defaults.get(pid))
-
-    def seed_from_files(self, prompt_ids: Optional[list[str]] = None) -> Dict[str, bool]:
-        """Push .md file contents into DynamoDB for the given prompt_ids.
-
-        If *prompt_ids* is None, seeds all prompts in _PROMPT_FILE_MAP.
-
-        Returns a dict of {prompt_id: success_bool}.
-        """
-        ids = prompt_ids or list(_PROMPT_FILE_MAP.keys())
-        results: Dict[str, bool] = {}
-        for pid in ids:
-            text = _load_prompt_file(pid)
-            if text:
-                results[pid] = self.put(pid, text)
-            else:
-                logger.warning("[PromptStore] No file content for prompt_id=%s, skipping seed", pid)
-                results[pid] = False
-        return results
+        return _load_mapping_dsl()
 
 
 # Module-level singleton
