@@ -24,8 +24,8 @@ class LinuxBuilder:
     def __init__(self, project_root: Path, config: Dict[str, Any]):
         self.project_root = project_root
         self.config = config
-        self.app_name = config.get("app_name", "eCan")
-        self.version = config.get("version", "1.0.0")
+        self.app_name = config.get("app", {}).get("name", "eCan")
+        self.version = config.get("app", {}).get("version", "1.0.0")
         self.dist_dir = project_root / "dist"
         self.build_dir = project_root / "build"
         
@@ -452,7 +452,7 @@ exit 0
                 result = subprocess.run(
                     cmd, 
                     cwd=str(self.dist_dir),
-                    timeout=600,  # 10 minutes timeout
+                    timeout=900,  # 15 minutes timeout (increased from 10)
                     capture_output=True,
                     text=True
                 )
@@ -463,7 +463,7 @@ exit 0
                         print(f"Error output: {result.stderr[-500:]}")
                     return False
             except subprocess.TimeoutExpired:
-                print("❌ DEB package creation timeout (10 minutes exceeded)")
+                print("❌ DEB package creation timeout (15 minutes exceeded)")
                 return False
             except Exception as e:
                 print(f"❌ DEB package creation error: {e}")

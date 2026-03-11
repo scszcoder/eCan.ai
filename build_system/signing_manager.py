@@ -761,17 +761,20 @@ class OTASigningManager:
             # Expected formats:
             #   Windows: eCan-{version}-windows-{arch}-Setup.exe, *.msi
             #   macOS:   eCan-{version}-macos-{arch}.pkg, *.dmg
+            #   Linux:   *.deb, *.rpm
             artifacts = (
                 list(self.dist_dir.glob("*-Setup.exe")) +  # Windows Inno Setup installers
                 list(self.dist_dir.glob("*.msi")) +         # Windows MSI installers
                 list(self.dist_dir.glob("*-macos-*.pkg")) + # macOS PKG installers
-                list(self.dist_dir.glob("*.dmg"))           # macOS disk images
+                list(self.dist_dir.glob("*.dmg")) +         # macOS disk images
+                list(self.dist_dir.glob("*.deb")) +         # Linux DEB packages
+                list(self.dist_dir.glob("*.rpm"))           # Linux RPM packages
             )
             
             if not artifacts:
                 print("[OTA-SIGN] [ERROR] No distribution files found to sign")
                 print(f"[OTA-SIGN] [DEBUG] Searched in: {self.dist_dir}")
-                print(f"[OTA-SIGN] [DEBUG] Looking for: *-Setup.exe, *.msi, *-macos-*.pkg, *.dmg")
+                print(f"[OTA-SIGN] [DEBUG] Looking for: *-Setup.exe, *.msi, *-macos-*.pkg, *.dmg, *.deb, *.rpm")
                 # List what files are actually in dist/
                 dist_files = list(self.dist_dir.glob("*"))
                 if dist_files:
