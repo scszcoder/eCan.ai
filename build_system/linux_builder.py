@@ -452,7 +452,7 @@ exit 0
                 result = subprocess.run(
                     cmd, 
                     cwd=str(self.dist_dir),
-                    timeout=600,  # 10 minutes timeout
+                    timeout=900,  # 15 minutes timeout (increased from 10)
                     capture_output=True,
                     text=True
                 )
@@ -463,7 +463,7 @@ exit 0
                         print(f"Error output: {result.stderr[-500:]}")
                     return False
             except subprocess.TimeoutExpired:
-                print("❌ DEB package creation timeout (10 minutes exceeded)")
+                print("❌ DEB package creation timeout (15 minutes exceeded)")
                 return False
             except Exception as e:
                 print(f"❌ DEB package creation error: {e}")
