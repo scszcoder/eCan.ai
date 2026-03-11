@@ -96,7 +96,13 @@ This maximizes work completion and minimizes human interruptions during executio
 - Set "allow_multiple": true when the user can reasonably select multiple options
 - Always include an "Other" choice with "allow_freeform": true so the user can type a custom answer.
 - Always include a "Doesn't apply" option to let the user mark this question as not applicable.
-- Set "allow_multiple": false when only one option should be selected
+- Set "allow_multiple": false ONLY when exactly one option must be selected (e.g., choosing a single model provider)
+- **MULTI-SELECT BY DEFAULT for these question topics** (set "allow_multiple": true):
+  - Trigger / start source (manual, scheduled, webhook, event — a workflow can have multiple triggers)
+  - Output / notification destinations (chat, email, file — often need several)
+  - Data sources / integrations (may combine multiple sources)
+  - Features / capabilities to include
+  When in doubt, prefer multi-select over single-select.
 - On the Q&A form, always includes a "Cancel" button to let the user cancel the Q&A process.
 - Focus on:
   - Data sources (where does the data come from?)
@@ -125,7 +131,9 @@ You are designing **agentic** workflows, NOT traditional RPA macros. The key dif
    - **Goals**: Measurable objectives (what "done" looks like)
    - **Guidelines**: Preferred approaches and heuristics
    - **Rules**: Hard constraints and boundaries
+   - **Exceptions**: Handling of edge cases and unexpected scenarios
    - **Instructions**: Step-by-step guidance (but allow the agent to adapt)
+   - **Examples**: Real-world examples of successful implementations
 4. **TRACK GOALS**: Each plan step should have a clear, measurable goal. The sub-agent's prompt should state the goal and instruct the agent to verify it before finishing.
 5. **TRUST THE SUB-AGENT**: browser_automation can handle 100 steps including DOM reading, clicking, form filling, decision-making, and data extraction — all in one node. LLM+MCP can reason, call tools, verify results, and self-correct. Don't second-guess them with extra condition nodes.
 
@@ -215,7 +223,7 @@ When you need clarification:
         {{ "id": "other", "label": "Other", "description": "User provides freeform text", "allow_freeform": true }}
       ],
       "context": "Why this question is important (optional)",
-      "allow_multiple": false
+      "allow_multiple": true
     }}
   ],
   "a2ui": {{
@@ -239,7 +247,7 @@ When you need clarification:
             {{ "id": "divider", "component": "Divider" }},
             {{ "id": "q1-container", "component": "Column", "children": ["q1-text", "q1-picker"] }},
             {{ "id": "q1-text", "component": "Text", "text": "1. Question text here?", "variant": "body" }},
-            {{ "id": "q1-picker", "component": "ChoicePicker", "label": "", "variant": "mutuallyExclusive", "options": [
+            {{ "id": "q1-picker", "component": "ChoicePicker", "label": "", "variant": "multipleSelection", "options": [
               {{ "label": "Option A", "value": "choice_1" }},
               {{ "label": "Option B", "value": "choice_2" }}
             ], "value": {{ "path": "/answers/q1" }} }},

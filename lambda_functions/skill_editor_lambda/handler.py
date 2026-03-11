@@ -10,40 +10,10 @@ import boto3
 
 from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
 from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_dir_name
-from agent.skill_editor.prompt_store import prompt_store
 from agent.skill_editor.token_tracker import token_tracker
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# Pre-fetch all prompts from DynamoDB during cold start so sub-agents
-# never block on individual gets.  Falls back to .md files → inline defaults.
-_PROMPT_IDS = [
-    "intent_classifier",
-    "main_orchestrator",
-    "planner",
-    "code_gen",
-    "edit_flowgram",
-    "validator",
-    "requirement_collector",
-    "testor",
-    # Log analysis sub-agents
-    "log_analysis_orchestrator",
-    "log_parser",
-    "flowgram_correlator",
-    "root_cause_analyzer",
-]
-try:
-    prompt_store.preload(_PROMPT_IDS)
-    # Also warm the domain QA / SOP / node schema / taxonomy caches
-    prompt_store.get_domain_qa()
-    prompt_store.get_sop()
-    prompt_store.get_node_schema()
-    prompt_store.get_mapping_dsl()
-    prompt_store.get_taxonomy()
-    logger.info("Prompt store preloaded successfully (%d prompts + QA + SOP + schema + mapping DSL + taxonomy)", len(_PROMPT_IDS))
-except Exception as _pre_err:
-    logger.warning("Prompt store preload failed (will fall back to .md files / defaults): %s", _pre_err)
 
 # Cache detected S3 base prefixes per owner to avoid repeated list calls within
 # the same warm Lambda environment.

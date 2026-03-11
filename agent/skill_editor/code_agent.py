@@ -259,7 +259,7 @@ You are building **agentic** workflows, NOT RPA macros.
 
 ### Core Rules:
 1. **MINIMIZE CONDITION NODES.** Before adding any condition, ask: "Can the sub-agent handle both outcomes via its prompt?" If yes — skip the condition.
-2. **EMBED GOALS IN EVERY SUB-AGENT PROMPT.** Every LLM and browser_automation prompt MUST include: Background, Goals (measurable), Guidelines, Rules, Instructions, and Output format.
+2. **EMBED GOALS IN EVERY SUB-AGENT PROMPT.** Every LLM and browser_automation prompt MUST include: Background, Goals (measurable), Guidelines, Rules, Exceptions, Instructions, Examples, and Output format.
 3. **LET SUB-AGENTS VERIFY THEIR OWN GOALS.** Instead of `node → condition (check success?)`, write a prompt that says "Verify you achieved X before reporting done."
 4. **CONDITION NODES ARE FOR STRUCTURAL DIVERGENCE ONLY.** Use only when different node types are needed per branch, a human decision determines the path, or fundamentally different flows are required.
 5. **PREFER FEWER, SMARTER NODES.** A single node with a detailed 20-line prompt beats 5 nodes with 3 conditions.
@@ -719,7 +719,16 @@ When LLM node works with mcp_tool as a sub-agent for multi-step tasks, the promp
    - Verify tool name matches exactly before calling
    - Fall back to run_code/run_shell_script if no suitable tool
    - NEVER skip verification after tool calls
-6. **tools_to_use**: List of available tool names (dynamically injected)
+6. **guidelines**:
+   - Be concise and clear in tool inputs
+   - When parsing outputs, look for key info and error signals
+   - For multi-step tasks, keep track of progress and next steps
+7. **exceptions**:
+   - If a tool fails repeatedly, try an alternative approach
+   - If stuck, log the issue and move on to the next task item 
+8. **examples**: Provide 1-2 examples of how to break down a task, call tools, and verify results
+9. **output_format**: Always return a JSON object with keys: work_done (boolean), next_tool_name (string), next_tool_input (object)
+10. **tools_to_use**: List of available tool names (dynamically injected)
 
 **User Prompt Sections:**
 - **goals**: Specific measurable objectives for this task
