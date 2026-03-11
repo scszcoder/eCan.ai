@@ -36,7 +36,7 @@ from .prompt_store import safe_format
 # Constants
 # ============================================================
 
-MAX_CLARIFICATION_QUESTIONS = 4
+MAX_CLARIFICATION_QUESTIONS = 8
 MAX_PLANNING_ITERATIONS = 3
 
 
@@ -79,7 +79,7 @@ This maximizes work completion and minimizes human interruptions during executio
 
 ## CLARIFICATION POLICY:
 - require_clarification flag: {require_clarification}
-- If require_clarification is true and the user has NOT explicitly opted out (e.g., "skip clarifications", "no questions", "直接生成", "不用问"), you MUST return action=ask_clarification with 2-3 targeted questions BEFORE generating a plan, even if the request seems clear.
+- If require_clarification is true and the user has NOT explicitly opted out (e.g., "skip clarifications", "no questions", "直接生成", "不用问"), you MUST return action=ask_clarification with up to {max_questions} targeted questions BEFORE generating a plan, even if the request seems clear.
 - Only skip clarifications when the user explicitly opts out OR require_clarification is false and you are confident the request is fully specified.
 
 
@@ -94,9 +94,15 @@ This maximizes work completion and minimizes human interruptions during executio
 - Each question should have 4-6 clear choices
 - Questions should be actionable and help determine the implementation
 - Set "allow_multiple": true when the user can reasonably select multiple options
-- Always include a "None of the above" or "Other" or "Something else" option, and if this option is selected, always make a otherwise invisible text input box visible to let user input their answer.
+- Always include an "Other" choice with "allow_freeform": true so the user can type a custom answer.
 - Always include a "Doesn't apply" option to let the user mark this question as not applicable.
-- Set "allow_multiple": false when only one option should be selected
+- Set "allow_multiple": false ONLY when exactly one option must be selected (e.g., choosing a single model provider)
+- **MULTI-SELECT BY DEFAULT for these question topics** (set "allow_multiple": true):
+  - Trigger / start source (manual, scheduled, webhook, event — a workflow can have multiple triggers)
+  - Output / notification destinations (chat, email, file — often need several)
+  - Data sources / integrations (may combine multiple sources)
+  - Features / capabilities to include
+  When in doubt, prefer multi-select over single-select.
 - On the Q&A form, always includes a "Cancel" button to let the user cancel the Q&A process.
 - Focus on:
   - Data sources (where does the data come from?)
@@ -110,6 +116,40 @@ This maximizes work completion and minimizes human interruptions during executio
 2. **MULTI-PHASE APPROACH**: Divide long work into multiple phases with clear milestones
 3. **IDENTIFY BLOCKERS EARLY**: Do thorough feasibility analysis, identify gating items and show-stoppers upfront
 4. **RESOLVE BLOCKERS FIRST**: Get blockers resolved with requester before proceeding with implementation
+
+## AGENTIC DESIGN PHILOSOPHY (CRITICAL — READ CAREFULLY):
+You are designing **agentic** workflows, NOT traditional RPA macros. The key difference:
+
+**RPA style (WRONG):** Many condition nodes, explicit branching for every possible outcome, the flowgram micromanages every decision.
+**Agentic style (RIGHT):** Fewer nodes, each sub-agent (browser_automation, LLM+MCP) receives a rich prompt with goals/rules/guidelines and makes decisions autonomously.
+
+### Core Principles:
+1. **DELEGATE DECISIONS TO SUB-AGENTS**: browser_automation and LLM+MCP nodes each have their own LLM that can reason, decide, and adapt. Instead of adding a condition node to check "did login succeed?", tell the sub-agent: "Login to the site. If login fails, retry with alternative credentials or report the failure."
+2. **MINIMIZE CONDITION NODES**: Only use condition nodes when the workflow must take fundamentally different paths that cannot be handled by a single sub-agent. Ask yourself: "Can the sub-agent handle both cases internally?" If yes, skip the condition.
+3. **WRITE GOAL-ORIENTED PROMPTS**: Every sub-agent prompt should include:
+   - **Background**: Context about the business scenario
+   - **Goals**: Measurable objectives (what "done" looks like)
+   - **Guidelines**: Preferred approaches and heuristics
+   - **Rules**: Hard constraints and boundaries
+   - **Exceptions**: Handling of edge cases and unexpected scenarios
+   - **Instructions**: Step-by-step guidance (but allow the agent to adapt)
+   - **Examples**: Real-world examples of successful implementations
+4. **TRACK GOALS**: Each plan step should have a clear, measurable goal. The sub-agent's prompt should state the goal and instruct the agent to verify it before finishing.
+5. **TRUST THE SUB-AGENT**: browser_automation can handle 100 steps including DOM reading, clicking, form filling, decision-making, and data extraction — all in one node. LLM+MCP can reason, call tools, verify results, and self-correct. Don't second-guess them with extra condition nodes.
+
+### When Condition Nodes ARE Appropriate:
+- The workflow must take **structurally different paths** (e.g., "if order type is return → run return flow, else → run shipping flow")
+- A **human decision point** determines the next branch (pend_event → condition)
+- Different **node types** are needed per branch (e.g., browser_automation vs. MCP tool)
+
+### When Condition Nodes are NOT Needed (let the sub-agent decide):
+- Checking if a browser action succeeded (sub-agent can retry internally)
+- Checking if data was found on a page (sub-agent can report in its output)
+- Validating LLM output format (sub-agent can self-correct)
+- Checking error states (sub-agent error handling pattern covers this)
+
+### Plan-Level Goals:
+When generating a plan, include a `goals` list — high-level measurable objectives that the entire workflow must achieve. Each step should also have its own `goal` field. These goals flow to the coder, who embeds them in sub-agent prompts.
 
 ## QUALITY ASSURANCE:
 1. **VERIFY AGAINST REQUIREMENTS**: Always check results against original user requirements
@@ -179,10 +219,11 @@ When you need clarification:
       "question": "Clear question text?",
       "choices": [
         {{ "id": "choice_1", "label": "Option A", "description": "What this option means" }},
-        {{ "id": "choice_2", "label": "Option B", "description": "What this option means" }}
+        {{ "id": "choice_2", "label": "Option B", "description": "What this option means" }},
+        {{ "id": "other", "label": "Other", "description": "User provides freeform text", "allow_freeform": true }}
       ],
       "context": "Why this question is important (optional)",
-      "allow_multiple": false
+      "allow_multiple": true
     }}
   ],
   "a2ui": {{
@@ -206,7 +247,7 @@ When you need clarification:
             {{ "id": "divider", "component": "Divider" }},
             {{ "id": "q1-container", "component": "Column", "children": ["q1-text", "q1-picker"] }},
             {{ "id": "q1-text", "component": "Text", "text": "1. Question text here?", "variant": "body" }},
-            {{ "id": "q1-picker", "component": "ChoicePicker", "label": "", "variant": "mutuallyExclusive", "options": [
+            {{ "id": "q1-picker", "component": "ChoicePicker", "label": "", "variant": "multipleSelection", "options": [
               {{ "label": "Option A", "value": "choice_1" }},
               {{ "label": "Option B", "value": "choice_2" }}
             ], "value": {{ "path": "/answers/q1" }} }},
@@ -244,11 +285,16 @@ When you have enough information to generate a plan:
   "action": "generate_plan",
   "plan": {{
     "summary": "Brief overview of what the workflow will accomplish",
+    "goals": [
+      "Goal 1: specific measurable outcome the workflow must achieve",
+      "Goal 2: another measurable outcome"
+    ],
     "steps": [
       {{
         "title": "Step title (must be meaningful workflow logic)",
         "description": "Detailed description of what this step does",
         "node_types": ["node_type_1", "node_type_2"],
+        "goal": "What this specific step must achieve (measurable)",
         "time_estimate": "~5-10 seconds"
       }}
     ],
@@ -265,20 +311,24 @@ When you have enough information to generate a plan:
 
 1. **Minimum 3 meaningful steps** for any workflow
 2. **Each step = one functional unit**: e.g., "Fetch orders", "Process messages", "Send notifications"
-3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, code, etc.
+3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, pend_event, chat_node. **NEVER plan code nodes — they are forbidden.**
 4. **DO NOT include start/end as steps** - they are automatically added
+5. **Each step MUST have a `goal` field** — a measurable outcome (e.g., "All unshipped orders are fetched into state")
+6. **MINIMIZE condition nodes in the plan** — prefer giving sub-agents rich prompts over adding explicit branching. Only plan a condition node when the workflow must diverge into structurally different paths.
+7. **PREFER FEWER, SMARTER NODES** — a single browser_automation or LLM+MCP node with a detailed prompt is better than many nodes with conditions between them
 
-**BAD PLAN:**
-- Step 1: "Scheduled trigger" (start) ❌
-- Step 2: "End" ❌
+**BAD PLAN (too many conditions, RPA style):**
+- Step 1: "Login to eBay" - browser-automation
+- Step 2: "Check if login succeeded" - condition ❌ (sub-agent handles this)
+- Step 3: "Navigate to orders page" - browser-automation
+- Step 4: "Check if orders exist" - condition ❌ (sub-agent reports this)
+- Step 5: "Process first order" - browser-automation
 
-**GOOD PLAN for eBay after-sales:**
-- Step 1: "Fetch unshipped orders from Seller Hub" - browser-automation
-- Step 2: "Check each order for cancellation messages" - loop + browser-automation
-- Step 3: "Generate shipping labels for valid orders" - browser-automation
-- Step 4: "Handle buyer Q&A with RAG→human→auto pattern" - rag + condition + pend_event
-- Step 5: "Process return requests" - browser-automation + condition
-- Step 6: "Send consolidated summary email" - http or mcp
+**GOOD PLAN (agentic style — fewer nodes, richer prompts):**
+- Step 1: "Fetch unshipped orders from Seller Hub" - browser-automation (in loop) — Goal: "All pending orders are collected with order details"
+- Step 2: "Process each order: check messages, generate shipping labels" - browser-automation (in loop) — Goal: "Every order has either a shipping label or a documented reason for skipping"
+- Step 3: "Handle buyer Q&A with RAG→human→auto pattern" - mcp (rag tool) + pend_event — Goal: "All buyer questions are answered"
+- Step 4: "Send consolidated summary" - mcp (email tool) — Goal: "Operator receives a summary of all actions taken and items needing attention"
 
 When the request is clear and simple enough to proceed directly:
 {{
@@ -482,10 +532,17 @@ class PlannerAgent:
                         ClarificationChoice(
                             id=c.get("id", f"choice_{i}"),
                             label=c.get("label", "Option"),
-                            description=c.get("description")
+                            description=c.get("description"),
+                            allow_freeform=bool(c.get("allow_freeform", False)),
                         )
                         for i, c in enumerate(q_data.get("choices", []))
                     ]
+                    # Auto-tag "Other" choices with allow_freeform if LLM didn't
+                    for ch in choices:
+                        if not ch.allow_freeform and ch.id.lower() in ("other", "other_option"):
+                            ch.allow_freeform = True
+                        if not ch.allow_freeform and ch.label.lower().startswith("other"):
+                            ch.allow_freeform = True
                     questions.append(ClarificationQuestion(
                         id=q_data.get("id", f"q_{len(questions)}"),
                         question=q_data.get("question", ""),
@@ -613,10 +670,10 @@ class PlannerAgent:
                                 ClarificationChoice(id="manual", label="Manual / ad-hoc", description=None),
                                 ClarificationChoice(id="schedule", label="Scheduled / cron", description=None),
                                 ClarificationChoice(id="webhook", label="Webhook / event-based", description=None),
-                                ClarificationChoice(id="other", label="Other / specify", description=None),
+                                ClarificationChoice(id="other", label="Other / specify", description=None, allow_freeform=True),
                                 ClarificationChoice(id="none", label="Doesn't apply", description=None),
                             ],
-                            allow_multiple=False,
+                            allow_multiple=True,
                         ),
                         ClarificationQuestion(
                             id="wf_outputs",
@@ -626,7 +683,7 @@ class PlannerAgent:
                                 ClarificationChoice(id="http", label="HTTP/Webhook push", description=None),
                                 ClarificationChoice(id="file", label="Save to file/storage", description=None),
                                 ClarificationChoice(id="none", label="Doesn't apply", description=None),
-                                ClarificationChoice(id="other", label="Other / specify", description=None),
+                                ClarificationChoice(id="other", label="Other / specify", description=None, allow_freeform=True),
                             ],
                             allow_multiple=True,
                         ),

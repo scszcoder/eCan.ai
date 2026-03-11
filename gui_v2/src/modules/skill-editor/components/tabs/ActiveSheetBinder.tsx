@@ -4,6 +4,7 @@ import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -129,8 +130,8 @@ export const ActiveSheetBinder = () => {
                   if (loadedNode) {
                     // Set in raw data
                     if (!loadedNode.raw) (loadedNode as any).raw = {};
-                    if (!(loadedNode as any).raw.data) (loadedNode as any).raw.data = {};
-                    (loadedNode as any).raw.data.hFlip = true;
+                    if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
+                    loadedNode.raw.data.hFlip = true;
                     
                     // Set in JSON
                     const json = (loadedNode as any).json;
@@ -139,7 +140,7 @@ export const ActiveSheetBinder = () => {
                       json.data.hFlip = true;
                     }
                     
-                    // Set in form
+                    // Set in form using setFieldValue (same as node-menu)
                     try {
                       const formData = (loadedNode as any).getData?.(FlowNodeFormData);
                       const formModel = formData?.getFormModel?.();
@@ -147,7 +148,9 @@ export const ActiveSheetBinder = () => {
                       if (formControl?.setFieldValue) {
                         formControl.setFieldValue('data.hFlip', true);
                       }
-                    } catch {}
+                    } catch (err) {
+                      console.warn('[ActiveSheetBinder] Could not set hFlip form field:', err);
+                    }
                     
                     // Sync to Zustand store to trigger visual update
                     try {
@@ -155,6 +158,11 @@ export const ActiveSheetBinder = () => {
                       setFlipped(node.id, true);
                     } catch {}
                   }
+                }
+
+                // Restore agentNote to note store
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
                 }
                 
                 // Recursively restore flip states for subcanvas nodes
@@ -165,7 +173,7 @@ export const ActiveSheetBinder = () => {
             };
             
             restoreFlipStates(docToLoad.nodes);
-          }, 200);
+          }, 200); // Increased delay to ensure forms are ready
         }
       } catch (err) {
         console.error('[ActiveSheetBinder] Error loading document:', err);
