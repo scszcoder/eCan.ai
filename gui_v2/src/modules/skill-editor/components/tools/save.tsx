@@ -33,6 +33,7 @@ import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
  * Prepare diagram for saving: handle flip states and remove breakpoints
  */
 function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean): void {
+  let flippedCount = 0;
   diagram.nodes.forEach((node: any) => {
     if (!node.data) node.data = {};
     
@@ -40,8 +41,11 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
     const flipState = isFlipped(node.id);
     if (flipState) {
       node.data.hFlip = true;
+      flippedCount++;
+      console.log(`[prepareDiagramForSave] Node ${node.id} is flipped, setting hFlip=true`);
     } else if (node.data.hFlip) {
       delete node.data.hFlip;
+      console.log(`[prepareDiagramForSave] Node ${node.id} is not flipped, removing hFlip`);
     }
     
     // Remove breakpoints (not persisted)
@@ -49,6 +53,7 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
       delete node.data.break_point;
     }
   });
+  console.log(`[prepareDiagramForSave] Total flipped nodes: ${flippedCount}`);
 }
 
 /**
@@ -514,6 +519,7 @@ export const Save = ({ disabled }: SaveProps) => {
   const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
   const setDataMappingDirty = useSkillInfoStore((state) => state.setDataMappingDirty);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
+  const removeRecentFile = useRecentFilesStore((state) => state.removeRecentFile);
   const username = useUserStore((state) => state.username);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
@@ -538,19 +544,53 @@ export const Save = ({ disabled }: SaveProps) => {
     if (!skillInfo) return;
 
     try {
+      console.log('[Save] Starting save process, current skillInfo.skillName:', skillInfo.skillName);
+      
       // 1. Get and prepare diagram
       const diagram = document.toJSON();
+      
+      // Debug: Log node.data fields before prepareDiagramForSave
+      try {
+        diagram.nodes.forEach((node: any, idx: number) => {
+          if (node.data && Object.keys(node.data).length > 0) {
+            console.log(`[Save] Node ${idx} (${node.id}) data fields:`, Object.keys(node.data));
+          }
+          // Check flip state from store
+          const flipState = isFlipped(node.id);
+          if (flipState) {
+            console.log(`[Save] ✅ Node ${node.id} is FLIPPED in store`);
+          }
+          // Check if hFlip exists in node.data
+          if (node.data?.hFlip) {
+            console.log(`[Save] ✅ Node ${node.id} has hFlip in node.data`);
+          }
+        });
+      } catch (e) {
+        console.warn('[Save] Failed to log node data fields:', e);
+      }
+      
       prepareDiagramForSave(diagram, isFlipped);
 
       // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+      
+      // Debug: Check if hFlip is in sanitizedDiagram
+      try {
+        sanitizedDiagram.nodes.forEach((node: any, idx: number) => {
+          if (node.data?.hFlip) {
+            console.log(`[Save] sanitizedDiagram Node ${idx} (${node.id}) has hFlip=true`);
+          }
+        });
+      } catch (e) {
+        console.warn('[Save] Failed to check hFlip in sanitizedDiagram:', e);
+      }
 
       // 3. Extract config nodes and create updated skillInfo
       const configNodes = extractConfigNodes(diagram);
       const updatedSkillInfo = {
         ...skillInfo,
-        workFlow: diagram,
+        workFlow: sanitizedDiagram,  // Use sanitizedDiagram which contains hFlip from prepareDiagramForSave
         lastModified: new Date().toISOString(),
         schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
         mode: (skillInfo as any)?.mode ?? 'development',
@@ -571,8 +611,12 @@ export const Save = ({ disabled }: SaveProps) => {
         },
       } as any;
 
-      const skillInfoForSave = { ...updatedSkillInfo, workFlow: sanitizedDiagram } as any;
+      console.log('[Save] updatedSkillInfo.skillName:', updatedSkillInfo.skillName);
+
+      const skillInfoForSave = updatedSkillInfo;
       sanitizeApiKeysDeep(skillInfoForSave);
+      
+      console.log('[Save] skillInfoForSave.skillName (after sanitize):', skillInfoForSave.skillName);
 
       let dataMappingForSave: string | null = null;
       if (dataMappingDirty && dataMappingJson) {
@@ -592,22 +636,84 @@ export const Save = ({ disabled }: SaveProps) => {
       }
 
       // 4. Handle skill rename if name changed
+      // Compare directory name with skillName in file content to detect mismatch
       let effectivePath = currentFilePath || null;
+      let renameSucceeded = false;
       try {
         if (effectivePath) {
           const norm = effectivePath.replace(/\\/g, '/');
           const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
-          const oldBase = m?.[1] || '';
-          const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
+          const dirBase = m?.[1] || '';  // Name from directory path
+          const contentBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();  // Name from file content
 
-          if (oldBase && proposedBase && oldBase !== proposedBase) {
+          console.log(`[Save] Directory name: ${dirBase}, Content skillName: ${contentBase}`);
+
+          if (dirBase && contentBase && dirBase !== contentBase) {
+            console.log(`[Save] ⚠️ Mismatch detected! Renaming directory: ${dirBase} -> ${contentBase}`);
+            console.log(`[Save] Current path: ${effectivePath}`);
+            
             const api = IPCAPI.getInstance();
-            const resp = await api.renameSkill(oldBase, proposedBase);
+            
+            // Call renameSkill with currentFilePath parameter (supports both my_skills and external directories)
+            const resp = await api.renameSkill(dirBase, contentBase, effectivePath);
             if (resp.success && resp.data?.skillRoot) {
               const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
-              effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
-              setCurrentFilePath(effectivePath);
+              const newPath = `${newRoot}/diagram_dir/${contentBase}_skill.json`;
+              console.log(`[Save] ✅ Rename succeeded!`);
+              console.log(`[Save] Old path: ${effectivePath}`);
+              console.log(`[Save] New path: ${newPath}`);
+              
+              // Update recent files: remove old path, add new path
+              try {
+                console.log(`[Save] Before remove - old path: ${effectivePath}`);
+                removeRecentFile(effectivePath);
+                console.log(`[Save] Removed old path from recent files: ${effectivePath}`);
+              } catch (e) {
+                console.warn('[Save] Failed to remove old path from recent files:', e);
+              }
+              
+              effectivePath = newPath;
+              setCurrentFilePath(newPath);
+              
+              // Add new path to recent files so it loads after refresh
+              try {
+                const recentFile = {
+                  filePath: newPath,
+                  fileName: `${contentBase}_skill.json`,
+                  lastOpened: new Date().toISOString(),
+                  skillName: contentBase
+                };
+                addRecentFile(recentFile);
+                console.log(`[Save] Added new path to recent files: ${newPath}`);
+                
+                // Force persist to localStorage immediately
+                // Wait a bit to ensure zustand persist middleware has time to save
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Verify recent files were updated correctly
+                const { getRecentFiles } = useRecentFilesStore.getState();
+                const currentRecent = getRecentFiles();
+                console.log(`[Save] Recent files after update (count: ${currentRecent.length}):`, 
+                  currentRecent.slice(0, 3).map(f => f.filePath));
+                
+                // Double-check localStorage directly
+                const stored = localStorage.getItem('skill-editor-recent-files');
+                if (stored) {
+                  const parsed = JSON.parse(stored);
+                  console.log(`[Save] localStorage recent files:`, 
+                    parsed?.state?.recentFiles?.slice(0, 3).map((f: any) => f.filePath));
+                }
+              } catch (e) {
+                console.warn('[Save] Failed to add new path to recent files:', e);
+              }
+              
+              renameSucceeded = true;
+            } else {
+              console.warn(`[Save] ⚠️ Rename failed:`, resp.error || 'Unknown error');
+              console.warn(`[Save] Directory and file names remain unchanged.`);
             }
+          } else if (dirBase === contentBase) {
+            console.log(`[Save] Directory and content names match (${dirBase}), no rename needed`);
           }
         }
       } catch (e) {
@@ -622,6 +728,8 @@ export const Save = ({ disabled }: SaveProps) => {
       }
 
       // 5. Save the file
+      console.log('[Save] About to save file with skillName:', skillInfoForSave.skillName);
+      console.log('[Save] Save path:', effectivePath);
       const saveResult = await saveFile(
         skillInfoForSave,
         username || undefined,
@@ -631,21 +739,32 @@ export const Save = ({ disabled }: SaveProps) => {
       );
 
       if (saveResult && !saveResult.cancelled) {
-        const finalPath = saveResult.filePath || effectivePath || '';
-        const derivedName = deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName);
+        // If rename succeeded, use effectivePath (new path), otherwise use saveResult.filePath
+        const finalPath = renameSucceeded ? (effectivePath || '') : (saveResult.filePath || effectivePath || '');
+        
+        // Only derive name from path if rename succeeded, otherwise keep user's modified name
+        const derivedName = renameSucceeded 
+          ? deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName)
+          : updatedSkillInfo.skillName;
         const finalSkillInfo = { ...updatedSkillInfo, skillName: derivedName } as any;
+
+        console.log('[Save] Final path after save:', finalPath);
+        console.log('[Save] Final skill name:', derivedName);
 
         setSkillInfo(finalSkillInfo);
         setHasUnsavedChanges(false);
 
-        if (saveResult.filePath && saveResult.filePath !== currentFilePath) {
-          setCurrentFilePath(saveResult.filePath);
+        // Always update currentFilePath to finalPath (especially important after rename)
+        if (finalPath && finalPath !== currentFilePath) {
+          setCurrentFilePath(finalPath);
+          console.log('[Save] Updated currentFilePath to:', finalPath);
         }
 
         const mappingPath = deriveDataMappingPath(finalPath, finalSkillInfo.skillName);
         try { useSkillInfoStore.getState().setDataMappingPath(mappingPath); } catch {}
 
-        if (finalPath) {
+        // Only add to recent files if not a rename (rename already updated recent files)
+        if (finalPath && !renameSucceeded) {
           addRecentFile(createRecentFile(finalPath, finalSkillInfo.skillName));
         }
 

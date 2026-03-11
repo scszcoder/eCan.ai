@@ -164,6 +164,15 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                 skip_local_exists = 0
                 for sk in skills_dicts:
                     if sk.get('_source') == 'cloud':
+                        # Skip external skills (those not in my_skills directory)
+                        if sk.get('source') == 'external':
+                            skip_owner_mismatch += 1
+                            logger.debug(
+                                f"[skill_handler][batch={download_batch_id}] Skip cloud file auto-download for skill '{sk.get('name', sk.get('id', '?'))}': "
+                                f"external skill (not in my_skills)"
+                            )
+                            continue
+                        
                         # Only auto-download files for current user's own cloud skills.
                         # Public/third-party skills may not have downloadable archives for this user.
                         if (sk.get('owner') or '').strip().lower() != (username or '').strip().lower():
@@ -1431,13 +1440,27 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
         if not skill_service:
             return {'success': False, 'error': 'Database service not available'}
         
-        # Check if skill exists by path
-        existing_skill = skill_service.get_skill_by_path(file_path)
-        
         # Prepare skill data - only use fields that have values
         skill_name = skill_data.get('name') or skill_data.get('skillName', 'Unnamed Skill')
         
         logger.info(f"[skill_handler] Syncing skill: {skill_name}, path: {file_path}")
+        
+        # Standard upsert logic: find existing skill by path first, then by name
+        existing_skill = skill_service.get_skill_by_path(file_path)
+        
+        if not (existing_skill.get('success') and existing_skill.get('data')):
+            # Not found by path, try by name (handles rename scenarios)
+            logger.debug(f"[skill_handler] Skill not found by path, trying by name: {skill_name}")
+            name_search = skill_service.query_skills(name=skill_name)
+            if name_search.get('success') and name_search.get('data'):
+                candidates = name_search.get('data', [])
+                # Filter to user's skills only to avoid updating other users' skills
+                user_candidates = [s for s in candidates if s.get('owner') == username]
+                if user_candidates:
+                    existing_skill = {'success': True, 'data': user_candidates[0]}
+                    logger.info(f"[skill_handler] Found existing skill by name: {skill_name} (ID: {user_candidates[0].get('id')})")
+        
+        # At this point: existing_skill has data → UPDATE, no data → INSERT
         
         # Build minimal skill_info - only include fields with actual values
         skill_info = {

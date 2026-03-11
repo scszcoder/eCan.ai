@@ -1819,15 +1819,20 @@ export class IPCAPI {
     }
 
     /**
-     * Rename a skill folder
-     * @param oldName - Current skill name (without _skill suffix)
+     * Rename skill (now supports both my_skills and external directories)
+     * @param oldName - Old skill name (without _skill suffix)
      * @param newName - New skill name (without _skill suffix)
+     * @param currentFilePath - (Optional) Current skill JSON file path for external directories
      * @returns API response with skillRoot path
      */
-    public async renameSkill(oldName: string, newName: string): Promise<APIResponse<{ skillRoot: string }>> {
+    public async renameSkill(oldName: string, newName: string, currentFilePath?: string): Promise<APIResponse<{ skillRoot: string }>> {
+        const params: any = { oldName, newName };
+        if (currentFilePath) {
+            params.currentFilePath = currentFilePath;
+        }
         return apiRouter.execute<{ skillRoot: string }>(
             { method: 'skills.rename' },
-            { oldName, newName }
+            params
         );
     }
 
