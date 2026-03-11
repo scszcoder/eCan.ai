@@ -8,6 +8,7 @@ import json
 import sys
 import subprocess
 from typing import Any, Optional, Dict
+from pathlib import Path
 # Lazy import extern_skills to avoid blocking during module initialization
 # from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
 from ..types import IPCRequest, IPCResponse, create_success_response, create_error_response
@@ -715,30 +716,43 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
         # This ensures consistent path format for database queries
         file_path = os.path.abspath(os.path.normpath(file_path))
         
-        # Extract skill name from file path
+        # Extract skill name from file path (fallback)
         # IMPORTANT: Preserve the original file path - do not redirect to my_skills directory
         # This allows users to open and save skill files from any directory
         file_name = os.path.basename(file_path)
         parent_dir = os.path.dirname(file_path)
         
-        # Extract skill name for metadata purposes only (not for path manipulation)
-        skill_name = file_name[:-5] if file_name.endswith('.json') else file_name
+        # Extract skill name from file path as fallback
+        skill_name_from_path = file_name[:-5] if file_name.endswith('.json') else file_name
         
         # Remove known suffixes to get the base skill name
-        if skill_name.endswith('_data_mapping'):
-            skill_name = skill_name[:-13]
-        elif skill_name.endswith('_skill_bundle'):
-            skill_name = skill_name[:-13]
-        elif skill_name.endswith('_skill'):
-            skill_name = skill_name[:-6]
+        if skill_name_from_path.endswith('_data_mapping'):
+            skill_name_from_path = skill_name_from_path[:-13]
+        elif skill_name_from_path.endswith('_skill_bundle'):
+            skill_name_from_path = skill_name_from_path[:-13]
+        elif skill_name_from_path.endswith('_skill'):
+            skill_name_from_path = skill_name_from_path[:-6]
         
-        logger.info(f"[SKILL_IO][BACKEND] Skill: {skill_name}, Path: {file_path} (preserving original path)")
-        
-        # Validate JSON content
+        # Validate JSON content and extract skillName from content
+        skill_name = skill_name_from_path  # Default to path-based name
         try:
             if isinstance(content, str):
-                json.loads(content)
+                content_obj = json.loads(content)
+                # Prefer skillName from content over path-based name
+                if isinstance(content_obj, dict) and 'skillName' in content_obj:
+                    skill_name = content_obj['skillName']
+                    logger.info(f"[SKILL_IO][BACKEND] Using skillName from content: {skill_name}")
+                # Debug: Check if hFlip data exists in nodes
+                if isinstance(content_obj, dict) and 'workFlow' in content_obj:
+                    workflow = content_obj['workFlow']
+                    if isinstance(workflow, dict) and 'nodes' in workflow:
+                        nodes_with_hflip = [n for n in workflow['nodes'] if isinstance(n, dict) and n.get('data', {}).get('hFlip')]
+                        if nodes_with_hflip:
+                            logger.info(f"[SKILL_IO][BACKEND] Found {len(nodes_with_hflip)} nodes with hFlip=true")
             else:
+                if isinstance(content, dict) and 'skillName' in content:
+                    skill_name = content['skillName']
+                    logger.info(f"[SKILL_IO][BACKEND] Using skillName from content: {skill_name}")
                 content = json.dumps(content, indent=2, ensure_ascii=False)
         except json.JSONDecodeError as e:
             return {
@@ -764,7 +778,7 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
                 logger.info(f"[SKILL_IO][BACKEND] Syncing skill to database: {file_path}")
                 try:
                     from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-                    result = sync_skill_from_file(file_path)
+                    result = sync_skill_from_file(file_path, request, params)
                     
                     if result.get('success'):
                         operation = result.get('operation', 'unknown')
@@ -775,24 +789,15 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
                 except Exception as sync_error:
                     logger.error(f"[SKILL_IO][BACKEND] ❌ Error syncing skill to database: {sync_error}", exc_info=True)
             
-            # Extract skill name without suffix for frontend
-            final_file_name = os.path.basename(file_path)
-            if final_file_name.endswith('_skill.json'):
-                skill_name_only = final_file_name[:-11]
-            elif final_file_name.endswith('_data_mapping.json'):
-                skill_name_only = final_file_name[:-18]
-            elif final_file_name.endswith('_skill_bundle.json'):
-                skill_name_only = final_file_name[:-18]
-            else:
-                skill_name_only = final_file_name[:-5] if final_file_name.endswith('.json') else final_file_name
-            
+            # Use skill_name extracted from content (not from file path)
+            # skill_name was already extracted from content in lines 742-754
             from datetime import datetime
             return {
                 'success': True,
                 'data': {
                     'filePath': file_path,
                     'fileName': os.path.basename(file_path),
-                    'skillName': skill_name_only,
+                    'skillName': skill_name,  # Use skill_name from content, not from file path
                     'fileSize': os.path.getsize(file_path),
                     'updatedAt': datetime.now().isoformat()
                 }
@@ -991,10 +996,13 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
 @IPCHandlerRegistry.handler('skills.rename')
 def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Rename an existing skill root directory <old>_skill -> <new>_skill.
+    
+    Now supports both my_skills/ directory and external directories.
 
     Params:
-      - oldName
-      - newName
+      - oldName: Old skill name (without _skill suffix)
+      - newName: New skill name (without _skill suffix)
+      - currentFilePath: (Optional) Current skill JSON file path for external directories
     Returns: { skillRoot: str }
     """
     try:
@@ -1004,10 +1012,19 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         
         old_name = data['oldName']
         new_name = data['newName']
+        current_file_path = data.get('currentFilePath')
+        
+        # Calculate skill_root_path if currentFilePath is provided
+        skill_root_path = None
+        if current_file_path:
+            current_path = Path(current_file_path)
+            if 'diagram_dir' in str(current_path):
+                skill_root_path = str(current_path.parent.parent)
+                logger.info(f"[SKILL_RENAME] Using external directory: {skill_root_path}")
         
         # Rename the skill directory
         _, rename_skill, _ = _get_extern_skills(request, params)
-        new_path = rename_skill(old_name, new_name)
+        new_path = rename_skill(old_name, new_name, skill_root_path)
         
         # Rename files inside diagram_dir to match new name
         try:
@@ -1032,47 +1049,18 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         
         # data_mapping.json is at skill root level with fixed name, no rename needed
 
-        # Update skill database if old skill exists
+        # Database will be updated automatically by sync_skill_from_file when the file is saved
+        # No need to manually update here - the standard upsert logic will handle it
+        logger.info(f"[SKILL_RENAME] ✅ File system rename complete. Database will be synced on next save.")
+        
+        # Update backend recent files to ensure correct path is loaded after refresh
         try:
-            from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-            
-            # Construct old and new skill file paths
-            # new_path is already the renamed directory path
-            # We use new_skill_file because we just renamed it above
+            from gui.ipc.w2p_handlers.skill_editor_handler import _update_recent_files
             new_skill_file = str(new_path / "diagram_dir" / f"{new_name}_skill.json")
-            old_skill_file = str(new_path).replace(f'/{new_name}_skill', f'/{old_name}_skill') + f"/diagram_dir/{old_name}_skill.json"
-            
-            logger.info(f"[SKILL_RENAME] Checking for existing skill at: {old_skill_file}")
-            
-            # Get skill service to check if old skill exists in database
-            ctx = get_handler_context(request, params)
-            if ctx:
-                ec_db_mgr = ctx.get_ec_db_mgr()
-                if ec_db_mgr:
-                    skill_service = ec_db_mgr.skill_service
-                if skill_service:
-                    # Check if skill exists by old path
-                    existing_skill = skill_service.get_skill_by_path(old_skill_file)
-                    
-                    if existing_skill.get('success') and existing_skill.get('data'):
-                        logger.info(f"[SKILL_RENAME] Found existing skill in database, updating path to: {new_skill_file}")
-                        
-                        # Check if new skill file exists
-                        if os.path.exists(new_skill_file):
-                            # Sync the renamed skill file to update database
-                            sync_result = sync_skill_from_file(new_skill_file, request, params)
-                            
-                            if sync_result.get('success'):
-                                logger.info(f"[SKILL_RENAME] ✅ Skill database updated successfully")
-                            else:
-                                logger.warning(f"[SKILL_RENAME] ⚠️ Failed to update skill database: {sync_result.get('error')}")
-                        else:
-                            logger.warning(f"[SKILL_RENAME] ⚠️ New skill file not found: {new_skill_file}")
-                    else:
-                        logger.info(f"[SKILL_RENAME] No existing skill found in database for old path")
-        except Exception as sync_error:
-            # Don't fail the rename if database sync fails
-            logger.warning(f"[SKILL_RENAME] Error syncing renamed skill to database: {sync_error}")
+            _update_recent_files(new_skill_file, new_name)
+            logger.info(f"[SKILL_RENAME] ✅ Updated backend recent files with new path: {new_skill_file}")
+        except Exception as rf_err:
+            logger.warning(f"[SKILL_RENAME] Failed to update backend recent files: {rf_err}")
         
         return create_success_response(request, { 'skillRoot': str(new_path) })
     except Exception as e:

@@ -37,30 +37,40 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
   // Read all notes from the store once (avoids per-node getState calls)
   const allNotes = useNodeNoteStore.getState().notes;
 
-  diagram.nodes.forEach((node: any) => {
-    if (!node.data) node.data = {};
-    
-    // Persist flip states
-    const flipState = isFlipped(node.id);
-    if (flipState) {
-      node.data.hFlip = true;
-    } else if (node.data.hFlip) {
-      delete node.data.hFlip;
-    }
-    
-    // Remove breakpoints (not persisted)
-    if (node.data.break_point) {
-      delete node.data.break_point;
-    }
+  // Recursive function to process nodes (including subcanvas)
+  const processNodes = (nodes: any[]) => {
+    nodes.forEach((node: any) => {
+      if (!node.data) node.data = {};
+      
+      // Persist flip states
+      const flipState = isFlipped(node.id);
+      if (flipState) {
+        node.data.hFlip = true;
+      } else if (node.data.hFlip) {
+        delete node.data.hFlip;
+      }
+      
+      // Remove breakpoints (not persisted)
+      if (node.data.break_point) {
+        delete node.data.break_point;
+      }
 
-    // Inject agentNote from the external note store.
-    // The flowgram form model doesn't expose setFieldValue, so notes are
-    // stored externally and merged into the serialised diagram here.
-    const note = allNotes.get(node.id);
-    if (note) {
-      node.data.agentNote = note;
-    }
-  });
+      // Inject agentNote from the external note store.
+      // The flowgram form model doesn't expose setFieldValue, so notes are
+      // stored externally and merged into the serialised diagram here.
+      const note = allNotes.get(node.id);
+      if (note) {
+        node.data.agentNote = note;
+      }
+      
+      // Recursively process subcanvas nodes
+      if (node.data?.subcanvas?.nodes) {
+        processNodes(node.data.subcanvas.nodes);
+      }
+    });
+  };
+  
+  processNodes(diagram.nodes || []);
 }
 
 /**
