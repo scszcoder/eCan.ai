@@ -171,16 +171,19 @@ export const Open = ({ disabled }: OpenProps) => {
           clearFlipStore();
           useNodeNoteStore.getState().clear();
           if ((data as any).nodes) {
-            // Recursive function to restore flip states
-            const restoreFlipStates = (nodes: any[]) => {
+            // Recursive function to restore flip states and notes
+            const restoreStates = (nodes: any[]) => {
               nodes.forEach((node: any) => {
                 if (node?.data?.hFlip === true) setFlipped(node.id, true);
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                }
                 if (node?.data?.subcanvas?.nodes) {
-                  restoreFlipStates(node.data.subcanvas.nodes);
+                  restoreStates(node.data.subcanvas.nodes);
                 }
               });
             };
-            restoreFlipStates((data as any).nodes);
+            restoreStates((data as any).nodes);
           }
           workflowDocument.fitView && workflowDocument.fitView();
           setSkillInfo(data);
