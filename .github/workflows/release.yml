@@ -349,7 +349,7 @@ jobs:
       channel: ${{ steps.detect-env.outputs.channel }}
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0  # Fetch all history for tags and branches
@@ -651,7 +651,7 @@ jobs:
     # Step Group 1: Repository Setup
     # ------------------------------------------------------------------------
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 1  # Shallow clone: build only needs current code
@@ -1492,7 +1492,7 @@ jobs:
     # ------------------------------------------------------------------------
     - name: Checkout code
       if: steps.arch_check.outputs.should_build == 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 1  # Shallow clone: build only needs current code
@@ -2129,7 +2129,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 1
@@ -2382,7 +2382,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5

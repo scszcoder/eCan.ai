@@ -72,7 +72,7 @@ jobs:
     # Step Group 1: Repository Setup
     # ------------------------------------------------------------------------
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 1
