@@ -115,7 +115,7 @@ jobs:
       channel: ${{ steps.detect-env.outputs.channel }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - id: out
         shell: bash
@@ -208,7 +208,7 @@ jobs:
       # Note: Frontend is always built in real workflow (no change detection)
       # Simulation doesn't need frontend build steps
       - name: Checkout code for signing
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       # ------------------------------------------------------------------------
       # Lightweight: Only validate architecture configuration (no real installation)
@@ -471,7 +471,7 @@ jobs:
       # Simulation doesn't need frontend build steps
       - name: Checkout code for signing
         if: steps.arch_check.outputs.should_build == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       # ------------------------------------------------------------------------
       # Lightweight: Only validate architecture configuration (no real installation)
@@ -829,7 +829,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
