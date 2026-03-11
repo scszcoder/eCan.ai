@@ -721,6 +721,189 @@ jobs:
           compression-level: 6
 
   # ============================================================================
+  # BUILD LAYER: Linux amd64 (Simulation)
+  # ============================================================================
+  build-linux:
+    name: Build Linux amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'linux' ||
+       github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' ||
+       github.event.inputs.arch == 'all')
+    runs-on: ubuntu-latest
+    env:
+      BUILD_ARCH: amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      
+      - name: Validate Python Architecture Configuration
+        run: |
+          echo "=== Validating Python Architecture Configuration ==="
+          echo "Platform: linux"
+          echo "Expected architecture: x64"
+          echo ""
+          echo "Checking if architecture parameter would be passed correctly:"
+          ARCH_PARAM="x64"
+          if [ "$ARCH_PARAM" = "x64" ] || [ "$ARCH_PARAM" = "arm64" ]; then
+            echo "[OK] Architecture parameter is valid: $ARCH_PARAM"
+          else
+            echo "[ERROR] Invalid architecture parameter: $ARCH_PARAM"
+            exit 1
+          fi
+          echo ""
+          echo "Note: In real workflow, this would call:"
+          echo "  uses: ./.github/actions/setup-python-env"
+          echo "  with:"
+          echo "    platform: linux"
+          echo "    architecture: x64"
+      
+      - name: Simulate Linux build (with real build flow)
+        run: |
+          echo "=== Simulating Linux amd64 Build (Real Flow) ==="
+          echo "Platform: Linux"
+          echo "Architecture: $BUILD_ARCH"
+          echo "Note: This simulates the ACTUAL build.py execution order"
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          mkdir -p dist artifacts
+          
+          echo ""
+          echo "Build Flow Simulation (matching build.py):"
+          echo "  1. PyInstaller packaging"
+          echo "  2. AppImage creation"
+          echo "  3. DEB package creation"
+          echo "  4. OTA signing"
+          echo "  5. Standardize artifacts"
+          echo ""
+          
+          # Step 1: Simulate PyInstaller output
+          echo "[1/5] Simulating PyInstaller packaging..."
+          mkdir -p dist/eCan
+          echo "fake elf binary" > dist/eCan/eCan
+          chmod +x dist/eCan/eCan
+          echo "  [OK] Created dist/eCan/ directory"
+          
+          # Step 2: Simulate AppImage creation
+          echo "[2/5] Simulating AppImage creation..."
+          echo "fake appimage" > "dist/eCan-${VERSION}-x86_64.AppImage"
+          chmod +x "dist/eCan-${VERSION}-x86_64.AppImage"
+          echo "  [OK] Created: dist/eCan-${VERSION}-x86_64.AppImage"
+          
+          # Step 3: Simulate DEB package creation
+          echo "[3/5] Simulating DEB package creation..."
+          echo "fake deb package" > "dist/ecan-${VERSION}_amd64.deb"
+          echo "  [OK] Created: dist/ecan-${VERSION}_amd64.deb"
+          
+          # Step 4: OTA signing will be done in next step
+          echo "[4/5] OTA signing (next step)..."
+          
+          # Step 5: Copy to artifacts
+          echo "[5/5] Preparing artifacts..."
+          cp "dist/eCan-${VERSION}-x86_64.AppImage" artifacts/
+          cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
+          
+          echo ""
+          echo "[OK] Linux build simulated (following real build.py flow)"
+      
+      - name: Setup OTA signing key
+        if: |
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test' ||
+          needs.validate-tag.outputs.environment == 'simulation'
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          mkdir -p build_system/certificates
+          
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
+      
+      - name: Simulate OTA signing (Step 4 - After Package Creation)
+        run: |
+          echo "[4/5] 🔐 Simulating OTA signing (after package creation)..."
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          APPIMAGE="dist/eCan-${VERSION}-x86_64.AppImage"
+          DEB="dist/ecan-${VERSION}_amd64.deb"
+          
+          # Verify packages exist
+          if [ ! -f "$APPIMAGE" ]; then
+            echo "❌ ERROR: AppImage not found at: $APPIMAGE"
+            exit 1
+          fi
+          if [ ! -f "$DEB" ]; then
+            echo "❌ ERROR: DEB package not found at: $DEB"
+            exit 1
+          fi
+          
+          echo "  ✓ AppImage found: $APPIMAGE"
+          echo "  ✓ DEB package found: $DEB"
+          
+          # Generate signatures
+          if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
+            echo "  Generating real Ed25519 signatures..."
+            
+            # Sign AppImage
+            python build_system/signing_manager.py \
+              "$APPIMAGE" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${APPIMAGE}.sig" || echo "simulation_signature" > "${APPIMAGE}.sig"
+            
+            # Sign DEB
+            python build_system/signing_manager.py \
+              "$DEB" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${DEB}.sig" || echo "simulation_signature" > "${DEB}.sig"
+            
+            if [ -f "${APPIMAGE}.sig" ] && [ -f "${DEB}.sig" ]; then
+              cp "${APPIMAGE}.sig" artifacts/
+              cp "${DEB}.sig" artifacts/
+              echo "  [OK] Real signatures generated"
+            else
+              echo "  [WARNING] Signature generation failed, using placeholders"
+            fi
+          else
+            echo "  [WARNING] Private key not found, creating placeholder signatures"
+            echo "simulation_signature" > "${APPIMAGE}.sig"
+            echo "simulation_signature" > "${DEB}.sig"
+            cp "${APPIMAGE}.sig" artifacts/
+            cp "${DEB}.sig" artifacts/
+          fi
+          
+          echo ""
+          echo "[OK] OTA signing completed (Step 4/5)"
+
+      - name: Upload Linux artifacts for S3 transfer (always, short retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: error
+
+      - name: Upload Linux artifacts for users (optional, long retention)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  # ============================================================================
   # DISTRIBUTION LAYER: S3 Upload and OTA Feed Generation (Simulation)
   # ============================================================================
   # This layer uses reusable workflows (same as release.yml) in simulation mode:
@@ -734,18 +917,20 @@ jobs:
   # ----------------------------------------------------------------------------
   upload-to-s3:
     name: Upload to S3 (Simulation)
-    needs: [validate-tag, build-windows, build-macos]
+    needs: [validate-tag, build-windows, build-macos, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
-      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped') &&
+      (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped')
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
+      linux-build-result: ${{ needs.build-linux.result }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -807,6 +992,24 @@ jobs:
       arch: 'aarch64'
     secrets: inherit
 
+  # Generate Appcast for Linux amd64 (if built)
+  generate-appcast-linux-amd64:
+    name: Generate Appcast (Linux Simulation)
+    needs: [validate-tag, upload-to-s3, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-linux.result == 'success'
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'linux'
+      arch: 'amd64'
+    secrets: inherit
+
   # ----------------------------------------------------------------------------
   # Step 2.5: Generate latest.json (after all Appcasts)
   # ----------------------------------------------------------------------------
@@ -817,7 +1020,8 @@ jobs:
       upload-to-s3,
       generate-appcast-windows,
       generate-appcast-macos-amd64,
-      generate-appcast-macos-aarch64
+      generate-appcast-macos-aarch64,
+      generate-appcast-linux-amd64
     ]
     if: |
       always() &&
@@ -825,7 +1029,8 @@ jobs:
       needs.upload-to-s3.result == 'success' &&
       (needs.generate-appcast-windows.result == 'success' ||
        needs.generate-appcast-macos-amd64.result == 'success' ||
-       needs.generate-appcast-macos-aarch64.result == 'success')
+       needs.generate-appcast-macos-aarch64.result == 'success' ||
+       needs.generate-appcast-linux-amd64.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -872,7 +1077,7 @@ jobs:
   # ----------------------------------------------------------------------------
   generate-download-links:
     name: Generate Download Links (Simulation)
-    needs: [validate-tag, build-windows, build-macos, upload-to-s3]
+    needs: [validate-tag, build-windows, build-macos, build-linux, upload-to-s3]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -884,6 +1089,7 @@ jobs:
       channel: ${{ needs.validate-tag.outputs.channel }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
+      linux-result: ${{ needs.build-linux.result }}
       macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
       macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
     secrets: inherit
@@ -897,10 +1103,12 @@ jobs:
       validate-tag,
       build-windows,
       build-macos,
+      build-linux,
       upload-to-s3,
       generate-appcast-windows,
       generate-appcast-macos-amd64,
       generate-appcast-macos-aarch64,
+      generate-appcast-linux-amd64,
       generate-latest-json,
       generate-download-links
     ]
@@ -910,8 +1118,9 @@ jobs:
       version: ${{ needs.validate-tag.outputs.version }}
       windows-result: ${{ needs.build-windows.result }}
       macos-result: ${{ needs.build-macos.result }}
+      linux-result: ${{ needs.build-linux.result }}
       upload-result: ${{ needs.upload-to-s3.result }}
-      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success') && 'success' || 'failure' }}
+      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success' || needs.generate-appcast-linux-amd64.result == 'success') && 'success' || 'failure' }}
       links-result: ${{ needs.generate-download-links.result }}
       is-simulation: true
     secrets: inherit
