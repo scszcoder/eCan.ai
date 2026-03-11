@@ -526,7 +526,7 @@ class CanvasControllerService {
       // Update skill info
       // Deferred to next microtask to avoid re-render cascade during loadFlowgram
       if (this.skillInfoStore?.getState) {
-        const { setSkillInfo } = this.skillInfoStore.getState();
+        const { setSkillInfo, setCurrentFilePath } = this.skillInfoStore.getState();
         if (setSkillInfo) {
           const infoPayload = {
             skillName,
@@ -539,7 +539,11 @@ class CanvasControllerService {
           queueMicrotask(() => {
             try {
               setSkillInfo(infoPayload);
+              // Clear currentFilePath so the next Save treats this as a first-time save
+              // and creates the proper nested directory structure.
+              setCurrentFilePath(null);
               console.log('[CanvasController] setSkillInfo applied:', { skillName, description });
+              console.log('[CanvasController] currentFilePath cleared for first-time save');
             } catch (err) {
               console.warn('[CanvasController] setSkillInfo error (non-fatal):', err);
             }
