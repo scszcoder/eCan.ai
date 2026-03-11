@@ -147,15 +147,35 @@ def scaffold_skill(
     return skill_root
 
 
-def rename_skill(old_name: str, new_name: str) -> Path:
-    """Rename `<root>/<old>_skill` -> `<root>/<new>_skill`. Returns new path."""
-    root = user_skills_root()
-    old_dir = root / f"{old_name}_skill"
-    new_dir = root / f"{new_name}_skill"
-    if not old_dir.exists():
-        raise FileNotFoundError(f"Skill root not found: {old_dir}")
+def rename_skill(old_name: str, new_name: str, skill_root_path: str = None) -> Path:
+    """Rename `<root>/<old>_skill` -> `<root>/<new>_skill`. Returns new path.
+    
+    Args:
+        old_name: Old skill name (without _skill suffix)
+        new_name: New skill name (without _skill suffix)
+        skill_root_path: Optional full path to skill root directory. If provided, renames this directory.
+                        If not provided, uses user_skills_root() + old_name_skill
+    """
+    if skill_root_path:
+        # External directory mode: use provided path
+        old_dir = Path(skill_root_path)
+        if not old_dir.exists():
+            raise FileNotFoundError(f"Skill root not found: {old_dir}")
+        
+        # Calculate new directory path (same parent, new name)
+        parent_dir = old_dir.parent
+        new_dir = parent_dir / f"{new_name}_skill"
+    else:
+        # Default mode: use user_skills_root()
+        root = user_skills_root()
+        old_dir = root / f"{old_name}_skill"
+        new_dir = root / f"{new_name}_skill"
+        if not old_dir.exists():
+            raise FileNotFoundError(f"Skill root not found: {old_dir}")
+    
     if new_dir.exists():
         raise FileExistsError(f"Target already exists: {new_dir}")
+    
     old_dir.rename(new_dir)
     return new_dir
 
