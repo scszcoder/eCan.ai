@@ -396,8 +396,9 @@ class S3Uploader:
         
         # Verify dist directory exists
         if not self.dist_dir.exists():
-            print(f"[ERROR] Dist directory not found: {self.dist_dir}")
-            return False
+            print(f"[WARN] Dist directory not found: {self.dist_dir}")
+            print("[INFO] No artifacts to upload (all builds may have been skipped)")
+            return True  # Not an error - just nothing to upload
         
         # Verify S3 access
         print("\n[INFO] Verifying S3 access...")
