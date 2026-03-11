@@ -175,10 +175,11 @@ export const ActiveSheetBinder = () => {
             restoreFlipStates(docToLoad.nodes);
           }, 200); // Increased delay to ensure forms are ready
         }
-      } catch (err) {
-        console.error('[ActiveSheetBinder] Error loading document:', err);
+        } catch (err) {
+          console.error('[ActiveSheetBinder] Error loading document:', err);
+        }
       }
-    }
+    
     // Restore view state (zoom) if available, otherwise fit view
     // Use a small delay to ensure the document is fully rendered before fitView
     const isInitialLoad = !initialFitViewDoneRef.current;
