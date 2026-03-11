@@ -3,6 +3,7 @@ import { useClientContext, usePlayground, usePlaygroundTools, useService, Workfl
 import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -148,6 +149,11 @@ export const ActiveSheetBinder = () => {
                     console.warn('[ActiveSheetBinder] Could not set hFlip form field:', err);
                   }
                 }
+              }
+
+              // Restore agentNote to note store
+              if (node?.data?.agentNote) {
+                useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
               }
             });
           }, 200); // Increased delay to ensure forms are ready

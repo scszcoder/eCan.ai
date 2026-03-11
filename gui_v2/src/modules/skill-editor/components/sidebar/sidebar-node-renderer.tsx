@@ -15,6 +15,7 @@ import SkillLevelMappingEditor, { type SkillLevelMappingConfig } from '../mappin
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRuntimeStateStore } from '../../stores/runtime-state-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { WorkflowNodeType } from '../../nodes/constants';
 
 export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
@@ -137,40 +138,29 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
     }
   };
 
-  // --- Node Note state ---
-  const getNodeNote = useCallback((): string => {
-    try {
-      const dataAny = (node as any).data as any;
-      return dataAny?.agentNote ?? '';
-    } catch { return ''; }
-  }, [node]);
+  // --- Node Note state (backed by useNodeNoteStore) ---
+  // The flowgram form model does not expose setFieldValue, so we use an
+  // external zustand store. prepareDiagramForSave injects notes from this
+  // store into the serialised diagram before writing.
+  const noteFromStore = useNodeNoteStore((s) => s.getNote(node.id));
+  const setNoteInStore = useNodeNoteStore((s) => s.setNote);
 
-  const [noteText, setNoteText] = useState(() => getNodeNote());
+  const [noteText, setNoteText] = useState(() => noteFromStore);
   const [noteExpanded, setNoteExpanded] = useState(false);
 
-  // Sync note text when node changes
+  // Sync note text when node / store value changes
   useEffect(() => {
-    setNoteText(getNodeNote());
-  }, [getNodeNote]);
+    setNoteText(noteFromStore);
+  }, [noteFromStore]);
 
   const saveNote = useCallback((val: string) => {
     try {
       setHasUnsavedChanges(true);
-      const current = (node as any).data || {};
-      const next = { ...current, agentNote: val };
-      if (typeof (node as any).setData === 'function') {
-        (node as any).setData(next);
-        return;
-      }
-      if (typeof (node as any).updateData === 'function') {
-        (node as any).updateData(next);
-        return;
-      }
-      (node as any).data = next;
+      setNoteInStore(node.id, val);
     } catch (e) {
       console.error('[NoteSection] persist agentNote failed', e);
     }
-  }, [node, setHasUnsavedChanges]);
+  }, [node.id, setHasUnsavedChanges, setNoteInStore]);
 
   return (
     <NodeRenderContext.Provider value={nodeRender}>
