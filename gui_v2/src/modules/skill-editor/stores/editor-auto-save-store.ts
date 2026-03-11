@@ -34,18 +34,23 @@ interface AutoSaveState {
 }
 
 export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
-  // Auto-save default OFF to avoid unintended overwrites during load/edit
+  // Auto-save default OFF - user prefers manual save (Cmd+S)
+  // Will be temporarily disabled during skill loading to prevent race conditions
   autoSaveEnabled: false,
 
   setAutoSaveEnabled: (enabled: boolean) => {
+    console.log(`[AutoSave] setAutoSaveEnabled: ${enabled ? 'ENABLED ✅' : 'DISABLED ❌'}`);
     set({ autoSaveEnabled: enabled });
   },
 
   saveToFile: async (data: EditorSaveData) => {
     const state = get();
+    console.log('[AutoSave] saveToFile called, autoSaveEnabled:', state.autoSaveEnabled);
     if (!state.autoSaveEnabled) {
+      console.warn('[AutoSave] ⚠️ Auto-save is DISABLED, skipping save');
       return false;
     }
+    console.log('[AutoSave] ✅ Auto-save is enabled, proceeding with save...');
 
     // IMPORTANT: Read latest sheets directly from store to get the most recent document
     // (the data.sheets passed in may be stale due to React's batching)
@@ -69,9 +74,36 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
       const mainSheetId = sheetsToSave.order?.[0] || 'main';
       const mainSheet = sheetsToSave.sheets[mainSheetId];
       if (mainSheet?.document) {
+        // Clone document to avoid mutating store state
+        const workFlowCopy = JSON.parse(JSON.stringify(mainSheet.document));
+        
+        // Apply flip states to nodes before saving
+        const { useNodeFlipStore } = await import('./node-flip-store');
+        const { isFlipped } = useNodeFlipStore.getState();
+        
+        if (workFlowCopy.nodes) {
+          // Recursive function to process nodes (including subcanvas)
+          const processNodes = (nodes: any[]) => {
+            nodes.forEach((node: any) => {
+              if (!node.data) node.data = {};
+              const flipState = isFlipped(node.id);
+              if (flipState) {
+                node.data.hFlip = true;
+              } else if (node.data.hFlip) {
+                delete node.data.hFlip;
+              }
+              // Recursively process subcanvas nodes
+              if (node.data?.subcanvas?.nodes) {
+                processNodes(node.data.subcanvas.nodes);
+              }
+            });
+          };
+          processNodes(workFlowCopy.nodes);
+        }
+        
         saveData.skillInfo = {
           ...saveData.skillInfo,
-          workFlow: mainSheet.document,
+          workFlow: workFlowCopy,
           lastModified: new Date().toISOString(),
         };
       }
@@ -87,10 +119,32 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
         sanitizeNodeApiKeys(sanitizedData.skillInfo.workFlow.nodes);
       }
       
-      // Sanitize API keys in all sheets
+      // Sanitize API keys and apply flip states in all sheets
       if (sanitizedData.sheets?.sheets) {
+        const { useNodeFlipStore } = await import('./node-flip-store');
+        const { isFlipped } = useNodeFlipStore.getState();
+        
         Object.values(sanitizedData.sheets.sheets).forEach((sheet: any) => {
           if (sheet.document?.nodes) {
+            // Recursive function to process nodes (including subcanvas)
+            const processNodes = (nodes: any[]) => {
+              nodes.forEach((node: any) => {
+                if (!node.data) node.data = {};
+                const flipState = isFlipped(node.id);
+                if (flipState) {
+                  node.data.hFlip = true;
+                } else if (node.data.hFlip) {
+                  delete node.data.hFlip;
+                }
+                // Recursively process subcanvas nodes
+                if (node.data?.subcanvas?.nodes) {
+                  processNodes(node.data.subcanvas.nodes);
+                }
+              });
+            };
+            processNodes(sheet.document.nodes);
+            
+            // Sanitize API keys
             sanitizeNodeApiKeys(sheet.document.nodes);
           }
         });

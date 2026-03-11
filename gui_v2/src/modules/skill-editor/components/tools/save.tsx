@@ -33,27 +33,32 @@ import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
  * Prepare diagram for saving: handle flip states and remove breakpoints
  */
 function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean): void {
-  let flippedCount = 0;
-  diagram.nodes.forEach((node: any) => {
-    if (!node.data) node.data = {};
-    
-    // Persist flip states
-    const flipState = isFlipped(node.id);
-    if (flipState) {
-      node.data.hFlip = true;
-      flippedCount++;
-      console.log(`[prepareDiagramForSave] Node ${node.id} is flipped, setting hFlip=true`);
-    } else if (node.data.hFlip) {
-      delete node.data.hFlip;
-      console.log(`[prepareDiagramForSave] Node ${node.id} is not flipped, removing hFlip`);
-    }
-    
-    // Remove breakpoints (not persisted)
-    if (node.data.break_point) {
-      delete node.data.break_point;
-    }
-  });
-  console.log(`[prepareDiagramForSave] Total flipped nodes: ${flippedCount}`);
+  // Recursive function to process nodes (including subcanvas)
+  const processNodes = (nodes: any[]) => {
+    nodes.forEach((node: any) => {
+      if (!node.data) node.data = {};
+      
+      // Persist flip states
+      const flipState = isFlipped(node.id);
+      if (flipState) {
+        node.data.hFlip = true;
+      } else if (node.data.hFlip) {
+        delete node.data.hFlip;
+      }
+      
+      // Remove breakpoints (not persisted)
+      if (node.data.break_point) {
+        delete node.data.break_point;
+      }
+      
+      // Recursively process subcanvas nodes
+      if (node.data?.subcanvas?.nodes) {
+        processNodes(node.data.subcanvas.nodes);
+      }
+    });
+  };
+  
+  processNodes(diagram.nodes || []);
 }
 
 /**
@@ -544,47 +549,70 @@ export const Save = ({ disabled }: SaveProps) => {
     if (!skillInfo) return;
 
     try {
-      console.log('[Save] Starting save process, current skillInfo.skillName:', skillInfo.skillName);
-      
-      // 1. Get and prepare diagram
+      // 1. Get base diagram from document.toJSON()
       const diagram = document.toJSON();
       
-      // Debug: Log node.data fields before prepareDiagramForSave
-      try {
-        diagram.nodes.forEach((node: any, idx: number) => {
-          if (node.data && Object.keys(node.data).length > 0) {
-            console.log(`[Save] Node ${idx} (${node.id}) data fields:`, Object.keys(node.data));
+      // 2. Extract subcanvas data from runtime Loop nodes
+      // Loop nodes store their children in 'blocks' field at runtime, but need to be saved as 'data.subcanvas.nodes'
+      diagram.nodes?.forEach((node: any) => {
+        if (node.type === 'loop' || node.id.startsWith('loop_')) {
+          const runtimeNode = document.getNode(node.id);
+          if (runtimeNode?.blocks && runtimeNode.blocks.length > 0) {
+            if (!node.data) node.data = {};
+            if (!node.data.subcanvas) node.data.subcanvas = {};
+            
+            // Serialize blocks to JSON format
+            node.data.subcanvas.nodes = runtimeNode.blocks.map((block: any) => 
+              block.toJSON ? block.toJSON() : block
+            );
           }
-          // Check flip state from store
-          const flipState = isFlipped(node.id);
-          if (flipState) {
-            console.log(`[Save] ✅ Node ${node.id} is FLIPPED in store`);
+        }
+      });
+      
+      // 3. Clean up orphaned flip states
+      const flipStore = useNodeFlipStore.getState();
+      const flippedNodeIds = Array.from(flipStore.flippedNodes);
+      
+      // Collect all node IDs recursively (including subcanvas)
+      const collectAllNodeIds = (nodes: any[]): Set<string> => {
+        const ids = new Set<string>();
+        const traverse = (nodeList: any[]) => {
+          for (const n of nodeList) {
+            ids.add(n.id);
+            if (n.data?.subcanvas?.nodes) {
+              traverse(n.data.subcanvas.nodes);
+            }
           }
-          // Check if hFlip exists in node.data
-          if (node.data?.hFlip) {
-            console.log(`[Save] ✅ Node ${node.id} has hFlip in node.data`);
-          }
-        });
-      } catch (e) {
-        console.warn('[Save] Failed to log node data fields:', e);
+        };
+        traverse(nodes);
+        return ids;
+      };
+      
+      const currentNodeIds = collectAllNodeIds(diagram.nodes);
+      const orphanedFlips = flippedNodeIds.filter(id => !currentNodeIds.has(id));
+      if (orphanedFlips.length > 0) {
+        orphanedFlips.forEach(id => flipStore.setFlipped(id, false));
       }
       
+      // 4. Clean up orphaned runtime states
+      try {
+        const { useRuntimeStateStore } = await import('../../stores/runtime-state-store');
+        const runtimeStore = useRuntimeStateStore.getState();
+        const runtimeNodeIds = Object.keys(runtimeStore.byNodeId);
+        const orphanedRuntimeStates = runtimeNodeIds.filter(id => !currentNodeIds.has(id));
+        if (orphanedRuntimeStates.length > 0) {
+          orphanedRuntimeStates.forEach(id => runtimeStore.clearNode(id));
+        }
+      } catch (e) {
+        console.warn('[Save] Failed to clean up runtime states:', e);
+      }
+      
+      // 5. Persist flip states to diagram
       prepareDiagramForSave(diagram, isFlipped);
 
-      // 2. Prepare sanitized copy for file persistence
+      // 6. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
-      
-      // Debug: Check if hFlip is in sanitizedDiagram
-      try {
-        sanitizedDiagram.nodes.forEach((node: any, idx: number) => {
-          if (node.data?.hFlip) {
-            console.log(`[Save] sanitizedDiagram Node ${idx} (${node.id}) has hFlip=true`);
-          }
-        });
-      } catch (e) {
-        console.warn('[Save] Failed to check hFlip in sanitizedDiagram:', e);
-      }
 
       // 3. Extract config nodes and create updated skillInfo
       const configNodes = extractConfigNodes(diagram);
