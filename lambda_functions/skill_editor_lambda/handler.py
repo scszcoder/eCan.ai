@@ -308,6 +308,74 @@ def _skill_data_mapping_key(env: _Env, owner: str, skill_name: str) -> str:
     return _s3_key(_skill_root_prefix(env, owner, skill_name), "data_mapping.json")
 
 
+def _skill_revisions_prefix(env: _Env, owner: str, skill_name: str) -> str:
+    return _s3_key(_skill_root_prefix(env, owner, skill_name), ".revisions")
+
+
+def _snapshot_skill_before_write(env: _Env, owner: str, resolved_key: str, skill_name: str) -> None:
+    """Save a timestamped copy of the current file to .revisions/ before overwriting."""
+    try:
+        resp = _s3_client().get_object(Bucket=env.s3_bucket, Key=resolved_key)
+        body = resp["Body"].read()
+    except Exception:
+        return  # No existing file to snapshot
+
+    file_name = resolved_key.split("/")[-1]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    rev_key = _s3_key(
+        _skill_revisions_prefix(env, owner, skill_name),
+        f"{ts}_{file_name}",
+    )
+    try:
+        _s3_client().put_object(
+            Bucket=env.s3_bucket, Key=rev_key, Body=body,
+            ContentType="application/json",
+        )
+        logger.info(f"[revision] Snapshot saved: {rev_key} ({len(body)} bytes)")
+    except Exception as e:
+        logger.warning(f"[revision] Failed to save snapshot: {e}")
+
+    # Prune revisions older than 7 days (non-fatal, best-effort)
+    _prune_old_revisions(env, owner, skill_name, max_age_days=7)
+
+
+_REVISION_PRUNE_INTERVAL: Dict[str, datetime] = {}  # skill_key → last prune time
+
+
+def _prune_old_revisions(env: _Env, owner: str, skill_name: str, max_age_days: int = 7) -> None:
+    """Delete revision snapshots older than max_age_days. Runs at most once per hour per skill."""
+    cache_key = f"{owner}/{skill_name}"
+    now = datetime.now(timezone.utc)
+    last_prune = _REVISION_PRUNE_INTERVAL.get(cache_key)
+    if last_prune and (now - last_prune) < timedelta(hours=1):
+        return  # Skip — pruned recently
+    _REVISION_PRUNE_INTERVAL[cache_key] = now
+
+    prefix = _skill_revisions_prefix(env, owner, skill_name) + "/"
+    cutoff = now - timedelta(days=max_age_days)
+    cutoff_str = cutoff.strftime("%Y%m%dT%H%M%SZ")
+    client = _s3_client()
+    try:
+        paginator = client.get_paginator("list_objects_v2")
+        to_delete = []
+        for page in paginator.paginate(Bucket=env.s3_bucket, Prefix=prefix):
+            for obj in page.get("Contents") or []:
+                name = obj["Key"].rsplit("/", 1)[-1]
+                ts_part = name.split("_", 1)[0] if "_" in name else ""
+                if ts_part and ts_part < cutoff_str:
+                    to_delete.append({"Key": obj["Key"]})
+        if to_delete:
+            # S3 delete_objects supports up to 1000 keys per call
+            for i in range(0, len(to_delete), 1000):
+                client.delete_objects(
+                    Bucket=env.s3_bucket,
+                    Delete={"Objects": to_delete[i : i + 1000]},
+                )
+            logger.info(f"[revision] Pruned {len(to_delete)} old revisions for {skill_name}")
+    except Exception as e:
+        logger.warning(f"[revision] Prune failed: {e}")
+
+
 def _extract_skill_name_from_key(key: str) -> Optional[str]:
     if not key:
         return None
@@ -736,6 +804,9 @@ def _handle_write_skill_file(event: Dict[str, Any]) -> Dict[str, Any]:
         skill_name = _extract_skill_name_from_key(resolved)
         if skill_name:
             _ensure_skill_dirs(env, owner, skill_name)
+            # Snapshot current file before overwriting (non-fatal)
+            if "/diagram_dir/" in resolved or resolved.endswith("data_mapping.json"):
+                _snapshot_skill_before_write(env, owner, resolved, skill_name)
 
         logger.info(f"[writeSkillFile] Saving file: {resolved}")
         _s3_client().put_object(
@@ -755,6 +826,97 @@ def _handle_write_skill_file(event: Dict[str, Any]) -> Dict[str, Any]:
         })
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Skill Revision History
+# ---------------------------------------------------------------------------
+
+def _handle_list_skill_revisions(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """List available revision snapshots for a skill."""
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+    owner = _owner_from_event(event)
+    skill_name = input_.get("skillName") or ""
+    if not skill_name:
+        raise ValueError("skillName is required")
+
+    prefix = _skill_revisions_prefix(env, owner, skill_name) + "/"
+    client = _s3_client()
+    revisions: List[Dict[str, Any]] = []
+    paginator = client.get_paginator("list_objects_v2")
+
+    for page in paginator.paginate(Bucket=env.s3_bucket, Prefix=prefix):
+        for obj in page.get("Contents") or []:
+            key = obj["Key"]
+            name = key.rsplit("/", 1)[-1]
+            # name format: 20260312T153045Z_my_skill_skill.json
+            ts_str = name.split("_", 1)[0] if "_" in name else ""
+            revisions.append({
+                "key": key,
+                "fileName": name,
+                "timestamp": ts_str,
+                "size": obj.get("Size", 0),
+                "lastModified": obj.get("LastModified", "").isoformat() if obj.get("LastModified") else "",
+            })
+
+    revisions.sort(key=lambda r: r["timestamp"], reverse=True)
+    logger.info(f"[revision] Listed {len(revisions)} revisions for skill={skill_name}")
+    return revisions
+
+
+def _handle_revert_skill_revision(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Revert a skill file to a specific revision snapshot."""
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+    owner = _owner_from_event(event)
+    skill_name = input_.get("skillName") or ""
+    revision_key = input_.get("revisionKey") or ""
+    if not skill_name or not revision_key:
+        raise ValueError("skillName and revisionKey are required")
+
+    # Validate revision key belongs to this user's skill
+    expected_prefix = _skill_revisions_prefix(env, owner, skill_name) + "/"
+    if not revision_key.startswith(expected_prefix):
+        raise RuntimeError("Invalid revisionKey")
+
+    # Read the revision
+    try:
+        resp = _s3_client().get_object(Bucket=env.s3_bucket, Key=revision_key)
+        body = resp["Body"].read()
+    except Exception as e:
+        raise RuntimeError(f"Revision not found: {e}")
+
+    # Determine the original file name from revision key
+    # revision name: 20260312T153045Z_my_skill_skill.json
+    rev_name = revision_key.rsplit("/", 1)[-1]
+    # Strip timestamp prefix (everything up to first _)
+    original_name = rev_name.split("_", 1)[1] if "_" in rev_name else rev_name
+
+    # Route to correct location based on file name
+    if original_name == "data_mapping.json":
+        target_key = _skill_data_mapping_key(env, owner, skill_name)
+    else:
+        target_key = _s3_key(_skill_diagram_dir(env, owner, skill_name), original_name)
+
+    # Snapshot current before reverting
+    _snapshot_skill_before_write(env, owner, target_key, skill_name)
+
+    # Write the revision content to the target
+    _s3_client().put_object(
+        Bucket=env.s3_bucket, Key=target_key, Body=body,
+        ContentType="application/json",
+    )
+    logger.info(f"[revision] Reverted {target_key} from {revision_key} ({len(body)} bytes)")
+
+    return {
+        "success": True,
+        "restoredFrom": revision_key,
+        "restoredTo": target_key,
+        "size": len(body),
+    }
 
 
 def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
@@ -2747,6 +2909,10 @@ def handler(event, context):
             return _handle_request_skill_file_download_url(event)
         if field == "deleteSkillFiles":
             return _handle_delete_skill_files(event)
+        if field == "listSkillRevisions":
+            return _handle_list_skill_revisions(event)
+        if field == "revertSkillRevision":
+            return _handle_revert_skill_revision(event)
         
         # Skill Run Control
         if field == "runSkill":

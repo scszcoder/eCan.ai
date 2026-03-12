@@ -111,6 +111,27 @@ export interface CheckSkillExistsResponse {
 }
 
 /**
+ * Skill revision item interface
+ */
+export interface SkillRevisionItem {
+  key: string;
+  fileName: string;
+  timestamp: string;
+  size: number;
+  lastModified: string;
+}
+
+/**
+ * Skill revision revert result interface
+ */
+export interface SkillRevisionRevertResult {
+  success: boolean;
+  restoredFrom: string;
+  restoredTo: string;
+  size?: number;
+}
+
+/**
  * Extend IPCAPI with file operation methods
  */
 declare module './api' {
@@ -160,6 +181,10 @@ declare module './api' {
      * @param name - Skill base name (without _skill suffix)
      */
     checkSkillExists(name: string): Promise<APIResponse<{ exists: boolean; name: string }>>;
+    /** List revision snapshots for a skill */
+    listSkillRevisions<T = SkillRevisionItem[]>(skillName: string): Promise<APIResponse<T>>;
+    /** Revert a skill file to a specific revision */
+    revertSkillRevision<T = SkillRevisionRevertResult>(skillName: string, revisionKey: string): Promise<APIResponse<T>>;
   }
 }
 
@@ -418,6 +443,45 @@ IPCAPI.prototype.checkSkillExists = function(
   
   // In desktop mode, use IPC with scaffold checkOnly flag
   return this.executeRequest<{ exists: boolean; name: string }>('skills.scaffold', { name, checkOnly: true });
+};
+
+IPCAPI.prototype.listSkillRevisions = function<T = SkillRevisionItem[]>(
+  skillName: string
+): Promise<APIResponse<T>> {
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    return apiRouter.execute<T>(
+      {
+        method: 'listSkillRevisions',
+        graphql: {
+          query: GRAPHQL_QUERIES.LIST_SKILL_REVISIONS,
+          resultPath: 'listSkillRevisions'
+        }
+      },
+      { input: { skillName } }
+    );
+  }
+  return this.executeRequest<T>('skill.list_revisions', { skillName });
+};
+
+IPCAPI.prototype.revertSkillRevision = function<T = SkillRevisionRevertResult>(
+  skillName: string,
+  revisionKey: string
+): Promise<APIResponse<T>> {
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    return apiRouter.execute<T>(
+      {
+        method: 'revertSkillRevision',
+        graphql: {
+          mutation: GRAPHQL_MUTATIONS.REVERT_SKILL_REVISION,
+          resultPath: 'revertSkillRevision'
+        }
+      },
+      { input: { skillName, revisionKey } }
+    );
+  }
+  return this.executeRequest<T>('skill.revert_revision', { skillName, revisionKey });
 };
 
 export { IPCAPI };

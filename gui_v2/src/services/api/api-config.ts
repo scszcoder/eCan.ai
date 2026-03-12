@@ -227,6 +227,14 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  LIST_SKILL_REVISIONS: `
+    query ListSkillRevisions($input: SkillRevisionInput!) {
+      listSkillRevisions(input: $input) {
+        key fileName timestamp size lastModified
+      }
+    }
+  `,
+
   GET_EDITOR_CACHE: `
     query GetEditorCache($userId: ID!) {
       getEditorCache(userId: $userId) {
@@ -789,6 +797,15 @@ export const GRAPHQL_MUTATIONS = {
   COPY_SKILL_TO: `
     mutation CopySkillTo($input: SkillCopyInput!) {
       copySkillTo(input: $input) { skillRoot name diagramPath }
+    }
+  `,
+
+  // ==================== Skill Revisions ====================
+  REVERT_SKILL_REVISION: `
+    mutation RevertSkillRevision($input: RevertSkillRevisionInput!) {
+      revertSkillRevision(input: $input) {
+        success restoredFrom restoredTo size
+      }
     }
   `,
 

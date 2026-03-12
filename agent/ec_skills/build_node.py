@@ -44,6 +44,68 @@ Answer concisely.
 """
 
 
+# ==================== Cloud-Direct Tool Registry ====================
+# Maps MCP tool names -> (module_path, function_name) for tools that can be
+# imported without triggering GUI dependencies (pyautogui, pynput, PyGetWindow)
+# which are present in server.py but fail on headless Linux cloud workers.
+_CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
+    # AWS cost monitoring & shutdown
+    "aws_read_billing": ("agent.mcp.server.aws_utils.aws_tools", "aws_read_billing"),
+    "aws_shutdown": ("agent.mcp.server.aws_utils.aws_tools", "aws_shutdown"),
+    # Azure cost monitoring & shutdown
+    "azure_read_billing": ("agent.mcp.server.azure_utils.azure_tools", "azure_read_billing"),
+    "azure_shutdown": ("agent.mcp.server.azure_utils.azure_tools", "azure_shutdown"),
+    # GCP cost monitoring & shutdown
+    "gcloud_read_billing": ("agent.mcp.server.gcloud_utils.gcloud_tools", "gcloud_read_billing"),
+    "gcloud_shutdown": ("agent.mcp.server.gcloud_utils.gcloud_tools", "gcloud_shutdown"),
+    # Code execution
+    "run_code": ("agent.mcp.server.code_utils.code_tools", "async_run_code"),
+    "run_shell_script": ("agent.mcp.server.code_utils.code_tools", "async_run_shell_script"),
+    "grep_search": ("agent.mcp.server.code_utils.code_tools", "async_grep_search"),
+    "find_files": ("agent.mcp.server.code_utils.code_tools", "async_find_files"),
+    # RAG
+    "ragify": ("agent.ec_skills.rag.local_rag_mcp", "ragify"),
+    "rag_query": ("agent.ec_skills.rag.local_rag_mcp", "rag_query"),
+    "wait_for_rag_completion": ("agent.ec_skills.rag.local_rag_mcp", "wait_for_rag_completion"),
+    "ragify_async": ("agent.ec_skills.rag.local_rag_mcp", "ragify_async"),
+    # Chat / communication
+    "send_chat": ("agent.mcp.server.chat_utils.chat_tools", "async_send_chat"),
+    "list_chat_agents": ("agent.mcp.server.chat_utils.chat_tools", "async_list_chat_agents"),
+    "get_chat_history": ("agent.mcp.server.chat_utils.chat_tools", "async_get_chat_history"),
+    # Self-introspection
+    "describe_self": ("agent.mcp.server.self_utils.self_tools", "async_describe_self"),
+    # Task management
+    "launch_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_launch_agent_task"),
+    "create_agent_task_with_skill": ("agent.ec_tasks.task_mcp_tools", "async_create_agent_task_with_skill"),
+    "schedule_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_schedule_agent_task"),
+    "delete_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_delete_agent_task"),
+    "stop_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_stop_agent_task"),
+    # Privacy
+    "privacy_reserve": ("agent.mcp.server.Privacy.privacy_reserve", "privacy_reserve"),
+}
+
+
+def _resolve_cloud_tool_func(tool_name: str):
+    """Resolve a tool handler function for cloud-direct invocation.
+
+    Instead of importing ``tool_function_mapping`` from ``server.py`` (which
+    pulls in GUI dependencies like *pynput*, *pyautogui*, and *PyGetWindow*
+    that fail on headless Linux), this function lazily imports **only** the
+    lightweight source module that defines the requested tool.
+
+    Returns the callable tool handler, or ``None`` if the tool is not in the
+    cloud-safe registry.
+    """
+    import importlib
+
+    entry = _CLOUD_TOOL_REGISTRY.get(tool_name)
+    if entry is None:
+        return None
+    module_path, func_name = entry
+    mod = importlib.import_module(module_path)
+    return getattr(mod, func_name)
+
+
 # ==================== Helper Functions ====================
 def resolve_timeout(
     node_name: str,
@@ -361,12 +423,45 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
             pass
         return [v.strip() for v in s.split(',') if v.strip()]
 
-    def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
-        """Fetch full tool schemas for the given tool names from MCP registry."""
+    def _schema_to_dict(schema: Any) -> dict:
+        if hasattr(schema, 'model_dump'):
+            return schema.model_dump()
+        if isinstance(schema, dict):
+            return schema
+        return {
+            'name': getattr(schema, 'name', ''),
+            'description': getattr(schema, 'description', ''),
+            'inputSchema': getattr(schema, 'inputSchema', {}),
+        }
+
+    def _get_all_tool_schemas() -> list:
+        """Fetch all tool schemas, working in both GUI and cloud-worker contexts."""
+        all_schemas = []
+
+        # 1) GUI context (main window registry)
         try:
             from app_context import AppContext
             mainwin = AppContext.get_main_window()
             all_schemas = getattr(mainwin, 'mcp_tools_schemas', None) or []
+        except Exception:
+            all_schemas = []
+
+        # 2) Cloud/no-GUI context fallback (server-side registry)
+        if not all_schemas:
+            try:
+                from agent.mcp.server.tool_schemas import get_tool_schemas
+                all_schemas = get_tool_schemas() or []
+                logger.debug(f"[_get_all_tool_schemas] Loaded {len(all_schemas)} schemas from MCP server registry")
+            except Exception as e:
+                logger.warning(f"[_get_all_tool_schemas] Failed to load schemas from MCP server registry: {e}")
+                all_schemas = []
+
+        return all_schemas
+
+    def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
+        """Fetch full tool schemas for the given tool names from MCP registry."""
+        try:
+            all_schemas = _get_all_tool_schemas()
             logger.debug(f"[_get_tool_schemas_for_names] Looking for {len(tool_names)} tools in registry with {len(all_schemas)} schemas")
             result = []
             seen = set()
@@ -378,18 +473,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
                     schema_name = getattr(schema, 'name', None) or (schema.get('name') if isinstance(schema, dict) else None)
                     schema_id = getattr(schema, 'id', None) or (schema.get('id') if isinstance(schema, dict) else None)
                     if schema_name == name or schema_id == name:
-                        # Convert to dict if it's a pydantic model
-                        if hasattr(schema, 'model_dump'):
-                            schema_dict = schema.model_dump()
-                        elif isinstance(schema, dict):
-                            schema_dict = schema
-                        else:
-                            schema_dict = {
-                                'name': getattr(schema, 'name', ''),
-                                'description': getattr(schema, 'description', ''),
-                                'inputSchema': getattr(schema, 'inputSchema', {}),
-                            }
-                        result.append(schema_dict)
+                        result.append(_schema_to_dict(schema))
                         break
             return result
         except Exception as e:
@@ -398,10 +482,21 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
 
     def _format_tools_to_use_section(items: list[str]) -> str:
         """Format tools_to_use section with full tool schemas instead of just names."""
+        include_all_schemas = False
+
+        def _is_tools_schema_placeholder(raw: str) -> bool:
+            txt = str(raw or '').strip()
+            if not txt:
+                return False
+            return bool(re.fullmatch(r'\{\{\s*tools_schema\s*\}\}', txt, re.IGNORECASE))
+
         # Collect all tool names from items
         all_tool_names = []
         seen = set()
         for item in items:
+            if _is_tools_schema_placeholder(item):
+                include_all_schemas = True
+                continue
             for name in _parse_tools_to_use_item(item):
                 if name not in seen:
                     seen.add(name)
@@ -409,15 +504,23 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         
         logger.debug(f"[_format_tools_to_use_section] Parsed tool names: {all_tool_names}")
         
-        if not all_tool_names:
+        if not all_tool_names and not include_all_schemas:
             logger.debug("[_format_tools_to_use_section] No tool names found, returning empty")
             return ""
         
         # Get full schemas
-        schemas = _get_tool_schemas_for_names(all_tool_names)
-        logger.debug(f"[_format_tools_to_use_section] Got {len(schemas)} schemas for {len(all_tool_names)} tool names")
+        if include_all_schemas:
+            all_schemas = _get_all_tool_schemas()
+            schemas = [_schema_to_dict(s) for s in all_schemas]
+            logger.debug(f"[_format_tools_to_use_section] Expanded {{tools_schema}} to {len(schemas)} schemas")
+        else:
+            schemas = _get_tool_schemas_for_names(all_tool_names)
+            logger.debug(f"[_format_tools_to_use_section] Got {len(schemas)} schemas for {len(all_tool_names)} tool names")
         
         if not schemas:
+            if include_all_schemas:
+                logger.warning("[_format_tools_to_use_section] {{tools_schema}} requested but no schemas found")
+                return ""
             # Fallback to just listing names if schemas not available
             logger.debug("[_format_tools_to_use_section] No schemas found, falling back to name list")
             return _join_list(all_tool_names)
@@ -2504,26 +2607,36 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     # --- MCP tool input helpers (schema-aware) ---
 
     def _get_tool_schema_by_name(tool_name: str):
+        schemas = None
         try:
             from app_context import AppContext
             mainwin = AppContext.get_main_window()
             schemas = getattr(mainwin, 'mcp_tools_schemas', None)
-            if not schemas:
-                return None
-            for s in schemas:
-                try:
-                    s_name = getattr(s, 'name', None) or (s.get('name') if isinstance(s, dict) else None)
-                    if s_name == tool_name:
-                        # normalize to a dict
-                        return s if isinstance(s, dict) else {
-                            'name': s.name,
-                            'description': getattr(s, 'description', ''),
-                            'inputSchema': getattr(s, 'inputSchema', {})
-                        }
-                except Exception:
-                    continue
         except Exception:
+            pass
+
+        # Cloud fallback: mainwin is None in cloud worker, load from server registry
+        if not schemas:
+            try:
+                from agent.mcp.server.tool_schemas import get_tool_schemas
+                schemas = get_tool_schemas() or []
+            except Exception:
+                schemas = []
+
+        if not schemas:
             return None
+        for s in schemas:
+            try:
+                s_name = getattr(s, 'name', None) or (s.get('name') if isinstance(s, dict) else None)
+                if s_name == tool_name:
+                    # normalize to a dict
+                    return s if isinstance(s, dict) else {
+                        'name': s.name,
+                        'description': getattr(s, 'description', ''),
+                        'inputSchema': getattr(s, 'inputSchema', {})
+                    }
+            except Exception:
+                continue
         return None
 
     def _normalize_schema_root(schema: dict) -> dict:
@@ -3026,9 +3139,25 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
+
+            def _sync_completion_flags(st: dict[str, Any]) -> None:
+                try:
+                    if not isinstance(st, dict):
+                        return
+                    result_obj = st.setdefault('result', {})
+                    if not isinstance(result_obj, dict):
+                        return
+                    llm_obj = result_obj.setdefault('llm_result', {})
+                    if not isinstance(llm_obj, dict):
+                        return
+                    if llm_obj.get('work_done') is True:
+                        llm_obj['all_done'] = True
+                except Exception:
+                    return
             
             # Check if work is done - skip tool call
             if work_done:
+                _sync_completion_flags(state)
                 log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
                 logger.info(log_msg)
                 send_skill_editor_log("info", log_msg)
@@ -3060,6 +3189,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     if 'llm_result' not in state['result']:
                         state['result']['llm_result'] = {}
                     state['result']['llm_result']['work_done'] = True
+                _sync_completion_flags(state)
                 return state
             
             actual_tool_name = next_tool_name.strip()
@@ -3144,12 +3274,72 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             return str(result)
 
         async def run_tool_call():
-            """A local async function to perform the actual tool call."""
+            """A local async function to perform the actual tool call.
+
+            Execution strategy:
+            - On the desktop (local/cloud skill with GUI): call via MCP HTTP
+              server at 127.0.0.1:4668 as before.
+            - In the cloud worker container (no local MCP server): call the
+              tool handler function **directly in-process** from
+              ``tool_function_mapping`` so that no HTTP round-trip is needed.
+              This is the correct behaviour for cloud skills and local skills
+              where "local" means the current host.  Hybrid-cloud skills that
+              need to reach the remote client's machine use the *run_local*
+              path (passive transport) instead, which is handled separately.
+            """
             log_msg = f"Calling MCP tool '{_actual_tool_name}' with input: {_actual_tool_input}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
             from config.constants import DEFAULT_API_TIMEOUT
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
+
+            # --- Cloud-worker direct invocation (no local MCP HTTP server) ---
+            _is_cloud = os.environ.get("ECAN_MODE") == "worker"
+            if not _is_cloud:
+                try:
+                    from gui.AppContext import AppContext
+                    _is_cloud = AppContext.get_main_window() is None
+                except Exception:
+                    pass
+
+            if _is_cloud:
+                try:
+                    # Import tool handler directly from its source module,
+                    # bypassing server.py which has GUI dependencies
+                    # (pynput/pyautogui/PyGetWindow) that fail on headless Linux.
+                    tool_func = _resolve_cloud_tool_func(_actual_tool_name)
+                    if tool_func is not None:
+                        log_msg = (
+                            f"[CLOUD_DIRECT] Invoking tool '{_actual_tool_name}' "
+                            f"directly in-process (no MCP HTTP server in cloud)"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+
+                        # Tool handlers have signature (mainwin, args).
+                        # In the cloud worker there is no GUI mainwin; pass None.
+                        content_blocks = await tool_func(None, _actual_tool_input)
+
+                        # Wrap the raw content blocks into a CallToolResult so
+                        # the downstream code sees the same shape as a real MCP
+                        # response.
+                        from mcp.types import CallToolResult
+                        return CallToolResult(content=content_blocks, isError=False)
+                    else:
+                        log_msg = (
+                            f"[CLOUD_DIRECT] Tool '{_actual_tool_name}' not in "
+                            f"cloud tool registry — falling back to MCP HTTP call"
+                        )
+                        logger.warning(log_msg)
+                        send_skill_editor_log("warning", log_msg)
+                except Exception as _cd_err:
+                    log_msg = (
+                        f"[CLOUD_DIRECT] Direct invocation failed for "
+                        f"'{_actual_tool_name}': {_cd_err} — falling back to MCP HTTP call"
+                    )
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
+
             return await mcp_call_tool(_actual_tool_name, _actual_tool_input, timeout=timeout)
 
         # ============================================================

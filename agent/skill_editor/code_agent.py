@@ -48,7 +48,29 @@ from .prompt_store import safe_format
 # Constants
 # ============================================================
 
-MAX_VALIDATION_RETRIES = 3
+MAX_VALIDATION_RETRIES = 2
+
+# Common LLM hallucinations for node type names → canonical names from schemas.NODE_TYPES
+NODE_TYPE_ALIASES: Dict[str, str] = {
+    "pend_event_node": "pend_event",
+    "pending_event": "pend_event",
+    "pend": "pend_event",
+    "mcp": "mcp_tool",
+    "mcp_node": "mcp_tool",
+    "tool": "mcp_tool",
+    "browser": "browser_automation",
+    "browser-automation": "browser_automation",
+    "browser_auto": "browser_automation",
+    "chat": "chat_node",
+    "chat_message": "chat_node",
+    "conditional": "condition",
+    "if": "condition",
+    "for": "loop",
+    "while": "loop",
+    "foreach": "loop",
+    "for_each": "loop",
+}
+
 DEFAULT_NODE_SPACING_X = 250
 DEFAULT_NODE_SPACING_Y = 150
 START_POSITION_X = 100
@@ -2168,12 +2190,15 @@ Continue the JSON output (do not include any text before the continuation):"""
                     for block in node.blocks:
                         generated_types.add(block.type)
             
+            # Resolve aliases so both plan and generated types use canonical names
+            resolved_generated = set()
+            for t in generated_types:
+                resolved_generated.add(NODE_TYPE_ALIASES.get(t, t).replace("-", "_"))
+
             for required_type in plan.estimated_nodes:
-                # Normalize type names (browser-automation vs browser_automation)
-                normalized_required = required_type.replace("-", "_")
-                normalized_generated = {t.replace("-", "_") for t in generated_types}
+                normalized_required = NODE_TYPE_ALIASES.get(required_type, required_type).replace("-", "_")
                 
-                if normalized_required not in normalized_generated and required_type not in ["start", "end", "block-start", "block-end"]:
+                if normalized_required not in resolved_generated and required_type not in ["start", "end", "block-start", "block-end"]:
                     errors.append(ValidationError(
                         message=f"Plan requires '{required_type}' node but none was generated. The plan specified this node type must be used.",
                         severity="error"
@@ -2311,6 +2336,10 @@ Continue the JSON output (do not include any text before the continuation):"""
         
         is_valid = len(errors) == 0
         logger.info(f"[CodeAgent] Validation result: valid={is_valid}, errors={len(errors)}, warnings={len(warnings)}")
+        for e in errors:
+            logger.info(f"[CodeAgent]   error: node={e.node_id}, field={e.field}, msg={e.message}")
+        for w in warnings:
+            logger.info(f"[CodeAgent]   warning: node={w.node_id}, msg={w.message}")
         
         return ValidationResult(
             valid=is_valid,
@@ -2465,12 +2494,26 @@ Continue the JSON output (do not include any text before the continuation):"""
                 # Retry if validation failed
                 if not validation.valid and MAX_VALIDATION_RETRIES > 0:
                     n_errors = len(validation.errors)
-                    await self._emit_progress(on_event, f"Validation found {n_errors} error(s) — auto-fixing…")
-                    logger.info("[CodeAgent] Validation failed, attempting fix...")
-                    output = await self._fix_validation_errors(
-                        output, validation, user_message, canvas_context, plan,
-                        on_event=on_event,
-                    )
+                    # --- Quick-win 3: deterministic fix before LLM retry ---
+                    await self._emit_progress(on_event, f"Validation found {n_errors} error(s) — attempting deterministic fix…")
+                    logger.info("[CodeAgent] Validation failed, running deterministic fix first...")
+                    det_fixed = self._deterministic_fix(output.flowgram, plan)
+                    if det_fixed is not output.flowgram:
+                        output.flowgram = det_fixed
+                        self._current_flowgram = det_fixed
+                        validation = self.validate_flowgram(det_fixed, plan)
+                        output.validation = validation
+                        if validation.valid:
+                            logger.info("[CodeAgent] Deterministic fix resolved all errors")
+                            await self._emit_progress(on_event, "Deterministic fix resolved all errors ✓")
+                        else:
+                            logger.info(f"[CodeAgent] Deterministic fix reduced errors to {len(validation.errors)}, proceeding to LLM fix")
+                    if not validation.valid:
+                        await self._emit_progress(on_event, f"{len(validation.errors)} error(s) remain — LLM auto-fix…")
+                        output = await self._fix_validation_errors(
+                            output, validation, user_message, canvas_context, plan,
+                            on_event=on_event,
+                        )
                 
                 # Send flowgram event
                 if on_event and output.flowgram:
@@ -2499,6 +2542,63 @@ Continue the JSON output (do not include any text before the continuation):"""
                 message=f"Failed to generate flowgram: {str(e)}"
             )
     
+    def _deterministic_fix(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> Flowgram:
+        """Try to fix common validation errors without calling the LLM.
+
+        Currently handles:
+        - Node type name hallucinations (e.g. pend_event_node → pend_event)
+        - Disconnected / unreachable nodes inside loops (via ValidatorAgent)
+        - Re-running _fix_missing_incoming_edges to patch broken chains
+        Returns the (possibly mutated) flowgram.
+        """
+        try:
+            # --- Fix node type aliases before anything else ---
+            type_fixes = 0
+            for node in flowgram.nodes:
+                canonical = NODE_TYPE_ALIASES.get(node.type)
+                if canonical:
+                    logger.info(f"[CodeAgent] Deterministic fix: node '{node.id}' type '{node.type}' → '{canonical}'")
+                    node.type = canonical
+                    type_fixes += 1
+                # Also fix types inside loop blocks
+                if node.blocks:
+                    for block in node.blocks:
+                        blk_canonical = NODE_TYPE_ALIASES.get(block.type)
+                        if blk_canonical:
+                            logger.info(f"[CodeAgent] Deterministic fix: block '{block.id}' type '{block.type}' → '{blk_canonical}'")
+                            block.type = blk_canonical
+                            type_fixes += 1
+            if type_fixes:
+                logger.info(f"[CodeAgent] Deterministic fix: corrected {type_fixes} node type(s)")
+
+            # Re-serialize → fix_disconnected_nodes → re-parse
+            data = flowgram.model_dump(exclude_none=True)
+            wrapped = {"action": "generate_flowgram", "flowgram": data, "message": ""}
+            task_ctx = getattr(self, '_current_task_context', None)
+            fixed = self._fix_disconnected_nodes(wrapped, task_context=task_ctx)
+            fg_data = fixed.get("flowgram", fixed)
+
+            nodes = [self._parse_node(n, i) for i, n in enumerate(fg_data.get("nodes", []))]
+            edges = []
+            for e in fg_data.get("edges", []):
+                source = e.get("source") or e.get("sourceNodeID") or ""
+                target = e.get("target") or e.get("targetNodeID") or ""
+                edges.append(FlowgramEdge(
+                    source=source, target=target,
+                    source_handle=e.get("source_handle") or e.get("sourceHandle") or e.get("sourcePortID"),
+                    target_handle=e.get("target_handle") or e.get("targetHandle") or e.get("targetPortID"),
+                    label=e.get("label"),
+                ))
+
+            fixed_fg = Flowgram(nodes=nodes, edges=edges, metadata=fg_data.get("metadata", {}))
+            self._ensure_start_end_nodes(fixed_fg)
+            self._fix_missing_incoming_edges(fixed_fg)
+            self._fix_node_naming(fixed_fg)
+            return fixed_fg
+        except Exception as exc:
+            logger.warning(f"[CodeAgent] Deterministic fix failed: {exc}")
+            return flowgram
+
     async def _fix_validation_errors(
         self,
         output: CodeAgentOutput,
@@ -2509,7 +2609,13 @@ Continue the JSON output (do not include any text before the continuation):"""
         retry_count: int = 0,
         on_event: Optional[Callable] = None,
     ) -> CodeAgentOutput:
-        """Attempt to fix validation errors by re-generating"""
+        """Attempt to fix validation errors by re-generating with a slim prompt.
+
+        Instead of re-sending the full ~80 K-char code_gen + schema prompt, we
+        send only: the current (broken) flowgram JSON, the validation errors,
+        and a short instruction block.  The LLM already produced the flowgram
+        once — it just needs to patch it.
+        """
         if retry_count >= MAX_VALIDATION_RETRIES:
             logger.warning(f"[CodeAgent] Max retries ({MAX_VALIDATION_RETRIES}) reached")
             return output
@@ -2517,34 +2623,69 @@ Continue the JSON output (do not include any text before the continuation):"""
         logger.info(f"[CodeAgent] Fix attempt {retry_count + 1}/{MAX_VALIDATION_RETRIES}")
         await self._emit_progress(on_event, f"Fix attempt {retry_count + 1}/{MAX_VALIDATION_RETRIES} — regenerating…")
         
-        # Build fix prompt
-        error_messages = [e.message for e in validation.errors]
-        fix_prompt = f"""The generated flowgram has validation errors. Please fix them.
+        # --- Quick-win 4: slim fix-only prompt (no full code_gen re-send) ---
+        error_lines = []
+        for e in validation.errors:
+            parts = []
+            if e.node_id:
+                parts.append(f"node={e.node_id}")
+            if e.field:
+                parts.append(f"field={e.field}")
+            parts.append(e.message)
+            error_lines.append("- " + ", ".join(parts))
 
-ERRORS:
-{chr(10).join(f'- {e}' for e in error_messages)}
+        current_flowgram_json = ""
+        if output.flowgram:
+            try:
+                fg_data = output.flowgram.model_dump(exclude_none=True)
+                # Strip bulky prompt text from node configs to shrink the payload
+                for n in fg_data.get("nodes", []):
+                    cfg = n.get("config") or {}
+                    for key in ("system_prompt", "user_prompt", "prompt", "systemPrompt", "code"):
+                        if key in cfg and isinstance(cfg[key], str) and len(cfg[key]) > 200:
+                            cfg[key] = cfg[key][:200] + "…[truncated]"
+                    # Same for loop blocks
+                    for blk in n.get("blocks", []) or []:
+                        bcfg = blk.get("config") or {}
+                        for key in ("system_prompt", "user_prompt", "prompt", "systemPrompt", "code"):
+                            if key in bcfg and isinstance(bcfg[key], str) and len(bcfg[key]) > 200:
+                                bcfg[key] = bcfg[key][:200] + "…[truncated]"
+                current_flowgram_json = json.dumps(fg_data)
+            except Exception:
+                current_flowgram_json = str(output.flowgram)
 
-ORIGINAL REQUEST: {user_message}
+        plan_summary = ""
+        if plan:
+            plan_summary = f"Plan summary: {plan.summary}\nEstimated nodes: {', '.join(plan.estimated_nodes)}\n"
 
-Please regenerate the flowgram with these errors fixed.
+        prompt = f"""You are a workflow‑generation assistant. The flowgram below has validation errors.
+Fix ONLY the errors listed — do NOT change parts that are already correct.
+Return ONLY the corrected JSON (same schema: action, flowgram, message, data_mapping).
+
+## VALIDATION ERRORS
+{chr(10).join(error_lines)}
+
+## CONTEXT
+{plan_summary}Original request (abbreviated): {user_message[:500]}
+
+## CURRENT FLOWGRAM (needs fixing)
+```json
+{current_flowgram_json}
+```
+
+Return the FULL corrected JSON — every node, every edge, every config field.
 """
-        
-        raw_prompt = prompt_store.get("code_gen", default=CODE_GENERATION_PROMPT)
-        prompt = safe_format(
-            raw_prompt,
-            node_types=get_node_types_description(),
-            node_schema=prompt_store.get_node_schema(),
-            mapping_dsl=prompt_store.get_mapping_dsl(),
-            canvas_context=self._format_canvas_context(canvas_context),
-            plan_context=self._format_plan_context(plan),
-        )
-        prompt += f"\n\n{fix_prompt}"
+        logger.info(f"[CodeAgent] Fix prompt size: {len(prompt)} chars (vs full code_gen ~80K)")
         
         # Re-invoke LLM
         response = await self._invoke_llm_async(prompt, action=f"fix_attempt_{retry_count + 1}")
         new_output = self._parse_code_agent_output(response)
         
         if new_output.flowgram:
+            # Run deterministic fix on the new output too
+            new_output.flowgram = self._deterministic_fix(new_output.flowgram, plan)
+            self._current_flowgram = new_output.flowgram
+
             await self._emit_progress(on_event, f"Validating fix attempt {retry_count + 1}…")
             new_validation = self.validate_flowgram(new_output.flowgram, plan)
             new_output.validation = new_validation
@@ -2552,7 +2693,6 @@ Please regenerate the flowgram with these errors fixed.
             if new_validation.valid:
                 logger.info("[CodeAgent] Fix successful, flowgram is now valid")
                 await self._emit_progress(on_event, "Validation passed ✓")
-                self._current_flowgram = new_output.flowgram
                 return new_output
             else:
                 # Recurse
