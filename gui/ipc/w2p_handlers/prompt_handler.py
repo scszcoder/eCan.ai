@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +17,7 @@ from utils.logger_helper import logger_helper as logger
 from utils.user_path_helper import get_user_data_dir
 # Cloud sync import - guarded to prevent import failures from breaking IPC
 try:
-    from gui.ipc.w2p_handlers.prompt_cloud_sync import sync_prompt_to_cloud, delete_prompt_from_cloud, sync_all_prompts_to_cloud, fetch_cloud_prompts
+    from gui.ipc.w2p_handlers.prompt_cloud_sync import sync_prompt_to_cloud, delete_prompt_from_cloud, sync_all_prompts_to_cloud, fetch_cloud_prompts, invalidate_cloud_prompts_cache
     _CLOUD_SYNC_AVAILABLE = True
 except Exception as _sync_import_err:
     import logging as _logging
@@ -26,6 +27,7 @@ except Exception as _sync_import_err:
     def delete_prompt_from_cloud(*a, **kw): pass
     def sync_all_prompts_to_cloud(*a, **kw): pass
     def fetch_cloud_prompts() -> list: return []
+    def invalidate_cloud_prompts_cache(*a, **kw): pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SYSTEMS_DIR = PROJECT_ROOT / "systems"
@@ -584,15 +586,22 @@ def _delete_prompt_file(prompt_id: str) -> bool:
 @IPCHandlerRegistry.handler('get_prompts')
 def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     try:
+        total_start = time.perf_counter()
+
+        local_start = time.perf_counter()
         local_prompts = _bootstrap_prompts()
+        logger.info(f"[Perf][prompts] local bootstrap: {(time.perf_counter() - local_start) * 1000:.1f}ms")
         local_by_id = {p["id"]: p for p in local_prompts if p.get("id")}
 
         # ── Bidirectional sync: merge cloud prompts (superset policy) ──
         cloud_only_prompts: List[Dict[str, Any]] = []
         if _CLOUD_SYNC_AVAILABLE:
             try:
+                cloud_start = time.perf_counter()
                 cloud_prompts = fetch_cloud_prompts()
+                logger.info(f"[Perf][prompts] cloud fetch: {(time.perf_counter() - cloud_start) * 1000:.1f}ms")
                 logger.info(f"[prompts] Cloud returned {len(cloud_prompts)} prompts, local has {len(local_by_id)}")
+                merge_start = time.perf_counter()
                 for cp in cloud_prompts:
                     cid = cp.get("id")
                     if not cid:
@@ -620,6 +629,7 @@ def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCRespon
                             logger.warning(f"[prompts] Failed to save cloud prompt '{cid}' locally: {save_exc}")
                             local_by_id[cid] = cp
                             cloud_only_prompts.append(cp)
+                logger.info(f"[Perf][prompts] cloud merge/writeback: {(time.perf_counter() - merge_start) * 1000:.1f}ms")
             except Exception as fetch_exc:
                 logger.warning(f"[prompts] Cloud prompt fetch skipped: {fetch_exc}")
 
@@ -628,13 +638,16 @@ def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         # Push local-only prompts to cloud (non-blocking, fire-and-forget)
         if _CLOUD_SYNC_AVAILABLE:
             try:
+                sync_start = time.perf_counter()
                 sync_all_prompts_to_cloud(prompts)
+                logger.info(f"[Perf][prompts] schedule bulk sync: {(time.perf_counter() - sync_start) * 1000:.1f}ms")
             except Exception as sync_exc:
                 logger.debug(f"[prompts] bulk cloud sync skipped: {sync_exc}")
 
         if cloud_only_prompts:
             logger.info(f"[prompts] Merged {len(cloud_only_prompts)} cloud-only prompts into local set (total: {len(prompts)})")
 
+        logger.info(f"[Perf][prompts] total get_prompts: {(time.perf_counter() - total_start) * 1000:.1f}ms")
         return create_success_response(request, {"prompts": prompts})
     except Exception as e:
         logger.error(f"[prompts] get_prompts error: {e}")
@@ -685,6 +698,7 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
             return create_error_response(request, 'READ_ONLY', 'Cannot modify read-only prompt')
         normalized = _write_prompt_to_file(prompt)
         logger.debug(f"[prompts] saved prompt {normalized.get('id')} to my_prompts")
+        invalidate_cloud_prompts_cache(normalized.get('owner'))
         # Sync to cloud in background
         sync_prompt_to_cloud(normalized)
         return create_success_response(request, {"prompt": normalized})
@@ -722,6 +736,7 @@ def handle_delete_prompt(request: IPCRequest, params: Optional[dict]) -> IPCResp
             return create_error_response(request, 'READ_ONLY', 'Cannot delete read-only prompt')
 
         deleted = _delete_prompt_file(str(pid))
+        invalidate_cloud_prompts_cache(prompt_meta.get('owner') if prompt_meta else None)
         # NOTE: Do NOT propagate local delete to cloud (superset policy).
         # Cloud keeps the prompt so other devices / the web app can still see it.
         return create_success_response(request, {"deleted": deleted})
