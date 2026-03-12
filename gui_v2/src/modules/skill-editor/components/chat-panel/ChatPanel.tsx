@@ -80,6 +80,16 @@ const parseMaybeJson = (value: any) => {
   return value;
 };
 
+const buildMessageId = (rawId: any, role: 'user' | 'assistant', content: any, timestamp?: any) => {
+  const normalizedId = rawId == null ? '' : String(rawId).trim();
+  if (normalizedId) {
+    return normalizedId;
+  }
+  const normalizedContent = String(content ?? '').slice(0, 80);
+  const timePart = timestamp ? safeDate(timestamp).getTime() : Date.now();
+  return `msg-${role}-${timePart}-${normalizedContent}`;
+};
+
 const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
   if (!Array.isArray(rawMessages)) return [];
   return rawMessages
@@ -103,7 +113,7 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
       }
       
       return {
-        id: String(m.id),
+        id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
         role: (m.role as 'user' | 'assistant') || 'assistant',
         content: String(m.content ?? ''),
         timestamp: safeDate(m.timestamp),
@@ -526,12 +536,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [lastBackendIntent, setLastBackendIntent] = useState<string>('');
   const [lastBackendState, setLastBackendState] = useState<string>('');
   const chatThreadRef = useRef<HTMLDivElement>(null);
+  const hasLoadedSessionsRef = useRef(false);
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
-  // Load sessions from backend on mount
+  // Load sessions lazily on first expansion to avoid competing with editor startup work
   useEffect(() => {
+    if (isCollapsed || hasLoadedSessionsRef.current) {
+      return;
+    }
+
+    hasLoadedSessionsRef.current = true;
+
     const loadSessions = async () => {
       console.log('[ChatPanel] Loading sessions from backend...');
       try {
@@ -554,7 +571,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             id: s.id,
             topic: s.name || t('chatPanel.defaultSessionTopic'),
             messages: (s.messages || []).map(m => ({
-              id: m.id,
+              id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
               role: m.role as 'user' | 'assistant',
               content: m.content,
               timestamp: safeDate(m.timestamp),
@@ -585,7 +602,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     };
     
     loadSessions();
-  }, []); // Only run on mount
+  }, [isCollapsed, t]);
 
   useEffect(() => {
     const handleContextLoaded = (payload: any) => {
@@ -881,7 +898,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       const history = await skillEditorChatService.getHistory(sessionId);
       if (history && history.length > 0) {
         const mappedMessages: ChatMessage[] = history.map(m => ({
-          id: m.id,
+          id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
           role: m.role as 'user' | 'assistant',
           content: m.content,
           timestamp: safeDate(m.timestamp),
@@ -1262,7 +1279,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         setLastBackendIntent(String((response as any).intent || ''));
         setLastBackendState(String((response as any).state || ''));
         const assistantMessage: ChatMessage = {
-          id: response.message.id,
+          id: buildMessageId(response.message.id, 'assistant', response.message.content, response.message.timestamp),
           role: 'assistant',
           content: response.message.content,
           timestamp: safeDate(response.message.timestamp),
@@ -1450,7 +1467,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         });
 
         const assistantMessage: ChatMessage = {
-          id: response.message.id,
+          id: buildMessageId(response.message.id, 'assistant', response.message.content, response.message.timestamp),
           role: 'assistant',
           content: response.message.content,
           timestamp: safeDate(response.message.timestamp),
@@ -1608,8 +1625,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               <div style={{ fontSize: 12 }}>{t('chatPanel.startNewChat')}</div>
             </EmptyState>
           ) : (
-            messages.map(msg => (
-              <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
+            messages.map((msg, idx) => (
+              <MessageBubble key={msg.id || `message-${idx}`} $isUser={msg.role === 'user'}>
                 <MessageContent $isUser={msg.role === 'user'}>
                   {renderMessageContent(msg)}
                   {msg.attachments && msg.attachments.length > 0 && (
