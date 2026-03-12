@@ -1,7 +1,11 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 const LazyEditor = lazy(async () => {
+  const start = performance.now();
+  console.time('[Perf][SkillEditorPage] LazyEditor import');
   const mod = await import('../../modules/skill-editor');
+  console.timeEnd('[Perf][SkillEditorPage] LazyEditor import');
+  console.log('[Perf][SkillEditorPage] LazyEditor import duration:', `${(performance.now() - start).toFixed(1)}ms`);
   return { default: mod.Editor } as any;
 });
 import styled from '@emotion/styled';
@@ -28,7 +32,57 @@ const EditorContainer = styled.div`
 `;
 
 const SkillEditor: React.FC = () => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const translationsLoadedRef = useRef(false);
+    const pageMountPerfRef = useRef<number>(performance.now());
+
+    // Dynamically load skill-editor translations when component mounts
+    useEffect(() => {
+        console.log('[Perf][SkillEditorPage] Page mounted');
+        const loadSkillEditorTranslations = async () => {
+            // Avoid loading multiple times
+            if (translationsLoadedRef.current) return;
+            
+            try {
+                const translationStart = performance.now();
+                console.time('[Perf][SkillEditorPage] Translation load');
+                // Check if already loaded
+                if (i18n.hasResourceBundle('en-US', 'skillEditor') && 
+                    i18n.hasResourceBundle('zh-CN', 'skillEditor')) {
+                    translationsLoadedRef.current = true;
+                    console.log('[Perf][SkillEditorPage] Translation bundles already loaded');
+                    return;
+                }
+
+                // Dynamically import translation files
+                const [enSkillEditor, zhSkillEditor] = await Promise.all([
+                    import('../../modules/skill-editor/i18n/en.json'),
+                    import('../../modules/skill-editor/i18n/zh.json'),
+                ]);
+
+                // Add resource bundles to i18n
+                if (!i18n.hasResourceBundle('en-US', 'skillEditor')) {
+                    i18n.addResourceBundle('en-US', 'skillEditor', enSkillEditor.default, true, false);
+                }
+                if (!i18n.hasResourceBundle('zh-CN', 'skillEditor')) {
+                    i18n.addResourceBundle('zh-CN', 'skillEditor', zhSkillEditor.default, true, false);
+                }
+
+                translationsLoadedRef.current = true;
+                console.timeEnd('[Perf][SkillEditorPage] Translation load');
+                console.log('[Perf][SkillEditorPage] Translation load duration:', `${(performance.now() - translationStart).toFixed(1)}ms`);
+                console.log('[SkillEditor] Translations loaded successfully');
+            } catch (error) {
+                console.error('[SkillEditor] Failed to load translations:', error);
+            }
+        };
+
+        loadSkillEditorTranslations();
+
+        return () => {
+            console.log('[Perf][SkillEditorPage] Page lifetime:', `${(performance.now() - pageMountPerfRef.current).toFixed(1)}ms`);
+        };
+    }, [i18n]);
     return (
         <EditorContainer>
             <style>

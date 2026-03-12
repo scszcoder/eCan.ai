@@ -187,6 +187,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const isOwnedByOwner = !!ownerValue && !!usernameValue && ownerValue.toLowerCase() === usernameValue.toLowerCase();
     const isOwnedByPath = !ownerValue && isResourceMySkillsPath((skill as any)?.path);
     const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath);
+    // Skill owned by another user — editor cannot open (no writable local files)
+    const isThirdPartySkill = !!skill && !isNew && !isOwnedByUser;
     const canPublish = isOwnedByUser && !isCodeSkill;
     const isPublished = !!skill && !isNew && !!(skill as any)?.public;
     const isSubscribed = !!skill && !!subscribedSkillIds?.includes(String(skill.id));
@@ -463,6 +465,11 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             return;
         }
 
+        if (isThirdPartySkill) {
+            message.warning(t('pages.skills.thirdPartySkillNoEditor', '该技能由其他用户发布，无法在编辑器中打开'));
+            return;
+        }
+
         // Navigate to skill editor with file path
         navigate('/skill_editor', { 
             state: { 
@@ -591,7 +598,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     <Button
                                         icon={<FileTextOutlined />}
                                         onClick={goToEditor}
-                                        disabled={!(form.getFieldValue('path') || (skill as any)?.path)}
+                                        disabled={!(form.getFieldValue('path') || (skill as any)?.path) || isThirdPartySkill}
                                     />
                                 </Tooltip>
                             </Space.Compact>

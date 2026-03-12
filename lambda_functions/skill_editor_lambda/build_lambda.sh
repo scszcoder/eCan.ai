@@ -34,7 +34,25 @@ cp -r "$ECAN_ROOT/agent" "$BUILD_DIR/agent"
 cp -r "$ECAN_ROOT/utils" "$BUILD_DIR/utils"
 cp -r "$ECAN_ROOT/config" "$BUILD_DIR/config"
 cp -r "$ECAN_ROOT/my_prompts" "$BUILD_DIR/my_prompts" 2>/dev/null || true
+cp -r "$ECAN_ROOT/lambda_functions/skill_editor_lambda/prompts" "$BUILD_DIR/prompts" 2>/dev/null || true
+
+# Copy mapping DSL doc into prompts/ so prompt_store can load it at runtime
+MAPPING_DSL_SRC="$ECAN_ROOT/gui_v2/src/modules/skill-editor/doc/mapping-dsl.md"
+if [ ! -f "$MAPPING_DSL_SRC" ]; then
+    # Fallback to docs/ copy if gui_v2 canonical version is missing
+    MAPPING_DSL_SRC="$ECAN_ROOT/docs/mapping-dsl.md"
+fi
+if [ -f "$MAPPING_DSL_SRC" ]; then
+    cp "$MAPPING_DSL_SRC" "$BUILD_DIR/prompts/mapping-dsl.md"
+    echo "  - Copied mapping-dsl.md into prompts/"
+else
+    echo "  WARNING: mapping-dsl.md not found at $MAPPING_DSL_SRC"
+fi
+
 cp "$ECAN_ROOT/app_context.py" "$BUILD_DIR/" 2>/dev/null || true
+
+# Remove heavy assets not needed in Lambda (OCR models, etc.)
+rm -rf "$BUILD_DIR/agent/mcp/server/local_ocr" 2>/dev/null || true
 
 # Apply Lambda overrides (CRITICAL - these replace files that have Lambda-incompatible code)
 echo "[4/5] Applying Lambda overrides..."

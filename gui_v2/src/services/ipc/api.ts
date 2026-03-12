@@ -449,7 +449,7 @@ export class IPCAPI {
       {
         method: 'subscribe_to_skill',
         graphql: {
-          query: GRAPHQL_QUERIES.SUBSCRIBE_TO_SKILL,
+          mutation: GRAPHQL_MUTATIONS.SUBSCRIBE_TO_SKILL,
           resultPath: 'subscribeToSkill'
         }
       },
@@ -462,7 +462,7 @@ export class IPCAPI {
       {
         method: 'unsubscribe_from_skill',
         graphql: {
-          query: GRAPHQL_QUERIES.UNSUBSCRIBE_FROM_SKILL,
+          mutation: GRAPHQL_MUTATIONS.UNSUBSCRIBE_FROM_SKILL,
           resultPath: 'unsubscribeFromSkill'
         }
       },
@@ -1635,7 +1635,7 @@ export class IPCAPI {
       );
     }
 
-    public async removeAgentTaskSkillRels(input: { id: string }[]): Promise<APIResponse<any>> {
+    public async removeAgentTaskSkillRels(input: ({ id: string } | { task_id: string; skill_id: string })[]): Promise<APIResponse<any>> {
       return apiRouter.execute(
         {
           method: 'remove_agent_task_skill_rels',
@@ -1819,15 +1819,20 @@ export class IPCAPI {
     }
 
     /**
-     * Rename a skill folder
-     * @param oldName - Current skill name (without _skill suffix)
+     * Rename skill (now supports both my_skills and external directories)
+     * @param oldName - Old skill name (without _skill suffix)
      * @param newName - New skill name (without _skill suffix)
+     * @param currentFilePath - (Optional) Current skill JSON file path for external directories
      * @returns API response with skillRoot path
      */
-    public async renameSkill(oldName: string, newName: string): Promise<APIResponse<{ skillRoot: string }>> {
+    public async renameSkill(oldName: string, newName: string, currentFilePath?: string): Promise<APIResponse<{ skillRoot: string }>> {
+        const params: any = { oldName, newName };
+        if (currentFilePath) {
+            params.currentFilePath = currentFilePath;
+        }
         return apiRouter.execute<{ skillRoot: string }>(
             { method: 'skills.rename' },
-            { oldName, newName }
+            params
         );
     }
 

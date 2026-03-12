@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Modal, Input, Button, Typography, TextArea } from '@douyinfe/semi-ui';
 import { IconCodeStroked } from '@douyinfe/semi-icons';
@@ -9,6 +10,7 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
 const { Text } = Typography;
 
 export const Info = () => {
+  const { t } = useTranslation('skillEditor');
   const { document: workflowDocument } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const [visible, setVisible] = useState(false);
@@ -65,7 +67,7 @@ export const Info = () => {
 
   return (
     <>
-      <Tooltip content="Info">
+      <Tooltip content={t('info.tooltip')}>
         <IconButton
           type="tertiary"
           theme="borderless"
@@ -74,47 +76,47 @@ export const Info = () => {
         />
       </Tooltip>
       <Modal
-        title="Edit Skill Info"
+        title={t('info.title')}
         visible={visible}
         onCancel={() => setVisible(false)}
         footer={null}
         width={700}
       >
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>Skill ID:</Text>
+          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>{t('info.skillId')}</Text>
           <Text copyable style={{ marginLeft: 16 }}>{skillId}</Text>
         </div>
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>Skill Name:</Text>
+          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>{t('info.skillName')}</Text>
           <Input
             value={skillName}
             onChange={e => handleSkillNameChange(e)}
             style={{ width: 300, marginLeft: 16 }}
-            placeholder="Enter skill name"
+            placeholder={t('info.namePlaceholder')}
           />
         </div>
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>Version:</Text>
+          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>{t('info.version')}</Text>
           <Text style={{ marginLeft: 16 }}>{version}</Text>
         </div>
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>Last Modified:</Text>
+          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>{t('info.lastModified')}</Text>
           <Text style={{ marginLeft: 16 }}>{lastModified}</Text>
         </div>
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'flex-start' }}>
-          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block', paddingTop: 8 }}>Description:</Text>
+          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block', paddingTop: 8 }}>{t('info.description')}</Text>
           <TextArea
             value={description}
             onChange={e => handleDescriptionChange(e)}
             style={{ width: 500, marginLeft: 16, minHeight: 80, maxHeight: 150 }}
-            placeholder="Describe what this skill does..."
+            placeholder={t('info.descriptionPlaceholder')}
             autosize={{ minRows: 3, maxRows: 6 }}
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-          <Text type="secondary" style={{ flex: 1 }}>Code Preview:</Text>
+          <Text type="secondary" style={{ flex: 1 }}>{t('info.codePreview')}</Text>
           <Button icon={<IconCodeStroked />} size="small" onClick={handleEditCode} style={{ marginLeft: 8 }}>
-            Edit Code
+            {t('info.editCode')}
           </Button>
         </div>
         <pre

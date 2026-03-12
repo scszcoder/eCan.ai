@@ -39,6 +39,7 @@ from .scheduler import find_tasks_ready_to_run
 from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor, _create_message
+from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
 from utils.sleep_inhibitor import get_sleep_inhibitor
 
@@ -459,17 +460,24 @@ class TaskRunner(Generic[Context]):
             return
         
         try:
-            # Cancel asyncio task
+            # Cancel pending async operations and their timers
+            from .pending_events import cancel_task_async_operations
+            cancel_task_async_operations(task)
+
+            # Unified stop entrypoint (cancellation_event + future + force-stop callbacks + asyncio task)
+            if hasattr(task, 'stop') and callable(task.stop):
+                task.stop(reason="runner_cancel", force=True)
+            else:
+                # Backward compatibility fallback
+                if task.task:
+                    task.task.cancel()
+
+            # Wait briefly for asyncio task to settle after cancellation
             if task.task:
-                task.task.cancel()
                 try:
                     await asyncio.wait_for(task.task, timeout=timeout)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-            
-            # Cancel pending async operations and their timers
-            from .pending_events import cancel_task_async_operations
-            cancel_task_async_operations(task)
             
             # Update status
             task.status.state = TaskState.canceled
@@ -478,8 +486,6 @@ class TaskRunner(Generic[Context]):
             # Cleanup
             if hasattr(task, 'cleanup') and callable(task.cleanup):
                 task.cleanup()
-            if hasattr(task, 'exit') and callable(task.exit):
-                task.exit()
             
             # Clear queue
             if hasattr(task, 'queue') and task.queue:
@@ -534,7 +540,11 @@ class TaskRunner(Generic[Context]):
                 encoding='utf-8'
             ) as f:
                 temp_file = f.name
-                json_data = task.model_dump_json(indent=2)
+                # Exclude non-serializable fields (Event, Future, Queue, etc.)
+                json_data = task.model_dump_json(
+                    indent=2,
+                    exclude=TASK_SERIALIZATION_EXCLUDE
+                )
                 f.write(json_data)
                 f.flush()
                 os.fsync(f.fileno())
@@ -1100,7 +1110,13 @@ class TaskRunner(Generic[Context]):
                 event_data = event if isinstance(event, dict) else request
                 for t in candidates:
                     if self._evaluate_match_fields(match_fields, match_mode, event_data, t):
-                        logger.info(f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}")
+                        skill_obj = getattr(t, "skill", None)
+                        skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                        skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                        logger.info(
+                            f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}, "
+                            f"skill={skill_name}, skill_id={skill_id}"
+                        )
                         return (t, rule)
                 logger.debug(f"[ROUTING] ❌ No task matched via match_fields for event '{etype}'")
             
@@ -1119,17 +1135,34 @@ class TaskRunner(Generic[Context]):
                         # Match by run_id (task.id or cloud_run_id)
                         if "run_id" in routing_key:
                             if str(t.id) == str(key_value):
-                                logger.info(f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}")
+                                skill_obj = getattr(t, "skill", None)
+                                skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                                skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                                logger.info(
+                                    f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}, "
+                                    f"skill={skill_name}, skill_id={skill_id}"
+                                )
                                 return (t, rule)
                             cloud_run_id = (t.state or {}).get("cloud_run_id")
                             if cloud_run_id and str(cloud_run_id) == str(key_value):
-                                logger.info(f"[ROUTING] ✅ Matched task by cloud_run_id: {t.name}")
+                                skill_obj = getattr(t, "skill", None)
+                                skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                                skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                                logger.info(
+                                    f"[ROUTING] ✅ Matched task by cloud_run_id: {t.name}, id={t.id}, "
+                                    f"skill={skill_name}, skill_id={skill_id}"
+                                )
                                 return (t, rule)
                         # Match by skill_id
                         if "skill_id" in routing_key:
                             skill = getattr(t, "skill", None)
                             if skill and str(getattr(skill, "id", "")) == str(key_value):
-                                logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
+                                skill_name = getattr(skill, "name", skill)
+                                skill_id = getattr(skill, "id", "")
+                                logger.info(
+                                    f"[ROUTING] ✅ Matched task by skill_id: {t.name}, id={t.id}, "
+                                    f"skill={skill_name}, skill_id={skill_id}"
+                                )
                                 return (t, rule)
             
             # 3. If only task_selector was specified (no match_fields/routing_key),
@@ -1914,6 +1947,10 @@ class TaskRunner(Generic[Context]):
         future = self._skill_executor.submit(_execute)
         future.add_done_callback(_on_complete)
         
+        # CRITICAL: Save Future reference to task so cancel() can work
+        task.future = future
+        logger.debug(f"[SUBMIT] Saved Future reference to task {task.name} for cancellation support")
+        
         task_mode = "hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local")
         logger.info(f"[SUBMIT] Skill execution submitted for task={task.name} (mode={task_mode})")
     
@@ -2636,10 +2673,13 @@ class TaskRunner(Generic[Context]):
                     break
 
                 # If the initial run interrupted (pend_event waiting for input) and the
-                # original message is an async_callback (e.g., passive command from cloud),
-                # immediately resume with the callback data so pend_event can resolve.
-                # Without this, the callback data is lost because prep_skills_run doesn't
-                # understand async_callback format — the graph pauses and never resumes.
+                # original message carries data the pend_event needs, immediately
+                # resume so the graph can continue.  This covers two cases:
+                #   1. async_callback — passive command from cloud
+                #   2. message trigger (human_chat / a2a) — the user's chat message
+                #      is already in the state but pend_event always interrupts on
+                #      first visit; auto-resume feeds the message as a resume payload
+                #      so the graph advances to the LLM node.
                 _is_interrupted = (
                     isinstance(response, dict)
                     and response.get("success") is False
@@ -2647,9 +2687,11 @@ class TaskRunner(Generic[Context]):
                     and "__interrupt__" in response.get("step", {})
                 )
                 _is_async_callback = isinstance(msg, dict) and msg.get("type") == "async_callback"
+                _is_message_trigger = trigger_type == "message"
+                _should_auto_resume = _is_async_callback or _is_message_trigger
 
-                if _is_interrupted and _is_async_callback:
-                    logger.info(f"[EXECUTOR] Initial run interrupted at pend_event with async_callback message — auto-resuming")
+                if _is_interrupted and _should_auto_resume:
+                    logger.info(f"[EXECUTOR] Initial run interrupted at pend_event — auto-resuming (trigger={trigger_type}, async_cb={_is_async_callback})")
                     resume_payload, cp = self._build_resume_payload(task, msg)
                     resume_cmd = Command(resume=resume_payload)
                     resume_tag = None
@@ -2935,6 +2977,11 @@ class TaskRunner(Generic[Context]):
                 task.already_run_flag = True
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
         finally:
+            # Clean up Future reference
+            if hasattr(task, 'future'):
+                task.future = None
+                logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
+            
             # Allow idle sleep once this task execution completes
             try:
                 get_sleep_inhibitor().release()

@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
 import { Tooltip, IconButton, Toast, Modal, Input } from '@douyinfe/semi-ui';
@@ -13,6 +14,7 @@ import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
@@ -32,22 +34,43 @@ import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
  * Prepare diagram for saving: handle flip states and remove breakpoints
  */
 function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean): void {
-  diagram.nodes.forEach((node: any) => {
-    if (!node.data) node.data = {};
-    
-    // Persist flip states
-    const flipState = isFlipped(node.id);
-    if (flipState) {
-      node.data.hFlip = true;
-    } else if (node.data.hFlip) {
-      delete node.data.hFlip;
-    }
-    
-    // Remove breakpoints (not persisted)
-    if (node.data.break_point) {
-      delete node.data.break_point;
-    }
-  });
+  // Read all notes from the store once (avoids per-node getState calls)
+  const allNotes = useNodeNoteStore.getState().notes;
+
+  // Recursive function to process nodes (including subcanvas)
+  const processNodes = (nodes: any[]) => {
+    nodes.forEach((node: any) => {
+      if (!node.data) node.data = {};
+      
+      // Persist flip states
+      const flipState = isFlipped(node.id);
+      if (flipState) {
+        node.data.hFlip = true;
+      } else if (node.data.hFlip) {
+        delete node.data.hFlip;
+      }
+      
+      // Remove breakpoints (not persisted)
+      if (node.data.break_point) {
+        delete node.data.break_point;
+      }
+
+      // Inject agentNote from the external note store.
+      // The flowgram form model doesn't expose setFieldValue, so notes are
+      // stored externally and merged into the serialised diagram here.
+      const note = allNotes.get(node.id);
+      if (note) {
+        node.data.agentNote = note;
+      }
+      
+      // Recursively process subcanvas nodes
+      if (node.data?.subcanvas?.nodes) {
+        processNodes(node.data.subcanvas.nodes);
+      }
+    });
+  };
+  
+  processNodes(diagram.nodes || []);
 }
 
 /**
@@ -161,7 +184,8 @@ async function saveBundleFile(
   bundlePath: string,
   diagram: any,
   saveActiveSheetDoc: (doc: any) => void,
-  getAllSheets: () => any
+  getAllSheets: () => any,
+  t: (key: string, options?: Record<string, any>) => string
 ): Promise<void> {
   try {
     saveActiveSheetDoc(diagram);
@@ -170,12 +194,12 @@ async function saveBundleFile(
     const bundleRes = await saveSheetsBundleToPath(bundlePath, bundle);
     console.log('[SKILL_IO][BUNDLE_SAVE_RESULT]', { path: bundlePath, success: true, mode: bundleRes.mode });
     const msg = bundleRes.mode === 'ipc'
-      ? `Bundle saved: ${bundleRes.filePath || bundlePath}`
-      : 'Bundle downloaded.';
+      ? t('save.bundleSaved', { path: bundleRes.filePath || bundlePath })
+      : t('save.bundleDownloaded');
     try { Toast.success({ content: msg }); } catch {}
   } catch (e) {
     console.warn('[SKILL_IO][BUNDLE_SAVE_ERROR]', (e as Error).message);
-    try { Toast.error({ content: 'Bundle save failed.' }); } catch {}
+    try { Toast.error({ content: t('save.bundleSaveFailed') }); } catch {}
   }
 }
 
@@ -264,13 +288,29 @@ export async function saveFile(
   bundleJson?: string | null
 ) {
   try {
-    console.log('--- Debug Save: Data to Save ---', dataToSave);
+    console.log('[SKILL_IO][SAVE_V2] saveFile called', {
+      platform: detectPlatform(),
+      hasCurrentPath: !!currentFilePath,
+      currentFilePath,
+      skillName: dataToSave.skillName,
+    });
     const jsonString = JSON.stringify(dataToSave, null, 2);
     // console.log('--- Debug Save: Final JSON String ---', jsonString);
 
     if (detectPlatform() === 'web') {
       try {
         let filePath = currentFilePath;
+        // Defense-in-depth: rewrite flat my_skills paths to nested convention
+        if (filePath) {
+          const normCheck = String(filePath).replace(/\\/g, '/');
+          if (!normCheck.includes('/diagram_dir/') && normCheck.includes('/my_skills/')) {
+            const fileName = normCheck.split('/').pop() || '';
+            const base = fileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+            const parentDir = normCheck.replace(/\/[^/]+$/, '');
+            filePath = `${parentDir}/${base}_skill/diagram_dir/${base}_skill.json`;
+            console.log('[SKILL_IO][FRONTEND][WEB_PATH_REWRITE] Flat path rewritten to nested:', filePath);
+          }
+        }
         if (!filePath) {
           filePath = buildWebSkillPath(dataToSave.skillName, _username);
           console.log('[SKILL_IO][FRONTEND][WEB_DEFAULT_PATH]', filePath);
@@ -303,23 +343,50 @@ export async function saveFile(
         const ipcApi = IPCAPI.getInstance();
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;
+        // Defense-in-depth: if filePath is set but flat (no diagram_dir), rewrite to nested
+        if (filePath) {
+          const normCheck = String(filePath).replace(/\\/g, '/');
+          if (!normCheck.includes('/diagram_dir/') && normCheck.includes('/my_skills/')) {
+            const fileName = normCheck.split('/').pop() || '';
+            const base = fileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+            const parentDir = normCheck.replace(/\/[^/]+$/, '');
+            filePath = `${parentDir}/${base}_skill/diagram_dir/${base}_skill.json`;
+            console.log('[SKILL_IO][FRONTEND][PATH_REWRITE] Flat path rewritten to nested:', filePath);
+          }
+        }
         if (!filePath) {
-          // 问题2FIX: 不要在Default文件名中Add _skill 后缀
-          // UserInput的Name就是文件夹Name，Backend会自动Add _skill 后缀到文件夹
-          const fileName = (dataToSave.skillName || 'untitled') + '.json';
-          console.log('[SKILL_IO][FRONTEND][DEFAULT_FILENAME]', fileName);
-          const dialogResponse = await ipcApi.showSaveDialog(fileName, [
+          // First-time save: show native dialog with a default path that follows
+          // the nested convention: my_skills/<name>_skill/diagram_dir/<name>_skill.json
+          const baseName = normalizeSkillBaseName(dataToSave.skillName);
+          const defaultFileName = `${baseName}_skill.json`;
+          console.log('[SKILL_IO][FRONTEND][FIRST_SAVE] Showing save dialog, default:', defaultFileName);
+          const dialogResponse = await ipcApi.showSaveDialog(defaultFileName, [
             { name: 'Skill Files', extensions: ['json'] },
             { name: 'All Files', extensions: ['*'] }
           ]);
-          if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
-            filePath = (dialogResponse.data as any).filePath || (dialogResponse.data as any).filePaths?.[0];
+          if (dialogResponse.success && dialogResponse.data && !(dialogResponse.data as any).cancelled) {
+            const chosenPath = (dialogResponse.data as any).filePath || (dialogResponse.data as any).filePaths?.[0];
+            if (chosenPath) {
+              // If user picked a flat path (e.g. my_skills/foo_skill.json), rewrite it
+              // to the nested convention: my_skills/foo_skill/diagram_dir/foo_skill.json
+              const norm = String(chosenPath).replace(/\\/g, '/');
+              if (!norm.includes('/diagram_dir/')) {
+                // Extract the base name from the chosen file name
+                const chosenFileName = norm.split('/').pop() || '';
+                const chosenBase = chosenFileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+                const parentDir = norm.replace(/\/[^/]+$/, ''); // directory user saved into
+                filePath = `${parentDir}/${chosenBase}_skill/diagram_dir/${chosenBase}_skill.json`;
+                console.log('[SKILL_IO][FRONTEND][FIRST_SAVE] Rewritten to nested path:', filePath);
+              } else {
+                filePath = chosenPath;
+              }
+            }
           } else {
-            console.log('Save operation was cancelled by user');
+            console.log('[SKILL_IO][FRONTEND] Save cancelled by user');
             return { cancelled: true };
           }
         }
-        // Enforce _skill.json suffix
+        // Existing file: enforce _skill.json suffix
         if (filePath) {
           if (/\.(json)$/i.test(filePath) && !/_skill\.json$/i.test(filePath)) {
             filePath = filePath.replace(/\.json$/i, '_skill.json');
@@ -459,6 +526,14 @@ async function syncSkillToDBAndStore(
 
     console.log('[SKILL_IO][DB_SYNC] Syncing skill to DB:', skillPayload.name, 'id:', skillPayload.id);
 
+    // For brand-new skills there is no DB record yet (no skill ID).
+    // save_agent_skill requires an ID, so skip to avoid "Skill ID is required" error.
+    // The backend will create the DB entry on the next sync_skill_from_file call.
+    if (!skillPayload.id) {
+      console.log('[SKILL_IO][DB_SYNC] No skill ID — skipping save_agent_skill for new skill');
+      return;
+    }
+
     const resp = await api.saveAgentSkill(owner, skillPayload);
 
     if (resp && resp.success) {
@@ -500,6 +575,7 @@ async function syncSkillToDBAndStore(
 }
 
 export const Save = ({ disabled }: SaveProps) => {
+  const { t } = useTranslation('skillEditor');
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
@@ -578,7 +654,7 @@ export const Save = ({ disabled }: SaveProps) => {
           dataMappingForSave = JSON.stringify(parsed, null, 2);
         } catch (e) {
           console.error('[Save] data_mapping.json invalid', e);
-          try { Toast.error({ content: 'data_mapping.json is invalid JSON. Fix it before saving.' }); } catch {}
+          try { Toast.error({ content: t('save.invalidMapping') }); } catch {}
           return;
         }
       } else {
@@ -647,7 +723,7 @@ export const Save = ({ disabled }: SaveProps) => {
         }
 
         console.log('[SKILL_IO][SAVE_DONE]');
-        try { Toast.success({ content: 'Skill saved.' }); } catch {}
+        try { Toast.success({ content: t('save.saved') }); } catch {}
 
         // Sync to local DB + cloud DB and update Skills page store
         await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
@@ -655,7 +731,7 @@ export const Save = ({ disabled }: SaveProps) => {
         // 6. Save bundle (web mode batch already handled)
         if (detectPlatform() !== 'web') {
           const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
-          await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets);
+          await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets, t);
         }
       }
     } catch (error) {
@@ -685,7 +761,7 @@ export const Save = ({ disabled }: SaveProps) => {
   ]);
 
   return (
-    <Tooltip content="Save">
+    <Tooltip content={t('toolbar.save')}>
       <IconButton
         type="tertiary"
         theme="borderless"
@@ -698,6 +774,7 @@ export const Save = ({ disabled }: SaveProps) => {
 };
 
 export const SaveAs = ({ disabled }: SaveProps) => {
+  const { t } = useTranslation('skillEditor');
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
@@ -720,7 +797,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
   const handleSaveAs = useCallback(async () => {
     if (!skillInfo) {
-      Toast.warning({ content: 'No skill to save.' });
+      Toast.warning({ content: t('saveAs.noSkill') });
       return;
     }
 
@@ -746,12 +823,12 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           let modalInstance: ReturnType<typeof Modal.confirm> | null = null;
 
           modalInstance = Modal.confirm({
-            title: 'Save Skill As',
+            title: t('saveAs.title'),
             content: (
               <div style={{ marginTop: 16 }}>
-                <p style={{ marginBottom: 8 }}>Enter new skill name (without _skill suffix):</p>
+                <p style={{ marginBottom: 8 }}>{t('saveAs.nameLabel')}</p>
                 <Input
-                  placeholder="e.g., shopify_fulfill"
+                  placeholder={t('saveAs.namePlaceholder')}
                   autoFocus
                   onChange={(value) => { inputValue = value; }}
                   onEnterPress={() => {
@@ -763,8 +840,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
                 />
               </div>
             ),
-            okText: 'Save',
-            cancelText: 'Cancel',
+            okText: t('saveAs.okText'),
+            cancelText: t('saveAs.cancelText'),
             onOk: () => {
               modalInstance?.destroy();
               resolve(inputValue.trim() || null);
@@ -789,8 +866,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           const exists = await ipcApi.checkSkillExists(newSkillName);
           if (exists?.data?.exists) {
             Modal.warning({
-              title: 'Skill Already Exists',
-              content: `A skill named "${newSkillName}" already exists. Please choose a different name.`,
+              title: t('saveAs.alreadyExistsTitle'),
+              content: t('saveAs.alreadyExistsContent', { name: newSkillName }),
             });
             return;
           }
@@ -859,7 +936,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           dataMappingForSave = JSON.stringify(parsed, null, 2);
         } catch (e) {
           console.error('[SaveAs] data_mapping.json invalid', e);
-          Toast.error({ content: 'data_mapping.json is invalid JSON. Fix it before saving.' });
+          Toast.error({ content: t('save.invalidMapping') });
           return;
         }
       } else {
@@ -958,14 +1035,14 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       addRecentFile(createRecentFile(finalDiagramPath, newSkillName));
 
       console.log('[SKILL_IO][SAVEAS_DONE]', { finalDiagramPath, newSkillName });
-      Toast.success({ content: `Skill saved as "${newSkillName}"` });
+      Toast.success({ content: t('saveAs.savedAs', { name: newSkillName }) });
 
       // Sync to local DB + cloud DB and update Skills page store
       await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
       
     } catch (error) {
       console.error('Failed to save as:', error);
-      Toast.error({ content: `Save As failed: ${error}` });
+      Toast.error({ content: t('saveAs.saveFailed', { error: String(error) }) });
     }
   }, [
     skillInfo,
@@ -985,7 +1062,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   ]);
 
   return (
-    <Tooltip content="Save As">
+    <Tooltip content={t('toolbar.saveAs')}>
       <IconButton
         type="tertiary"
         theme="borderless"

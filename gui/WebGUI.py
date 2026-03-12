@@ -1005,7 +1005,11 @@ class WebGUI(QMainWindow):
         """Set a custom title bar and integrate the menu bar into it"""
         try:
             # Hide default title bar
-            self.setWindowFlags(Qt.FramelessWindowHint)
+            # IMPORTANT (Linux): keep the top-level "window" flag.
+            # If we replace flags with only FramelessWindowHint, Qt may drop the
+            # Qt.Window bit, which can cause the window to not appear in the taskbar
+            # and/or lose the proper taskbar icon association.
+            self.setWindowFlags((self.windowFlags() | Qt.Window) | Qt.FramelessWindowHint)
 
             # Create custom title bar container
             self.custom_titlebar = QWidget()
@@ -1204,44 +1208,70 @@ class WebGUI(QMainWindow):
 
 
     def _set_window_icon(self):
-        """Set window icon using IconManager for proper platform-specific handling"""
+        """Set window icon using IconManager for proper platform-specific handling."""
         try:
             from utils.icon_manager import get_icon_manager
             icon_manager = get_icon_manager()
             icon_manager.set_logger(logger)
 
-            if icon_manager.icon_path:
-                window_icon = QIcon(icon_manager.icon_path)
+            window_icon = icon_manager.get_icon_for_window()
+            if not window_icon.isNull():
                 self.setWindowIcon(window_icon)
-                logger.debug(f"WebGUI window icon set: {icon_manager.icon_path}")
+                logger.info(f"[IconManager] WebGUI window icon set: {icon_manager.icon_path or 'resolved'}")
+                # Linux: set again after a short delay so the window has a native handle
+                if sys.platform.startswith("linux"):
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(300, self._set_window_icon_linux_delayed)
             else:
-                logger.warning("No icon found for WebGUI window")
+                logger.warning("[IconManager] No icon found for WebGUI window (icon_path=%s)", getattr(icon_manager, 'icon_path', None))
 
         except Exception as e:
             logger.error(f"Failed to set WebGUI window icon: {e}")
 
-    def _set_titlebar_icon(self):
-        """Set titlebar icon using eCan icon"""
+    def _set_window_icon_linux_delayed(self):
+        """Re-apply window icon on Linux after window is mapped (helps taskbar/dock)."""
         try:
+            from utils.icon_manager import get_icon_manager
+            icon_mgr = get_icon_manager()
+            icon = icon_mgr.get_icon_for_window()
+            if not icon.isNull():
+                self.setWindowIcon(icon)
+                logger.debug("[WebGUI] Linux delayed window icon applied")
+        except Exception:
+            pass
+
+    def _set_titlebar_icon(self):
+        """Set titlebar icon using eCan icon (tries multiple base paths for dev)."""
+        try:
+            from utils.icon_manager import get_icon_manager
+            icon_mgr = get_icon_manager()
+            if icon_mgr.icon_path and hasattr(self, 'app_icon'):
+                pixmap = QPixmap(icon_mgr.icon_path)
+                if not pixmap.isNull():
+                    target_size = 18
+                    scaled_pixmap = pixmap.scaled(target_size, target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self.app_icon.setPixmap(scaled_pixmap)
+                    self.app_icon.setAlignment(Qt.AlignCenter)
+                    logger.debug(f"Titlebar icon set: {icon_mgr.icon_path}")
+                    return
+            # Fallback: try same bases as IconManager
             from config.app_info import app_info
             resource_path = app_info.app_resources_path
-
-            # Use inverted PNG icons for titlebar (better visibility on dark background)
             icon_candidates = [
                 os.path.join(resource_path, "images", "logos", "taskbar_32x32_inverted.png"),
-                os.path.join(resource_path, "images", "logos", "taskbar_16x16_inverted.png"),
                 os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
-                os.path.join(resource_path, "images", "logos", "taskbar_16x16.png"),
                 os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
                 os.path.join(os.path.dirname(resource_path), "eCan.ico"),
             ]
-
-            # Find first existing icon
             icon_path = None
             for candidate in icon_candidates:
                 if os.path.exists(candidate):
                     icon_path = candidate
                     break
+            if not icon_path:
+                cwd_res = os.path.join(os.getcwd(), "resource", "images", "logos", "desktop_256x256.png")
+                if os.path.exists(cwd_res):
+                    icon_path = cwd_res
 
             if icon_path and hasattr(self, 'app_icon'):
                 pixmap = QPixmap(icon_path)

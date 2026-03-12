@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { JSONSchema } from '../../../../stores/nodeStateSchemaStore';
 
 export interface NodeStatePanelProps {
@@ -16,8 +17,43 @@ function pathJoin(base: string, key: string | number) {
   return base ? `${base}.${String(key)}` : String(key);
 }
 
-export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, onChange, title = 'Node State' }) => {
+export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, onChange, title }) => {
+  const { t } = useTranslation('skillEditor');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ root: true });
+
+  // Translate common field names
+  const translateFieldName = (fieldName: string): string => {
+    const fieldMap: Record<string, string> = {
+      // Basic fields
+      'attributes': t('nodeState.fields.attributes'),
+      'metadata': t('nodeState.fields.metadata'),
+      'tool_input': t('nodeState.fields.toolInput'),
+      'tool_output': t('nodeState.fields.toolOutput'),
+      'state': t('nodeState.fields.state'),
+      'input': t('nodeState.fields.input'),
+      'output': t('nodeState.fields.output'),
+      'result': t('nodeState.fields.result'),
+      'data': t('nodeState.fields.data'),
+      'config': t('nodeState.fields.config'),
+      'options': t('nodeState.fields.options'),
+      'params': t('nodeState.fields.params'),
+      'root': t('nodeState.fields.root'),
+      // Runtime data fields
+      'attachments': t('nodeState.fields.attachments'),
+      'prompts': t('nodeState.fields.prompts'),
+      'prompt_refs': t('nodeState.fields.promptRefs'),
+      'history': t('nodeState.fields.history'),
+      'messages': t('nodeState.fields.messages'),
+      'threads': t('nodeState.fields.threads'),
+      'context': t('nodeState.fields.context'),
+      'session': t('nodeState.fields.session'),
+      'cache': t('nodeState.fields.cache'),
+      'errors': t('nodeState.fields.errors'),
+      'warnings': t('nodeState.fields.warnings'),
+      'logs': t('nodeState.fields.logs')
+    };
+    return fieldMap[fieldName] || fieldName;
+  };
   const [panelCollapsed, setPanelCollapsed] = useState<boolean>(true);
   const [pendingAdd, setPendingAdd] = useState<Record<string, { key: string; type: 'int' | 'float' | 'boolean' | 'string' | 'list' | 'dict'; tempValue?: any; error?: string } | undefined>>({});
   const [pendingArrayType, setPendingArrayType] = useState<Record<string, 'int' | 'float' | 'boolean' | 'string' | 'list' | 'dict'>>({});
@@ -120,7 +156,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
         <div className="ns-node" key={p} style={{ paddingLeft: depth * 12 }}>
           <div className="ns-node-header" style={{ color: textColor }}>
             <button className="ns-toggle" onClick={() => toggle(p)}>{open ? '▾' : '▸'}</button>
-            <span className="ns-key">{keyLabel || nodeSchema?.title || p || 'root'}</span>
+            <span className="ns-key">{translateFieldName(keyLabel || nodeSchema?.title || p || 'root')}</span>
             {canAddRemove && (
               <button
                 className="ns-add"
@@ -129,17 +165,17 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                   setPendingAdd((s) => ({ ...s, [p]: { key: '', type: 'string', tempValue: '' } }));
                   setExpanded((s) => ({ ...s, [p]: true }));
                 }}
-              >+ Add</button>
+              >{t('nodeState.add')}</button>
             )}
           </div>
           {open && (
             <div className="ns-children">
               {canAddRemove && pendingAdd[p] && !isArray && (
                 <div className="ns-add-row" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
-                  <span style={{ color: mutedText }}>New</span>
+                  <span style={{ color: mutedText }}>{t('nodeState.new')}</span>
                   <input
                     type="text"
-                    placeholder="key"
+                    placeholder={t('nodeState.key')}
                     style={{ ...inputStyle, width: 160 }}
                     value={pendingAdd[p]?.key || ''}
                     onChange={(e) => setPendingAdd((s) => ({ ...s, [p]: { ...(s[p] as any), key: e.target.value, error: undefined } }))}
@@ -170,7 +206,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                   {(['int','float','boolean','string'] as const).includes((pendingAdd[p]?.type as any)) && (
                     pendingAdd[p]?.type === 'boolean' ? (
                       <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: mutedText }}>
-                        <span>value</span>
+                        <span>{t('nodeState.value')}</span>
                         <input
                           type="checkbox"
                           checked={!!pendingAdd[p]?.tempValue}
@@ -180,7 +216,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                     ) : (
                       <input
                         type={pendingAdd[p]?.type === 'string' ? 'text' : 'number'}
-                        placeholder="value"
+                        placeholder={t('nodeState.value')}
                         style={{ ...inputStyle, width: 160 }}
                         value={pendingAdd[p]?.tempValue ?? ''}
                         onChange={(e) => setPendingAdd((s) => ({
@@ -196,11 +232,11 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                       const pad = pendingAdd[p]!;
                       const valueObj = isObject(nodeVal) ? (nodeVal as Record<string, any>) : {};
                       if (!pad.key) {
-                        setPendingAdd((s) => ({ ...s, [p]: { ...(s[p] as any), error: 'Key is required' } }));
+                        setPendingAdd((s) => ({ ...s, [p]: { ...(s[p] as any), error: t('nodeState.keyRequired') } }));
                         return;
                       }
                       if (valueObj[pad.key] !== undefined) {
-                        setPendingAdd((s) => ({ ...s, [p]: { ...(s[p] as any), error: 'Duplicate key' } }));
+                        setPendingAdd((s) => ({ ...s, [p]: { ...(s[p] as any), error: t('nodeState.duplicateKey') } }));
                         return;
                       }
                       const base = { ...valueObj } as Record<string, any>;
@@ -227,11 +263,11 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                       }
                       setPendingAdd((s) => ({ ...s, [p]: undefined }));
                     }}
-                  >Add</button>
+                  >{t('nodeState.add')}</button>
                   <button
                     className="ns-action-button"
                     onClick={() => setPendingAdd((s) => ({ ...s, [p]: undefined }))}
-                  >Cancel</button>
+                  >{t('nodeState.cancel')}</button>
                   {pendingAdd[p]?.error && (
                     <span style={{ color: '#d46b08', marginLeft: 8 }}>{pendingAdd[p]?.error}</span>
                   )}
@@ -239,7 +275,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
               )}
               {isArray && canAddRemove && (
                 <div className="ns-add-array" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
-                  <span style={{ color: mutedText }}>New item</span>
+                  <span style={{ color: mutedText }}>{t('nodeState.newItem')}</span>
                   <select
                     style={selectStyle}
                     value={pendingArrayType[p] || 'string'}
@@ -262,7 +298,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                       setExpanded((s)=>({ ...s, [p]: true }));
                       try { console.debug('[NodeStatePanel] added array item at', p, 'type', t); } catch (_) {}
                     }}
-                  >Add</button>
+                  >{t('nodeState.add')}</button>
                 </div>
               )}
               {isArray && Array.isArray(nodeVal) && nodeVal.map((item, idx) => (
@@ -277,7 +313,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                         next.splice(idx, 1);
                         onEdit(next);
                       }}
-                    >Remove</button>
+                    >{t('nodeState.remove')}</button>
                   </div>
                   {renderNode(nodeSchema?.items ?? {}, item, pathJoin(p, idx), (nv) => {
                     const next = [...nodeVal];
@@ -296,7 +332,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                   if (keys.length === 0) {
                     return (
                       <div className="ns-empty" style={{ color: '#999', fontStyle: 'italic', padding: '4px 8px' }}>
-                        (empty)
+                        {t('nodeState.empty')}
                       </div>
                     );
                   }
@@ -309,7 +345,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                             className="ns-action-button"
                             style={{ marginRight: 6 }}
                             onClick={() => {
-                              const newLabel = prompt('Rename key', k);
+                              const newLabel = prompt(t('nodeState.renameKey'), k);
                               if (!newLabel || newLabel === k) return;
                               const next = { ...valueObj } as Record<string, any>;
                               if (next[newLabel] === undefined) {
@@ -318,7 +354,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                                 onEdit(next);
                               }
                             }}
-                          >Rename</button>
+                          >{t('nodeState.rename')}</button>
                         )}
                         {canAddRemove && (
                           <button
@@ -329,7 +365,7 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
                               delete next[k];
                               onEdit(next);
                             }}
-                          >Remove</button>
+                          >{t('nodeState.remove')}</button>
                         )}
                       </div>
                       {renderNode((schemaProps || {})[k] ?? {}, valueObj[k], pathJoin(p, k), (nv) => {

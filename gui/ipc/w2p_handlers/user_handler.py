@@ -142,7 +142,8 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         is_session_replacement = existing_token is not None and ecan_mode != 'cloud'
         
         if is_session_replacement:
-            # Session replacement: Skip full login flow, just validate credentials and replace token
+            # Session replacement: Skip full login flow, but ALWAYS generate new token
+            # This ensures old sessions are properly invalidated (kicked offline)
             logger.info(f"[user_handler] 🔄 Session replacement detected for user: {username}")
             
             # Validate credentials directly via auth_manager (skip handleLogin to avoid re-initialization)
@@ -154,9 +155,11 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
                 logger.warning(f"Login failed for user {username}: {error_code}")
                 return create_error_response(request, 'INVALID_CREDENTIALS', message)
             
-            # Generate new token (this will invalidate the old one)
+            # IMPORTANT: Generate new token to invalidate old session
+            # The old token will be automatically deleted by token_manager.generate_token()
+            # This ensures the user is kicked offline from the previous location
             token = token_manager.generate_token(username, machine_role)
-            logger.info(f"[user_handler] ✅ Token replaced for user: {username} (skipped full initialization)")
+            logger.info(f"[user_handler] ✅ New token generated for user: {username} (old session invalidated)")
         else:
             # First login: Execute full login flow with initialization
             logger.info(f"[user_handler] 🆕 First login for user: {username}")

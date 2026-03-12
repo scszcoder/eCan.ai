@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
 import { IconOpenColored } from './colored-icons';
@@ -7,6 +8,7 @@ import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
@@ -28,6 +30,7 @@ interface OpenProps {
 }
 
 export const Open = ({ disabled }: OpenProps) => {
+  const { t } = useTranslation('skillEditor');
   const { document: workflowDocument } = useClientContext();
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
@@ -122,40 +125,65 @@ export const Open = ({ disabled }: OpenProps) => {
             workflowDocument.fromJSON(diagram);
           }
           
-          // Restore flip states from saved node data
+          // Restore flip states from saved node data (including subcanvas)
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           setTimeout(() => {
-            diagram.nodes.forEach((node: any) => {
-              if (node?.data?.hFlip === true) {
-                console.log('[Open] Restoring hFlip state for node:', node.id);
-                setFlipped(node.id, true);
-                const loadedNode = workflowDocument.getNode(node.id) as any;
-                if (loadedNode) {
-                  if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
-                  if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
-                  try {
-                    const form = (loadedNode as any).form;
-                    if (form?.patchValue) {
-                      form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
-                    }
-                  } catch {}
-                  try { (loadedNode as any).update?.(); } catch {}
+            // Recursive function to restore flip states for all nodes
+            const restoreFlipStates = (nodes: any[]) => {
+              nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) {
+                  console.log('[Open] Restoring hFlip state for node:', node.id);
+                  setFlipped(node.id, true);
+                  const loadedNode = workflowDocument.getNode(node.id) as any;
+                  if (loadedNode) {
+                    if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
+                    if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
+                    try {
+                      const form = (loadedNode as any).form;
+                      if (form?.patchValue) {
+                        form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
+                      }
+                    } catch {}
+                    try { (loadedNode as any).update?.(); } catch {}
+                  }
                 }
-              }
-            });
+                // Restore agentNote to note store
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                }
+                
+                // Recursively restore flip states for subcanvas nodes
+                if (node?.data?.subcanvas?.nodes) {
+                  restoreFlipStates(node.data.subcanvas.nodes);
+                }
+              });
+            };
+            restoreFlipStates(diagram.nodes);
           }, 100);
           
           workflowDocument.fitView && workflowDocument.fitView();
-          addRecentFile(createRecentFile(filePath, data.skillName || 'Skill'));
+          addRecentFile(createRecentFile(filePath, data.skillName || t('open.defaultSkillName')));
         } else {
           // Fallback for older formats
           workflowDocument.clear();
           workflowDocument.fromJSON(data as any);
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           if ((data as any).nodes) {
-            (data as any).nodes.forEach((node: any) => {
-              if (node?.data?.hFlip === true) setFlipped(node.id, true);
-            });
+            // Recursive function to restore flip states and notes
+            const restoreStates = (nodes: any[]) => {
+              nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) setFlipped(node.id, true);
+                if (node?.data?.agentNote) {
+                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                }
+                if (node?.data?.subcanvas?.nodes) {
+                  restoreStates(node.data.subcanvas.nodes);
+                }
+              });
+            };
+            restoreStates((data as any).nodes);
           }
           workflowDocument.fitView && workflowDocument.fitView();
           setSkillInfo(data);
@@ -167,7 +195,7 @@ export const Open = ({ disabled }: OpenProps) => {
       }, 0); // End of setTimeout - delay to allow React to settle
     } else {
       console.error('[Open] Failed to load file:', result.error);
-      try { Toast.error({ content: result.error || 'Failed to load skill file.' }); } catch {}
+      try { Toast.error({ content: result.error || t('open.failedLoadFile') }); } catch {}
     }
   }, [
     addRecentFile,
@@ -201,7 +229,7 @@ export const Open = ({ disabled }: OpenProps) => {
       setPickerItems(items || []);
     } catch (error) {
       console.error('[Open][WebPicker] Failed to list skills:', error);
-      try { Toast.error({ content: 'Failed to load skills from S3.' }); } catch {}
+      try { Toast.error({ content: t('open.failedLoadSkills') }); } catch {}
     } finally {
       setPickerLoading(false);
     }
@@ -216,7 +244,7 @@ export const Open = ({ disabled }: OpenProps) => {
       setPickerVisible(false);
     } catch (error) {
       console.error('[Open][WebPicker] Failed to open skill:', error);
-      try { Toast.error({ content: 'Failed to open selected skill.' }); } catch {}
+      try { Toast.error({ content: t('open.failedOpenSkill') }); } catch {}
     } finally {
       setPickerOpenLoading(false);
     }
@@ -244,7 +272,7 @@ export const Open = ({ disabled }: OpenProps) => {
           if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
           console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
           console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', skillNameFromBackend);
-          try { Toast.info({ content: `Opening: ${skillNameFromBackend || String(filePath).split('\\').pop()}` }); } catch {}
+          try { Toast.info({ content: `${t('open.tooltip')}: ${skillNameFromBackend || String(filePath).split('\\').pop()}` }); } catch {}
 
           // Use unified skill loader (handles migration and auto-save automatically)
           const result = await loadSkillFile(filePath);
@@ -254,13 +282,13 @@ export const Open = ({ disabled }: OpenProps) => {
         return; // handled IPC path in desktop mode
     } catch (e) {
       console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
-      try { Toast.error({ content: 'Failed to open file dialog.' }); } catch {}
+      try { Toast.error({ content: t('open.failedOpenDialog') }); } catch {}
     };
   }, [applyLoadedSkill, openWebPicker]);
 
   // Modal is now rendered in OpenPickerModal at Editor level to survive error boundary recovery
   return (
-    <Tooltip content="Open">
+    <Tooltip content={t('open.tooltip')}>
       <IconButton
         type="tertiary"
         theme="borderless"

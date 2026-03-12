@@ -141,40 +141,29 @@ class IPCHandlerRegistry:
 
     @classmethod
     def _validate_token(cls, request: IPCRequest, params: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
-        """Validate token (optimized version)
+        """Validate token from request.token (standard approach)
+        
+        Token should be in request.token, extracted from HTTP Authorization header.
+        No fallback to params to avoid masking issues.
 
         Returns:
             Tuple[bool, Optional[str]]: (is valid, error message)
         """
         try:
-            # Optimization: fast path - get token directly from params
+            # Get token from request.token (standard design)
             token = None
-            if params and isinstance(params, dict):
-                token = params.get('token')
-                if token:
-                    # Fast validation path
-                    if token_manager.validate_token(token):
-                        return True, None
-                    else:
-                        return False, "INVALID_TOKEN"
-
-            # Fallback path: find token from request
             if isinstance(request, dict):
-                # Check top-level token field first
                 token = request.get('token')
-                if not token:
-                    # Then check token in args
-                    args = request.get('args', {})
-                    if isinstance(args, dict):
-                        token = args.get('token')
-
+            
             if not token:
+                logger.warning(f"[registry] TOKEN_REQUIRED: No token in request.token")
                 return False, "TOKEN_REQUIRED"
-
-            # Use token_manager to validate token
+            
+            # Validate token
             if token_manager.validate_token(token):
                 return True, None
             else:
+                logger.warning(f"[registry] INVALID_TOKEN: Token validation failed for {token[:8]}...")
                 return False, "INVALID_TOKEN"
 
         except Exception as e:
@@ -269,17 +258,9 @@ class IPCHandlerRegistry:
         if 'id' not in request:
             request['id'] = f"middleware_check_{method}"
 
-        # Optimization: check system ready status first (usually faster, and has cache)
-        system_ready, system_error = cls._check_system_ready()
-        if not system_ready:
-            # Reduce log output to improve performance, only log when needed
-            logger.debug(f"[registry] System not ready for method {method}: {system_error}")
-            return create_error_response(
-                request,
-                system_error or 'SYSTEM_NOT_READY',
-                f"System not ready for method {method}"
-            )
-
+        # IMPORTANT: Token validation MUST come BEFORE system ready check
+        # This ensures unauthenticated users see login prompt instead of "system not ready"
+        
         # In web mode, allow authenticated session_id to bypass token requirement
         if os.getenv("ECAN_MODE", "desktop") == "web":
             session_id = _find_session_id(request, params)
@@ -287,7 +268,8 @@ class IPCHandlerRegistry:
                 try:
                     from gui.context.session_manager import SessionManager
                     if SessionManager.get_instance().get_context(session_id):
-                        return None
+                        # Valid session, skip token validation
+                        pass
                     else:
                         return create_error_response(
                             request,
@@ -296,15 +278,36 @@ class IPCHandlerRegistry:
                         )
                 except Exception as e:
                     logger.error(f"[registry] Error validating session_id {session_id}: {e}")
+            else:
+                # No session_id in web mode, validate token
+                token_valid, token_error = cls._validate_token(request, params)
+                if not token_valid:
+                    logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
+                    return create_error_response(
+                        request,
+                        token_error or 'TOKEN_INVALID',
+                        f"Token validation failed for method {method}"
+                    )
+        else:
+            # Desktop mode: always validate token
+            token_valid, token_error = cls._validate_token(request, params)
+            if not token_valid:
+                logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
+                return create_error_response(
+                    request,
+                    token_error or 'TOKEN_INVALID',
+                    f"Token validation failed for method {method}"
+                )
 
-        # Token validation (after system check, as token validation is not needed when system is not ready)
-        token_valid, token_error = cls._validate_token(request, params)
-        if not token_valid:
-            logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
+        # Check system ready status AFTER token validation
+        # This ensures authenticated users see appropriate initialization messages
+        system_ready, system_error = cls._check_system_ready()
+        if not system_ready:
+            logger.debug(f"[registry] System not ready for method {method}: {system_error}")
             return create_error_response(
                 request,
-                token_error or 'TOKEN_INVALID',
-                f"Token validation failed for method {method}"
+                system_error or 'SYSTEM_NOT_READY',
+                f"System not ready for method {method}"
             )
 
         return None
@@ -510,7 +513,7 @@ class IPCHandlerRegistry:
         return True
 
     @classmethod
-    async def handle_graphql_request(cls, method: str, variables: Dict[str, Any]) -> Any:
+    async def handle_graphql_request(cls, method: str, variables: Dict[str, Any], request: Optional[IPCRequest] = None) -> Any:
         """Handle GraphQL request from LocalServer or AppSync Lambda
         
         Converts GraphQL request to IPC format, processes it, and returns result directly.
@@ -519,6 +522,7 @@ class IPCHandlerRegistry:
         Args:
             method: API method name (e.g., 'readSkillFile', 'getAgents')
             variables: GraphQL variables/arguments
+            request: Optional IPC request with token from Authorization header
             
         Returns:
             Direct result data (for GraphQL response wrapping)
@@ -527,13 +531,8 @@ class IPCHandlerRegistry:
             Exception: If handler execution fails (GraphQL will wrap as error)
         """
         try:
-            # Create IPC request format
-            ipc_request: IPCRequest = {
-                'id': f'graphql_{method}',
-                'method': method,
-                'params': variables,
-                'source': 'graphql'
-            }
+            # Use the provided IPC request (contains token from Authorization header)
+            ipc_request = request
             
             # Get handler
             handler_info = cls.get_handler(method)

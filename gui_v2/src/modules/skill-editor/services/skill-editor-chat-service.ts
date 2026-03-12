@@ -431,7 +431,14 @@ class SkillEditorChatService {
       );
       
       if (response.success) {
-        return response.data === true;
+        const result = response.data as any;
+        if (result === true) {
+          return true;
+        }
+        if (result && typeof result === 'object') {
+          return result.deleted === true || result.success === true;
+        }
+        return Boolean(result);
       }
       
       return false;

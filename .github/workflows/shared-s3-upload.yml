@@ -40,6 +40,11 @@ on:
         required: false
         type: string
         default: 'success'
+      linux-build-result:
+        description: 'Result of Linux build job'
+        required: false
+        type: string
+        default: 'success'
     outputs:
       upload-success:
         description: 'Whether upload was successful'
@@ -54,7 +59,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Set up Python
         uses: actions/setup-python@v5

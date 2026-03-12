@@ -8,7 +8,12 @@ import { Chat, Member } from '../types/chat';
 import SearchFilter from '../../../components/Common/SearchFilter';
 import AgentAnimation from './AgentAnimation';
 import { useAgentStore } from '../../../stores/agentStore';
+import { useUserStore } from '../../../stores/userStore';
 import { GroupIconColored } from './GroupIcon';
+
+// DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
+// Previously used: const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
+// Now using: const currentUserId = username ? `system_${username}` : 'system_user';
 
 const { Text } = Typography;
 
@@ -453,17 +458,15 @@ const ChatList: React.FC<ChatListProps> = ({
         setIsDeleteConfirmOpen(true);
     };
     
-    // Get My Twin Agent ID
-    const getMyTwinAgent = useAgentStore((state) => state.getMyTwinAgent);
-    const myTwinAgent = getMyTwinAgent();
-    const myTwinAgentId = myTwinAgent?.card?.id;
+    const username = useUserStore((state) => state.username) || 'default_user';
+    const currentUserId = username ? `system_${username}` : 'system_user';
     
     // Get member names combined, with priority agent first
     const getMemberNames = (members: Member[], chatName?: string, priorityAgentId?: string): string => {
         if (!members || members.length === 0) return chatName || '';
         
-        // Filter out My Twin Agent from members
-        const filteredMembers = members.filter(m => m.userId !== myTwinAgentId);
+        // Filter out current user from members
+        const filteredMembers = members.filter(m => m.userId !== currentUserId);
         
         if (filteredMembers.length === 0) {
             // If only My Twin Agent, show chat name
@@ -517,8 +520,8 @@ const ChatList: React.FC<ChatListProps> = ({
             return <GroupIconColored size={40} />;
         }
         
-        // Filter out My Twin Agent from members
-        const filteredMembers = members.filter(m => m.userId !== myTwinAgentId);
+        // Filter out current user from members
+        const filteredMembers = members.filter(m => m.userId !== currentUserId);
         
         if (filteredMembers.length === 0) {
             // If only My Twin Agent, show default group icon

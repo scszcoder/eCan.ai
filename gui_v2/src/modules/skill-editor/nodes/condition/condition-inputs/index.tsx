@@ -10,6 +10,7 @@ import { FieldArray } from '@flowgram.ai/free-layout-editor';
 import { ConditionRowValueType } from '@flowgram.ai/form-materials';
 import { Button, Select, Input } from '@douyinfe/semi-ui';
 import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
+import { useTranslation } from 'react-i18next';
 
 import { useNodeRenderContext } from '../../../hooks';
 // No port rendering here; ports are handled by engine via node meta defaultPorts
@@ -51,6 +52,7 @@ const sortConditions = (conditions: ConditionValue[]): ConditionValue[] => {
 };
 
 export function ConditionInputs() {
+  const { t } = useTranslation('skillEditor');
   const { readonly } = useNodeRenderContext();
 
   const handleValueChange = useCallback((field: any, value: ConditionValue, newValue: any) => {
@@ -97,7 +99,7 @@ export function ConditionInputs() {
                       <div style={{ width: '100%' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', maxWidth: '100%', paddingRight: 36, boxSizing: 'border-box', overflow: 'hidden' }}>
                           {isElse ? (
-                            <div style={{ flex: 1, color: 'var(--semi-color-text-2)' }}>Else branch</div>
+                            <div style={{ flex: 1, color: 'var(--semi-color-text-2)' }}>{t('nodes.condition.elseBranch')}</div>
                           ) : (
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: '100%' }}>
                               {/* Mode selector */}
@@ -117,8 +119,8 @@ export function ConditionInputs() {
                               }
                             }}
                             optionList={[
-                              { label: 'state.condition', value: 'state.condition' },
-                              { label: 'custom expression', value: 'custom' },
+                              { label: t('nodes.condition.modes.stateCondition'), value: 'state.condition' },
+                              { label: t('nodes.condition.modes.custom'), value: 'custom' },
                             ]}
                             disabled={readonly}
                             size="small"
@@ -130,7 +132,7 @@ export function ConditionInputs() {
                             <Input
                               value={(value.value as any)?.expr || ''}
                               onChange={(val) => handleValueChange(field, value, { ...(value.value as any), mode: 'custom', expr: val })}
-                              placeholder={'Enter condition expression'}
+                              placeholder={t('nodes.condition.conditionPlaceholder')}
                               disabled={readonly}
                               style={{ width: '100%' }}
                             />
@@ -179,7 +181,7 @@ export function ConditionInputs() {
                     field.onChange(sortConditions(newValue));
                   }}
                 >
-                  Add elsif
+                  {t('nodes.condition.addElsif')}
                 </Button>
               </div>
             )}

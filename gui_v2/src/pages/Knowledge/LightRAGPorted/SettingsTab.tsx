@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Button, Modal, message } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal, Alert } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -13,12 +13,11 @@ import {
   SortAscendingOutlined,
   ExperimentOutlined,
   QuestionCircleOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { FIELDS_BY_TAB, FieldConfig, PROVIDER_BASED_TABS } from './settingsConfig';
+import WorkspaceSelector from './WorkspaceSelector';
 import ProviderSelector from './ProviderSelector';
 import {
   RERANKING_PROVIDERS, RERANKING_COMMON_FIELDS,
@@ -29,6 +28,7 @@ import {
   ProviderConfig
 } from './providerConfig';
 import { Card } from 'antd';
+import HelpDialog from './HelpDialog';
 
 // Helper to merge static providers with system providers
 // Preserves static config (rich UI) for known providers, adds new ones from system
@@ -95,11 +95,21 @@ interface Workspace {
   created_at: number;
 }
 
+interface StartupStatus {
+  running: boolean;
+  ok: boolean;
+  message: string;
+  error_type: string;
+  timestamp: number;
+}
+
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
+  const [helpDialogVisible, setHelpDialogVisible] = useState(false);
   const savedScrollPosition = useRef<number>(0);
   const restoringRef = useRef(false);
   const initialLoadRef = useRef(true);
@@ -356,6 +366,20 @@ const SettingsTab: React.FC = () => {
       
       // Update local state
       setSettings(newSettings);
+      
+      // Restart LightRAG server to apply new workspace settings
+      console.log('[Workspace Switch] Restarting LightRAG server...');
+      try {
+        const restartResponse = await get_ipc_api().lightragApi.restartServer({});
+        if (restartResponse.success) {
+          console.log('[Workspace Switch] ✅ LightRAG server restarted successfully');
+        } else {
+          console.warn('[Workspace Switch] ⚠️ Server restart failed, but continuing');
+        }
+      } catch (restartError) {
+        console.error('[Workspace Switch] ❌ Error restarting server:', restartError);
+        // Don't fail the workspace switch if restart fails
+      }
       
       // Reload workspaces list
       await loadWorkspaces();
@@ -863,6 +887,18 @@ const SettingsTab: React.FC = () => {
     }
   };
 
+  const loadStartupStatus = async () => {
+    try {
+      const response = await get_ipc_api().lightragApi.getStartupStatus<StartupStatus>();
+      if (response.success && response.data) {
+        console.log('[SettingsTab] Startup status received:', response.data);
+        setStartupStatus(response.data);
+      }
+    } catch (e) {
+      console.error('Failed to load startup status:', e);
+    }
+  };
+
   const handleDeleteWorkspace = async (workspaceName: string) => {
     modal.confirm({
       title: t('pages.knowledge.settings.workspace.deleteTitle'),
@@ -895,6 +931,15 @@ const SettingsTab: React.FC = () => {
 
   useEffect(() => {
     loadWorkspaces();
+    loadStartupStatus();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadStartupStatus();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   const handleSave = async () => {
@@ -971,11 +1016,13 @@ const SettingsTab: React.FC = () => {
       
       if (response.success) {
         message.success(t('pages.knowledge.settings.restartSuccess'));
+        await loadStartupStatus();
       } else {
         throw new Error(response.error?.message || 'Unknown error');
       }
     } catch (e: any) {
       message.error(t('pages.knowledge.settings.restartError') + ': ' + (e.message || String(e)));
+      await loadStartupStatus();
     }
   };
 
@@ -1189,66 +1236,27 @@ const SettingsTab: React.FC = () => {
               <BlockOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
               {t('pages.knowledge.settings.workspace.tooltip')}
             </h3>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
-                <Select
-                  value={(() => {
-                    const val = settings['WORKSPACE'];
-                    // Ensure value is always a string, not an array
-                    if (Array.isArray(val)) {
-                      return val[0] || 'space1';
-                    }
-                    return val || 'space1';
-                  })()}
-                  placeholder="space1"
-                  onChange={(val) => updateSetting('WORKSPACE', val)}
-                  style={{ flex: 1 }}
-                  size="small"
-                  loading={workspaceLoading}
-                  showSearch
-                  allowClear={false}
-                  options={workspaces.map(ws => ({
-                    label: ws.name + (!ws.is_valid ? ' (empty)' : ''),
-                    value: ws.name
-                  }))}
-                />
-                <Tooltip title={t('pages.knowledge.settings.workspace.refresh')}>
-                  <Button
-                    icon={<ReloadOutlined />}
-                    onClick={loadWorkspaces}
-                    loading={workspaceLoading}
-                    size="small"
-                  />
-                </Tooltip>
-                {settings['WORKSPACE'] && (
-                  <Tooltip title={t('pages.knowledge.settings.workspace.delete')}>
-                    <Button
-                      icon={<DeleteOutlined />}
-                      onClick={() => handleDeleteWorkspace(settings['WORKSPACE'])}
-                      danger
-                      size="small"
-                    />
-                  </Tooltip>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
-                <Input
-                  placeholder={t('pages.knowledge.settings.workspace.newPlaceholder') || 'Enter new workspace name...'}
-                  size="small"
-                  style={{ flex: 1 }}
-                  onPressEnter={(e) => {
-                    const newName = (e.target as HTMLInputElement).value.trim();
-                    if (newName) {
-                      updateSetting('WORKSPACE', newName);
-                      (e.target as HTMLInputElement).value = '';
-                    }
-                  }}
-                />
-                <span style={{ fontSize: 12, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
-                  {t('pages.knowledge.settings.workspace.newHint') || 'Press Enter to create'}
-                </span>
-              </div>
-            </div>
+            <WorkspaceSelector
+              workspaces={workspaces}
+              currentWorkspace={(() => {
+                const val = settings['WORKSPACE'];
+                if (Array.isArray(val)) {
+                  return val[0] || 'default';
+                }
+                return val || 'default';
+              })()}
+              loading={workspaceLoading}
+              onSwitch={async (workspaceName: string) => {
+                await switchToWorkspace(workspaceName);
+              }}
+              onCreate={async (workspaceName: string) => {
+                await switchToWorkspace(workspaceName);
+              }}
+              onDelete={handleDeleteWorkspace}
+              onRefresh={loadWorkspaces}
+              token={token}
+              t={t}
+            />
           </div>
         )}
 
@@ -1580,6 +1588,29 @@ const SettingsTab: React.FC = () => {
         padding: '20px 24px 0 24px',
         background: token.colorBgLayout
       }}>
+        {/* Server Status Indicator - Always visible */}
+        {startupStatus && (
+          <Alert
+            type={startupStatus.running && startupStatus.ok !== false ? "success" : "warning"}
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={
+              startupStatus.running && startupStatus.ok !== false 
+                ? "LightRAG 服务运行中" 
+                : t('pages.knowledge.settings.lightragUnavailableTitle')
+            }
+            description={
+              !startupStatus.running || startupStatus.ok === false ? (
+                <div>
+                  <div>{startupStatus.message || t('pages.knowledge.settings.lightragUnavailableDesc')}</div>
+                  <div style={{ marginTop: 6, color: token.colorTextSecondary }}>
+                    {t('pages.knowledge.settings.lightragUnavailableAction')}
+                  </div>
+                </div>
+              ) : undefined
+            }
+          />
+        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -1608,9 +1639,20 @@ const SettingsTab: React.FC = () => {
               </p>
             </div>
           </div>
-          <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
-            <SaveOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
-          </button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <Tooltip title={t('pages.knowledge.help.tooltip')}>
+              <button 
+                className="ec-btn ec-btn-default" 
+                onClick={() => setHelpDialogVisible(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <QuestionCircleOutlined /> {t('pages.knowledge.help.button')}
+              </button>
+            </Tooltip>
+            <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
+              <SaveOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1645,6 +1687,12 @@ const SettingsTab: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Help Dialog */}
+      <HelpDialog 
+        visible={helpDialogVisible}
+        onClose={() => setHelpDialogVisible(false)}
+      />
 
       {/* Scoped styles */}
       <style>{`

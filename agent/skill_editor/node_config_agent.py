@@ -18,6 +18,8 @@ from enum import Enum
 
 from utils.logger_helper import logger_helper as logger
 
+from .token_tracker import token_tracker
+
 from .schemas import (
     IntentType,
     ClarificationQuestion,
@@ -1224,6 +1226,7 @@ class NodeConfigAgent:
             logger.debug(f"[NodeConfigAgent] System prompt length: {len(system_prompt)} chars")
             
             response = await self.llm.ainvoke(messages)
+            token_tracker.record(response, agent="NodeConfigAgent", action="extract_config")
             response_text = response.content if hasattr(response, 'content') else str(response)
             logger.debug(f"[NodeConfigAgent] LLM response: {response_text[:300]}...")
             

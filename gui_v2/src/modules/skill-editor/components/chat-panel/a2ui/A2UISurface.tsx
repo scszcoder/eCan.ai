@@ -8,14 +8,37 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import styled from 'styled-components';
 
-// Import A2UI Lit components - these register themselves as custom elements
-import { v0_8 } from '@a2ui/lit';
-import '@a2ui/lit/ui';
-
 import type { A2UIServerMessage } from './types';
 
-// Create a signal-based message processor
-const createProcessor = () => v0_8.Data.createSignalA2uiMessageProcessor();
+// Dynamic import of @a2ui/lit — the package may not be installed.
+// We store the resolved module in a module-level variable so it's loaded once.
+let _v0_8: any = null;
+let _a2uiLoadAttempted = false;
+let _a2uiLoadPromise: Promise<boolean> | null = null;
+
+const loadA2UI = (): Promise<boolean> => {
+  if (_a2uiLoadPromise) return _a2uiLoadPromise;
+  // Use variable-based dynamic import so Vite's static analysis doesn't try
+  // to resolve the specifier at pre-transform time (the package may not exist).
+  const litPkg = '@a2ui/lit';
+  const litUi = '@a2ui/lit/ui';
+  _a2uiLoadPromise = (async () => {
+    try {
+      const mod = await (Function('p', 'return import(p)')(litPkg)) as any;
+      await (Function('p', 'return import(p)')(litUi));
+      _v0_8 = mod.v0_8;
+      _a2uiLoadAttempted = true;
+      return true;
+    } catch {
+      console.warn('[A2UISurface] @a2ui/lit not available — A2UI rendering disabled');
+      _a2uiLoadAttempted = true;
+      return false;
+    }
+  })();
+  return _a2uiLoadPromise;
+};
+
+const createProcessor = () => _v0_8?.Data?.createSignalA2uiMessageProcessor?.() ?? null;
 
 interface A2UISurfaceProps {
   /** A2UI messages to render */
@@ -102,15 +125,25 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const processorRef = useRef<ReturnType<typeof createProcessor> | null>(null);
-  const [surfaces, setSurfaces] = useState<Map<string, v0_8.Types.Surface>>(new Map());
+  const [surfaces, setSurfaces] = useState<Map<string, any>>(new Map());
+  const [a2uiReady, setA2uiReady] = useState(!!_v0_8);
 
-  // Initialize processor
+  // Load @a2ui/lit dynamically on mount
   useEffect(() => {
+    if (_v0_8) { setA2uiReady(true); return; }
+    let cancelled = false;
+    loadA2UI().then(ok => { if (!cancelled) setA2uiReady(ok); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Initialize processor once library is ready
+  useEffect(() => {
+    if (!a2uiReady) return;
     processorRef.current = createProcessor();
     return () => {
       processorRef.current = null;
     };
-  }, []);
+  }, [a2uiReady]);
 
   // Process messages when they change
   useEffect(() => {
@@ -123,11 +156,11 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
     processor.clearSurfaces();
     
     // Cast messages to the expected type
-    processor.processMessages(messages as unknown as v0_8.Types.ServerToClientMessage[]);
+    processor.processMessages(messages as unknown as any[]);
     
     // Update React state with surfaces
     setSurfaces(new Map(processor.getSurfaces()));
-  }, [messages]);
+  }, [messages, a2uiReady]);
 
   // Handle A2UI action events
   const handleAction = useCallback((evt: CustomEvent) => {
@@ -224,6 +257,14 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
     });
   };
 
+  if (!a2uiReady) {
+    return (
+      <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: 12, padding: 8 }}>
+        {_a2uiLoadAttempted ? 'A2UI renderer not available' : 'Loading A2UI\u2026'}
+      </div>
+    );
+  }
+
   return (
     <SurfaceContainer
       ref={containerRef}
@@ -242,8 +283,8 @@ declare global {
       'a2ui-surface': React.DetailedHTMLProps<
         React.HTMLAttributes<HTMLElement> & {
           surfaceId?: string;
-          surface?: v0_8.Types.Surface;
-          processor?: ReturnType<typeof createProcessor>;
+          surface?: any;
+          processor?: any;
         },
         HTMLElement
       >;

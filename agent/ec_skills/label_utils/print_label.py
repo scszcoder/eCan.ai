@@ -263,7 +263,20 @@ def _print_file_unix(file_path: str, printer_name: str, n_copies: int = 1) -> tu
         
         # Check if lpr is available
         if not shutil.which("lpr"):
-            return False, "lpr command not found. Ensure CUPS is installed."
+            error_msg = "lpr command not found. Install CUPS:\n"
+            if get_system_platform() == "linux":
+                error_msg += "  Ubuntu/Debian: sudo apt install cups\n"
+                error_msg += "  Fedora/RHEL: sudo dnf install cups\n"
+                error_msg += "  Arch Linux: sudo pacman -S cups"
+            return False, error_msg
+        
+        # Check printer status on Linux
+        if get_system_platform() == "linux" and printer_name:
+            status_result = _check_printer_status_linux(printer_name)
+            if not status_result['available']:
+                return False, f"Printer '{printer_name}' is not available: {status_result['message']}"
+            if status_result['status'] == 'disabled':
+                return False, f"Printer '{printer_name}' is disabled"
         
         # Build lpr command
         cmd = ["lpr"]
@@ -289,14 +302,51 @@ def _print_file_unix(file_path: str, printer_name: str, n_copies: int = 1) -> tu
         )
         
         if result.returncode == 0:
-            return True, f"Print job sent: {file_path}"
+            # Try to get job ID from output
+            job_info = result.stdout.strip() if result.stdout else "Print job sent"
+            return True, f"{job_info}: {file_path}"
         else:
-            return False, f"lpr error: {result.stderr}"
+            error_msg = result.stderr.strip() if result.stderr else f"lpr returned code {result.returncode}"
+            return False, f"lpr error: {error_msg}"
             
     except subprocess.TimeoutExpired:
-        return False, "Print command timeout"
+        return False, "Print command timeout (30s)"
     except Exception as e:
         return False, f"Unix print error: {e}"
+
+
+def _check_printer_status_linux(printer_name: str) -> dict:
+    """
+    Check Linux printer status using lpstat.
+    Returns dict with 'available', 'status', and 'message' keys.
+    """
+    try:
+        if not shutil.which('lpstat'):
+            return {'available': True, 'status': 'unknown', 'message': 'lpstat not available'}
+        
+        result = subprocess.run(
+            ['lpstat', '-p', printer_name],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        
+        if result.returncode != 0:
+            return {'available': False, 'status': 'not_found', 'message': 'Printer not found'}
+        
+        output = result.stdout.strip().lower()
+        
+        if 'idle' in output or 'enabled' in output:
+            return {'available': True, 'status': 'ready', 'message': 'Printer is ready'}
+        elif 'printing' in output:
+            return {'available': True, 'status': 'busy', 'message': 'Printer is busy'}
+        elif 'disabled' in output:
+            return {'available': False, 'status': 'disabled', 'message': 'Printer is disabled'}
+        else:
+            return {'available': True, 'status': 'unknown', 'message': output}
+            
+    except Exception as e:
+        return {'available': True, 'status': 'error', 'message': str(e)}
 
 
 def print_file(file_path: str, printer_name: Optional[str] = None, n_copies: int = 1) -> tuple[bool, str]:

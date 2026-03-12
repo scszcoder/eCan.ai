@@ -9,7 +9,6 @@ import json
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 # from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
 # from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill
-# from agent.ec_skills.my_twin.my_twin_chatter_skill import create_my_twin_chatter_skill
 # from agent.ec_skills.search_1688.search_1688_skill import create_search_1688_skill
 # from agent.ec_skills.search_digi_key.search_digi_key_skill import create_search_digi_key_skill
 # from agent.ec_skills.search_parts.search_parts_chatter_skill import create_search_parts_chatter_skill
@@ -48,7 +47,6 @@ async def build_agent_skills_parallel(mainwin, db_skill_names: set = None):
     # Group skills by priority and dependencies
     # Batch 1: Core skills (fast creation)
     core_skills = [
-        # ("my_twin_chatter", create_my_twin_chatter_skill),  # Required for My Twin Agent chat functionality
         # ("self_test", create_self_test_skill),
         # ("self_test_chatter", create_self_test_chatter_skill),
         # ("test_dev", create_test_dev_skill)

@@ -245,7 +245,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Build platform (windows, macos, all)'
+        description: 'Platform to build (all: build all platforms, windows: Windows only, macos: macOS only, linux: Linux only)'
         required: true
         default: 'all'
         type: choice
@@ -253,6 +253,7 @@ on:
           - all
           - windows
           - macos
+          - linux
       arch:
         description: 'CPU architecture (all: build all supported, amd64: x86_64 only, aarch64: ARM64 only)'
         required: true
@@ -348,7 +349,7 @@ jobs:
       channel: ${{ steps.detect-env.outputs.channel }}
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 0  # Fetch all history for tags and branches
@@ -650,7 +651,7 @@ jobs:
     # Step Group 1: Repository Setup
     # ------------------------------------------------------------------------
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 1  # Shallow clone: build only needs current code
@@ -1491,7 +1492,7 @@ jobs:
     # ------------------------------------------------------------------------
     - name: Checkout code
       if: steps.arch_check.outputs.should_build == 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
         fetch-depth: 1  # Shallow clone: build only needs current code
@@ -2111,6 +2112,133 @@ jobs:
     # for architecture detection in downstream jobs
 
   # ============================================================================
+  # BUILD LAYER: Linux amd64
+  # ============================================================================
+  build-linux:
+    name: Build Linux amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '')
+    runs-on: ubuntu-22.04
+    env:
+      BUILD_ARCH: amd64
+      DEBIAN_FRONTEND: noninteractive
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 1
+
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        platform: linux
+        requirements-file: requirements-linux.txt
+        architecture: x64
+
+    - name: Setup Playwright Browsers
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: linux
+        browsers: chromium
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
+
+    - name: Setup Node.js Environment
+      uses: ./.github/actions/setup-node-env
+
+    - name: Install Linux system dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq gcc g++ make pkg-config libffi-dev libssl-dev
+        sudo apt-get install -y -qq libgl1 libglib2.0-0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-cursor0 libdbus-1-3 libxcb-xkb1 libxkbcommon0
+        sudo apt-get install -y -qq scrot wmctrl xdotool xdg-utils cups cups-client tesseract-ocr tesseract-ocr-eng dpkg-dev fakeroot
+
+    - name: Install AppImage tools
+      run: |
+        wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x appimagetool-x86_64.AppImage
+        sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+    - name: Setup virtual display (Xvfb)
+      run: |
+        sudo apt-get install -y -qq xvfb
+        Xvfb :99 -screen 0 1920x1080x24 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - name: Setup OTA signing key
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        mkdir -p build_system/certificates
+        echo "$OTA_PRIVATE_KEY" | base64 -d > build_system/certificates/ed25519_private_key.pem
+        chmod 600 build_system/certificates/ed25519_private_key.pem
+
+    - name: Build Linux packages
+      env:
+        ECAN_SKIP_FRONTEND_BUILD: '0'
+        ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+      run: |
+        python3 build.py prod --version ${{ needs.validate-tag.outputs.version }}
+
+    - name: Generate Ed25519 signatures
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      run: |
+        pip install cryptography --quiet
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        
+        if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
+          python3 build_system/signing_manager.py "dist/ecan-${VERSION}_amd64.deb" "$KEY_PATH" "dist/ecan-${VERSION}_amd64.deb.sig"
+        fi
+
+    - name: Prepare artifacts directory
+      run: |
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        mkdir -p artifacts
+        
+        if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
+          cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
+          [ -f "dist/ecan-${VERSION}_amd64.deb.sig" ] && cp "dist/ecan-${VERSION}_amd64.deb.sig" artifacts/
+        fi
+
+    - name: Upload Linux artifacts for S3 transfer (always, short retention)
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: warn
+
+    - name: Upload Linux artifacts for users (optional, long retention)
+      if: github.event.inputs.upload_artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
+        path: artifacts/
+        retention-days: 7
+        compression-level: 6
+
+  # ============================================================================
   # DISTRIBUTION LAYER: S3 Upload and OTA Feed Generation
   # ============================================================================
   # This layer uses reusable workflows to handle distribution tasks:
@@ -2129,17 +2257,18 @@ jobs:
   # ----------------------------------------------------------------------------
   upload-to-s3:
     name: Upload to S3
-    needs: [validate-tag, build-windows, build-macos]
+    needs: [validate-tag, build-windows, build-macos, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (needs.build-windows.result == 'success' || needs.build-macos.result == 'success')
+      (needs.build-windows.result == 'success' || needs.build-macos.result == 'success' || needs.build-linux.result == 'success')
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
+      linux-build-result: ${{ needs.build-linux.result }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
@@ -2201,6 +2330,25 @@ jobs:
       arch: 'aarch64'
     secrets: inherit
 
+  # Generate Appcast for Linux amd64 (if built)
+  generate-appcast-linux-amd64:
+    name: Generate Appcast (Linux)
+    needs: [validate-tag, upload-to-s3, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-linux.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'linux'
+      arch: 'amd64'
+    secrets: inherit
+
   # ----------------------------------------------------------------------------
   # Step 2.5: Generate latest.json (after all Appcasts)
   # ----------------------------------------------------------------------------
@@ -2211,7 +2359,8 @@ jobs:
       upload-to-s3,
       generate-appcast-windows,
       generate-appcast-macos-amd64,
-      generate-appcast-macos-aarch64
+      generate-appcast-macos-aarch64,
+      generate-appcast-linux-amd64
     ]
     if: |
       always() &&
@@ -2219,11 +2368,12 @@ jobs:
       needs.upload-to-s3.result == 'success' &&
       (needs.generate-appcast-windows.result == 'success' ||
        needs.generate-appcast-macos-amd64.result == 'success' ||
-       needs.generate-appcast-macos-aarch64.result == 'success')
+       needs.generate-appcast-macos-aarch64.result == 'success' ||
+       needs.generate-appcast-linux-amd64.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -2266,7 +2416,7 @@ jobs:
   # ----------------------------------------------------------------------------
   generate-download-links:
     name: Generate Download Links
-    needs: [validate-tag, build-windows, build-macos, upload-to-s3]
+    needs: [validate-tag, upload-to-s3, build-windows, build-macos, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -2278,6 +2428,7 @@ jobs:
       channel: ${{ needs.validate-tag.outputs.channel }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
+      linux-result: ${{ needs.build-linux.result }}
       macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
       macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
     secrets: inherit
@@ -2290,11 +2441,13 @@ jobs:
     needs: [
       validate-tag, 
       build-windows, 
-      build-macos, 
+      build-macos,
+      build-linux,
       upload-to-s3, 
       generate-appcast-windows,
       generate-appcast-macos-amd64,
       generate-appcast-macos-aarch64,
+      generate-appcast-linux-amd64,
       generate-latest-json,
       generate-download-links
     ]
@@ -2304,8 +2457,9 @@ jobs:
       version: ${{ needs.validate-tag.outputs.version }}
       windows-result: ${{ needs.build-windows.result }}
       macos-result: ${{ needs.build-macos.result }}
+      linux-result: ${{ needs.build-linux.result }}
       upload-result: ${{ needs.upload-to-s3.result }}
-      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success') && 'success' || 'failure' }}
+      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success' || needs.generate-appcast-linux-amd64.result == 'success') && 'success' || 'failure' }}
       links-result: ${{ needs.generate-download-links.result }}
       is-simulation: false
     secrets: inherit

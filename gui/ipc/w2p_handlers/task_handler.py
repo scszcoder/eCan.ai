@@ -11,9 +11,9 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from gui.ipc.context_bridge import get_handler_context
 from agent.cloud_api.constants import Operation
+from agent.ec_tasks.ser_consts import TASK_SERIALIZATION_EXCLUDE
 
 from utils.logger_helper import logger_helper as logger
-
 
 # ============================================================================
 # Helper Functions for Agent Task Management
@@ -127,45 +127,59 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
     return agent_task_data
 
 
-def _manage_task_skill_relationship(task_id: str, skill_id: Optional[str]) -> bool:
-    """Create or update task-skill relationship using task service
+def _manage_task_skill_relationships(task_id: str, skill_ids: list, request=None, params=None) -> bool:
+    """Create or update task-skill relationships using task service (supports multiple skills)
     
     Args:
         task_id: Task ID
-        skill_id: Skill ID (None to remove relationship)
+        skill_ids: List of skill IDs (empty list to remove all relationships)
+        request: IPC request (for context/db access)
+        params: IPC params (for context/db access)
         
     Returns:
         bool: True if successful
     """
     try:
-        task_service = _get_agent_task_service()
+        logger.debug(f"[_manage_task_skill_relationships] START: task_id={task_id}, skill_ids={skill_ids}")
+        task_service = _get_agent_task_service(request, params)
         if not task_service:
+            logger.error(f"[_manage_task_skill_relationships] Task service not available")
             return False
         
         # Get existing skills for this task
         existing_skills = task_service.get_task_skills(task_id, role='primary')
+        logger.debug(f"[_manage_task_skill_relationships] Existing skills query result: {existing_skills}")
         
         # Remove existing primary skill relationships
         if existing_skills.get('success') and existing_skills.get('data'):
+            logger.debug(f"[_manage_task_skill_relationships] Removing {len(existing_skills['data'])} existing skill relationships")
             for skill_rel in existing_skills['data']:
-                task_service.remove_skill_from_task(task_id, skill_rel['skill_id'])
+                remove_result = task_service.remove_skill_from_task(task_id, skill_rel['skill_id'])
+                logger.debug(f"[_manage_task_skill_relationships] Removed skill {skill_rel['skill_id']}: {remove_result}")
         
-        # Add new relationship if skill_id provided
-        if skill_id:
-            result = task_service.add_skill_to_task(
-                task_id=task_id,
-                skill_id=skill_id,
-                role='primary',
-                is_required=True
-            )
-            if not result.get('success'):
-                logger.error(f"[task_handler] Failed to add skill to task: {result.get('error')}")
-                return False
+        # Add new relationships for all skill_ids
+        logger.debug(f"[_manage_task_skill_relationships] Adding {len(skill_ids or [])} new skill relationships")
+        for skill_id in (skill_ids or []):
+            if skill_id:
+                logger.debug(f"[_manage_task_skill_relationships] Adding skill {skill_id} to task {task_id}")
+                result = task_service.add_skill_to_task(
+                    task_id=task_id,
+                    skill_id=skill_id,
+                    role='primary',
+                    is_required=True
+                )
+                logger.debug(f"[_manage_task_skill_relationships] Add skill result: {result}")
+                if not result.get('success'):
+                    logger.error(f"[_manage_task_skill_relationships] Failed to add skill {skill_id} to task: {result.get('error')}")
+                    return False
         
+        logger.debug(f"[_manage_task_skill_relationships] SUCCESS: All skills processed")
         return True
             
     except Exception as e:
-        logger.error(f"[task_handler] Failed to manage task-skill relationship: {e}")
+        logger.error(f"[_manage_task_skill_relationships] EXCEPTION: {e}")
+        import traceback
+        logger.error(f"[_manage_task_skill_relationships] Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -181,7 +195,7 @@ def _get_task_skill_info(task_id: str, request: Optional[Dict] = None, params: O
         Dict with skill info (id, name) or None
     """
     try:
-        task_service = _get_agent_task_service()
+        task_service = _get_agent_task_service(request, params)
         if not task_service:
             logger.error(f"[task_handler] Task service not available")
             return None
@@ -218,6 +232,54 @@ def _get_task_skill_info(task_id: str, request: Optional[Dict] = None, params: O
         
     except Exception as e:
         logger.error(f"[task_handler] Failed to get task skill info: {e}")
+        return None
+
+
+def _resolve_compiled_skill_from_db(
+    skill_id: str,
+    request: Optional[Dict] = None,
+    params: Optional[Dict] = None,
+):
+    """Resolve and compile a skill object from DB by skill_id.
+
+    This is used by runtime task-skill sync when the selected skill is not in the
+    current compiled pool (e.g., cloud-subscribed skill not yet compiled in memory).
+    """
+    try:
+        if not skill_id:
+            return None
+
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return None
+
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            return None
+
+        skill_service = ec_db_mgr.get_skill_service() if hasattr(ec_db_mgr, 'get_skill_service') else getattr(ec_db_mgr, 'skill_service', None)
+        if not skill_service:
+            return None
+
+        skill_result = skill_service.get_skill_by_id(skill_id)
+        if not skill_result.get('success') or not skill_result.get('data'):
+            return None
+
+        from agent.ec_skills.build_agent_skills import _convert_db_skill_to_object
+
+        compiled_skill = _convert_db_skill_to_object(skill_result.get('data'))
+        if compiled_skill:
+            logger.info(
+                f"[task_handler] ✅ Compiled runtime skill from DB: skill_id={skill_id}, "
+                f"skill_name={getattr(compiled_skill, 'name', '')}"
+            )
+        else:
+            logger.warning(
+                f"[task_handler] ⚠️ Failed to compile skill from DB (file missing?): skill_id={skill_id}"
+            )
+        return compiled_skill
+    except Exception as e:
+        logger.warning(f"[task_handler] Failed to compile skill from DB for runtime sync: skill_id={skill_id}, error={e}")
         return None
 
 
@@ -307,6 +369,107 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
 
     except Exception as e:
         logger.warning(f"[task_handler] Failed to update mainwin.agent_tasks: {e}")
+        return False
+
+
+def _sync_runtime_task_skill(
+    task_id: str,
+    request: Optional[Dict] = None,
+    params: Optional[Dict] = None,
+    preferred_skill_ids: Optional[list] = None,
+) -> bool:
+    """Sync task skill into runtime agent task objects used by routing.
+
+    Chat routing uses ``agent.tasks`` in runner, not only ``mainwin.agent_tasks``.
+    After task-skill relationship changes, update runtime task objects so the
+    next message uses the latest skill binding without requiring app restart.
+    """
+    try:
+        from gui.ipc.context_bridge import get_handler_context
+
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            logger.warning("[task_handler] Context not available for runtime skill sync")
+            return False
+
+        # Resolve target skill id (prefer explicit ids from save payload)
+        skill_id = None
+        if preferred_skill_ids:
+            for sid in preferred_skill_ids:
+                if sid:
+                    skill_id = str(sid)
+                    break
+
+        skill_name = None
+        if not skill_id:
+            skill_info = _get_task_skill_info(task_id, request=request, params=params)
+            if skill_info:
+                skill_id = skill_info.get('id')
+                skill_name = skill_info.get('name')
+
+        if not skill_id and not skill_name:
+            logger.warning(f"[task_handler] No skill relationship found for runtime sync, task_id={task_id}")
+            return False
+
+        # Resolve compiled skill object from current runtime skill pool
+        compiled_skill = None
+        agent_skills = ctx.get_agent_skills() if ctx else []
+
+        # Compile fresh skill object from DB when skill_id is available.
+        # This ensures dynamic skill switch / provider edits take effect without restart.
+        if skill_id:
+            compiled_skill = _resolve_compiled_skill_from_db(skill_id, request=request, params=params)
+            if compiled_skill and isinstance(agent_skills, list):
+                # Update agent_skills pool with fresh compiled skill
+                replaced = False
+                for idx, sk in enumerate(agent_skills):
+                    if str(getattr(sk, 'id', '')) == str(skill_id):
+                        agent_skills[idx] = compiled_skill
+                        replaced = True
+                        break
+                if not replaced:
+                    agent_skills.append(compiled_skill)
+        
+        # If DB compilation failed and we have skill_name, try to find by name in memory
+        # (This is only for the case where skill_id is not available)
+        if not compiled_skill and skill_name:
+            compiled_skill = next((sk for sk in agent_skills if str(getattr(sk, 'name', '')) == str(skill_name)), None)
+
+        if not compiled_skill:
+            logger.warning(
+                f"[task_handler] Target skill not found in compiled pool for runtime sync: "
+                f"task_id={task_id}, skill_id={skill_id}, skill_name={skill_name}"
+            )
+            return False
+
+        updated = 0
+        agents = ctx.get_agents() if ctx else []
+        for agent in agents or []:
+            agent_tasks = getattr(agent, 'tasks', None) or []
+            for t in agent_tasks:
+                if getattr(t, 'id', None) == task_id:
+                    t.skill = compiled_skill
+                    updated += 1
+
+            # Runner may hold task refs in a dict as well
+            runner = getattr(agent, 'runner', None)
+            runner_tasks = getattr(runner, 'tasks', None) if runner else None
+            if isinstance(runner_tasks, dict):
+                rt = runner_tasks.get(task_id)
+                if rt is not None:
+                    rt.skill = compiled_skill
+
+        if updated > 0:
+            logger.info(
+                f"[task_handler] ✅ Runtime task skill synced: task_id={task_id}, "
+                f"skill={getattr(compiled_skill, 'name', '')}, updated_tasks={updated}"
+            )
+            return True
+
+        logger.warning(f"[task_handler] Runtime task not found for skill sync: task_id={task_id}")
+        return False
+    except Exception as e:
+        logger.warning(f"[task_handler] Failed to sync runtime task skill: {e}")
         return False
 
 
@@ -565,16 +728,16 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                     # Use Pydantic's model_dump() for proper serialization
                     if hasattr(agent_task, 'model_dump'):
                         # Pydantic v2: model_dump() with exclude for non-serializable fields
-                        # Exclude 'skill' since it can be complex object (StateGraph)
                         agent_task_dict = agent_task.model_dump(
-                            exclude={'skill', 'task', 'pause_event', 'cancellation_event', 'queue'},
-                            mode='json'
+                            exclude=TASK_SERIALIZATION_EXCLUDE,
+                            mode='json',
+                            exclude_none=True
                         )
                     elif hasattr(agent_task, 'dict'):
                         # Pydantic v1: dict() method
-                        # Exclude 'skill' since it can be complex object (StateGraph)
                         agent_task_dict = agent_task.dict(
-                            exclude={'skill', 'task', 'pause_event', 'cancellation_event', 'queue'}
+                            exclude=TASK_SERIALIZATION_EXCLUDE,
+                            exclude_none=True
                         )
                     else:
                         # ❌ Error: agent_task should be a Pydantic model
@@ -610,45 +773,66 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                     # Skip this task instead of crashing the entire request
                     continue
 
-            # Attach skill relationships to DB tasks before merging
-            # Get skill service once for all lookups
-            skill_service = None
-            if ctx:
-                ec_db_mgr = ctx.get_ec_db_mgr()
-                if ec_db_mgr:
-                    skill_service = ec_db_mgr.get_skill_service()
-            
+            # Attach skill_ids to memory tasks (association is purely ID-based)
+            for mem_task in agent_tasks_dicts:
+                mem_task_id = mem_task.get('id')
+                if mem_task_id and not mem_task.get('skill_ids'):
+                    try:
+                        skill_rels = agent_task_service.get_task_skills(mem_task_id, role='primary') if agent_task_service else {}
+                        if skill_rels.get('success') and skill_rels.get('data'):
+                            skill_ids = [rel.get('skill_id') for rel in skill_rels['data'] if rel.get('skill_id')]
+                            if skill_ids:
+                                mem_task['skill_ids'] = skill_ids
+                                logger.debug(f"[get_agent_tasks] Attached skill_ids={skill_ids} to memory task {mem_task_id}")
+                    except Exception as e:
+                        logger.warning(f"[get_agent_tasks] Failed to attach skills to memory task {mem_task_id}: {e}")
+
+            # Attach skill_ids to DB tasks (association is purely ID-based)
             for db_task in db_tasks:
                 db_task_id = db_task.get('id')
-                if db_task_id and not db_task.get('skill') and not db_task.get('skills'):
+                if db_task_id and not db_task.get('skill_ids'):
                     try:
                         skill_rels = agent_task_service.get_task_skills(db_task_id, role='primary') if agent_task_service else {}
                         if skill_rels.get('success') and skill_rels.get('data'):
-                            skill_names = []
-                            for rel in skill_rels['data']:
-                                sid = rel.get('skill_id')
-                                if sid:
-                                    if skill_service:
-                                        sk = skill_service.get_skill_by_id(sid)
-                                        if sk.get('success') and sk.get('data'):
-                                            skill_names.append(sk['data'].get('name', sid))
-                                        else:
-                                            skill_names.append(sid)
-                                    else:
-                                        skill_names.append(sid)
-                            if skill_names:
-                                db_task['skill'] = skill_names[0]
-                                db_task['skills'] = skill_names
-                                logger.debug(f"[get_agent_tasks] Attached skills {skill_names} to DB task {db_task_id}")
+                            # Skill association is ID-based; name resolution is done by frontend
+                            skill_ids = [rel.get('skill_id') for rel in skill_rels['data'] if rel.get('skill_id')]
+                            if skill_ids:
+                                db_task['skill_ids'] = skill_ids
+                                logger.debug(f"[get_agent_tasks] Attached skill_ids={skill_ids} to DB task {db_task_id}")
                     except Exception as e:
                         logger.warning(f"[get_agent_tasks] Failed to attach skills to task {db_task_id}: {e}")
 
-            # Merge: Add database tasks that are not already in memory (avoid duplicates)
-            memory_task_ids = {t.get('id') for t in agent_tasks_dicts if t.get('id')}
+            # Merge: prefer DB task payload for duplicate IDs.
+            # Rationale: runtime memory task objects may carry stale skill_ids; DB relation is source-of-truth.
+            merged_by_id: Dict[str, Dict[str, Any]] = {}
+            ordered_ids = []
+
+            for mem_task in agent_tasks_dicts:
+                tid = mem_task.get('id')
+                if not tid:
+                    continue
+                merged_by_id[tid] = mem_task
+                ordered_ids.append(tid)
+
+            replaced_from_db = 0
+            added_from_db = 0
             for db_task in db_tasks:
                 db_task_id = db_task.get('id')
-                if db_task_id and db_task_id not in memory_task_ids:
-                    agent_tasks_dicts.append(db_task)
+                if not db_task_id:
+                    continue
+                if db_task_id in merged_by_id:
+                    replaced_from_db += 1
+                else:
+                    ordered_ids.append(db_task_id)
+                    added_from_db += 1
+                merged_by_id[db_task_id] = db_task
+
+            # Keep deterministic order while applying DB overrides
+            agent_tasks_dicts = [merged_by_id[tid] for tid in ordered_ids if tid in merged_by_id]
+            logger.info(
+                f"[get_agent_tasks] Merge result: replaced_from_db={replaced_from_db}, "
+                f"added_from_db={added_from_db}, total={len(agent_tasks_dicts)}"
+            )
             
             logger.info(f"Returning {len(agent_tasks_dicts)} agent tasks to frontend (memory: {len(memory_agent_tasks)}, db: {len(db_tasks)})")
 
@@ -730,7 +914,7 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
         logger.info(f"Saving agent task for user: {username}, agent_task_id: {agent_task_id}")
 
         # Get database service
-        agent_task_service = _get_agent_task_service()
+        agent_task_service = _get_agent_task_service(request, params)
         if not agent_task_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
@@ -763,13 +947,13 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
                 # Fallback to single skill_id
                 single_id = agent_task_info.get('skill_id')
                 skill_ids = [single_id] if single_id else []
-            # Clear existing and re-add
-            _manage_task_skill_relationship(actual_agent_task_id, skill_ids[0] if skill_ids else None)
-            for extra_id in skill_ids[1:]:
-                _manage_task_skill_relationship(actual_agent_task_id, extra_id)
+            # Batch process: clear existing and add all new ones
+            logger.debug(f"[task_handler] Managing skill relationships: task_id={actual_agent_task_id}, skill_ids={skill_ids}")
+            _manage_task_skill_relationships(actual_agent_task_id, skill_ids, request=request, params=params)
 
             # Step 2: Update memory after database update succeeds
             _update_agent_task_in_memory(actual_agent_task_id, agent_task_data)
+            _sync_runtime_task_skill(actual_agent_task_id, request=request, params=params, preferred_skill_ids=skill_ids)
 
             # Step 3: Clean up offline sync queue for this task (remove pending add/update operations)
             try:
@@ -859,7 +1043,7 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
         logger.info(f"Creating new agent task for user: {username}")
 
         # Get database service
-        agent_task_service = _get_agent_task_service()
+        agent_task_service = _get_agent_task_service(request, params)
         if not agent_task_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
@@ -888,13 +1072,12 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
             if not skill_ids:
                 single_id = agent_task_info.get('skill_id')
                 skill_ids = [single_id] if single_id else []
-            if skill_ids:
-                _manage_task_skill_relationship(agent_task_id, skill_ids[0])
-                for extra_id in skill_ids[1:]:
-                    _manage_task_skill_relationship(agent_task_id, extra_id)
+            # Batch process: clear existing and add all new ones
+            _manage_task_skill_relationships(agent_task_id, skill_ids, request=request, params=params)
 
             # Step 2: Update memory after database creation succeeds
             _update_agent_task_in_memory(agent_task_id, agent_task_data)
+            _sync_runtime_task_skill(agent_task_id, request=request, params=params, preferred_skill_ids=skill_ids)
 
             # Step 3: Sync to cloud after memory update succeeds (async, fire and forget)
             task_data_with_id = agent_task_data.copy()
@@ -904,9 +1087,8 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
             _trigger_cloud_sync(task_data_with_id, Operation.ADD)
             
             # Sync Task-Skill relationships
-            skills_for_sync = agent_task_info.get('skills', [])
-            if skills_for_sync:
-                _sync_task_skill_relations(agent_task_id, skills_for_sync, Operation.ADD)
+            if skill_ids:
+                _sync_task_skill_relations(agent_task_id, skill_ids, Operation.ADD)
 
             # Create clean response
             clean_agent_task_data = _create_clean_agent_task_response(agent_task_id, agent_task_data)
@@ -986,7 +1168,7 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
         logger.info(f"Deleting agent task for user: {username}, agent_task_id: {agent_task_id}")
 
         # Get database service
-        agent_task_service = _get_agent_task_service()
+        agent_task_service = _get_agent_task_service(request, params)
         if not agent_task_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
@@ -1492,65 +1674,105 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
 
 @IPCHandlerRegistry.handler('query_agent_task_skill_rels')
 def handle_query_agent_task_skill_rels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Query agent task-skill relationships from cloud
-    
-    This handler queries task-skill relationships from the cloud AppSync API.
-    The relationships are used to link tasks with their associated skills.
-    
+    """Query agent task-skill relationships.
+
+    Queries local DB first (authoritative source for desktop mode).  Cloud API
+    is queried as a supplement when an auth token is available.
+
     Args:
         request: IPC request object
-        params: Request parameters, may contain query filters
-        
+        params: Request parameters.  Supported filter keys inside 'input':
+                  task_id  – return relations for a specific task
+                  limit    – max rows (default 500)
+                  offset   – pagination offset (default 0)
+
     Returns:
-        JSON formatted response with task-skill relationships
+        List of relation dicts, each containing at minimum task_id and skill_id.
     """
     try:
-        logger.debug(f"Query agent task-skill relationships handler called with request: {request}")
-        
-        # Get auth token
-        ctx = get_handler_context(request, params)
-        token = ctx.get_auth_token()
-        if not token:
-            logger.debug("[query_agent_task_skill_rels] No auth token — returning empty result")
-            return create_success_response(request, [])
-        
-        # Query cloud API
-        from agent.cloud_api.cloud_api import (
-            send_query_agent_task_skill_relations_request_to_cloud,
-            get_appsync_endpoint
-        )
-        
-        endpoint = get_appsync_endpoint()
-        session = requests.Session()
+        logger.debug(f"Query agent task-skill relationships handler called")
+
         q_settings = params.get('input', {}) if params else {}
-        
-        # Default to query by owner if no specific filter provided
-        if not q_settings:
-            username = resolve_username(request, params)
-            q_settings = {'byowneruser': True}
-        
-        logger.info(f"[query_agent_task_skill_rels] Querying cloud with settings: {q_settings}")
-        
-        result = send_query_agent_task_skill_relations_request_to_cloud(
-            session, token, q_settings, endpoint
-        )
-        
-        # Handle different response formats
-        if isinstance(result, list):
-            relationships = result
-        elif isinstance(result, dict):
-            if 'errorType' in result:
-                error_msg = result.get('message', 'Unknown error')
-                logger.warning(f"[query_agent_task_skill_rels] Cloud API error: {error_msg}")
-                return create_error_response(request, 'CLOUD_API_ERROR', error_msg)
-            relationships = result.get('items', result.get('relationships', []))
-        else:
-            relationships = []
-        
-        logger.info(f"[query_agent_task_skill_rels] Fetched {len(relationships)} task-skill relationships from cloud")
-        
-        return create_success_response(request, relationships)
-        
+        if isinstance(q_settings, str):
+            try:
+                q_settings = json.loads(q_settings)
+            except Exception:
+                q_settings = {}
+
+        task_id_filter = str(q_settings.get('task_id', '')).strip() if q_settings else ''
+        limit = int(q_settings.get('limit', 500)) if q_settings else 500
+
+        # ── Local DB (authoritative) ──────────────────────────────────────────
+        task_service = _get_agent_task_service(request, params)
+        local_rels = []
+        if task_service:
+            try:
+                if task_id_filter:
+                    result = task_service.get_task_skills(task_id_filter, role=None)
+                    rows = result.get('data', []) if result.get('success') else []
+                    for row in (rows or []):
+                        local_rels.append({
+                            'task_id': task_id_filter,
+                            'skill_id': str(row.get('skill_id', '')),
+                            'role': row.get('role', 'primary'),
+                        })
+                else:
+                    # No specific task_id — fetch all via DB tasks list then their skills
+                    all_tasks_result = task_service.query_tasks()
+                    if all_tasks_result.get('success') and all_tasks_result.get('data'):
+                        for t in (all_tasks_result['data'] or [])[:limit]:
+                            tid = str(t.get('id', '')).strip()
+                            if not tid:
+                                continue
+                            skill_result = task_service.get_task_skills(tid, role=None)
+                            for row in (skill_result.get('data') or []):
+                                local_rels.append({
+                                    'task_id': tid,
+                                    'skill_id': str(row.get('skill_id', '')),
+                                    'role': row.get('role', 'primary'),
+                                })
+            except Exception as db_err:
+                logger.warning(f"[query_agent_task_skill_rels] Local DB query failed: {db_err}")
+
+        logger.info(f"[query_agent_task_skill_rels] Found {len(local_rels)} local relationships"
+                    + (f" for task_id={task_id_filter}" if task_id_filter else ""))
+
+        if local_rels:
+            return create_success_response(request, local_rels)
+
+        # ── Cloud fallback (only when no local results and token available) ───
+        ctx = get_handler_context(request, params)
+        token = ctx.get_auth_token() if ctx else None
+        if not token:
+            return create_success_response(request, [])
+
+        try:
+            from agent.cloud_api.cloud_api import (
+                send_query_task_skill_relations_to_cloud,
+                get_appsync_endpoint,
+            )
+            endpoint = get_appsync_endpoint()
+            session = requests.Session()
+            if not q_settings:
+                username = resolve_username(request, params)
+                q_settings = {'byowneruser': True}
+
+            result = send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoint)
+            if isinstance(result, list):
+                relationships = result
+            elif isinstance(result, dict):
+                if 'errorType' in result:
+                    logger.warning(f"[query_agent_task_skill_rels] Cloud API error: {result.get('message')}")
+                    return create_success_response(request, [])
+                relationships = result.get('items', result.get('relationships', []))
+            else:
+                relationships = []
+            logger.info(f"[query_agent_task_skill_rels] Cloud fallback: {len(relationships)} relationships")
+            return create_success_response(request, relationships)
+        except Exception as cloud_err:
+            logger.warning(f"[query_agent_task_skill_rels] Cloud query failed: {cloud_err}")
+            return create_success_response(request, [])
+
     except Exception as e:
         logger.error(f"Error in query agent task-skill relationships handler: {e}")
         import traceback
@@ -1559,4 +1781,136 @@ def handle_query_agent_task_skill_rels(request: IPCRequest, params: Optional[Dic
             request,
             'QUERY_TASK_SKILL_RELS_ERROR',
             f"Error querying task-skill relationships: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('add_agent_task_skill_rels')
+def handle_add_agent_task_skill_rels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Add task-skill relationships.
+
+    Supports desktop/local mode via DB service and forwards to cloud as best effort
+    when auth token is available.
+    """
+    try:
+        logger.debug(f"Add agent task-skill relationships handler called with request: {request}")
+
+        raw_input = params.get('input', []) if params else []
+        if isinstance(raw_input, str):
+            try:
+                raw_input = json.loads(raw_input)
+            except Exception:
+                raw_input = []
+
+        relations = raw_input if isinstance(raw_input, list) else []
+        if not relations:
+            return create_success_response(request, [])
+
+        task_service = _get_agent_task_service(request, params)
+        if not task_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        local_results = []
+        for rel in relations:
+            task_id = str((rel or {}).get('task_id', '')).strip()
+            skill_id = str((rel or {}).get('skill_id', '')).strip()
+            if not task_id or not skill_id:
+                local_results.append({'success': False, 'error': 'Missing task_id or skill_id', 'data': rel})
+                continue
+            local_results.append(task_service.add_skill_to_task(
+                task_id=task_id,
+                skill_id=skill_id,
+                role='primary',
+                is_required=True,
+            ))
+
+        # Best-effort cloud forwarding (do not fail local success)
+        cloud_result = None
+        try:
+            ctx = get_handler_context(request, params)
+            token = ctx.get_auth_token() if ctx else None
+            if token:
+                from agent.cloud_api.cloud_api import send_add_task_skill_relations_to_cloud, get_appsync_endpoint
+                endpoint = get_appsync_endpoint()
+                session = requests.Session()
+                cloud_result = send_add_task_skill_relations_to_cloud(session, relations, token, endpoint)
+        except Exception as ce:
+            logger.warning(f"[add_agent_task_skill_rels] Cloud forwarding failed: {ce}")
+
+        return create_success_response(request, {
+            'local': local_results,
+            'cloud': cloud_result,
+        })
+
+    except Exception as e:
+        logger.error(f"Error in add agent task-skill relationships handler: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'ADD_TASK_SKILL_RELS_ERROR',
+            f"Error adding task-skill relationships: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('remove_agent_task_skill_rels')
+def handle_remove_agent_task_skill_rels(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Remove task-skill relationships.
+
+    Accepts either relation id objects ({id}) and/or explicit keys ({task_id, skill_id}).
+    Local DB removal requires task_id + skill_id; id-only removals are cloud-only.
+    """
+    try:
+        logger.debug(f"Remove agent task-skill relationships handler called with request: {request}")
+
+        raw_input = params.get('input', []) if params else []
+        if isinstance(raw_input, str):
+            try:
+                raw_input = json.loads(raw_input)
+            except Exception:
+                raw_input = []
+
+        removes = raw_input if isinstance(raw_input, list) else []
+        if not removes:
+            return create_success_response(request, [])
+
+        task_service = _get_agent_task_service(request, params)
+        local_results = []
+        if task_service:
+            for item in removes:
+                task_id = str((item or {}).get('task_id', '')).strip()
+                skill_id = str((item or {}).get('skill_id', '')).strip()
+                if task_id and skill_id:
+                    local_results.append(task_service.remove_skill_from_task(task_id=task_id, skill_id=skill_id))
+                else:
+                    # id-only record is expected from cloud relation query; skip local deletion
+                    local_results.append({'success': True, 'skipped_local': True, 'data': item})
+        else:
+            local_results = [{'success': False, 'error': 'Database service not available'}]
+
+        # Best-effort cloud forwarding
+        cloud_result = None
+        try:
+            ctx = get_handler_context(request, params)
+            token = ctx.get_auth_token() if ctx else None
+            if token:
+                from agent.cloud_api.cloud_api import send_remove_task_skill_relations_to_cloud, get_appsync_endpoint
+                endpoint = get_appsync_endpoint()
+                session = requests.Session()
+                cloud_result = send_remove_task_skill_relations_to_cloud(session, removes, token, endpoint)
+        except Exception as ce:
+            logger.warning(f"[remove_agent_task_skill_rels] Cloud forwarding failed: {ce}")
+
+        return create_success_response(request, {
+            'local': local_results,
+            'cloud': cloud_result,
+        })
+
+    except Exception as e:
+        logger.error(f"Error in remove agent task-skill relationships handler: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'REMOVE_TASK_SKILL_RELS_ERROR',
+            f"Error removing task-skill relationships: {str(e)}"
         )

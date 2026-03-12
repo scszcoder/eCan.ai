@@ -9,6 +9,7 @@ import {
   PositionSchema,
   FlowNodeTransformData,
 } from '@flowgram.ai/free-layout-editor';
+import i18n from 'i18next';
 
 import { FlowNodeRegistry } from '../../typings';
 import iconLoop from '../../assets/icon-loop.jpg';
@@ -20,8 +21,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Loop,
   info: {
     icon: iconLoop,
-    description:
-      'Used to repeatedly execute a series of tasks by setting the number of iterations and logic.',
+    description: 'nodes.loop.description',
   },
   meta: {
     /**
@@ -112,7 +112,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
         expanded: true,   // Explicitly set expanded=true
       },
       data: {
-        title: `Loop_${++index}`,
+        title: `${i18n.t('nodes.loop.defaultTitle', { ns: 'skillEditor' })}_${++index}`,
         // loop settings
         loopMode: 'loopWhile', // 'loopFor' | 'loopWhile'
         loopCountExpr: '',   // used when loopMode === 'loopFor'

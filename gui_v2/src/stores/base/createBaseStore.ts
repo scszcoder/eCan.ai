@@ -190,19 +190,6 @@ export function createResourceStore<T extends BaseResource>(
  * @param extendStore - ExtendedFunction，ReceiveStandard store Status并返回ExtendedStatus
  * @returns Zustand store hook
  * 
- * @example
- * ```typescript
- * const useAgentStore = createExtendedResourceStore<Agent, AgentStoreExtension>(
- *   { name: 'agent' },
- *   new AgentAPI(),
- *   (baseState) => ({
- *     ...baseState,
- *     getMyTwinAgent: () => {
- *       return baseState.items.find(a => a.card?.name === 'My Twin Agent') || null;
- *     }
- *   })
- * );
- * ```
  */
 export function createExtendedResourceStore<
   T extends BaseResource,

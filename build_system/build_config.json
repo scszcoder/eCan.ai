@@ -585,6 +585,9 @@
     "linux": {
       "appimage": {
         "enabled": false
+      },
+      "deb": {
+        "enabled": true
       }
     }
   },
@@ -720,6 +723,61 @@
         "camera",
         "microphone"
       ]
+    },
+    "linux": {
+      "enabled": true,
+      "icon": "resource/images/icons/eCan.png",
+      "appimage": {
+        "enabled": true,
+        "name": "eCan",
+        "categories": ["Utility", "Development", "Office"],
+        "include_runtime": true,
+        "compression": "gzip"
+      },
+      "deb": {
+        "enabled": true,
+        "package_name": "ecan",
+        "section": "utils",
+        "priority": "optional",
+        "architecture": "amd64",
+        "maintainer": "eCan.ai Team <support@ecan.ai>",
+        "homepage": "https://ecan.ai",
+        "description": "AI-powered automation assistant",
+        "long_description": "eCan.ai is an intelligent automation assistant that helps you automate repetitive tasks, manage workflows, and boost productivity using advanced AI capabilities.",
+        "dependencies": [
+          "libc6",
+          "libgcc-s1",
+          "libstdc++6",
+          "libgl1",
+          "libglib2.0-0",
+          "libxkbcommon-x11-0"
+        ],
+        "categories": ["Utility", "Development", "Office"]
+      },
+      "rpm": {
+        "enabled": false,
+        "package_name": "ecan",
+        "group": "Applications/Productivity",
+        "license": "Proprietary",
+        "note": "RPM support can be added later if needed"
+      },
+      "desktop_file": {
+        "name": "eCan",
+        "comment": "AI-powered automation assistant",
+        "categories": ["Utility", "Development", "Office"],
+        "terminal": false,
+        "startup_wm_class": "eCan"
+      },
+      "system_requirements": {
+        "min_glibc": "2.31",
+        "min_kernel": "5.4",
+        "recommended_distros": [
+          "Ubuntu 20.04+",
+          "Debian 11+",
+          "Fedora 38+",
+          "RHEL 8+"
+        ]
+      }
     }
   },
   "ota": {

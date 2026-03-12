@@ -11,7 +11,7 @@ export const MCPNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.MCP,
   info: {
     icon: iconMcp,
-    description: 'An MCP node for executing general tasks via MCP tools with simple input and output.',
+    description: 'nodes.mcp.description',
   },
   meta: {
     size: {

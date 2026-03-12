@@ -6,13 +6,15 @@
  * Instead, it gets the workflow document from the global store,
  * which is set by the Open button when the picker is opened.
  */
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Toast, Modal, Input } from '@douyinfe/semi-ui';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useNodeNoteStore } from '../../stores/node-note-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 
@@ -47,13 +49,13 @@ const OpenPickerModalContent = () => {
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
   
   // Use global store for picker state
+  const { t } = useTranslation('skillEditor');
+  const [pickerQuery, setPickerQuery] = useState('');
   const pickerVisible = useOpenPickerStore((s) => s.visible);
   const setPickerVisible = useOpenPickerStore((s) => s.setVisible);
   const pickerLoading = useOpenPickerStore((s) => s.loading);
   const pickerOpenLoading = useOpenPickerStore((s) => s.openLoading);
   const setPickerOpenLoading = useOpenPickerStore((s) => s.setOpenLoading);
-  const pickerQuery = useOpenPickerStore((s) => s.query);
-  const setPickerQuery = useOpenPickerStore((s) => s.setQuery);
   const pickerItems = useOpenPickerStore((s) => s.items);
   const selectedItem = useOpenPickerStore((s) => s.selectedItem);
   const setSelectedItem = useOpenPickerStore((s) => s.setSelectedItem);
@@ -114,6 +116,7 @@ const OpenPickerModalContent = () => {
           }
           
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           setTimeout(() => {
             if (!workflowDocument) return;
             diagram.nodes.forEach((node: any) => {
@@ -133,6 +136,11 @@ const OpenPickerModalContent = () => {
                   try { (loadedNode as any).update?.(); } catch {}
                 }
               }
+              // Restore agentNote to note store
+              if (node?.data?.agentNote) {
+                useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+              }
+
             });
           }, 100);
           
@@ -144,6 +152,7 @@ const OpenPickerModalContent = () => {
             workflowDocument.fromJSON(data as any);
           }
           clearFlipStore();
+          useNodeNoteStore.getState().clear();
           if ((data as any).nodes && workflowDocument) {
             (data as any).nodes.forEach((node: any) => {
               if (node?.data?.hFlip === true) setFlipped(node.id, true);
@@ -198,17 +207,17 @@ const OpenPickerModalContent = () => {
 
   return (
     <Modal
-      title="Open Skill from S3"
+      title={t('openPicker.title')}
       visible={pickerVisible}
       onOk={handlePickerOpen}
       onCancel={() => setPickerVisible(false)}
-      okText="Open"
-      cancelText="Cancel"
+      okText={t('openPicker.okText')}
+      cancelText={t('openPicker.cancelText')}
       okButtonProps={{ disabled: !selectedItem || pickerOpenLoading, loading: pickerOpenLoading }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Input
-          placeholder="Search skills"
+          placeholder={t('openPicker.searchPlaceholder')}
           value={pickerQuery}
           onChange={setPickerQuery}
           showClear
