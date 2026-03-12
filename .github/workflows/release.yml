@@ -2206,10 +2206,6 @@ jobs:
         VERSION="${{ needs.validate-tag.outputs.version }}"
         KEY_PATH="build_system/certificates/ed25519_private_key.pem"
         
-        if [ -f "dist/eCan-${VERSION}-x86_64.AppImage" ]; then
-          python3 build_system/signing_manager.py "dist/eCan-${VERSION}-x86_64.AppImage" "$KEY_PATH" "dist/eCan-${VERSION}-x86_64.AppImage.sig"
-        fi
-        
         if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
           python3 build_system/signing_manager.py "dist/ecan-${VERSION}_amd64.deb" "$KEY_PATH" "dist/ecan-${VERSION}_amd64.deb.sig"
         fi
@@ -2218,11 +2214,6 @@ jobs:
       run: |
         VERSION="${{ needs.validate-tag.outputs.version }}"
         mkdir -p artifacts
-        
-        if [ -f "dist/eCan-${VERSION}-x86_64.AppImage" ]; then
-          cp "dist/eCan-${VERSION}-x86_64.AppImage" artifacts/
-          [ -f "dist/eCan-${VERSION}-x86_64.AppImage.sig" ] && cp "dist/eCan-${VERSION}-x86_64.AppImage.sig" artifacts/
-        fi
         
         if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
           cp "dist/ecan-${VERSION}_amd64.deb" artifacts/

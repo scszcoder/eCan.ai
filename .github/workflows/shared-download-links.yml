@@ -332,8 +332,7 @@ jobs:
           echo "  - \`aarch64\`: Apple Silicon (M1/M2/M3)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Linux**: x86_64 (64-bit)" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`.AppImage\`: Universal Linux package (recommended)" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`.deb\`: Debian/Ubuntu package" >> $GITHUB_STEP_SUMMARY
+          echo "  - \`.deb\`: Debian/Ubuntu package (recommended)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
       # ------------------------------------------------------------------------

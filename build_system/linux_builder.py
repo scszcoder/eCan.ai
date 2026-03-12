@@ -522,7 +522,7 @@ exit 0
         
         # Determine which formats to build
         if formats is None:
-            formats = ["appimage", "deb"]
+            formats = ["deb"]  # Only build DEB by default (AppImage is too slow)
         
         # Step 2 & 3: Build packages (parallel or serial)
         if parallel and len(formats) > 1:
