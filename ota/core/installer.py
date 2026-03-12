@@ -108,9 +108,9 @@ class InstallationManager:
             # Try to read from Inno Setup's uninstall registry key
             # AppId from build_config.json: 6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1
             app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
-            # Use raw string (r"...") to avoid Unicode escape errors with \U in Uninstall path
+            # Use f-string with raw string prefix to avoid Unicode escape errors with \U in Uninstall path
             # This is critical for PyInstaller frozen executables where \U is interpreted as Unicode escape
-            uninstall_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{" + app_id + r"}_is1"
+            uninstall_key = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id}}}_is1"
             
             # Try HKEY_CURRENT_USER first (per-user install)
             for root_key in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
@@ -257,7 +257,8 @@ class InstallationManager:
             raise RuntimeError("Windows-only helper")
 
         exe_path = cmd[0]
-        args_str = ' '.join(cmd[1:])
+        args_str = subprocess.list2cmdline(cmd[1:]) if len(cmd) > 1 else ""
+        exe_path_quoted = subprocess.list2cmdline([exe_path])
 
         # Use fixed user directory instead of temporary directory
         from config.app_info import app_info
@@ -268,8 +269,10 @@ class InstallationManager:
         bat_path = str(scripts_dir / "ecan_ota_launcher.bat")
         bat_content = (
             "@echo off\r\n"
+            "setlocal\r\n"
             f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
-            f'start "" {repr(exe_path)} {args_str}\r\n'
+            f"echo [OTA] Launching installer: {exe_path_quoted} {args_str}\r\n"
+            f"start \"\" {exe_path_quoted}{(' ' + args_str) if args_str else ''}\r\n"
         )
 
         with open(bat_path, 'w', encoding='utf-8') as f:
@@ -282,7 +285,10 @@ class InstallationManager:
         )
 
         logger.info(f"BAT launcher written to: {bat_path}")
-        logger.info(f"Installer command: {exe_path} {args_str}")
+        logger.info(f"Installer executable: {exe_path}")
+        logger.info(f"Installer arguments: {args_str}")
+        logger.info(f"Installer command for cmd.exe: start \"\" {exe_path_quoted}{(' ' + args_str) if args_str else ''}")
+        logger.info(f"BAT launcher content: {bat_content!r}")
         logger.info(f"Delay before launch: {delay_seconds}s")
 
         p = subprocess.Popen(
