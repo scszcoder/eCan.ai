@@ -421,6 +421,7 @@ type Mutation {
   updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]! @aws_api_key @aws_cognito_user_pools
   #  Skill editor (web mode) support
   writeSkillFile(input: [SkillFileInput!]): [SkillFileInfo] @aws_api_key @aws_cognito_user_pools
+  revertSkillRevision(input: RevertSkillRevisionInput!): SkillRevisionRevertResult @aws_api_key @aws_cognito_user_pools
 }
 
 type MutationResult @aws_api_key @aws_cognito_user_pools {
@@ -584,6 +585,7 @@ type Query {
   getWanMessage(ids: [ID!]): [WanChatMessage]! @aws_api_key @aws_cognito_user_pools
   getWarehouses(input: WarehouseQueryInput): [Warehouse!]! @aws_api_key @aws_cognito_user_pools
   listSkillFiles(limit: Int, nextToken: String, prefix: String, userId: String): [SkillFileInfo!]! @aws_api_key @aws_cognito_user_pools
+  listSkillRevisions(input: SkillRevisionInput!): [SkillRevision!]! @aws_api_key @aws_cognito_user_pools
   listStories(acctSiteID: String!, limit: Int, nextToken: String): StoryConnection @aws_api_key @aws_cognito_user_pools
   loadSkillEditorContexts(input: SkillEditorContextRequestInput!): SkillEditorContextResponse @aws_api_key @aws_cognito_user_pools
   openSkillFile(filePath: String!, skillName: String, userId: String): SkillFileContent @aws_api_key @aws_cognito_user_pools
@@ -788,6 +790,30 @@ type SkillFileInfo @aws_api_key @aws_cognito_user_pools {
   fileSize: Int
   skillName: String
   updatedAt: AWSDateTime
+}
+
+input SkillRevisionInput {
+  skillName: String!
+}
+
+type SkillRevision @aws_api_key @aws_cognito_user_pools {
+  key: String!
+  fileName: String!
+  timestamp: String!
+  size: Int!
+  lastModified: String
+}
+
+input RevertSkillRevisionInput {
+  skillName: String!
+  revisionKey: String!
+}
+
+type SkillRevisionRevertResult @aws_api_key @aws_cognito_user_pools {
+  success: Boolean!
+  restoredFrom: String!
+  restoredTo: String!
+  size: Int!
 }
 
 type SkillMutationResult @aws_api_key @aws_cognito_user_pools {

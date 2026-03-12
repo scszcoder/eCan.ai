@@ -82,11 +82,30 @@ def _provide_skills_schema(state: dict, mainwin: Any) -> str:
 
 
 def _provide_tools_schema(state: dict, mainwin: Any) -> str:
-    """Return JSON summary of all MCP tool schemas."""
+    """Return JSON summary of all MCP tool schemas.
+
+    Works in both GUI context (reads mainwin.mcp_tools_schemas) and
+    cloud-worker / no-GUI context (falls back to server-side registry).
+    """
     try:
+        # 1) GUI context — main-window registry
         all_schemas = getattr(mainwin, "mcp_tools_schemas", None) or []
+
+        # 2) Cloud / no-GUI fallback — server-side tool_schemas registry
+        if not all_schemas:
+            try:
+                from agent.mcp.server.tool_schemas import get_tool_schemas
+                all_schemas = get_tool_schemas() or []
+                if all_schemas:
+                    logger.debug(
+                        f"[prompt_var] tools_schema: loaded {len(all_schemas)} schemas from MCP server registry (cloud fallback)"
+                    )
+            except Exception as fallback_err:
+                logger.warning(f"[prompt_var] tools_schema cloud fallback failed: {fallback_err}")
+
         if not all_schemas:
             return "No tools available."
+
         result = []
         for schema in all_schemas:
             if hasattr(schema, "model_dump"):

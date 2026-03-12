@@ -9,6 +9,11 @@ import { EditorBridge } from './components/EditorBridge';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React from 'react';
 import { ChatPanel, FloatingToggleButton, ResizableDivider } from './components/chat-panel';
+import {
+  HistoryOutlined,
+} from '@ant-design/icons';
+import { Tooltip } from 'antd';
+import { RevisionPanel } from './components/revision-panel';
 
 // Error boundary specifically for ChatPanel to isolate its crashes
 class ChatPanelErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: Error }> {
@@ -125,6 +130,9 @@ export const Editor = () => {
   const [chatCollapsed, setChatCollapsed] = useState(true);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [chatPanelMounted, setChatPanelMounted] = useState(false);
+
+  // Revision panel state
+  const [revisionCollapsed, setRevisionCollapsed] = useState(true);
   
   // Auto-loading state
   const [isAutoLoading, setIsAutoLoading] = useState(true);
@@ -137,6 +145,10 @@ export const Editor = () => {
       }
       return next;
     });
+  }, []);
+
+  const handleRevisionToggle = useCallback(() => {
+    setRevisionCollapsed(prev => !prev);
   }, []);
 
   const handleChatResize = useCallback((delta: number) => {
@@ -414,7 +426,25 @@ export const Editor = () => {
                     {/* Sheets toolbar: tab bar and sheets menu */}
                     <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
                       <SheetsTabBar />
-                      <div style={{ marginLeft: 'auto' }}>
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Tooltip title="Revision History">
+                          <button
+                            onClick={handleRevisionToggle}
+                            style={{
+                              background: revisionCollapsed ? 'transparent' : 'rgba(59,130,246,0.15)',
+                              border: 'none',
+                              borderRadius: 4,
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              color: revisionCollapsed ? 'rgba(148,163,184,0.7)' : '#3b82f6',
+                              fontSize: 16,
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <HistoryOutlined />
+                          </button>
+                        </Tooltip>
                         <SheetsMenu />
                       </div>
                     </div>
@@ -442,6 +472,12 @@ export const Editor = () => {
             leftOffset={0}
           />
         </RightPanelContainer>
+
+        {/* Right side: Revision History Panel */}
+        <RevisionPanel
+          isCollapsed={revisionCollapsed}
+          onToggle={handleRevisionToggle}
+        />
       </SplitLayoutContainer>
       
       {/* Open Skill Picker Modal - rendered via portal, completely isolated from flowgram context */}
