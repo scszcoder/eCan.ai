@@ -203,6 +203,70 @@ class S3Uploader:
         
         return count
     
+    def upload_linux_artifacts(self, platform_filter: Optional[str] = None, arch_filter: Optional[str] = None) -> int:
+        """
+        Upload Linux packages (AppImage and DEB)
+        
+        Args:
+            platform_filter: If set, only upload this platform
+            arch_filter: If set, only upload this architecture
+            
+        Returns:
+            Number of files uploaded
+        """
+        if platform_filter and platform_filter != 'linux':
+            return 0
+        
+        print("\n[INFO] Uploading Linux artifacts...")
+        count = 0
+        
+        # Find Linux packages (AppImage and DEB)
+        patterns = ['*.AppImage', '*.deb']
+        for pattern in patterns:
+            for pkg in self.dist_dir.glob(pattern):
+                # Determine architecture from filename
+                if 'aarch64' in pkg.name or 'arm64' in pkg.name:
+                    arch = 'aarch64'
+                else:
+                    arch = 'amd64'
+                
+                # Skip if arch filter is set and doesn't match
+                if arch_filter and arch != arch_filter:
+                    continue
+                
+                # Build S3 key: {base_path}/{prefix}/releases/v{version}/linux/{arch}/{filename}
+                if self.base_path:
+                    s3_key = f"{self.base_path}/{self.prefix}/releases/v{self.version}/linux/{arch}/{pkg.name}"
+                else:
+                    s3_key = f"{self.prefix}/releases/v{self.version}/linux/{arch}/{pkg.name}"
+                
+                if self.upload_file(pkg, s3_key):
+                    count += 1
+                    
+                    # Upload Ed25519 signature (.sig) if exists
+                    sig_file = pkg.with_suffix(pkg.suffix + '.sig')
+                    if sig_file.exists():
+                        sig_key = f"{s3_key}.sig"
+                        if self.upload_file(sig_file, sig_key, 'application/octet-stream'):
+                            print(f"  [OK] Uploaded signature: {sig_file.name}")
+                    
+                    # Upload SHA256 checksum
+                    sha256 = self.calculate_sha256(pkg)
+                    sha256_key = f"{s3_key}.sha256"
+                    
+                    try:
+                        self.s3.put_object(
+                            Bucket=self.bucket,
+                            Key=sha256_key,
+                            Body=sha256,
+                            ContentType='text/plain'
+                        )
+                        print(f"  [OK] SHA256: {sha256}")
+                    except ClientError as e:
+                        print(f"  [WARN] Failed to upload SHA256: {e}")
+        
+        return count
+    
     def upload_macos_artifacts(self, platform_filter: Optional[str] = None, arch_filter: Optional[str] = None) -> int:
         """
         Upload macOS installers
@@ -408,8 +472,9 @@ class S3Uploader:
         # Upload artifacts
         windows_count = self.upload_windows_artifacts(platform_filter)
         macos_count = self.upload_macos_artifacts(platform_filter, arch_filter)
+        linux_count = self.upload_linux_artifacts(platform_filter, arch_filter)
         
-        total_count = windows_count + macos_count
+        total_count = windows_count + macos_count + linux_count
         
         if total_count == 0:
             print("\n[WARN] No artifacts found to upload")

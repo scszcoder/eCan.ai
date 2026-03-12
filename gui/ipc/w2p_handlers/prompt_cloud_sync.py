@@ -17,10 +17,27 @@ from __future__ import annotations
 import json
 import threading
 import traceback
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
+
+_CLOUD_PROMPTS_CACHE_TTL_SECONDS = 15
+_cloud_prompts_cache_lock = threading.Lock()
+_cloud_prompts_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def invalidate_cloud_prompts_cache(owner: Optional[str] = None) -> None:
+    with _cloud_prompts_cache_lock:
+        if owner:
+            removed = _cloud_prompts_cache.pop(owner, None)
+            if removed is not None:
+                logger.info(f"[prompt_sync] Invalidated cloud prompts cache for {owner}")
+            return
+        if _cloud_prompts_cache:
+            _cloud_prompts_cache.clear()
+            logger.info("[prompt_sync] Invalidated cloud prompts cache for all owners")
 
 # ---------------------------------------------------------------------------
 # Helpers to obtain auth context from the running app
@@ -220,6 +237,14 @@ def fetch_cloud_prompts() -> List[Dict[str, Any]]:
             return []
 
         owner = ctx["owner"]
+        now = time.time()
+
+        with _cloud_prompts_cache_lock:
+            cached = _cloud_prompts_cache.get(owner)
+            if cached and now - float(cached.get("timestamp", 0)) < _CLOUD_PROMPTS_CACHE_TTL_SECONDS:
+                prompts = cached.get("prompts") or []
+                logger.info(f"[prompt_sync] Using cached cloud prompts for {owner}: {len(prompts)} prompts")
+                return [dict(p) for p in prompts]
 
         query = """
             query QueryPrompts($input: PromptQueryInput) {
@@ -292,6 +317,12 @@ def fetch_cloud_prompts() -> List[Dict[str, Any]]:
             except Exception as parse_exc:
                 logger.warning(f"[prompt_sync] Failed to parse cloud prompt {item.get('id', '?')}: {parse_exc}")
                 continue
+
+        with _cloud_prompts_cache_lock:
+            _cloud_prompts_cache[owner] = {
+                "timestamp": now,
+                "prompts": [dict(p) for p in prompts],
+            }
 
         return prompts
     except Exception as exc:

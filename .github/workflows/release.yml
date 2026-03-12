@@ -2206,10 +2206,6 @@ jobs:
         VERSION="${{ needs.validate-tag.outputs.version }}"
         KEY_PATH="build_system/certificates/ed25519_private_key.pem"
         
-        if [ -f "dist/eCan-${VERSION}-x86_64.AppImage" ]; then
-          python3 build_system/signing_manager.py "dist/eCan-${VERSION}-x86_64.AppImage" "$KEY_PATH" "dist/eCan-${VERSION}-x86_64.AppImage.sig"
-        fi
-        
         if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
           python3 build_system/signing_manager.py "dist/ecan-${VERSION}_amd64.deb" "$KEY_PATH" "dist/ecan-${VERSION}_amd64.deb.sig"
         fi
@@ -2218,11 +2214,6 @@ jobs:
       run: |
         VERSION="${{ needs.validate-tag.outputs.version }}"
         mkdir -p artifacts
-        
-        if [ -f "dist/eCan-${VERSION}-x86_64.AppImage" ]; then
-          cp "dist/eCan-${VERSION}-x86_64.AppImage" artifacts/
-          [ -f "dist/eCan-${VERSION}-x86_64.AppImage.sig" ] && cp "dist/eCan-${VERSION}-x86_64.AppImage.sig" artifacts/
-        fi
         
         if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
           cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
@@ -2437,6 +2428,7 @@ jobs:
       channel: ${{ needs.validate-tag.outputs.channel }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
+      linux-result: ${{ needs.build-linux.result }}
       macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
       macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
     secrets: inherit

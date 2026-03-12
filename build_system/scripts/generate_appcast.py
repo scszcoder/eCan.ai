@@ -516,7 +516,7 @@ class AppcastGenerator:
         
         Args:
             version: Version number
-            platform: Platform (macos/windows)
+            platform: Platform (macos/windows/linux)
             arch: Architecture (amd64/aarch64)
             
         Returns:
@@ -546,6 +546,8 @@ class AppcastGenerator:
                 if platform == 'macos' and filename.endswith('.pkg'):
                     pass
                 elif platform == 'windows' and (filename.endswith('.exe') or filename.endswith('.msi')):
+                    pass
+                elif platform == 'linux' and (filename.endswith('.AppImage') or filename.endswith('.deb')):
                     pass
                 else:
                     continue
@@ -600,18 +602,18 @@ class AppcastGenerator:
             print(f"  [WARN] Failed to get package info for {version}/{platform}/{arch}: {e}")
             return None
     
-    def generate_appcast_xml(self, platform: str, arch: str, max_versions: int = 10, language: str = 'en-US') -> str:
+    def generate_appcast(self, platform: str, arch: str, max_versions: int = 10, language: str = 'en-US') -> Optional[str]:
         """
         Generate appcast XML for platform and architecture (with i18n support)
         
         Args:
-            platform: Platform (macos/windows)
+            platform: Platform (macos/windows/linux)
             arch: Architecture (amd64/aarch64)
             max_versions: Maximum number of versions to include
             language: Language code (e.g., 'en-US', 'zh-CN')
-        
+            
         Returns:
-            XML string
+            XML content string or None if failed
         """
         print(f"\n[INFO] Generating appcast for {platform}-{arch}...")
         
@@ -732,13 +734,14 @@ class AppcastGenerator:
     
     def upload_appcast(self, platform: str, arch: str, xml_content: str, language: str = 'en-US') -> bool:
         """
-        Upload appcast XML to S3 with change detection (with i18n support)
+        Upload appcast XML to S3 with smart caching (only upload if changed)
         
-        This method checks if the content has changed before uploading to avoid
-        unnecessary S3 API calls and uploads.
+        This method implements intelligent caching by comparing the new XML content
+        with the existing one on S3. It only uploads if the content has changed,
+        reducing unnecessary S3 API calls and uploads.
         
         Args:
-            platform: Platform (macos/windows)
+            platform: Platform (macos/windows/linux)
             arch: Architecture (amd64/aarch64)
             xml_content: Appcast XML content
             language: Language code (e.g., 'en-US', 'zh-CN')
@@ -847,7 +850,7 @@ class AppcastGenerator:
         
         # Add or update platform-specific info (incremental)
         updated_platforms = []
-        for platform in ['macos', 'windows']:
+        for platform in ['macos', 'windows', 'linux']:
             for arch in ['amd64', 'aarch64']:
                 pkg_info = self.get_package_info(latest_version, platform, arch)
                 if pkg_info:
@@ -901,7 +904,7 @@ class AppcastGenerator:
         """Run the appcast generation process
         
         Args:
-            platform_filter: Platform filter ('all', 'macos', 'windows')
+            platform_filter: Platform filter ('all', 'macos', 'windows', 'linux')
             arch_filter: Architecture filter ('all', 'amd64', 'aarch64')
         """
         print("=" * 60)
@@ -919,21 +922,15 @@ class AppcastGenerator:
         success_count = 0
         total_count = 0
         
-        # All possible platform/arch combinations
-        all_combinations = [
-            ('macos', 'amd64'),
-            ('macos', 'aarch64'),
-            ('windows', 'amd64')
-        ]
+        # Define platforms to process
+        platforms = ['macos', 'windows', 'linux'] if platform_filter == 'all' else [platform_filter]
+        architectures = ['amd64', 'aarch64'] if arch_filter == 'all' else [arch_filter]
         
         # Apply filters
         combinations = []
-        for platform, arch in all_combinations:
-            if platform_filter != 'all' and platform != platform_filter:
-                continue
-            if arch_filter != 'all' and arch != arch_filter:
-                continue
-            combinations.append((platform, arch))
+        for platform in platforms:
+            for arch in architectures:
+                combinations.append((platform, arch))
         
         if not combinations:
             print("[WARN] No platform/arch combinations match the filters")
@@ -989,7 +986,7 @@ Examples:
                        help='Release channel (overrides environment default)')
     parser.add_argument('--version', 
                        help='Specific version to generate appcast for (e.g., 1.0.1). If not provided, scans all versions.')
-    parser.add_argument('--platform', choices=['all', 'macos', 'windows'],
+    parser.add_argument('--platform', choices=['all', 'macos', 'windows', 'linux'],
                        default='all', help='Target platform (default: all)')
     parser.add_argument('--arch', choices=['all', 'amd64', 'aarch64'],
                        default='all', help='Target architecture (default: all)')
