@@ -28,6 +28,11 @@ export interface SkillLoadResult {
   error?: string;
 }
 
+export interface SkillLoadOptions {
+  autoSaveMigrated?: boolean;
+  lightweight?: boolean;
+}
+
 const DEFAULT_DATA_MAPPING = {
   developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
   released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
@@ -97,25 +102,28 @@ function applyDataMappingToSkillInfo(skillInfo: SkillInfo, dataMapping: any) {
  */
 export async function loadSkillFile(
   filePath: string,
-  options: {
-    autoSaveMigrated?: boolean;
-  } = {}
+  options: SkillLoadOptions = {}
 ): Promise<SkillLoadResult> {
   const isWeb = detectPlatform() === 'web';
   // IPCAPI methods internally handle web vs desktop routing, so always get the instance
   const ipcApi = IPCAPI.getInstance();
   const autoSaveMigrated = options.autoSaveMigrated !== false;
+  const lightweight = options.lightweight === true;
   const nowIso = new Date().toISOString();
   
   try {
+    const totalStart = performance.now();
+    console.time(`[Perf][SkillLoader] total ${filePath}`);
     console.log('[SkillLoader] Loading skill file:', filePath);
     
     // 1. Read the main skill file
     const openSkillFile = async () => {
+      const start = performance.now();
       const response = await ipcApi.openSkillFile(filePath).catch((e) => {
         console.error('[SkillLoader] openSkillFile error:', e);
         return null;
       });
+      console.log('[Perf][SkillLoader] openSkillFile duration:', `${(performance.now() - start).toFixed(1)}ms`, filePath);
       console.log('[SkillLoader] openSkillFile response:', response);
       // response is APIResponse<T> with { success, data, error }
       if (!response || !response.success || !response.data) {
@@ -126,10 +134,12 @@ export async function loadSkillFile(
     };
 
     const readSkillFile = async (path: string) => {
+      const start = performance.now();
       const response = await ipcApi.readSkillFile(path).catch((e) => {
         console.error('[SkillLoader] readSkillFile error:', e);
         return null;
       });
+      console.log('[Perf][SkillLoader] readSkillFile duration:', `${(performance.now() - start).toFixed(1)}ms`, path);
       console.log('[SkillLoader] readSkillFile response:', response);
       if (!response || !response.success || !response.data) return null;
       // response.data could be array or single item
@@ -158,7 +168,9 @@ export async function loadSkillFile(
       fileResponse = fallbackResp as any;
     }
     
+    const mainParseStart = performance.now();
     const parsed = JSON.parse(fileResponse.data.content);
+    console.log('[Perf][SkillLoader] main JSON.parse duration:', `${(performance.now() - mainParseStart).toFixed(1)}ms`, filePath);
     let migrated = false;
     let bundle: SheetsBundle | undefined;
     let bundlePath: string | undefined;
@@ -212,7 +224,9 @@ export async function loadSkillFile(
         schemaVersion: (parsed as any)?.schemaVersion,
       };
 
+      const bundleMigrationStart = performance.now();
       const bundleMigrationResult = migrateBundle(bundleFromMainFile);
+      console.log('[Perf][SkillLoader] main-file bundle migration duration:', `${(performance.now() - bundleMigrationStart).toFixed(1)}ms`, bundlePath || filePath);
       migrated = bundleMigrationResult.migratedCount > 0;
       if (migrated) {
         console.log('[SkillLoader] Bundle migration applied (main file bundle):', bundleMigrationResult);
@@ -246,7 +260,9 @@ export async function loadSkillFile(
       }
 
       try {
+        const mappingParseStart = performance.now();
         const parsedMapping = dataMappingJson ? JSON.parse(dataMappingJson) : null;
+        console.log('[Perf][SkillLoader] data mapping parse duration:', `${(performance.now() - mappingParseStart).toFixed(1)}ms`, dataMappingPath || filePath);
         if (parsedMapping) {
           applyDataMappingToSkillInfo(syntheticSkillInfo, parsedMapping);
         }
@@ -254,6 +270,8 @@ export async function loadSkillFile(
         // ignore invalid mapping JSON
       }
 
+      console.timeEnd(`[Perf][SkillLoader] total ${filePath}`);
+      console.log('[Perf][SkillLoader] total duration:', `${(performance.now() - totalStart).toFixed(1)}ms`, filePath);
       return {
         success: true,
         skillInfo: syntheticSkillInfo,
@@ -276,6 +294,25 @@ export async function loadSkillFile(
     } catch {
       // Keep original skillName if normalization fails
     }
+
+    if (lightweight) {
+      if (skillInfo.workFlow) {
+        const docMigrationStart = performance.now();
+        const docMigrationResult = migrateDocument(skillInfo.workFlow, (skillInfo as any).schemaVersion);
+        console.log('[Perf][SkillLoader] lightweight document migration duration:', `${(performance.now() - docMigrationStart).toFixed(1)}ms`, filePath);
+        migrated = docMigrationResult.migrated;
+      }
+
+      console.log('[SkillLoader] Lightweight mode: skipping bundle discovery and data mapping on initial load');
+      console.timeEnd(`[Perf][SkillLoader] total ${filePath}`);
+      console.log('[Perf][SkillLoader] total duration:', `${(performance.now() - totalStart).toFixed(1)}ms`, filePath);
+      return {
+        success: true,
+        skillInfo,
+        filePath,
+        migrated,
+      };
+    }
     
     // 2. Try to load bundle file
     const idx = filePath.toLowerCase().lastIndexOf('.json');
@@ -286,7 +323,9 @@ export async function loadSkillFile(
       try {
         const bundleResp = await readSkillFile(candidatePath);
         if (bundleResp.success && bundleResp.data) {
+          const bundleParseStart = performance.now();
           const maybeBundle = JSON.parse(bundleResp.data.content);
+          console.log('[Perf][SkillLoader] bundle candidate parse duration:', `${(performance.now() - bundleParseStart).toFixed(1)}ms`, candidatePath);
           if (looksLikeBundle(maybeBundle)) {
             const normalizedBundle = normalizeBundle(maybeBundle);
             if (normalizedBundle) {
@@ -305,7 +344,9 @@ export async function loadSkillFile(
     // 3. Apply migration
     if (bundle) {
       // Migrate bundle (which migrates all sheet documents)
+      const bundleMigrationStart = performance.now();
       const bundleMigrationResult = migrateBundle(bundle);
+      console.log('[Perf][SkillLoader] bundle migration duration:', `${(performance.now() - bundleMigrationStart).toFixed(1)}ms`, bundlePath || filePath);
       migrated = bundleMigrationResult.migratedCount > 0;
       
       if (migrated) {
@@ -316,7 +357,9 @@ export async function loadSkillFile(
     } else if (skillInfo.workFlow) {
       // Migrate single skill document
       // Pass skillInfo.schemaVersion to help determine if migration is needed
+      const docMigrationStart = performance.now();
       const docMigrationResult = migrateDocument(skillInfo.workFlow, (skillInfo as any).schemaVersion);
+      console.log('[Perf][SkillLoader] document migration duration:', `${(performance.now() - docMigrationStart).toFixed(1)}ms`, filePath);
       migrated = docMigrationResult.migrated;
       
       if (migrated) {
@@ -371,7 +414,9 @@ export async function loadSkillFile(
     }
 
     try {
+      const mappingParseStart = performance.now();
       const parsedMapping = dataMappingJson ? JSON.parse(dataMappingJson) : null;
+      console.log('[Perf][SkillLoader] data mapping parse duration:', `${(performance.now() - mappingParseStart).toFixed(1)}ms`, dataMappingPath || filePath);
       if (parsedMapping) {
         applyDataMappingToSkillInfo(skillInfo, parsedMapping);
       }
@@ -379,6 +424,8 @@ export async function loadSkillFile(
       // ignore invalid mapping JSON
     }
     
+    console.timeEnd(`[Perf][SkillLoader] total ${filePath}`);
+    console.log('[Perf][SkillLoader] total duration:', `${(performance.now() - totalStart).toFixed(1)}ms`, filePath);
     return {
       success: true,
       skillInfo,
@@ -390,6 +437,7 @@ export async function loadSkillFile(
       migrated,
     };
   } catch (error) {
+    console.timeEnd(`[Perf][SkillLoader] total ${filePath}`);
     console.error('[SkillLoader] Error loading skill file:', error);
     return {
       success: false,
