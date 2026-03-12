@@ -9,6 +9,11 @@ import { EditorBridge } from './components/EditorBridge';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React from 'react';
 import { ChatPanel, FloatingToggleButton, ResizableDivider } from './components/chat-panel';
+import {
+  HistoryOutlined,
+} from '@ant-design/icons';
+import { Tooltip } from 'antd';
+import { RevisionPanel } from './components/revision-panel';
 
 // Error boundary specifically for ChatPanel to isolate its crashes
 class ChatPanelErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: Error }> {
@@ -106,6 +111,10 @@ const MAX_CHAT_WIDTH = 600;
 export const Editor = () => {
   const { t } = useTranslation();
   const emptyData: FlowDocumentJSON = emptyFlowData;
+  const perfRef = useRef({
+    mountAt: performance.now(),
+    editorReadyAt: 0,
+  });
 
   // ProductionEnvironment不Load初始Data，DevelopmentEnvironment根据Configuration决定
   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
@@ -120,12 +129,26 @@ export const Editor = () => {
   // Chat panel state
   const [chatCollapsed, setChatCollapsed] = useState(true);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+  const [chatPanelMounted, setChatPanelMounted] = useState(false);
+
+  // Revision panel state
+  const [revisionCollapsed, setRevisionCollapsed] = useState(true);
   
   // Auto-loading state
   const [isAutoLoading, setIsAutoLoading] = useState(true);
 
   const handleChatToggle = useCallback(() => {
-    setChatCollapsed(prev => !prev);
+    setChatCollapsed(prev => {
+      const next = !prev;
+      if (!next) {
+        setChatPanelMounted(true);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleRevisionToggle = useCallback(() => {
+    setRevisionCollapsed(prev => !prev);
   }, []);
 
   const handleChatResize = useCallback((delta: number) => {
@@ -143,6 +166,8 @@ export const Editor = () => {
     if (editorReadyRef.current) return;
     editorReadyRef.current = true;
     setEditorReady(true);
+    perfRef.current.editorReadyAt = performance.now();
+    console.log('[Perf][SkillEditor] Editor ready after mount:', `${(perfRef.current.editorReadyAt - perfRef.current.mountAt).toFixed(1)}ms`);
   }, []);
 
   // Load context from backend - only run ONCE on mount
@@ -173,11 +198,13 @@ export const Editor = () => {
     const currentSkillInfo = skillInfo;
     
     const input: Record<string, any> = { userId: username };
-    if (currentSkillInfo?.skillName) {
-      input.skillNames = [currentSkillInfo.skillName];
+    const currentSkillName = currentSkillInfo?.skillName;
+    if (currentSkillName) {
+      input.skillNames = [currentSkillName];
     }
-    if (currentSkillInfo?.skillId) {
-      input.skillIds = [currentSkillInfo.skillId];
+    const currentSkillId = currentSkillInfo?.skillId;
+    if (currentSkillId) {
+      input.skillIds = [currentSkillId];
     }
 
     console.log('[SkillEditor] Loading context with input:', input);
@@ -271,30 +298,30 @@ export const Editor = () => {
   useEffect(() => {
     if (!editorReady || sheetsInitializedRef.current) return;
     sheetsInitializedRef.current = true;
+    const initStart = performance.now();
 
     // Initialize with preferredDoc (auto-load will override if file is loaded)
     initMain(preferredDoc);
     openSheet('main');
+    console.log('[Perf][SkillEditor] initMain/openSheet duration:', `${(performance.now() - initStart).toFixed(1)}ms`);
   }, [editorReady, preferredDoc, initMain, openSheet]);
 
-  // Memoize sheets state to prevent unnecessary re-renders triggering auto-save
-  // Use JSON.stringify to create a stable fingerprint that detects deep changes
-  // Include node data snippets to detect hFlip and other data changes
+  // Memoize sheets state to prevent unnecessary re-renders triggering auto-save.
+  // Keep this summary lightweight because useAutoSave already performs its own
+  // deeper fingerprinting based on skill/workflow/sheets content.
   const sheetsFingerprint = useMemo(() => {
-    return JSON.stringify({
-      sheetIds: Object.keys(sheets),
-      sheetDocs: Object.entries(sheets).map(([id, s]) => ({
-        id,
-        name: s.name,
-        nodeCount: s.document?.nodes?.length ?? 0,
-        edgeCount: s.document?.edges?.length ?? 0,
-        // Include data snippets to detect hFlip and other changes
-        nodesData: s.document?.nodes?.map((n: any) => ({
-          id: n.id,
-          dataSnippet: n.data ? JSON.stringify(n.data).slice(0, 100) : '',
-        })),
-      })),
-    });
+    return Object.keys(sheets)
+      .sort()
+      .map((id) => {
+        const sheet = sheets[id];
+        return [
+          id,
+          sheet?.name ?? '',
+          sheet?.document?.nodes?.length ?? 0,
+          sheet?.document?.edges?.length ?? 0,
+        ].join(':');
+      })
+      .join('|');
   }, [sheets]);
 
   const sheetsState = useMemo(() => ({
@@ -362,11 +389,13 @@ export const Editor = () => {
       <SplitLayoutContainer>
         {/* Left side: Collapsible Chat Panel */}
         <ChatPanelErrorBoundary>
-          <ChatPanel
-            isCollapsed={chatCollapsed}
-            onToggle={handleChatToggle}
-            width={chatWidth}
-          />
+          {chatPanelMounted ? (
+            <ChatPanel
+              isCollapsed={chatCollapsed}
+              onToggle={handleChatToggle}
+              width={chatWidth}
+            />
+          ) : null}
         </ChatPanelErrorBoundary>
         
         {/* Resizable divider between chat and editor */}
@@ -397,7 +426,25 @@ export const Editor = () => {
                     {/* Sheets toolbar: tab bar and sheets menu */}
                     <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
                       <SheetsTabBar />
-                      <div style={{ marginLeft: 'auto' }}>
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Tooltip title="Revision History">
+                          <button
+                            onClick={handleRevisionToggle}
+                            style={{
+                              background: revisionCollapsed ? 'transparent' : 'rgba(59,130,246,0.15)',
+                              border: 'none',
+                              borderRadius: 4,
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              color: revisionCollapsed ? 'rgba(148,163,184,0.7)' : '#3b82f6',
+                              fontSize: 16,
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <HistoryOutlined />
+                          </button>
+                        </Tooltip>
                         <SheetsMenu />
                       </div>
                     </div>
@@ -425,6 +472,12 @@ export const Editor = () => {
             leftOffset={0}
           />
         </RightPanelContainer>
+
+        {/* Right side: Revision History Panel */}
+        <RevisionPanel
+          isCollapsed={revisionCollapsed}
+          onToggle={handleRevisionToggle}
+        />
       </SplitLayoutContainer>
       
       {/* Open Skill Picker Modal - rendered via portal, completely isolated from flowgram context */}
@@ -437,6 +490,7 @@ export const Editor = () => {
 const AutoLoadHandler: React.FC<{ onLoadingChange: (loading: boolean) => void }> = ({ onLoadingChange }) => {
   const location = useLocation();
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
+  const autoLoadPerfRef = useRef<number | null>(null);
 
   const state = location.state as { filePath?: string } | null;
   const hasRouteFile = !!state?.filePath;
@@ -453,7 +507,27 @@ const AutoLoadHandler: React.FC<{ onLoadingChange: (loading: boolean) => void }>
     shouldAutoLoad,
   });
   
-  const { isAutoLoading } = useAutoLoadRecentFile({ enabled: shouldAutoLoad });
+  const { isAutoLoading } = useAutoLoadRecentFile({
+    enabled: shouldAutoLoad,
+    startupDelayMs: 600,
+    onAutoLoadStart: () => {
+      autoLoadPerfRef.current = performance.now();
+      console.time('[Perf][SkillEditor] auto-load recent file');
+    },
+    onAutoLoadSuccess: (filePath) => {
+      if (autoLoadPerfRef.current != null) {
+        console.log('[Perf][SkillEditor] auto-load success duration:', `${(performance.now() - autoLoadPerfRef.current).toFixed(1)}ms`, filePath);
+      }
+    },
+    onAutoLoadError: (error) => {
+      if (autoLoadPerfRef.current != null) {
+        console.log('[Perf][SkillEditor] auto-load error duration:', `${(performance.now() - autoLoadPerfRef.current).toFixed(1)}ms`, error.message);
+      }
+    },
+    onAutoLoadComplete: () => {
+      console.timeEnd('[Perf][SkillEditor] auto-load recent file');
+    },
+  });
   
   // Notify parent component of loading state changes
   React.useEffect(() => {

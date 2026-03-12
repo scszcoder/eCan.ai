@@ -4,15 +4,18 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Field } from '@flowgram.ai/free-layout-editor';
-import { DynamicValueInput, PromptEditorWithVariables } from '@flowgram.ai/form-materials';
+import { DynamicValueInput } from '@flowgram.ai/form-materials';
 import { Button, Input } from '@douyinfe/semi-ui';
 
 import { FormItem } from '../form-item';
 import { Feedback } from '../feedback';
+import { CollapsiblePromptEditor } from '../CollapsiblePromptEditor';
 import { JsonSchema } from '../../typings';
 import { useNodeRenderContext } from '../../hooks';
 import { maskApiKeyForDisplay, API_KEY_PLACEHOLDER, API_KEY_REGEX } from '../../utils/sanitize-utils';
+import { getCommonFieldLabel } from '../../utils/field-labels';
 
 interface FormInputsProps {
   extraFilter?: (key: string) => boolean;
@@ -22,9 +25,10 @@ interface MaskedApiKeyInputProps {
   field: any;
   fieldState: any;
   readonly: boolean;
+  t: any;
 }
 
-const MaskedApiKeyInput = ({ field, fieldState, readonly }: MaskedApiKeyInputProps) => {
+const MaskedApiKeyInput = ({ field, fieldState, readonly, t }: MaskedApiKeyInputProps) => {
   const extractValue = (): string => {
     const v = field.value;
     if (v && typeof v === 'object' && 'content' in v) {
@@ -66,7 +70,7 @@ const MaskedApiKeyInput = ({ field, fieldState, readonly }: MaskedApiKeyInputPro
           type={isEditing ? 'password' : 'text'}
           readOnly={!isEditing || readonly}
           onChange={(val) => handleChange(val)}
-          placeholder="Enter API Key"
+          placeholder={t('formInputs.apiKeyPlaceholder')}
           disabled={readonly && !isEditing}
         />
       </div>
@@ -75,7 +79,7 @@ const MaskedApiKeyInput = ({ field, fieldState, readonly }: MaskedApiKeyInputPro
           type={isEditing ? 'primary' : 'tertiary'}
           onClick={() => setIsEditing((prev) => !prev)}
         >
-          {isEditing ? 'Done' : 'Edit'}
+          {isEditing ? t('formInputs.done') : t('formInputs.edit')}
         </Button>
       )}
       <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
@@ -85,6 +89,7 @@ const MaskedApiKeyInput = ({ field, fieldState, readonly }: MaskedApiKeyInputPro
 
 export function FormInputs({ extraFilter }: FormInputsProps = {}) {
   const { readonly } = useNodeRenderContext();
+  const { t } = useTranslation('skillEditor');
 
   // Ensure the PromptEditor receives a FlowValue whose `content` is a string.
   // Some upstream values may accidentally be objects/arrays, which will crash the underlying CodeEditor.
@@ -143,7 +148,7 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
     if (!properties || Object.keys(properties).length === 0) {
       return (
         <div className="mcp-form-inputs-wrapper" style={{ background: '#fff', color: '#111', padding: 8, borderRadius: 4 }}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>[MCP][FormInputs] No parameters to render for this tool. Source: {sourceLabel}</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>{t('formInputs.noParameters', { source: sourceLabel })}</div>
         </div>
       );
     }
@@ -170,6 +175,7 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
               field={field}
               fieldState={fieldState}
               readonly={readonly}
+              t={t}
             />
           );
         }
@@ -191,16 +197,19 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
           {({ field, fieldState }) => (
             <FormItem
               name={key}
+              label={getCommonFieldLabel(key, t)}
               vertical={vertical}
               type={property.type as string}
               required={required.includes(key)}
             >
               {formComponent === 'prompt-editor' && (
-                <PromptEditorWithVariables
+                <CollapsiblePromptEditor
                   value={sanitizeFlowValue(field.value, property)}
                   onChange={field.onChange}
                   readonly={readonly}
                   hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                  defaultCollapsed={true}
+                  collapsedLines={3}
                 />
               )}
               {!formComponent && (
@@ -262,7 +271,6 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
     });
     return (
       <div className="mcp-form-inputs-wrapper" style={{ background: '#fff' }}>
-        <div style={{ fontSize: 12, color: '#444', marginBottom: 6 }}>[MCP][FormInputs] Rendering parameters: {keys.join(', ')}</div>
         {content.filter(Boolean)}
       </div>
     );
@@ -270,25 +278,8 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
 
   return (
     <>
-      {/* Diagnostic: log callable params parsed keys regardless of effect status */}
       <Field<any> name="data.callable">
-        {({ field }) => {
-          try {
-            const callable = field.value || {};
-            const ps = callable?.params || { type: 'object', properties: {} };
-            const rp = ps?.properties || {};
-            const hasInput = rp.input && typeof rp.input === 'object' && rp.input.type === 'object';
-            const rawProps = hasInput ? (rp.input.properties || {}) : rp;
-            const keys = Object.keys(rawProps || {});
-            console.log('[MCP][Diag] callable.name =', callable?.name, 'parsed keys from callable.params =', keys);
-            if ((callable?.name || '').toLowerCase() === 'mouse_move') {
-              console.log('[MCP][Diag][mouse_move] expected keys: location, post_wait | actual:', keys);
-            }
-          } catch (e) {
-            console.warn('[MCP][Diag] failed to parse callable params:', e);
-          }
-          return null;
-        }}
+        {() => <></>}
       </Field>
 
       <Field<JsonSchema> name="data.inputs">
@@ -313,12 +304,11 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
                       const rp = params?.properties || {};
                       const hasInput = rp.input && typeof rp.input === 'object' && rp.input.type === 'object';
                       const derivedProps = hasInput ? (rp.input.properties || {}) : rp;
-                      const derivedReq = hasInput
-                        ? (Array.isArray(rp.input?.required) ? rp.input.required : Object.keys(derivedProps))
-                        : (Array.isArray(params.required) ? params.required : Object.keys(derivedProps));
+                      const derivedReq = (params && typeof params === 'object' && 'required' in params)
+                        ? (Array.isArray(params.required) ? params.required : Object.keys(derivedProps))
+                        : [];
                       const derivedSchema = { type: 'object', properties: derivedProps, required: derivedReq } as any;
                       const fakeField = { value: derivedSchema };
-                      console.log('[MCP][FormInputs] Derived schema from callable.params =', derivedSchema);
                       return renderFromSchema(fakeField, 'callable.params');
                     }}
                   </Field>

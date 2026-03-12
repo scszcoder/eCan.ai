@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Button, Checkbox, Radio, Space } from 'antd';
+import { Button, Checkbox, Input, Radio, Space } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
 import styled from 'styled-components';
 import type { ClarificationQuestion } from '../../types/skill-editor-chat.types';
@@ -97,6 +97,32 @@ const ChoiceDescription = styled.span`
   margin-left: 4px;
 `;
 
+const FreeformInput = styled(Input.TextArea)`
+  margin-top: 8px;
+  background: rgba(15, 23, 42, 0.7) !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  color: #e2e8f0 !important;
+  border-radius: 6px;
+  font-size: 12px;
+  &::placeholder {
+    color: rgba(148, 163, 184, 0.5) !important;
+  }
+  &:focus {
+    border-color: rgba(59, 130, 246, 0.6) !important;
+  }
+`;
+
+const FreeformReadOnly = styled.div`
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #e2e8f0;
+  font-style: italic;
+`;
+
 const SubmitButton = styled(Button)`
   width: 100%;
   margin-top: 8px;
@@ -109,10 +135,18 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
   submittedAnswers,
 }) => {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const [freeformText, setFreeformText] = useState<Record<string, string>>({});
   
   // Read-only mode when submittedAnswers is provided
   const isReadOnly = !!submittedAnswers;
   const displayAnswers = submittedAnswers || answers;
+  const displayFreeform = submittedAnswers
+    ? Object.fromEntries(
+        Object.entries(submittedAnswers)
+          .filter(([k]) => k.startsWith('freeform_'))
+          .map(([k, v]) => [k.slice('freeform_'.length), (v || [''])[0]])
+      )
+    : freeformText;
 
   // Defensive: ensure questions is a valid array with proper structure
   const safeQuestions = React.useMemo(() => {
@@ -174,12 +208,23 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
     });
   }, []);
 
+  const handleFreeformChange = useCallback((questionId: string, text: string) => {
+    setFreeformText(prev => ({ ...prev, [questionId]: text }));
+  }, []);
+
   const handleSubmit = useCallback(() => {
-    console.log('[ClarificationCard] Submitting answers:', answers);
-    if (onSubmit) {
-      onSubmit(answers);
+    // Merge freeform text into answers as freeform_{qid} keys
+    const merged: Record<string, string[]> = { ...answers };
+    for (const [qid, text] of Object.entries(freeformText)) {
+      if (text.trim()) {
+        merged[`freeform_${qid}`] = [text.trim()];
+      }
     }
-  }, [answers, onSubmit]);
+    console.log('[ClarificationCard] Submitting answers:', merged);
+    if (onSubmit) {
+      onSubmit(merged);
+    }
+  }, [answers, freeformText, onSubmit]);
 
   const answeredCount = safeQuestions.filter(q => (displayAnswers[q.id] || []).length > 0).length;
   const isComplete = answeredCount === safeQuestions.length;
@@ -244,6 +289,25 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
                   </ChoiceItem>
                 );
               })}
+              {/* Freeform text input: show when a choice with allow_freeform is selected */}
+              {(() => {
+                const freeformChoice = question.choices.find(c => c.allow_freeform);
+                const freeformSelected = freeformChoice && (displayAnswers[question.id] || []).includes(freeformChoice.id);
+                if (!freeformSelected) return null;
+                if (isReadOnly) {
+                  const text = displayFreeform[question.id];
+                  return text ? <FreeformReadOnly>{text}</FreeformReadOnly> : null;
+                }
+                return (
+                  <FreeformInput
+                    placeholder="Please describe in detail..."
+                    value={freeformText[question.id] || ''}
+                    onChange={(e) => handleFreeformChange(question.id, e.target.value)}
+                    autoSize={{ minRows: 2, maxRows: 5 }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                );
+              })()}
             </ChoiceContainer>
           </QuestionContainer>
         );

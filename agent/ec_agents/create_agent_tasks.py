@@ -135,14 +135,14 @@ def _get_or_create_task(
         return None
 
 
-def create_my_twin_chat_task(mainwin: 'MainWindow'):
-    return _get_or_create_task(
-        mainwin,
-        skill_matcher="chatter for my digital twin",
-        task_name="chat:Human Chatter Relay Task",
-        description="Represent human to chat with others",
-        trigger="message"
-    )
+# def create_my_twin_chat_task(mainwin: 'MainWindow'):
+#     return _get_or_create_task(
+#         mainwin,
+#         skill_matcher="chatter for my digital twin",
+#         task_name="chat:Human Chatter Relay Task",
+#         description="Represent human to chat with others",
+#         trigger="message"
+#     )
 
 
 def create_ec_helper_chat_task(mainwin):

@@ -25,8 +25,7 @@ export const BreakNodeRegistry: FlowNodeRegistry = {
   },
   info: {
     icon: iconBreak,
-    description:
-      'The final node of the workflow, used to return the result information after the workflow is run.',
+    description: 'nodes.break.description',
   },
   /**
    * Render node via formMeta

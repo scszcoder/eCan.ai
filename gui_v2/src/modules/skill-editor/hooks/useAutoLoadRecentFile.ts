@@ -17,6 +17,7 @@ import { PageRefreshManager } from '../../../services/events/PageRefreshManager'
 
 interface AutoLoadOptions {
   enabled?: boolean;
+  startupDelayMs?: number;
   onAutoLoadStart?: () => void;
   onAutoLoadSuccess?: (filePath: string, skillInfo: SkillInfo) => void;
   onAutoLoadError?: (error: Error) => void;
@@ -29,6 +30,7 @@ interface AutoLoadOptions {
 export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
   const {
     enabled = true,
+    startupDelayMs = 600,
     onAutoLoadStart,
     onAutoLoadSuccess,
     onAutoLoadError,
@@ -88,7 +90,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
       return;
     }
 
-    console.log('[AutoLoad] ✅ Starting auto-load process...');
+    console.log('[AutoLoad] ✅ Scheduling deferred auto-load process...');
     setIsAutoLoading(true);
 
     const autoLoadRecentFile = async () => {
@@ -154,8 +156,11 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
 
         onAutoLoadStart?.();
 
-        // Use unified skill loader (handles migration automatically)
-        const result = await loadSkillFile(fileToLoad.filePath);
+        // Use lightweight load first so the editor becomes interactive sooner.
+        const result = await loadSkillFile(fileToLoad.filePath, {
+          autoSaveMigrated: false,
+          lightweight: true,
+        });
         const absoluteFilePath = result.filePath;
 
         if (result.success && result.skillInfo) {
@@ -207,6 +212,40 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             workflowDocument.fitView && workflowDocument.fitView();
 
             onAutoLoadSuccess?.(absoluteFilePath, data);
+
+            const hydrateLater = () => {
+              void loadSkillFile(absoluteFilePath, { autoSaveMigrated: true }).then((fullResult) => {
+                if (!fullResult.success || !fullResult.skillInfo) {
+                  return;
+                }
+
+                const latestPath = useSkillInfoStore.getState().currentFilePath;
+                if (latestPath && latestPath !== absoluteFilePath) {
+                  return;
+                }
+
+                if (fullResult.bundle) {
+                  const loadBundle = useSheetsStore.getState().loadBundle;
+                  loadBundle(fullResult.bundle);
+                }
+
+                if (fullResult.dataMapping || fullResult.bundle || fullResult.migrated) {
+                  setSkillInfo(fullResult.skillInfo);
+                }
+              }).catch((error) => {
+                console.warn('[AutoLoad] Background hydration failed:', error);
+              });
+            };
+
+            const requestIdle = (globalThis as unknown as Window & {
+              requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+            }).requestIdleCallback;
+
+            if (typeof requestIdle === 'function') {
+              requestIdle(() => hydrateLater(), { timeout: 2000 });
+            } else {
+              setTimeout(hydrateLater, 300);
+            }
           } else {
             // Fallback for older formats
             workflowDocument.clear();
@@ -252,16 +291,51 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
       }
     };
 
-    // Small delay to ensure the editor is fully initialized
-    const timeoutId = setTimeout(autoLoadRecentFile, 100);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let idleCallbackId: number | undefined;
+    let cancelled = false;
+
+    const runAutoLoad = () => {
+      if (cancelled) {
+        return;
+      }
+      void autoLoadRecentFile();
+    };
+
+    const scheduleAutoLoad = () => {
+      const requestIdle = (globalThis as unknown as Window & {
+        requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      }).requestIdleCallback;
+
+      if (typeof requestIdle === 'function') {
+        idleCallbackId = requestIdle(() => {
+          runAutoLoad();
+        }, { timeout: 1500 });
+        return;
+      }
+
+      timeoutId = setTimeout(runAutoLoad, 0);
+    };
+
+    timeoutId = setTimeout(scheduleAutoLoad, startupDelayMs);
 
     return () => {
-      clearTimeout(timeoutId);
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      const cancelIdle = (globalThis as unknown as Window & {
+        cancelIdleCallback?: (handle: number) => void;
+      }).cancelIdleCallback;
+      if (idleCallbackId !== undefined && typeof cancelIdle === 'function') {
+        cancelIdle(idleCallbackId);
+      }
     };
   }, [
     enabled,
     currentFilePath,
     workflowDocument,
+    startupDelayMs,
     setSkillInfo,
     setBreakpoints,
     setCurrentFilePath,

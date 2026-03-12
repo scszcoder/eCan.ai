@@ -3,7 +3,8 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Input, Tooltip, Upload } from 'antd';
+import { useTranslation } from 'react-i18next';
+import { Input, Tooltip, Upload, Popconfirm } from 'antd';
 import {
   SendOutlined,
   AudioOutlined,
@@ -13,6 +14,8 @@ import {
   PlusOutlined,
   HistoryOutlined,
   LoadingOutlined,
+  DeleteOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
@@ -58,6 +61,13 @@ interface ChatSession {
   updatedAt: Date;
 }
 
+/** Parse a timestamp value into a valid Date. Falls back to `new Date()` when the input is missing or produces an Invalid Date. */
+const safeDate = (value: any): Date => {
+  if (value == null) return new Date();
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
 const parseMaybeJson = (value: any) => {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
@@ -70,6 +80,16 @@ const parseMaybeJson = (value: any) => {
     }
   }
   return value;
+};
+
+const buildMessageId = (rawId: any, role: 'user' | 'assistant', content: any, timestamp?: any) => {
+  const normalizedId = rawId == null ? '' : String(rawId).trim();
+  if (normalizedId) {
+    return normalizedId;
+  }
+  const normalizedContent = String(content ?? '').slice(0, 80);
+  const timePart = timestamp ? safeDate(timestamp).getTime() : Date.now();
+  return `msg-${role}-${timePart}-${normalizedContent}`;
 };
 
 const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
@@ -95,10 +115,10 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
       }
       
       return {
-        id: String(m.id),
+        id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
         role: (m.role as 'user' | 'assistant') || 'assistant',
         content: String(m.content ?? ''),
-        timestamp: new Date(m.timestamp || Date.now()),
+        timestamp: safeDate(m.timestamp),
         attachments: Array.isArray(attachments)
           ? attachments.map((a: any) => a?.path || a?.name || String(a)).filter(Boolean)
           : undefined,
@@ -238,10 +258,23 @@ const SessionItem = styled.div<{ $active: boolean }>`
   }
 `;
 
+const SessionMain = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const SessionTopRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
 const SessionTopic = styled.span`
   font-size: 12px;
+  font-weight: 500;
   color: #e2e8f0;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -252,6 +285,41 @@ const SessionDate = styled.span`
   color: rgba(148, 163, 184, 0.6);
   margin-left: 8px;
   flex-shrink: 0;
+`;
+
+const SessionPreview = styled.div`
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const SessionDeleteButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.7);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+
+  .anticon {
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  &:hover {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.12);
+  }
 `;
 
 const ChatContentArea = styled.div`
@@ -309,50 +377,70 @@ const MessageMeta = styled.span`
 `;
 
 const InputContainer = styled.div`
-  padding: 12px 16px;
+  padding: 16px;
   border-top: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(30, 41, 59, 0.8);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72) 0%, rgba(30, 41, 59, 0.94) 100%);
 `;
 
 const InputWrapper = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.28);
 `;
 
 const InputRow = styled.div`
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 10px;
 `;
 
 const ActionButtons = styled.div`
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: space-between;
+  gap: 12px;
+`;
+
+const ActionButtonsLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const ComposerMeta = styled.div`
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.72);
+  white-space: nowrap;
 `;
 
 const IconButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: none;
-  background: transparent;
-  color: rgba(148, 163, 184, 0.8);
+  background: rgba(30, 41, 59, 0.72);
+  color: rgba(226, 232, 240, 0.82);
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
   
   .anticon {
-    font-size: 10px;
+    font-size: 13px;
     line-height: 1;
   }
   
   &:hover {
-    color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
+    color: #ffffff;
+    background: rgba(59, 130, 246, 0.14);
+    border-color: rgba(59, 130, 246, 0.22);
   }
 `;
 
@@ -360,27 +448,55 @@ const SendButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: none;
-  background: #3b82f6;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: white;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
+  flex-shrink: 0;
   
   .anticon {
-    font-size: 10px;
+    font-size: 16px;
     line-height: 1;
   }
   
   &:hover {
-    background: #2563eb;
+    background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
   }
   
   &:disabled {
-    background: rgba(59, 130, 246, 0.4);
+    background: rgba(59, 130, 246, 0.32);
+    box-shadow: none;
     cursor: not-allowed;
+  }
+`;
+
+const StyledTextArea = styled(TextArea)`
+  &.ant-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: #e2e8f0;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 2px 0;
+    resize: none;
+  }
+
+  &.ant-input::placeholder {
+    color: rgba(148, 163, 184, 0.72);
+  }
+
+  &.ant-input:focus,
+  &.ant-input-focused {
+    border: none;
+    box-shadow: none;
+    background: transparent;
   }
 `;
 
@@ -402,29 +518,36 @@ const EmptyState = styled.div`
 `;
 
 // Helper to generate topic from first message
-const generateTopic = (messages: ChatMessage[]): string => {
-  if (messages.length === 0) return 'New Chat';
+const generateTopic = (messages: ChatMessage[], defaultTopic: string): string => {
+  if (messages.length === 0) return defaultTopic;
   const firstUserMsg = messages.find(m => m.role === 'user');
-  if (!firstUserMsg) return 'New Chat';
-  const content = firstUserMsg.content;
-  return content.length > 30 ? content.substring(0, 30) + '...' : content;
+  if (!firstUserMsg) return defaultTopic;
+  const content = firstUserMsg.content.replace(/\s+/g, ' ').trim();
+  return content.length > 18 ? content.substring(0, 18) + '...' : content;
+};
+
+const getSessionPreview = (messages: ChatMessage[]): string => {
+  if (!messages.length) return '';
+  const lastMessage = messages[messages.length - 1];
+  const content = String(lastMessage?.content || '').replace(/\s+/g, ' ').trim();
+  return content.length > 36 ? content.substring(0, 36) + '...' : content;
 };
 
 // Helper to format date
-const formatSessionDate = (date: Date): string => {
+const formatSessionDate = (date: Date, t: (key: string, options?: any) => string): string => {
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days === 0) return t('chatPanel.today');
+  if (days === 1) return t('chatPanel.yesterday');
+  if (days < 7) return t('chatPanel.daysAgo', { count: days });
   return date.toLocaleDateString();
 };
 
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // If message has clarification with submitted answers, render read-only ClarificationCard
+  // If message has clarification with submitted answers, render read-only A2UIFormCard
   // Only render if clarification data is valid
   if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
     return (
@@ -485,6 +608,7 @@ const renderTextContent = (raw: string) => {
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, width }) => {
+  const { t, i18n } = useTranslation('skillEditor');
   // Delay mounting the TextArea until after the CSS width transition (300ms) completes.
   // Without this, autoSize measures the container at width=0 during the animation and
   // produces NaN for the height CSS property.
@@ -514,21 +638,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [pendingPlan, setPendingPlan] = useState<ImplementationPlan | null>(null);
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
-  const [lastBackendIntent, setLastBackendIntent] = useState<string>('');
-  const [lastBackendState, setLastBackendState] = useState<string>('');
   const chatThreadRef = useRef<HTMLDivElement>(null);
+  const hasLoadedSessionsRef = useRef(false);
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
+  const inputHintFallback = i18n.resolvedLanguage?.startsWith('zh')
+    ? '回车发送 · Shift+回车换行'
+    : 'Enter to send · Shift+Enter for newline';
+  const deleteSessionLabelFallback = i18n.resolvedLanguage?.startsWith('zh') ? '删除会话' : 'Delete session';
+  const confirmDeleteFallback = i18n.resolvedLanguage?.startsWith('zh') ? '删除' : 'Delete';
+  const cancelDeleteFallback = i18n.resolvedLanguage?.startsWith('zh') ? '取消' : 'Cancel';
 
-  // Load sessions from backend on mount
+  // Load sessions lazily on first expansion to avoid competing with editor startup work
   useEffect(() => {
+    if (isCollapsed || hasLoadedSessionsRef.current) {
+      return;
+    }
+
+    hasLoadedSessionsRef.current = true;
+
     const loadSessions = async () => {
       console.log('[ChatPanel] Loading sessions from backend...');
       try {
         // 添加超时保护，避免长时间阻塞
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Session load timeout')), 8000);
+          setTimeout(() => reject(new Error(t('chatPanel.sessionLoadTimeout'))), 8000);
         });
         
         const backendSessions = await Promise.race([
@@ -541,58 +676,82 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         
         if (backendSessions && backendSessions.length > 0) {
           // Convert backend format to frontend format
-          const convertedSessions: ChatSession[] = backendSessions.map(s => ({
-            id: s.id,
-            topic: s.name || 'Chat',
-            messages: (s.messages || []).map(m => ({
-              id: m.id,
+          const convertedSessions: ChatSession[] = backendSessions.map(s => {
+            const sessionMessages = (s.messages || []).map(m => ({
+              id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
               role: m.role as 'user' | 'assistant',
               content: m.content,
-              timestamp: new Date(m.timestamp),
+              timestamp: safeDate(m.timestamp),
               attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
               clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
               plan: m.metadata?.plan as ImplementationPlan | undefined,
               state: m.metadata?.state as PipelineState | undefined,
-            })),
-            createdAt: new Date(s.createdAt),
-            updatedAt: new Date(s.updatedAt),
-          }));
+            }));
+
+            return {
+              id: s.id,
+              topic: generateTopic(sessionMessages, s.name || t('chatPanel.defaultSessionTopic')),
+              messages: sessionMessages,
+              createdAt: new Date(s.createdAt),
+              updatedAt: new Date(s.updatedAt),
+            };
+          });
 
           convertedSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
           
           setSessions(convertedSessions);
           console.log(`[ChatPanel] Loaded ${convertedSessions.length} sessions from backend`);
-          
-          // Auto-select the most recent session if none selected
-          if (!activeSessionId && convertedSessions.length > 0) {
-            const firstId = convertedSessions[0].id;
-            setActiveSessionId(firstId);
 
-            // Cloud getSessions only returns metadata — fetch messages
-            if (!convertedSessions[0].messages.length) {
-              try {
-                const history = await skillEditorChatService.getHistory(firstId);
-                if (history && history.length > 0) {
-                  const mapped: ChatMessage[] = history.map(m => ({
-                    id: m.id,
-                    role: m.role as 'user' | 'assistant',
+          // Hydrate session summaries in background so the list can show
+          // title/preview without requiring the user to open each session first.
+          const sessionsNeedingHistory = convertedSessions.filter(s => !s.messages || s.messages.length === 0);
+          if (sessionsNeedingHistory.length > 0) {
+            Promise.all(
+              sessionsNeedingHistory.map(async (session) => {
+                try {
+                  const history = await skillEditorChatService.getHistory(session.id);
+                  const mappedMessages: ChatMessage[] = history.map(m => ({
+                    id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
+                    role: (m.role as 'user' | 'assistant') || 'assistant',
                     content: m.content,
-                    timestamp: new Date(m.timestamp),
+                    timestamp: safeDate(m.timestamp),
                     attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
                     clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
                     plan: m.metadata?.plan as ImplementationPlan | undefined,
                     state: m.metadata?.state as PipelineState | undefined,
                   }));
-                  setSessions(prev => prev.map(s =>
-                    s.id === firstId ? { ...s, messages: mapped } : s
-                  ));
-                  console.log(`[ChatPanel] Auto-loaded ${mapped.length} messages for session ${firstId}`);
+
+                  return {
+                    sessionId: session.id,
+                    messages: mappedMessages,
+                  };
+                } catch (error) {
+                  console.warn(`[ChatPanel] Failed to prefetch history for session ${session.id}:`, error);
+                  return {
+                    sessionId: session.id,
+                    messages: [] as ChatMessage[],
+                  };
                 }
-              } catch (err) {
-                console.warn('[ChatPanel] Failed to auto-load history:', err);
-              }
-            }
+              })
+            ).then((hydratedSessions) => {
+              setSessions((prev) => prev.map((session) => {
+                const hydrated = hydratedSessions.find((item) => item.sessionId === session.id);
+                if (!hydrated || hydrated.messages.length === 0) {
+                  return session;
+                }
+                return {
+                  ...session,
+                  messages: hydrated.messages,
+                  topic: generateTopic(hydrated.messages, session.topic || t('chatPanel.defaultSessionTopic')),
+                };
+              }));
+            });
           }
+          
+          // Don't auto-select any session — let the user either pick one from
+          // history or type a new message (which creates a fresh session).
+          // This mirrors the "coding agent" UX: history is visible, but a blank
+          // input box always starts a new conversation.
         } else {
           console.log('[ChatPanel] No sessions found in backend');
         }
@@ -602,7 +761,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     };
     
     loadSessions();
-  }, []); // Only run on mount
+  }, [isCollapsed, t]);
 
   useEffect(() => {
     const handleContextLoaded = (payload: any) => {
@@ -629,7 +788,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             const messages = mapContextMessages(s.messages || s.history?.messages || []);
             newSessions.push({
               id: String(s.id),
-              topic: s.name || matched?.skillName || 'Chat',
+              topic: generateTopic(messages, s.name || matched?.skillName || t('chatPanel.defaultSessionTopic')),
               messages,
               createdAt: new Date(s.createdAt || Date.now()),
               updatedAt: new Date(s.updatedAt || s.createdAt || Date.now()),
@@ -639,7 +798,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           const messages = mapContextMessages(history.messages);
           newSessions.push({
             id: String(history.sessionId),
-            topic: matched?.skillName || 'Chat',
+            topic: generateTopic(messages, matched?.skillName || t('chatPanel.defaultSessionTopic')),
             messages,
             createdAt: new Date(history.createdAt || Date.now()),
             updatedAt: new Date(history.updatedAt || history.createdAt || Date.now()),
@@ -725,17 +884,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             if (
               last &&
               last.role === 'assistant' &&
-              /processing|still working|arrive shortly/i.test(last.content)
+              /processing|still working|arrive shortly|generating/i.test(last.content)
             ) {
               const updated = [...prev];
-              updated[updated.length - 1] = { ...last, id: msgId, content };
+              updated[updated.length - 1] = { ...last, id: msgId, content, timestamp: new Date() };
               return updated;
             }
             // Check if a message with this ID already exists (update it)
             const existingIdx = prev.findIndex(m => m.id === msgId);
             if (existingIdx >= 0) {
               const updated = [...prev];
-              updated[existingIdx] = { ...updated[existingIdx], content };
+              updated[existingIdx] = { ...updated[existingIdx], content, timestamp: new Date() };
               return updated;
             }
             // Don't blindly append — the synchronous handleSend response
@@ -835,33 +994,46 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
   // Create new session (via backend for persistence)
   const handleNewSession = useCallback(async () => {
+    const resetComposerState = () => {
+      setMessages([]);
+      setInputValue('');
+      setPendingAttachments([]);
+      setPendingClarification(null);
+      setPendingA2UI(null);
+      setPendingPlan(null);
+      setStreamingStatus('');
+      setPipelineState('idle');
+      setIsLoading(false);
+      setHistoryExpanded(false);
+    };
+
     try {
       // Create session via backend so it gets persisted
-      const backendSession = await skillEditorChatService.createSession('New Chat');
+      const backendSession = await skillEditorChatService.createSession(t('chatPanel.newChat'));
       if (backendSession) {
         const newSession: ChatSession = {
           id: backendSession.id,
-          topic: backendSession.name || 'New Chat',
+          topic: backendSession.name || t('chatPanel.newChat'),
           messages: [],
           createdAt: new Date(backendSession.createdAt),
           updatedAt: new Date(backendSession.updatedAt),
         };
         setSessions(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
-        setMessages([]);
+        resetComposerState();
         console.log('[ChatPanel] Created new session via backend:', newSession.id);
       } else {
         // Fallback to local-only session if backend fails
         const newSession: ChatSession = {
           id: `session-${Date.now()}`,
-          topic: 'New Chat',
+          topic: t('chatPanel.newChat'),
           messages: [],
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         setSessions(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
-        setMessages([]);
+        resetComposerState();
         console.warn('[ChatPanel] Backend session creation failed, using local session');
       }
     } catch (error) {
@@ -869,16 +1041,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       // Fallback to local-only session
       const newSession: ChatSession = {
         id: `session-${Date.now()}`,
-        topic: 'New Chat',
+        topic: t('chatPanel.newChat'),
         messages: [],
         createdAt: new Date(),
         updatedAt: new Date(),
       };
       setSessions(prev => [newSession, ...prev]);
       setActiveSessionId(newSession.id);
-      setMessages([]);
+      resetComposerState();
     }
-  }, []);
+  }, [t]);
 
   // Select session and load its history
   const handleSelectSession = useCallback(async (sessionId: string) => {
@@ -898,10 +1070,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       const history = await skillEditorChatService.getHistory(sessionId);
       if (history && history.length > 0) {
         const mappedMessages: ChatMessage[] = history.map(m => ({
-          id: m.id,
+          id: buildMessageId(m.id, (m.role as 'user' | 'assistant') || 'assistant', m.content, m.timestamp),
           role: m.role as 'user' | 'assistant',
           content: m.content,
-          timestamp: new Date(m.timestamp),
+          timestamp: safeDate(m.timestamp),
           attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
           clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
           plan: m.metadata?.plan as ImplementationPlan | undefined,
@@ -921,6 +1093,37 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       console.error(`[ChatPanel] Failed to load history for session ${sessionId}:`, error);
     }
   }, [sessions]);
+
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    try {
+      const ok = await skillEditorChatService.deleteSession(sessionId);
+      if (!ok) {
+        return;
+      }
+
+      setSessions(prev => {
+        const nextSessions = prev.filter(s => s.id !== sessionId);
+
+        if (activeSessionId === sessionId) {
+          const nextActive = nextSessions[0]?.id ?? null;
+          setActiveSessionId(nextActive);
+          setMessages(nextActive ? (nextSessions[0]?.messages || []) : []);
+          setInputValue('');
+          setPendingAttachments([]);
+          setPendingClarification(null);
+          setPendingA2UI(null);
+          setPendingPlan(null);
+          setStreamingStatus('');
+          setPipelineState('idle');
+          setIsLoading(false);
+        }
+
+        return nextSessions;
+      });
+    } catch (error) {
+      console.error(`[ChatPanel] Failed to delete session ${sessionId}:`, error);
+    }
+  }, [activeSessionId]);
 
   // Toggle history panel
   const handleToggleHistory = useCallback(() => {
@@ -1002,7 +1205,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
       const response = await skillEditorChatService.sendMessage(
         activeSessionId,
-        'Yes, proceed with the plan',
+        t('chatPanel.proceedWithPlan'),
         undefined,
         canvasContext
       );
@@ -1012,7 +1215,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1052,17 +1255,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const infoMessage: ChatMessage = {
           id: `msg-generating-${Date.now()}`,
           role: 'assistant',
-          content: '⏳ Generating workflow — this may take a minute. The canvas will update automatically once the flowgram is ready.',
+          content: t('chatPanel.generatingWorkflow'),
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, infoMessage]);
-        setStreamingStatus('Generating flowgram...');
+        setStreamingStatus(t('chatPanel.generatingFlowgram'));
         setPipelineState('generating');
       } else {
         const errMessage: ChatMessage = {
           id: `msg-error-${Date.now()}`,
           role: 'assistant',
-          content: `Error generating workflow: ${errorMsg}`,
+          content: t('chatPanel.errorGeneratingWorkflow', { error: errorMsg }),
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, errMessage]);
@@ -1070,7 +1273,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     } finally {
       setIsLoading(false);
     }
-  }, [activeSessionId, isLoading, pendingPlan]);
+  }, [activeSessionId, isLoading, pendingPlan, t]);
 
   const handlePlanReject = useCallback(async () => {
     if (!activeSessionId || isLoading || !pendingPlan) return;
@@ -1115,7 +1318,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
       const response = await skillEditorChatService.sendMessage(
         activeSessionId,
-        'No, I want to revise the plan',
+        t('chatPanel.rejectPlanMessage'),
         undefined,
         canvasContext
       );
@@ -1125,7 +1328,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1173,11 +1376,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     let currentSessionId = activeSessionId;
     if (!currentSessionId) {
       try {
-        const backendSession = await skillEditorChatService.createSession('New Chat');
+        const backendSession = await skillEditorChatService.createSession(t('chatPanel.newChat'));
         if (backendSession) {
           const newSession: ChatSession = {
             id: backendSession.id,
-            topic: backendSession.name || 'New Chat',
+            topic: backendSession.name || t('chatPanel.newChat'),
             messages: [],
             createdAt: new Date(backendSession.createdAt),
             updatedAt: new Date(backendSession.updatedAt),
@@ -1190,7 +1393,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           // Fallback to local session if backend fails
           const newSession: ChatSession = {
             id: `session-${Date.now()}`,
-            topic: 'New Chat',
+            topic: t('chatPanel.newChat'),
             messages: [],
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -1205,7 +1408,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // Fallback to local session
         const newSession: ChatSession = {
           id: `session-${Date.now()}`,
-          topic: 'New Chat',
+          topic: t('chatPanel.newChat'),
           messages: [],
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -1228,7 +1431,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         return {
           ...s,
           messages: newMessages,
-          topic: generateTopic(newMessages),
+          topic: generateTopic(newMessages, t('chatPanel.newChat')),
           updatedAt: new Date(),
         };
       }
@@ -1276,13 +1479,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
       if (response) {
         console.log('[ChatPanel] Received response from backend, state:', response.state);
-        setLastBackendIntent(String((response as any).intent || ''));
-        setLastBackendState(String((response as any).state || ''));
         const assistantMessage: ChatMessage = {
-          id: response.message.id,
+          id: buildMessageId(response.message.id, 'assistant', response.message.content, response.message.timestamp),
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1467,10 +1668,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         });
 
         const assistantMessage: ChatMessage = {
-          id: response.message.id,
+          id: buildMessageId(response.message.id, 'assistant', response.message.content, response.message.timestamp),
           role: 'assistant',
           content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
+          timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
@@ -1527,6 +1728,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     }
   }, [activeSessionId, canvasController, inputValue, isLoading, streamingStatus, pendingClarification, pipelineState, setMessages, setPendingPlan]);
 
+  // Handle clarification cancel — dismiss the form and reset pipeline state
+  const handleClarificationCancel = useCallback(() => {
+    console.log('[ChatPanel] Clarification cancelled by user');
+    setPendingClarification(null);
+    setPendingA2UI(null);
+    setPipelineState('idle');
+    const cancelMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: 'Clarification cancelled. Feel free to describe what you\'d like to build whenever you\'re ready.',
+      timestamp: new Date(),
+      state: 'idle',
+    };
+    setMessages(prev => [...prev, cancelMsg]);
+  }, [setMessages]);
+
 // ...
 
   return (
@@ -1538,45 +1755,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           <ChatHeader>
             <HeaderTitle>
               <CuteRobotIcon size={18} />
-              Agent Chat
+              {t('chatPanel.title')}
             </HeaderTitle>
             <HeaderActions>
-              <Tooltip title="New chat">
+              <Tooltip title={t('chatPanel.newChatTooltip')}>
                 <HeaderButton onClick={handleNewSession}>
                   <PlusOutlined />
                 </HeaderButton>
               </Tooltip>
-              <Tooltip title={historyExpanded ? 'Hide history' : 'Show history'}>
+              <Tooltip title={historyExpanded ? t('chatPanel.hideHistory') : t('chatPanel.showHistory')}>
                 <HeaderButton onClick={handleToggleHistory}>
                   <HistoryOutlined />
                 </HeaderButton>
               </Tooltip>
-              <Tooltip title="Close">
+              <Tooltip title={t('chatPanel.close')}>
                 <HeaderButton onClick={onToggle}>
-                  <DownOutlined />
+                  <LeftOutlined />
                 </HeaderButton>
               </Tooltip>
             </HeaderActions>
           </ChatHeader>
 
-          <div style={{
-            padding: '6px 16px',
-            fontSize: 11,
-            color: 'rgba(148, 163, 184, 0.8)',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.12)',
-            background: 'rgba(15, 23, 42, 0.35)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}>
-            intent={lastBackendIntent || '—'} | backend_state={lastBackendState || '—'} | ui_state={pipelineState}
-          </div>
-
           <SessionHistoryContainer>
             <SessionHistoryHeader onClick={handleToggleHistory}>
               <SessionHistoryTitle>
                 <HistoryOutlined />
-                Sessions ({sessions.length})
+                {t('chatPanel.sessions', { count: sessions.length })}
               </SessionHistoryTitle>
               {historyExpanded ? <UpOutlined /> : <DownOutlined />}
             </SessionHistoryHeader>
@@ -1588,8 +1792,38 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     $active={session.id === activeSessionId}
                     onClick={() => handleSelectSession(session.id)}
                   >
-                    <SessionTopic>{session.topic || 'Chat'}</SessionTopic>
-                    <SessionDate>{formatSessionDate(session.updatedAt)}</SessionDate>
+                    <SessionMain>
+                      <SessionTopRow>
+                        <SessionTopic>{generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic'))}</SessionTopic>
+                        <SessionDate>{formatSessionDate(session.updatedAt, t)}</SessionDate>
+                      </SessionTopRow>
+                      <SessionPreview>{getSessionPreview(session.messages)}</SessionPreview>
+                    </SessionMain>
+                    <Popconfirm
+                      title={t('chatPanel.deleteSessionConfirm', {
+                        topic: generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic')),
+                        defaultValue: i18n.resolvedLanguage?.startsWith('zh')
+                          ? `删除会话“${generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic'))}”？此操作不可撤销。`
+                          : `Delete session "${generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic'))}"? This cannot be undone.`,
+                      })}
+                      okText={t('chatPanel.confirmDelete', { defaultValue: confirmDeleteFallback })}
+                      cancelText={t('chatPanel.cancelDelete', { defaultValue: cancelDeleteFallback })}
+                      onConfirm={(e) => {
+                        e?.stopPropagation?.();
+                        handleDeleteSession(session.id);
+                      }}
+                      onPopupClick={(e) => e.stopPropagation()}
+                    >
+                      <Tooltip title={t('chatPanel.deleteSession', { defaultValue: deleteSessionLabelFallback })}>
+                        <SessionDeleteButton
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                        >
+                          <DeleteOutlined />
+                        </SessionDeleteButton>
+                      </Tooltip>
+                    </Popconfirm>
                   </SessionItem>
                 ))}
               </SessionList>
@@ -1605,21 +1839,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
           {messages.length === 0 && !isLoading ? (
             <EmptyState>
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No messages yet</div>
-              <div style={{ fontSize: 12 }}>Start a new chat or select a session from history.</div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>{t('chatPanel.noMessages')}</div>
+              <div style={{ fontSize: 12 }}>{t('chatPanel.startNewChat')}</div>
             </EmptyState>
           ) : (
-            messages.map(msg => (
-              <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
+            messages.map((msg, idx) => (
+              <MessageBubble key={msg.id || `message-${idx}`} $isUser={msg.role === 'user'}>
                 <MessageContent $isUser={msg.role === 'user'}>
                   {renderMessageContent(msg)}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(148, 163, 184, 0.8)' }}>
-                      Attachments: {msg.attachments.join(', ')}
+                      {t('chatPanel.attachments')}: {msg.attachments.join(', ')}
                     </div>
                   )}
                 </MessageContent>
-                <MessageMeta>{msg.timestamp.toLocaleTimeString()}</MessageMeta>
+                <MessageMeta>{isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}</MessageMeta>
               </MessageBubble>
             ))
           )}
@@ -1646,7 +1880,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <LoadingOutlined spin style={{ fontSize: 14 }} />
                 <span style={{ color: 'rgba(203, 213, 225, 0.85)' }}>
-                  {streamingStatus || (pipelineState === 'planning' ? 'Planning...' : pipelineState === 'generating' ? 'Generating workflow...' : 'Thinking...')}
+                  {streamingStatus || (pipelineState === 'planning' ? t('chatPanel.planning') : pipelineState === 'generating' ? t('chatPanel.generatingFlowgram') : t('chatPanel.thinking'))}
                 </span>
               </MessageContent>
             </MessageBubble>
@@ -1656,39 +1890,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       {showInput && (
         <InputContainer>
           <InputWrapper>
-            <ActionButtons>
-              <Tooltip title="Voice input">
-                <IconButton onClick={handleVoiceInput}>
-                  <AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />
-                </IconButton>
-              </Tooltip>
-              <Upload
-                showUploadList={false}
-                beforeUpload={() => false}
-                onChange={handleFileUpload}
-              >
-                <Tooltip title="Attach file">
-                  <IconButton>
-                    <PaperClipOutlined />
-                  </IconButton>
-                </Tooltip>
-              </Upload>
-            </ActionButtons>
             <InputRow>
-              <TextArea
+              <StyledTextArea
                 value={inputValue}
                 onChange={e => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message..."
+                placeholder={t('chatPanel.typeMessage')}
                 autoSize={{ minRows: 1, maxRows: 4 }}
-                style={{
-                  width: '100%',
-                  background: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(148, 163, 184, 0.2)',
-                  borderRadius: 8,
-                  color: '#e2e8f0',
-                  resize: 'none',
-                }}
               />
               <SendButton
                 onClick={handleSend}
@@ -1697,6 +1905,33 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                 {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
               </SendButton>
             </InputRow>
+            <ActionButtons>
+              <ActionButtonsLeft>
+                <Tooltip title={t('chatPanel.voiceInput')}>
+                  <IconButton onClick={handleVoiceInput}>
+                    <AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />
+                  </IconButton>
+                </Tooltip>
+                <Upload
+                  showUploadList={false}
+                  beforeUpload={() => false}
+                  onChange={handleFileUpload}
+                >
+                  <Tooltip title={t('chatPanel.attachFile')}>
+                    <IconButton>
+                      <PaperClipOutlined />
+                    </IconButton>
+                  </Tooltip>
+                </Upload>
+              </ActionButtonsLeft>
+              <ComposerMeta>
+                {pendingAttachments.length > 0
+                  ? `${pendingAttachments.length} attachment${pendingAttachments.length > 1 ? 's' : ''}`
+                  : t('chatPanel.inputHint', {
+                      defaultValue: inputHintFallback,
+                    })}
+              </ComposerMeta>
+            </ActionButtons>
           </InputWrapper>
         </InputContainer>
       )}

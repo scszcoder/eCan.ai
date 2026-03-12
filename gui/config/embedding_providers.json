@@ -13,6 +13,11 @@
       "description": "OpenAI embedding models",
       "documentation_url": "https://platform.openai.com/docs/guides/embeddings",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 2048,
+        "rate_limit_rpm": 3000,
+        "rate_limit_tpm": 1000000
+      },
       "supported_models": [
         {
           "name": "text-embedding-3-large",
@@ -46,6 +51,11 @@
       "description": "Azure OpenAI embedding models",
       "documentation_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 16,
+        "rate_limit_rpm": 120,
+        "rate_limit_tpm": 240000
+      },
       "supported_models": [
         {
           "name": "text-embedding-3-large",
@@ -78,6 +88,11 @@
       "description": "Voyage AI embedding models",
       "documentation_url": "https://docs.voyageai.com/",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 128,
+        "rate_limit_rpm": 300,
+        "rate_limit_tpm": 1000000
+      },
       "supported_models": [
         {
           "name": "voyage-3",
@@ -118,6 +133,11 @@
       "description": "Jina AI embeddings",
       "documentation_url": "https://jina.ai/embeddings/",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 2048,
+        "rate_limit_rpm": 500,
+        "rate_limit_tpm": 1000000
+      },
       "supported_models": [
         {
           "name": "jina-embeddings-v3",
@@ -150,6 +170,11 @@
       "description": "Google Vertex AI embedding models",
       "documentation_url": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 100,
+        "rate_limit_rpm": 1500,
+        "rate_limit_tpm": 1000000
+      },
       "supported_models": [
         {
           "name": "text-embedding-004",
@@ -174,6 +199,11 @@
       "description": "Alibaba Qwen embeddings",
       "documentation_url": "https://help.aliyun.com/zh/model-studio/developer-reference/text-embedding-api",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 10,
+        "rate_limit_rpm": 500,
+        "rate_limit_tpm": 1000000
+      },
       "supported_models": [
         {
           "name": "text-embedding-v3",
@@ -198,6 +228,11 @@
       "description": "Baidu Qianfan embeddings - OpenAI compatible API v2",
       "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Hlwerupz6",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 16,
+        "rate_limit_rpm": 300,
+        "rate_limit_tpm": 300000
+      },
       "supported_models": [
         {
           "name": "tao-8k",
@@ -238,6 +273,11 @@
       "description": "Cohere embedding models",
       "documentation_url": "https://docs.cohere.com/docs/embeddings",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 96,
+        "rate_limit_rpm": 10000,
+        "rate_limit_tpm": 10000000
+      },
       "supported_models": [
         {
           "name": "embed-english-v3.0",
@@ -270,6 +310,11 @@
       "description": "HuggingFace embedding models",
       "documentation_url": "https://huggingface.co/docs/api-inference/index",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 32,
+        "rate_limit_rpm": 3000,
+        "rate_limit_tpm": 300000
+      },
       "supported_models": [
         {
           "name": "sentence-transformers/all-MiniLM-L6-v2",
@@ -302,6 +347,11 @@
       "description": "Bytedance embeddings",
       "documentation_url": "https://www.volcengine.com/docs/82379/1099475",
       "is_local": false,
+      "api_limits": {
+        "max_batch_size": 16,
+        "rate_limit_rpm": 500,
+        "rate_limit_tpm": 500000
+      },
       "supported_models": [
         {
           "name": "doubao-embedding",
@@ -326,6 +376,11 @@
       "description": "Local Ollama embeddings (native API for LightRAG, auto-converts to OpenAI-compatible /v1 for OpenAIEmbeddings)",
       "documentation_url": "https://ollama.com/library",
       "is_local": true,
+      "api_limits": {
+        "max_batch_size": 128,
+        "rate_limit_rpm": null,
+        "rate_limit_tpm": null
+      },
       "supported_models": []
     },
     "RyoAIS": {
@@ -341,6 +396,11 @@
       "description": "RyoAIS Embeddings - OpenAI-compatible API",
       "documentation_url": "http://localhost/docs?lang=zh-CN",
       "is_local": true,
+      "api_limits": {
+        "max_batch_size": 10,
+        "rate_limit_rpm": null,
+        "rate_limit_tpm": null
+      },
       "supported_models": []
     }
   },

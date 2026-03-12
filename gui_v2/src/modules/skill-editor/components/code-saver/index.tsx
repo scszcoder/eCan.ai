@@ -1,21 +1,23 @@
 import { Field, useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Button, Input, Notification, Space } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 
 import { useNodeRenderContext } from '../../hooks';
 import { FormItem } from '../../form-components';
 
 export function CodeSaver() {
+  const { t } = useTranslation('skillEditor');
   const { readonly, node } = useNodeRenderContext();
   const { document } = useClientContext();
 
-  const placeholder = 'myskills/skill0/file_name0.py';
+  const placeholder = t('nodes.code.fileNamePlaceholder');
 
   // We need access to the field's onChange method to update it.
   // The handleSave function will be defined inside the render prop.
 
   return (
     <>
-      <FormItem name="file_name" required={false}>
+      <FormItem name="file_name" label={t('nodes.code.fileName')} required={false}>
         <Field<string> name="script.fileName">
           {({ field }) => {
             const handleSave = async () => {
@@ -26,7 +28,7 @@ export function CodeSaver() {
               const content = currentNodeData?.script?.content || '';
 
               if (!fileName) {
-                Notification.error({ title: 'Error', content: 'File name is required to save.', duration: 3 });
+                Notification.error({ title: 'Error', content: t('nodes.code.fileNameRequired'), duration: 3 });
                 return;
               }
 
@@ -55,12 +57,12 @@ export function CodeSaver() {
                   field.onChange(handle.name);
                 }, 0);
 
-                Notification.success({ title: 'Success', content: `File saved as: ${handle.name}`, duration: 3 });
+                Notification.success({ title: 'Success', content: t('nodes.code.saveSuccess', { name: handle.name }), duration: 3 });
               } catch (error) {
                 if (error instanceof DOMException && error.name === 'AbortError') {
                   console.log('Save operation was cancelled by user');
                 } else {
-                  Notification.error({ title: 'Error', content: `Failed to save file: ${error}`, duration: 3 });
+                  Notification.error({ title: 'Error', content: t('nodes.code.saveFailed', { error: String(error) }), duration: 3 });
                 }
               }
             };
@@ -107,7 +109,7 @@ export function CodeSaver() {
                                 const lang = detectLanguage(handle.name);
                                 if (lang !== langField.value) langField.onChange(lang);
                               }, 0);
-                              Notification.success({ title: 'Loaded', content: `Loaded file: ${handle.name}`, duration: 3 });
+                              Notification.success({ title: 'Loaded', content: t('nodes.code.loadSuccess', { name: handle.name }), duration: 3 });
                             } else {
                               // Fallback: hidden input
                               const input = document.createElement('input');
@@ -123,7 +125,7 @@ export function CodeSaver() {
                                   const lang = detectLanguage(file.name);
                                   if (lang !== langField.value) langField.onChange(lang);
                                 }, 0);
-                                Notification.success({ title: 'Loaded', content: `Loaded file: ${file.name}`, duration: 3 });
+                                Notification.success({ title: 'Loaded', content: t('nodes.code.loadSuccess', { name: file.name }), duration: 3 });
                               };
                               input.click();
                             }
@@ -131,7 +133,7 @@ export function CodeSaver() {
                             if (error instanceof DOMException && error.name === 'AbortError') {
                               console.log('Open operation was cancelled by user');
                             } else {
-                              Notification.error({ title: 'Error', content: `Failed to load file: ${error}`, duration: 3 });
+                              Notification.error({ title: 'Error', content: t('nodes.code.loadFailed', { error: String(error) }), duration: 3 });
                             }
                           }
                         };
@@ -139,10 +141,10 @@ export function CodeSaver() {
                         return (
                           <Space style={{ marginTop: '10px' }}>
                             <Button onClick={handleSave} disabled={readonly}>
-                              Save
+                              {t('nodes.code.save')}
                             </Button>
                             <Button onClick={handleLoad} disabled={readonly}>
-                              Load File
+                              {t('nodes.code.loadFile')}
                             </Button>
                           </Space>
                         );

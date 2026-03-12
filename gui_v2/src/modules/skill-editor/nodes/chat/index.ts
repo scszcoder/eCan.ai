@@ -13,7 +13,7 @@ export const ChatNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Chat,
   info: {
     icon: iconChat,
-    description: 'Send a chat message to a selected party (human or agent).',
+    description: 'nodes.chat.description',
   },
   meta: {
     size: { width: 360, height: 260 },

@@ -15,8 +15,7 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Condition,
   info: {
     icon: iconCondition,
-    description:
-      'Connect multiple downstream branches. Only the corresponding branch will be executed if the set conditions are met.',
+    description: 'nodes.condition.description',
   },
   meta: {
     defaultPorts: [

@@ -8,6 +8,7 @@ import { FC } from 'react';
 import classNames from 'classnames';
 import { CodeEditor, DisplaySchemaTag } from '@flowgram.ai/form-materials';
 import { Input, Switch, InputNumber } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 
 import { useFormMeta } from '../hooks/use-form-meta';
 import { useFields } from '../hooks/use-fields';
@@ -21,6 +22,7 @@ interface TestRunFormProps {
 }
 
 export const TestRunForm: FC<TestRunFormProps> = ({ values, setValues }) => {
+  const { t } = useTranslation('skillEditor');
   const formMeta = useFormMeta();
 
   const fields = useFields({
@@ -50,7 +52,7 @@ export const TestRunForm: FC<TestRunFormProps> = ({ values, setValues }) => {
               precision={0}
               value={field.value}
               onChange={(value) => field.onChange(value)}
-              placeholder="Please input integer"
+              placeholder={t('common.pleaseInputInteger')}
             />
           </div>
         );
@@ -60,7 +62,7 @@ export const TestRunForm: FC<TestRunFormProps> = ({ values, setValues }) => {
             <InputNumber
               value={field.value}
               onChange={(value) => field.onChange(value)}
-              placeholder="Please input number"
+              placeholder={t('common.pleaseInputNumber')}
             />
           </div>
         );
@@ -111,7 +113,7 @@ export const TestRunForm: FC<TestRunFormProps> = ({ values, setValues }) => {
             <Input
               value={field.value}
               onChange={(value) => field.onChange(value)}
-              placeholder="Please input text"
+              placeholder={t('common.pleaseInputText')}
             />
           </div>
         );

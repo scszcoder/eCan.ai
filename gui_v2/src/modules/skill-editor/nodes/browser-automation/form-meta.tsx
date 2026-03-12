@@ -1,10 +1,11 @@
 /**
  * Browser Automation node custom form
  */
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
-import { Divider, Select, Button, Tooltip, Checkbox } from '@douyinfe/semi-ui';
+import { Divider, Select, Button, Checkbox } from '@douyinfe/semi-ui';
 import { IconEdit } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
@@ -13,6 +14,7 @@ import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-mater
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
+import { getCommonFieldLabel } from '../../utils/field-labels';
 
 // Browser profile interface
 interface BrowserProfile {
@@ -20,51 +22,6 @@ interface BrowserProfile {
   name: string;
   isDefault: boolean;
 }
-
-const TOOL_OPTIONS = [
-  { label: 'browser-use', value: 'browser-use' },
-  { label: 'crawl4ai', value: 'crawl4ai' },
-  { label: 'browsebase', value: 'browsebase' },
-];
-
-const BROWSER_OPTIONS = [
-  { label: 'New Chromium', value: 'new chromium' },
-  { label: 'Existing Chrome', value: 'existing chrome' },
-  { label: 'Ads Power', value: 'ads power' },
-  { label: 'Ziniao', value: 'ziniao' },
-  { label: 'Multi-Login', value: 'multi-login' },
-];
-
-const BROWSER_DRIVER_OPTIONS = [
-  { label: 'Native', value: 'native' },
-  { label: 'Selenium', value: 'selenium' },
-  { label: 'Playwright', value: 'playwright' },
-  { label: 'Puppeteer', value: 'puppeteer' },
-];
-
-const SHOP_OPTIONS = [
-  { label: 'Amazon', value: 'amazon' },
-  { label: 'eBay', value: 'ebay' },
-  { label: 'Etsy', value: 'etsy' },
-  { label: 'Walmart', value: 'walmart' },
-  { label: 'TikTok', value: 'tiktok' },
-  { label: 'Shopify', value: 'shopify' },
-  { label: 'WooCommerce', value: 'woocommerce' },
-  { label: 'Custom', value: 'custom' },
-];
-
-const RUN_ENVIRONMENT_OPTIONS = [
-  { label: 'Full Local', value: 'full_local' },
-  { label: 'Passive Local', value: 'passive_local' },
-  { label: 'Hybrid Cloud', value: 'hybrid_cloud' },
-  { label: 'Full Cloud', value: 'full_cloud' },
-];
-
-const PRIVACY_STRATEGY_OPTIONS = [
-  { label: 'None', value: 'none' },
-  { label: 'Pattern Filter', value: 'pattern_filter' },
-  { label: 'Local LLM', value: 'local_llm' },
-];
 
 // Cache for LLM providers from backend
 let cachedProviders: Map<string, any> = new Map();
@@ -143,21 +100,20 @@ const PromptSelectionDropdown = ({
         loading={refreshing}
       />
       {showEditButton && (
-        <Tooltip content="Edit prompt">
-          <Button
-            icon={<IconEdit />}
-            size="small"
-            theme="borderless"
-            onClick={onEdit}
-            style={{ flexShrink: 0 }}
-          />
-        </Tooltip>
+        <Button
+          icon={<IconEdit />}
+          size="small"
+          theme="borderless"
+          onClick={onEdit}
+          style={{ flexShrink: 0 }}
+        />
       )}
     </div>
   );
 };
 
 export const FormRender = (_props: FormRenderProps<any>) => {
+  const { t } = useTranslation('skillEditor');
   const navigate = useNavigate();
   const username = useUserStore((s) => s.username || 'user');
   const { prompts, fetch, fetched, loading: promptStoreLoading } = usePromptStore();
@@ -197,10 +153,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       };
     });
     return [
-      { label: 'In-line Prompt', value: 'inline' as const },
+      { label: t('nodes.browserAutomation.inlinePrompt'), value: 'inline' as const },
       ...base,
     ];
-  }, [prompts]);
+  }, [prompts, t]);
 
   const providers = Array.from(llmProviders.keys());
   const modelMap: Record<string, string[]> = {};
@@ -208,12 +164,58 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     modelMap[name] = provider.supported_models?.map((m: any) => m.name) || [];
   });
 
+  // Memoized options with i18n
+  const TOOL_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.tools.browserUse'), value: 'browser-use' },
+    { label: t('nodes.browserAutomation.tools.crawl4ai'), value: 'crawl4ai' },
+    { label: t('nodes.browserAutomation.tools.browsebase'), value: 'browsebase' },
+  ], [t]);
+
+  const BROWSER_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.browsers.newChromium'), value: 'new chromium' },
+    { label: t('nodes.browserAutomation.browsers.existingChrome'), value: 'existing chrome' },
+    { label: t('nodes.browserAutomation.browsers.adsPower'), value: 'ads power' },
+    { label: t('nodes.browserAutomation.browsers.ziniao'), value: 'ziniao' },
+    { label: t('nodes.browserAutomation.browsers.multiLogin'), value: 'multi-login' },
+  ], [t]);
+
+  const BROWSER_DRIVER_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.drivers.native'), value: 'native' },
+    { label: t('nodes.browserAutomation.drivers.selenium'), value: 'selenium' },
+    { label: t('nodes.browserAutomation.drivers.playwright'), value: 'playwright' },
+    { label: t('nodes.browserAutomation.drivers.puppeteer'), value: 'puppeteer' },
+  ], [t]);
+
+  const SHOP_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.shops.amazon'), value: 'amazon' },
+    { label: t('nodes.browserAutomation.shops.ebay'), value: 'ebay' },
+    { label: t('nodes.browserAutomation.shops.etsy'), value: 'etsy' },
+    { label: t('nodes.browserAutomation.shops.walmart'), value: 'walmart' },
+    { label: t('nodes.browserAutomation.shops.tiktok'), value: 'tiktok' },
+    { label: t('nodes.browserAutomation.shops.shopify'), value: 'shopify' },
+    { label: t('nodes.browserAutomation.shops.woocommerce'), value: 'woocommerce' },
+    { label: t('nodes.browserAutomation.shops.custom'), value: 'custom' },
+  ], [t]);
+
+  const RUN_ENVIRONMENT_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.runEnvironments.fullLocal'), value: 'full_local' },
+    { label: t('nodes.browserAutomation.runEnvironments.passiveLocal'), value: 'passive_local' },
+    { label: t('nodes.browserAutomation.runEnvironments.hybridCloud'), value: 'hybrid_cloud' },
+    { label: t('nodes.browserAutomation.runEnvironments.fullCloud'), value: 'full_cloud' },
+  ], [t]);
+
+  const PRIVACY_STRATEGY_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.privacyStrategies.none'), value: 'none' },
+    { label: t('nodes.browserAutomation.privacyStrategies.patternFilter'), value: 'pattern_filter' },
+    { label: t('nodes.browserAutomation.privacyStrategies.localLlm'), value: 'local_llm' },
+  ], [t]);
+
   return (
     <>
       <FormHeader />
       <FormContent>
         <Divider />
-        <FormItem name="promptSelection" type="string" vertical>
+        <FormItem name="promptSelection" label={getCommonFieldLabel('promptSelection', t)} type="string" vertical>
           <Field<string> name="inputsValues.promptSelection.content">
             {({ field: promptSelectorField }) => {
               const selectedValue = (promptSelectorField.value as string) || 'inline';
@@ -235,7 +237,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
         {/* Tool selector */}
-        <FormItem name="tool" type="string" vertical>
+        <FormItem name="tool" label={getCommonFieldLabel('tool', t)} type="string" vertical>
           <Field<string> name="inputsValues.tool.content">
             {({ field }) => (
               <Select
@@ -251,23 +253,36 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Browser selector */}
-        <FormItem name="browser" type="string" vertical>
+        <FormItem name="browser" label={getCommonFieldLabel('browser', t)} type="string" vertical>
           <Field<string> name="inputsValues.browser.content">
-            {({ field }) => (
-              <Select
-                value={(field.value as string) || BROWSER_OPTIONS[0].value}
-                onChange={(val) => field.onChange(val as string)}
-                optionList={BROWSER_OPTIONS}
-                style={{ width: '100%' }}
-                dropdownMatchSelectWidth
-                size="small"
-              />
-            )}
+            {({ field }) => {
+              const browserValue = (field.value as string) || BROWSER_OPTIONS[0].value;
+              return (
+                <>
+                  <Select
+                    value={browserValue}
+                    onChange={(val) => field.onChange(val as string)}
+                    optionList={BROWSER_OPTIONS}
+                    style={{ width: '100%' }}
+                    dropdownMatchSelectWidth
+                    size="small"
+                  />
+                  {browserValue === 'existing chrome' && (
+                    <div style={{ marginTop: 6, padding: '6px 8px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: 4, fontSize: 11, lineHeight: 1.5 }}>
+                      <strong style={{ color: '#000' }}>Please be sure to launch Chrome using the following command:</strong>
+                      <div style={{ marginTop: 4, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-all', color: '#333' }}>
+                        chrome.exe --remote-debugging-port=9228 --user-data-dir="C:\chrome_data" --disable-features=SharedStorage,InterestCohort
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            }}
           </Field>
         </FormItem>
 
         {/* Browser Driver selector */}
-        <FormItem name="browserDriver" type="string" vertical>
+        <FormItem name="browserDriver" label={getCommonFieldLabel('browserDriver', t)} type="string" vertical>
           <Field<string> name="inputsValues.browserDriver.content">
             {({ field }) => (
               <Select
@@ -283,14 +298,14 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* CDP Port input */}
-        <FormItem name="cdpPort" type="string" vertical>
+        <FormItem name="cdpPort" label={getCommonFieldLabel('cdpPort', t)} type="string" vertical>
           <Field<string> name="inputsValues.cdpPort.content">
             {({ field }) => (
               <input
                 type="text"
                 value={(field.value as string) || '9228'}
                 onChange={(e) => field.onChange(e.target.value)}
-                placeholder="9228 (default)"
+                placeholder={t('nodes.browserAutomation.cdpPortPlaceholder')}
                 style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
               />
             )}
@@ -298,7 +313,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Run Environment selector */}
-        <FormItem name="runEnvironment" type="string" vertical>
+        <FormItem name="runEnvironment" label={getCommonFieldLabel('runEnvironment', t)} type="string" vertical>
           <Field<string> name="inputsValues.runEnvironment.content">
             {({ field }) => (
               <Select
@@ -314,7 +329,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Privacy Strategy selector */}
-        <FormItem name="privacyStrategy" type="string" vertical>
+        <FormItem name="privacyStrategy" label={getCommonFieldLabel('privacyStrategy', t)} type="string" vertical>
           <Field<string> name="inputsValues.privacyStrategy.content">
             {({ field }) => (
               <Select
@@ -330,21 +345,21 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Enable Judge checkbox */}
-        <FormItem name="enableJudge" type="boolean" vertical>
+        <FormItem name="enableJudge" label={getCommonFieldLabel('enableJudge', t)} type="boolean" vertical>
           <Field<boolean> name="inputsValues.enableJudge.content">
             {({ field }) => (
               <Checkbox
                 checked={!!field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
+                onChange={(e) => field.onChange((e.target as HTMLInputElement).checked)}
               >
-                Enable Judge (LLM result validation)
+                {t('nodes.browserAutomation.enableJudgeDesc')}
               </Checkbox>
             )}
           </Field>
         </FormItem>
 
         {/* Shop selector */}
-        <FormItem name="shopName" type="string" vertical>
+        <FormItem name="shopName" label={getCommonFieldLabel('shopName', t)} type="string" vertical>
           <Field<string> name="inputsValues.shopName.content">
             {({ field: shopField }) => (
               <Field<string> name="inputsValues.customShopName.content">
@@ -366,8 +381,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                           type="text"
                           value={(customShopField.value as string) || ''}
                           onChange={(e) => customShopField.onChange(e.target.value)}
-                          placeholder="Enter custom shop name"
-                          style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', marginTop: '8px' }}
+                          placeholder={t('nodes.browserAutomation.customShopPlaceholder')}
+                          style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', marginTop: '8px', color: '#000000', backgroundColor: '#ffffff' }}
                         />
                       )}
                     </>
@@ -379,7 +394,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Model Provider selector */}
-        <FormItem name="modelProvider" type="string" vertical>
+        <FormItem name="modelProvider" label={getCommonFieldLabel('modelProvider', t)} type="string" vertical>
           <Field<string> name="inputsValues.modelProvider.content">
             {({ field: providerField }) => {
               const currentProvider = (providerField.value as string) || providers[0] || 'OpenAI';
@@ -408,7 +423,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Model Name selector depends on provider */}
-        <FormItem name="modelName" type="string" vertical>
+        <FormItem name="modelName" label={getCommonFieldLabel('modelName', t)} type="string" vertical>
           <Field<string> name="inputsValues.modelName.content">
             {({ field: modelField }) => (
               <Field<string> name="inputsValues.modelProvider.content">
@@ -437,48 +452,39 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Use Thinking checkbox */}
-        <FormItem name="useThinking" type="boolean" vertical>
+        <FormItem name="useThinking" label={getCommonFieldLabel('useThinking', t)} type="boolean" vertical>
           <Field<boolean> name="inputsValues.useThinking.content">
             {({ field }) => (
               <Checkbox
                 checked={!!field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
+                onChange={(e) => field.onChange((e.target as HTMLInputElement).checked)}
               >
-                Use Thinking (for reasoning models like Qwen3, DeepSeek-R1)
+                {t('nodes.browserAutomation.useThinkingDesc')}
               </Checkbox>
             )}
           </Field>
         </FormItem>
 
         {/* Use Vision checkbox */}
-        <FormItem name="useVision" type="boolean" vertical>
-          <Field<boolean | null> name="inputsValues.useVision.content">
+        <FormItem name="useVision" label={getCommonFieldLabel('useVision', t)} type="boolean" vertical>
+          <Field<boolean> name="inputsValues.useVision.content">
             {({ field }) => (
               <Checkbox
-                checked={field.value === true}
-                indeterminate={field.value === null}
-                onChange={() => {
-                  if (field.value === null) {
-                    field.onChange(true);
-                  } else if (field.value === true) {
-                    field.onChange(false);
-                  } else {
-                    field.onChange(null);
-                  }
-                }}
+                checked={!!field.value}
+                onChange={(e) => field.onChange((e.target as HTMLInputElement).checked)}
               >
-                Use Vision (send screenshots to LLM, requires vision-capable model)
+                {t('nodes.browserAutomation.useVisionDesc')}
               </Checkbox>
             )}
           </Field>
         </FormItem>
 
         {/* Browser Profile selector */}
-        <FormItem name="profile" type="string" vertical>
+        <FormItem name="profile" label={getCommonFieldLabel('profile', t)} type="string" vertical>
           <Field<string> name="inputsValues.profile.content">
             {({ field }) => {
               const profileOptions = [
-                { label: '(Default Profile)', value: '' },
+                { label: t('nodes.browserAutomation.defaultProfile'), value: '' },
                 ...browserProfiles.map(p => ({
                   label: p.isDefault ? `${p.name} ★` : p.name,
                   value: p.name,
@@ -492,7 +498,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   style={{ width: '100%' }}
                   dropdownMatchSelectWidth
                   size="small"
-                  placeholder="Select browser profile"
+                  placeholder={t('nodes.browserAutomation.profile')}
                 />
               );
             }}
@@ -504,7 +510,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <PromptInputWithSelector
           promptFieldName="inputsValues.systemPrompt"
           promptIdFieldName="inputsValues.systemPromptId"
-          label="System Prompt"
+          label={t('nodes.llm.systemPrompt')}
           promptType="systemPrompt"
           schema={{ type: 'string' }}
         />
@@ -513,27 +519,49 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <PromptInputWithSelector
           promptFieldName="inputsValues.prompt"
           promptIdFieldName="inputsValues.promptId"
-          label="Prompt"
+          label={t('nodes.llm.prompt')}
           promptType="prompt"
           schema={{ type: 'string' }}
         />
 
         {/* Render the rest of inputs using the default component (temperature, etc) */}
         <Field<string> name="inputsValues.promptSelection.content">
-          {({ field: promptSelectorField }) => (
-            <Field<string> name="inputsValues.promptSelection.content">
-              {({ field: promptSelectorField }) => (
-                <FormInputs
-                  extraFilter={(key) => {
-                    if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
-                      return false;
-                    }
-                    return true;
-                  }}
-                />
-              )}
-            </Field>
-          )}
+          {({ field: promptSelectorField }) => {
+            // List of fields that are already rendered manually above
+            const manuallyRenderedFields = [
+              'promptSelection',
+              'tool',
+              'browser',
+              'browserDriver',
+              'cdpPort',
+              'runEnvironment',
+              'privacyStrategy',
+              'enableJudge',
+              'shopName',
+              'customShopName',
+              'modelProvider',
+              'modelName',
+              'useThinking',
+              'useVision',
+              'profile',
+            ];
+            
+            return (
+              <FormInputs
+                extraFilter={(key) => {
+                  // Filter out manually rendered fields
+                  if (manuallyRenderedFields.includes(key)) {
+                    return false;
+                  }
+                  // Filter out prompt fields when using prompt library
+                  if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
+                    return false;
+                  }
+                  return true;
+                }}
+              />
+            );
+          }}
         </Field>
         <Divider />
         <DisplayOutputs displayFromScope />

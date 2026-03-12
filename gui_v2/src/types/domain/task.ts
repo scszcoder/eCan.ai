@@ -49,8 +49,8 @@ export interface Task {
   
   // Agent and Skill associations
   agentId?: string;
-  skillId?: string;
-  skill?: string; // skill name
+  skill?: string; // @deprecated legacy single skill name from memory tasks
+  skill_ids?: string[]; // skill IDs (canonical source of truth)
   
   // Task state
   state?: {
@@ -69,7 +69,7 @@ export interface Task {
   
   // Task configuration
   resume_from?: string;
-  trigger?: string;
+  trigger?: string | string[];
   schedule?: any;
   checkpoint_nodes?: any[];
   

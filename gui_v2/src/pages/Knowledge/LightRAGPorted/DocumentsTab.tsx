@@ -577,10 +577,21 @@ const DocumentsTab: React.FC = () => {
   const loadDocuments = async (silentRefresh: boolean = false, retryCount: number = 0) => {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 2000; // 2 seconds
+    const isConnectionErrorMessage = (msg: string) => {
+      const m = (msg || '').toLowerCase();
+      return m.includes('connection') ||
+             m.includes('refused') ||
+             m.includes('max retries exceeded') ||
+             m.includes('failed to establish a new connection');
+    };
     
     try {
       if (!silentRefresh) {
         setLoading(true);
+        // Clear documents list on first load to avoid duplicates during retry
+        if (retryCount === 0) {
+          setDocuments([]);
+        }
       }
       
       // Use paginated API
@@ -606,9 +617,7 @@ const DocumentsTab: React.FC = () => {
       // Check if server is not ready (connection refused) and retry
       if (!response.success && retryCount < MAX_RETRIES) {
         const errorMsg = response.error?.message || '';
-        const isConnectionError = errorMsg.includes('Connection') || 
-                                   errorMsg.includes('refused') || 
-                                   errorMsg.includes('Max retries exceeded');
+        const isConnectionError = isConnectionErrorMessage(errorMsg);
         
         if (isConnectionError) {
           console.log(`[DocumentsTab] Server not ready, retrying in ${RETRY_DELAY}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
@@ -701,7 +710,20 @@ const DocumentsTab: React.FC = () => {
       }
     } catch (e: any) {
       console.error('[DocumentsTab] Exception in loadDocuments:', e);
-      const errorMsg = 'Error loading documents: ' + (e?.message || String(e));
+
+      const rawMessage = e?.message || e?.error?.message || String(e);
+      if (retryCount < MAX_RETRIES && isConnectionErrorMessage(rawMessage)) {
+        console.log(`[DocumentsTab] Exception indicates server not ready, retrying in ${RETRY_DELAY}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        if (!silentRefresh) {
+          appendLog(t('pages.knowledge.documents.waitingForServer', {
+            defaultValue: `Waiting for LightRAG server... (attempt ${retryCount + 1}/${MAX_RETRIES})`
+          }));
+        }
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return loadDocuments(silentRefresh, retryCount + 1);
+      }
+
+      const errorMsg = 'Error loading documents: ' + rawMessage;
       appendLog(errorMsg);
       message.error(errorMsg);
     } finally {
@@ -981,40 +1003,76 @@ const DocumentsTab: React.FC = () => {
           // Pass 'id' as required by the updated backend handler
           const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id });
           if (response.success) {
-              appendLog(t('pages.knowledge.documents.documentDeleted'));
-              
-              // Reload documents to verify deletion
-              await loadDocuments();
-              
-              // Wait a bit and check if document still exists
-              await new Promise(resolve => setTimeout(resolve, 500));
-              const verifyResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
-                page: 1,
-                page_size: 100,
-                status_filter: null,
-                sort_field: 'updated_at',
-                sort_direction: 'desc'
+              // Deletion is background async, show initiated message
+              appendLog('文档删除已启动，正在后台处理...');
+              message.success({
+                content: '文档删除已启动，将在后台完成',
+                duration: 3
               });
               
-              if (verifyResponse.success && verifyResponse.data) {
-                const allDocs = (verifyResponse.data as any).documents || [];
-                const stillExists = allDocs.some((d: any) => d.id === doc.id);
+              // Poll to verify deletion completion
+              let pollCount = 0;
+              const maxPolls = 20; // Max 60 seconds (20 * 3s)
+              const pollInterval = 3000;
+              
+              const pollUntilDeleted = async () => {
+                pollCount++;
+                console.log(`[DocumentsTab] Deletion poll ${pollCount}/${maxPolls}`);
                 
-                if (stillExists) {
-                  // Document still exists, deletion failed silently
-                  const errorMsg = t('pages.knowledge.documents.deletionFailedStillExists', { status: doc.status?.toUpperCase() });
-                  appendLog(errorMsg);
-                  message.error({
-                    content: errorMsg,
-                    duration: 10,
-                    style: { maxWidth: '600px', whiteSpace: 'pre-line' }
-                  });
-                } else {
-                  message.success(t('pages.knowledge.documents.documentDeleted'));
+                // Refresh documents list and status counts
+                await loadDocuments();
+                
+                // Also refresh status counts to ensure UI is in sync
+                try {
+                  const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
+                  if (countsResponse.success && countsResponse.data) {
+                    const counts = countsResponse.data as any;
+                    const statusData = counts?.data?.status_counts || counts?.status_counts || {};
+                    const normalizedCounts: Record<string, number> = {};
+                    Object.keys(statusData).forEach(key => {
+                      normalizedCounts[key.toUpperCase()] = statusData[key];
+                    });
+                    const processed = normalizedCounts.PROCESSED || 0;
+                    const processing = normalizedCounts.PROCESSING || 0;
+                    const pending = normalizedCounts.PENDING || 0;
+                    const failed = normalizedCounts.FAILED || 0;
+                    const all = processed + processing + pending + failed;
+                    setStatusCounts({
+                      all,
+                      PROCESSED: processed,
+                      PROCESSING: processing,
+                      PENDING: pending,
+                      FAILED: failed
+                    });
+                  }
+                } catch (e) {
+                  console.error('[DocumentsTab] Failed to refresh status counts:', e);
                 }
-              } else {
-                message.success(t('pages.knowledge.documents.documentDeleted'));
-              }
+                
+                // Check if document still exists in current documents state
+                // Use a small delay to ensure state has updated
+                setTimeout(() => {
+                  const stillExists = documents.some((d: Document) => d.id === doc.id);
+                  
+                  if (!stillExists) {
+                    // Document deleted successfully
+                    appendLog('✅ 文档删除完成');
+                    message.success('文档已成功删除');
+                    return;
+                  }
+                  
+                  // Continue polling if not done
+                  if (pollCount < maxPolls) {
+                    setTimeout(pollUntilDeleted, pollInterval);
+                  } else {
+                    appendLog('⚠️ 删除验证超时，请手动刷新查看');
+                    message.warning('删除验证超时，请刷新页面确认');
+                  }
+                }, 500);
+              };
+              
+              // Start polling after 2 seconds
+              setTimeout(pollUntilDeleted, 2000);
           } else {
               const errorMsg = response.error?.message || 'Unknown error';
               

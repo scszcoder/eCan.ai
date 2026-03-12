@@ -4,6 +4,7 @@ from agent.ec_agents.agent_utils import load_agents_from_cloud
 # from agent.ec_agents.ec_procurement_agent import set_up_ec_procurement_agent
 # from agent.ec_agents.ec_rpa_operator_agent import set_up_ec_rpa_operator_agent
 # from agent.ec_agents.ec_tester_agent import set_up_ec_tester_agent
+# DEPRECATED: My Twin Agent - kept for reference, will be removed later
 # from agent.ec_agents.my_twin_agent import set_up_my_twin_agent
 from utils.logger_helper import logger_helper as logger
 
@@ -15,9 +16,12 @@ def build_agents(main_win):
         # then build the agents locally
         all_agents = load_agents_from_cloud(main_win)
         logger.info("agents from cloud:", all_agents)
+        
+        # DEPRECATED: My Twin Agent setup - kept for reference, will be removed later
+        # all_agents.append(set_up_my_twin_agent(main_win))
+        
         if not all_agents:
             # for now just build a few agents.
-            # all_agents.append(set_up_my_twin_agent(main_win))  # Removed: chat routes directly to recipient agent now
             if "Platoon" in main_win.machine_role:
                 logger.info("building platoon agents")
                 # all_agents.append(set_up_ec_helper_agent(main_win))

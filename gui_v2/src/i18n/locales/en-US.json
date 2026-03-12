@@ -2022,6 +2022,14 @@
         "workspace_switched": "Switched to workspace: {{name}}",
         "workspace_switch_failed": "Failed to switch workspace"
       },
+      "help": {
+        "title": "Knowledge Base User Guide",
+        "button": "Help",
+        "tooltip": "View Knowledge Base User Guide",
+        "loading": "Loading help documentation...",
+        "loadError": "Failed to load help documentation",
+        "tableOfContents": "Table of Contents"
+      },
       "graph": {
         "title": "Knowledge Graph",
         "subtitle": "Interactive visualization of knowledge relationships",
@@ -2057,6 +2065,9 @@
         "restarting": "Applying...",
         "restartSuccess": "Configuration applied successfully",
         "restartError": "Failed to apply configuration",
+        "lightragUnavailableTitle": "Knowledge Base Unavailable",
+        "lightragUnavailableDesc": "LightRAG failed to start. Knowledge retrieval and document processing are currently unavailable.",
+        "lightragUnavailableAction": "Please check embedding/workspace settings and click \"Apply Configuration\" to restart. If embedding dimension changed, switch to a new workspace.",
         "restartLater": "Cancel",
         "applyNow": "Apply Now",
         "workspace": {
@@ -2069,7 +2080,15 @@
           "deleteError": "Failed to delete workspace",
           "loadError": "Failed to load workspace list",
           "newPlaceholder": "Enter new workspace name...",
-          "newHint": "Press Enter to create"
+          "newHint": "Press Enter to create",
+          "switchMode": "Switch Workspace",
+          "createMode": "Create Workspace",
+          "selectPlaceholder": "Select workspace",
+          "empty": "empty",
+          "error": "Error",
+          "nameRequired": "Workspace name cannot be empty",
+          "alreadyExists": "Workspace \"{{name}}\" already exists",
+          "createHint": "Enter workspace name and click create button"
         },
         "tabs": {
           "basic": "Basic Config",

@@ -15,6 +15,7 @@ const { Text } = Typography;
 interface FormItemProps {
   children: React.ReactNode;
   name: string;
+  label?: string;
   type?: string;
   required?: boolean;
   description?: string;
@@ -26,6 +27,7 @@ interface FormItemProps {
 export function FormItem({
   children,
   name,
+  label,
   required,
   description,
   type,
@@ -34,16 +36,17 @@ export function FormItem({
   vertical,
   style,
 }: FormItemProps): JSX.Element {
+  const displayLabel = label || name;
   const renderTitle = useCallback(
     (showTooltip?: boolean) => (
       <div style={{ width: '0', display: 'flex', flex: '1' }}>
         <Text style={{ width: '100%' }} ellipsis={{ showTooltip: !!showTooltip }}>
-          {name}
+          {displayLabel}
           {required && <span style={{ color: '#f93920', paddingLeft: '2px' }}>*</span>}
         </Text>
       </div>
     ),
-    []
+    [displayLabel, required]
   );
   return (
     <div
