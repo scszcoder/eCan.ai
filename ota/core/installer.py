@@ -108,9 +108,9 @@ class InstallationManager:
             # Try to read from Inno Setup's uninstall registry key
             # AppId from build_config.json: 6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1
             app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
-            # Use raw string (r"...") to avoid Unicode escape errors with \U in Uninstall path
+            # Use f-string with raw string prefix to avoid Unicode escape errors with \U in Uninstall path
             # This is critical for PyInstaller frozen executables where \U is interpreted as Unicode escape
-            uninstall_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{" + app_id + r"}_is1"
+            uninstall_key = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id}}}_is1"
             
             # Try HKEY_CURRENT_USER first (per-user install)
             for root_key in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
