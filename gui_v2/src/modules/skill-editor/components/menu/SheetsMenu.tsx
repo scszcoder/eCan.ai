@@ -1,12 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dropdown, IconButton, Toast } from '@douyinfe/semi-ui';
-import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconEdit, IconUpload, IconMinus } from '@douyinfe/semi-icons';
+import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconEdit, IconUpload, IconMinus, IconSave } from '@douyinfe/semi-icons';
 import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useUserStore } from '../../../../stores/userStore';
+import { SavePromptsModal, collectInlinePrompts } from './SavePromptsModal';
 
 /**
  * Minimal sheet menu - opens on click of a toolbar icon, similar to Add Node.
@@ -39,6 +40,7 @@ export const SheetsMenu: React.FC = () => {
   const username = useUserStore((s) => s.username);
 
   const [visible, setVisible] = React.useState(false);
+  const [savePromptsVisible, setSavePromptsVisible] = React.useState(false);
   const sheetList = React.useMemo(() => {
     return sheetOrder.map((id) => sheetMap[id]).filter(Boolean);
   }, [sheetOrder, sheetMap]);
@@ -382,6 +384,7 @@ export const SheetsMenu: React.FC = () => {
   };
 
   return (
+    <>
     <Dropdown
       position="bottomLeft"
       trigger="custom"
@@ -393,6 +396,19 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>{t('sheetsMenu.newSheet')}</Dropdown.Item>
           <Dropdown.Item icon={<IconUpload />} onClick={handleRegisterSkill} disabled={!skillInfo}>{t('sheetsMenu.registerSkill')}</Dropdown.Item>
           <Dropdown.Item icon={<IconMinus />} onClick={handleUnregisterSkill} disabled={!skillInfo}>{t('sheetsMenu.unregisterSkill')}</Dropdown.Item>
+          <Dropdown.Item icon={<IconSave />} onClick={() => {
+            try {
+              const docJson = ctx.document.toJSON();
+              const entries = collectInlinePrompts(docJson);
+              if (entries.length === 0) {
+                Toast.info({ content: t('sheetsMenu.savePromptsNone') });
+                setVisible(false);
+                return;
+              }
+            } catch {}
+            setSavePromptsVisible(true);
+            setVisible(false);
+          }}>{t('sheetsMenu.savePrompts')}</Dropdown.Item>
           <Dropdown.Divider />
           <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>{t('sheetsMenu.openSheetById')}</Dropdown.Item>
           <Dropdown.Item disabled>
@@ -428,5 +444,10 @@ export const SheetsMenu: React.FC = () => {
         onClick={() => setVisible((v) => !v)}
       />
     </Dropdown>
+    <SavePromptsModal
+      visible={savePromptsVisible}
+      onClose={() => setSavePromptsVisible(false)}
+    />
+    </>
   );
 };

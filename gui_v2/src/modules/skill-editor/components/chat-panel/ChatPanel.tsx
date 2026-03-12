@@ -884,17 +884,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             if (
               last &&
               last.role === 'assistant' &&
-              /processing|still working|arrive shortly/i.test(last.content)
+              /processing|still working|arrive shortly|generating/i.test(last.content)
             ) {
               const updated = [...prev];
-              updated[updated.length - 1] = { ...last, id: msgId, content };
+              updated[updated.length - 1] = { ...last, id: msgId, content, timestamp: new Date() };
               return updated;
             }
             // Check if a message with this ID already exists (update it)
             const existingIdx = prev.findIndex(m => m.id === msgId);
             if (existingIdx >= 0) {
               const updated = [...prev];
-              updated[existingIdx] = { ...updated[existingIdx], content };
+              updated[existingIdx] = { ...updated[existingIdx], content, timestamp: new Date() };
               return updated;
             }
             // Don't blindly append — the synchronous handleSend response

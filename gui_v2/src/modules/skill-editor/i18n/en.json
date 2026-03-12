@@ -247,7 +247,19 @@
     "simTimerEvent": "[SIM] Timer Event",
     "simWebsocketEvent": "[SIM] Websocket Event",
     "simSseEvent": "[SIM] SSE Event",
-    "simWebhookEvent": "[SIM] Webhook Event"
+    "simWebhookEvent": "[SIM] Webhook Event",
+    "savePrompts": "Save Prompts",
+    "savePromptsTitle": "Save Inline Prompts to Prompt Library",
+    "savePromptsDesc": "The following nodes have inline prompts. Enter a name for each prompt to save it to the prompt library. The node will then reference the saved prompt instead of using inline text.",
+    "savePromptsNodeLabel": "Node: {{name}} ({{type}})",
+    "savePromptsSystemPrompt": "System Prompt",
+    "savePromptsUserPrompt": "User Prompt",
+    "savePromptsNamePlaceholder": "Enter prompt name…",
+    "savePromptsSaving": "Saving prompts…",
+    "savePromptsSaved": "Saved {{count}} prompt(s) to library",
+    "savePromptsNone": "No inline prompts to save — all nodes already use prompt library references.",
+    "savePromptsError": "Error saving prompts",
+    "savePromptsPartialError": "Saved {{saved}} prompt(s), but {{failed}} failed"
   },
   "helpPanel": {
     "searchPlaceholder": "Search in help...",
