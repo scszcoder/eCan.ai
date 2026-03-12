@@ -2,7 +2,7 @@
  * LLM node custom form: adds Model Provider dropdown above Model Name
  * All LLM configuration is dynamically loaded from backend llm_providers.json
  */
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
@@ -67,6 +67,7 @@ interface LLMProvider {
 // Cache for providers data
 let providersCache: LLMProvider[] = [];
 let providersCacheTime: number = 0;
+let providersInflightPromise: Promise<LLMProvider[]> | null = null;
 const CACHE_TTL = 2000; // 2 seconds cache - shorter to ensure dynamic models are up-to-date
 
 // Fetch all providers with credentials from backend
@@ -76,18 +77,28 @@ async function fetchProvidersWithCredentials(): Promise<LLMProvider[]> {
     return providersCache;
   }
 
-  try {
-    const response = await get_ipc_api().getLLMProvidersWithCredentials<{ providers: LLMProvider[] }>();
-    if (response.success && response.data?.providers) {
-      providersCache = response.data.providers;
-      providersCacheTime = now;
-      console.log('[LLM Node] Loaded providers from backend:', providersCache.map(p => p.name));
-      return providersCache;
-    }
-  } catch (error) {
-    console.error('[LLM Node] Failed to fetch providers:', error);
+  if (providersInflightPromise) {
+    return providersInflightPromise;
   }
-  return [];
+
+  providersInflightPromise = (async () => {
+    try {
+      const response = await get_ipc_api().getLLMProvidersWithCredentials<{ providers: LLMProvider[] }>();
+      if (response.success && response.data?.providers) {
+        providersCache = response.data.providers;
+        providersCacheTime = Date.now();
+        console.log('[LLM Node] Loaded providers from backend:', providersCache.map(p => p.name));
+        return providersCache;
+      }
+    } catch (error) {
+      console.error('[LLM Node] Failed to fetch providers:', error);
+    }
+    return [];
+  })().finally(() => {
+    providersInflightPromise = null;
+  });
+
+  return providersInflightPromise;
 }
 
 const PromptSelectionDropdown = ({
@@ -159,7 +170,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const { t } = useTranslation('skillEditor');
   const navigate = useNavigate();
   const username = useUserStore((s) => s.username || 'user');
-  const { prompts, fetch, fetched, loading: promptStoreLoading } = usePromptStore();
+  const { prompts, fetch, loading: promptStoreLoading } = usePromptStore();
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -170,12 +181,6 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       setLoading(false);
     });
   }, []);
-
-  useEffect(() => {
-    if (!fetched && username) {
-      fetch(username);
-    }
-  }, [fetched, fetch, username]);
 
   const promptOptions = useMemo(() => {
     const base = prompts.map((prompt) => {
