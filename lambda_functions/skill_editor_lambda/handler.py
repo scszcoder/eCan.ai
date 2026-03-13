@@ -2022,6 +2022,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     pending_clarification=session.get("pendingClarification"),
                     pending_log_analysis_info=session.get("pendingLogAnalysisInfo"),
                     log_analysis_context=session.get("logAnalysisContext"),
+                    last_saved_skill_name=session.get("lastSavedSkillName"),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -2176,6 +2177,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             else None
         )
         session["pendingLogAnalysisInfo"] = agent.pending_log_analysis_info
+        session["lastSavedSkillName"] = agent.last_saved_skill_name
 
         # Save log analysis context (truncate log_content to stay within DynamoDB limits)
         lac = agent.log_analysis_context
