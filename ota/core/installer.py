@@ -233,9 +233,6 @@ class InstallationManager:
             if sys.platform != 'win32':
                 return
 
-            if os.environ.get('ECAN_OTA_INNO_LOG', '').strip() != '1':
-                return
-
             log_path = Path(tempfile.gettempdir()) / f"ecan_ota_install_{int(time.time())}.log"
             cmd.append(f'/LOG="{log_path}"')
             logger.info(f"Inno Setup logging enabled: {log_path}")
@@ -529,14 +526,13 @@ rm -f "$0"
                     # /NORESTART = Don't restart computer
                     # /SP- = Skip the "This will install..." message box
                     # /DIR= = Installation directory (must use quotes if path has spaces)
-                    # Note: We DON'T use /CLOSEAPPLICATIONS because it may cause the installer to exit
-                    # Instead, we let the parent process exit gracefully first
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
+                        '/CLOSEAPPLICATIONS',
                         f'/DIR="{str(install_dir)}"'
                     ]
 
@@ -544,7 +540,7 @@ rm -f "$0"
                     
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART")
+                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager

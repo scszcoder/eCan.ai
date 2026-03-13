@@ -574,26 +574,24 @@ async def extract_entities_with_cancellation(
         return maybe_nodes, maybe_edges
 
     # ========== Optimization: Batch processing configuration ==========
-    # Use a conservative extraction concurrency to improve cancellation responsiveness
-    # and avoid a single document creating too many concurrent LLM requests.
     llm_model_max_async = global_config.get("llm_model_max_async", 4)
     try:
-        max_parallel_insert = int(os.getenv("MAX_PARALLEL_INSERT", "2"))
+        extract_max_async = int(os.getenv("EXTRACT_MAX_ASYNC", "4"))
     except (TypeError, ValueError):
-        max_parallel_insert = 2
+        extract_max_async = 4
 
     try:
         llm_model_max_async = int(llm_model_max_async)
     except (TypeError, ValueError):
         llm_model_max_async = 4
 
-    chunk_max_async = max(1, min(llm_model_max_async, max_parallel_insert))
+    chunk_max_async = max(1, min(llm_model_max_async, extract_max_async))
     batch_size = min(chunk_max_async * 2, 8)  # Keep task queue shallow for faster cancellation
     semaphore = asyncio.Semaphore(chunk_max_async)
     
     logger.info(
         f"[operate_custom] Batch processing: {batch_size} chunks/batch, {chunk_max_async} concurrent LLM calls "
-        f"(llm_model_max_async={llm_model_max_async}, MAX_PARALLEL_INSERT={max_parallel_insert})"
+        f"(llm_model_max_async={llm_model_max_async}, EXTRACT_MAX_ASYNC={extract_max_async})"
     )
 
     async def _process_with_semaphore(chunk_or_batch):
