@@ -486,6 +486,28 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 except (ValueError, TypeError):
                     pass
 
+            # When canvas has 0 nodes but a skillName, inject nodes/edges from the local
+            # skill JSON so the cloud Lambda can parse them (the skill may only exist locally).
+            if isinstance(parsed_canvas, dict) and not parsed_canvas.get("nodes"):
+                skill_name = parsed_canvas.get("skillName")
+                if skill_name:
+                    try:
+                        from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+                        sdir = f"{skill_name}_skill" if not skill_name.endswith("_skill") else skill_name
+                        skill_json_path = user_skills_root() / sdir / "diagram_dir" / f"{sdir}.json"
+                        if skill_json_path.exists():
+                            import json as _json
+                            local_skill = _json.loads(skill_json_path.read_text(encoding="utf-8"))
+                            wf = local_skill.get("workFlow", {})
+                            local_nodes = wf.get("nodes", [])
+                            local_edges = wf.get("edges", [])
+                            if local_nodes:
+                                parsed_canvas["nodes"] = local_nodes
+                                parsed_canvas["edges"] = local_edges
+                                logger.info(f"[SkillEditorChat] Injected {len(local_nodes)} nodes from local skill: {skill_name}")
+                    except Exception as e:
+                        logger.warning(f"[SkillEditorChat] Failed to inject local skill nodes: {e}")
+
             cloud_result = relay_send_message(
                 session_id=session_id,
                 content=content,

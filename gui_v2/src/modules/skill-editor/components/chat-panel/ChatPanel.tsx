@@ -640,6 +640,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [streamingStatus, setStreamingStatus] = useState<string>('');
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
+  const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -821,6 +822,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         if (context?.flowgram) {
           console.log('[ChatPanel] Context has flowgram, calling loadFlowgram...');
+          lastFlowgramJsonRef.current = context.flowgram;
           canvasController.loadFlowgram(context.flowgram).catch((err) => {
             console.warn('[ChatPanel] Failed to load flowgram from context:', err);
           });
@@ -1203,6 +1205,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         })),
         skillName: canvasState.flowgramName,
         skillId: canvasState.flowgramId,
+        // When canvas returns 0 nodes (e.g. skill loaded from local but documentService empty),
+        // send the last known flowgram so the backend can use it as fallback.
+        ...(canvasState.nodes.length === 0 && lastFlowgramJsonRef.current
+          ? { lastFlowgramJson: lastFlowgramJsonRef.current }
+          : {}),
       };
 
       const response = await skillEditorChatService.sendMessage(
@@ -1243,6 +1250,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
 
         if (response.flowgram) {
+          lastFlowgramJsonRef.current = response.flowgram;
           await canvasController.loadFlowgram(response.flowgram);
         }
       }
@@ -1316,6 +1324,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         })),
         skillName: canvasState.flowgramName,
         skillId: canvasState.flowgramId,
+        ...(canvasState.nodes.length === 0 && lastFlowgramJsonRef.current
+          ? { lastFlowgramJson: lastFlowgramJsonRef.current }
+          : {}),
       };
 
       const response = await skillEditorChatService.sendMessage(
@@ -1465,6 +1476,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // Include skill info so backend can load from disk if canvas is empty
         skillName: canvasState.flowgramName,
         skillId: canvasState.flowgramId,
+        ...(canvasState.nodes.length === 0 && lastFlowgramJsonRef.current
+          ? { lastFlowgramJson: lastFlowgramJsonRef.current }
+          : {}),
       };
       console.log('[ChatPanel] Canvas context:', { 
         nodeCount: canvasContext.nodes.length, 
@@ -1555,6 +1569,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         
         // Load flowgram into canvas if present in response
         if (response.flowgram) {
+          lastFlowgramJsonRef.current = response.flowgram;
           console.log('[ChatPanel] Loading generated flowgram into canvas...');
           const loadResult = await canvasController.loadFlowgram(response.flowgram);
           if (loadResult.success) {
