@@ -85,3 +85,37 @@ def confirm_pending_install_result(current_version: str, logger=None) -> Optiona
         )
     clear_pending_install_state(logger=logger)
     return False
+
+
+def handle_pending_install_cleanup(current_version: str, logger=None) -> Optional[bool]:
+    payload = read_pending_install_state(logger=logger)
+    if not payload:
+        return None
+
+    result = confirm_pending_install_result(current_version=current_version, logger=logger)
+    if result is not True:
+        if logger:
+            logger.info(f"[OTA] Skipping downloaded package cleanup because install confirmation result={result}")
+        return result
+
+    package_path_raw = str(payload.get('package_path') or '').strip()
+    if not package_path_raw:
+        if logger:
+            logger.info("[OTA] No package_path recorded in pending install state; nothing to clean up")
+        return True
+
+    package_path = Path(package_path_raw)
+    if not package_path.exists():
+        if logger:
+            logger.info(f"[OTA] Downloaded installer already absent, no cleanup needed: {package_path}")
+        return True
+
+    try:
+        package_path.unlink()
+        if logger:
+            logger.info(f"[OTA] Deleted downloaded installer after successful upgrade: {package_path}")
+        return True
+    except Exception as e:
+        if logger:
+            logger.warning(f"[OTA] Failed to delete downloaded installer after successful upgrade: {e}")
+        return True

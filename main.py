@@ -749,6 +749,13 @@ try:
         ctx.set_config(app_settings)
         ctx.set_app_info(app_info)
 
+        # Handle deferred OTA installer cleanup after successful upgrade
+        try:
+            from ota.core.install_state import handle_pending_install_cleanup
+            handle_pending_install_cleanup(current_version=app_info.version, logger=logger)
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to handle pending install cleanup on startup: {e}")
+
         # Initialize GUI dispatcher to ensure it's created on the main thread
         from utils.gui_dispatch import init_gui_dispatch
         init_gui_dispatch()
