@@ -701,6 +701,18 @@ class SkillEditorAgent:
             if (not has_edit_marker) and any(phrase in msg_lower for phrase in ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]):
                 return IntentType.CREATE_FLOWGRAM
         
+        # Diagnostic / "why" questions — recognise before node-operation rules
+        # so that "why the added node has the wrong connection" isn't mistaken
+        # for an add_node intent.
+        _question_prefix = bool(re.search(
+            r"\b(why|how come|what went wrong|what happened|figure out|diagnose|debug|explain|wrong|issue|problem|broken)",
+            msg_lower,
+        ))
+        if _question_prefix and not any(w in msg_lower for w in [
+            "add a ", "add an ", "please add", "insert a ", "remove the ", "delete the ",
+        ]):
+            return IntentType.EXPLAIN
+
         # Node operations
         if "add" in msg_lower and "node" in msg_lower:
             return IntentType.ADD_NODE
