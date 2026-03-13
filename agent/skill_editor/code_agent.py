@@ -898,17 +898,33 @@ For LLM and browser_automation nodes, use modular prompts:
 3. To modify prompts later, update the prompt JSON file, not the node config
 
 ## OUTPUT FORMAT:
-Respond with the complete updated flowgram:
+Respond with ONLY the changes (diff), NOT the entire flowgram:
 
 {{
   "action": "edit_flowgram",
   "message": "Description of changes made",
-  "flowgram": {{
-    "nodes": [...],
-    "edges": [...],
-    "metadata": {{...}}
+  "diff": {{
+    "added_nodes": [
+      {{ "id": "...", "type": "...", "label": "...", "config": {{...}} }}
+    ],
+    "removed_nodes": ["node_id_to_remove"],
+    "modified_nodes": {{
+      "existing_node_id": {{
+        "config": {{ "only_changed_fields": "new_value" }}
+      }}
+    }},
+    "added_edges": [
+      {{"sourceNodeID": "...", "targetNodeID": "...", "sourcePortID": "..."}}
+    ],
+    "removed_edges": [
+      {{"sourceNodeID": "...", "targetNodeID": "..."}}
+    ]
   }}
 }}
+
+For modified_nodes: only include fields that changed. Nested dicts are deep-merged.
+Arrays (blocks, internal_edges, conditions) are replaced entirely — include the full array.
+Do NOT output the entire flowgram — output only the diff.
 """
 
 
@@ -2053,6 +2069,154 @@ Continue the JSON output (do not include any text before the continuation):"""
             internal_edges=internal_edges,
         )
 
+    # ------------------------------------------------------------------
+    # Flowgram stripping / diff helpers for edit optimisation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _strip_flowgram_for_llm(fg_dict: Dict) -> Dict:
+        """Strip rendering-only fields from a flowgram dict to reduce LLM
+        token usage.  Removes ``position``, ``meta``, empty ``data`` dicts
+        — none of which affect edit logic.  The layout engine re-calculates
+        positions after every edit."""
+        import copy
+        stripped = copy.deepcopy(fg_dict)
+        for node in stripped.get("nodes", []):
+            node.pop("position", None)
+            node.pop("meta", None)
+            if not node.get("data"):
+                node.pop("data", None)
+            for block in node.get("blocks") or []:
+                block.pop("position", None)
+                block.pop("meta", None)
+                if not block.get("data"):
+                    block.pop("data", None)
+        return stripped
+
+    def _apply_edit_diff(
+        self,
+        original: Flowgram,
+        diff: Dict[str, Any],
+    ) -> Optional[Flowgram]:
+        """Apply a diff-based edit to an existing flowgram.
+
+        The *diff* dict shape::
+
+            {
+              "added_nodes":    [ {full node dict}, ... ],
+              "removed_nodes":  [ "node_id", ... ],
+              "modified_nodes": { "node_id": {partial update}, ... },
+              "added_edges":    [ {edge dict}, ... ],
+              "removed_edges":  [ {"sourceNodeID":"..","targetNodeID":".."}, ... ]
+            }
+
+        Returns ``None`` when the diff produces no changes or cannot be applied.
+        """
+        import copy
+
+        fg = original.model_dump(exclude_none=True)
+        nodes: List[Dict] = fg.get("nodes", [])
+        edges: List[Dict] = fg.get("edges", [])
+        changed = False
+
+        # --- removed nodes ---
+        removed_ids = set(diff.get("removed_nodes") or [])
+        if removed_ids:
+            fg["nodes"] = [n for n in nodes if n.get("id") not in removed_ids]
+            nodes = fg["nodes"]
+            # Drop edges referencing removed nodes
+            fg["edges"] = [
+                e for e in edges
+                if e.get("sourceNodeID") not in removed_ids
+                and e.get("targetNodeID") not in removed_ids
+            ]
+            edges = fg["edges"]
+            changed = True
+
+        # --- added nodes ---
+        for new_node in diff.get("added_nodes") or []:
+            if isinstance(new_node, dict) and new_node.get("id"):
+                nodes.append(new_node)
+                changed = True
+
+        # --- modified nodes (deep-merge patch into existing) ---
+        mods = diff.get("modified_nodes") or {}
+        if isinstance(mods, list):
+            mods = {m["id"]: m for m in mods if isinstance(m, dict) and "id" in m}
+        node_map = {n["id"]: n for n in nodes}
+        for nid, patch in mods.items():
+            if not isinstance(patch, dict):
+                continue
+            target = node_map.get(nid)
+            if target is None:
+                continue
+            self._deep_merge(target, patch)
+            changed = True
+
+        # --- removed edges ---
+        for re_spec in diff.get("removed_edges") or []:
+            if not isinstance(re_spec, dict):
+                continue
+            src = re_spec.get("sourceNodeID") or re_spec.get("source") or ""
+            tgt = re_spec.get("targetNodeID") or re_spec.get("target") or ""
+            before = len(fg["edges"])
+            fg["edges"] = [
+                e for e in fg["edges"]
+                if not (e.get("sourceNodeID") == src and e.get("targetNodeID") == tgt)
+            ]
+            edges = fg["edges"]
+            if len(fg["edges"]) < before:
+                changed = True
+
+        # --- added edges ---
+        for new_edge in diff.get("added_edges") or []:
+            if isinstance(new_edge, dict):
+                edges.append(new_edge)
+                changed = True
+
+        if not changed:
+            logger.warning("[CodeAgent] Edit diff produced no changes")
+            return None
+
+        # Re-parse into a Flowgram via the standard pipeline
+        try:
+            parsed_nodes = [self._parse_node(n, i) for i, n in enumerate(fg.get("nodes", []))]
+            parsed_edges = [
+                FlowgramEdge(
+                    source=e.get("source") or e.get("sourceNodeID") or "",
+                    target=e.get("target") or e.get("targetNodeID") or "",
+                    source_handle=e.get("source_handle") or e.get("sourceHandle") or e.get("sourcePortID"),
+                    target_handle=e.get("target_handle") or e.get("targetHandle") or e.get("targetPortID"),
+                    label=e.get("label"),
+                )
+                for e in fg.get("edges", [])
+            ]
+            result = Flowgram(
+                nodes=parsed_nodes,
+                edges=parsed_edges,
+                metadata=fg.get("metadata", {}),
+            )
+            self._ensure_start_end_nodes(result)
+            self._fix_missing_incoming_edges(result)
+            self._fix_node_naming(result)
+            logger.info(f"[CodeAgent] Applied edit diff: {len(result.nodes)} nodes, {len(result.edges)} edges")
+            return result
+        except Exception as exc:
+            logger.error(f"[CodeAgent] Failed to apply edit diff: {exc}")
+            return None
+
+    @staticmethod
+    def _deep_merge(base: Dict, patch: Dict) -> None:
+        """Recursively merge *patch* into *base* in-place.  Dict values are
+        recursed; everything else (including lists) is replaced."""
+        for key, val in patch.items():
+            if key == "id":
+                continue  # never overwrite node id
+            if isinstance(val, dict) and isinstance(base.get(key), dict):
+                CodeAgent._deep_merge(base[key], val)
+            else:
+                base[key] = val
+
     def _parse_code_agent_output(self, response: str) -> CodeAgentOutput:
         """Parse LLM response into CodeAgentOutput"""
         data = self._parse_flowgram_from_response(response)
@@ -2733,11 +2897,14 @@ Return the FULL corrected JSON — every node, every edge, every config field.
         try:
             await self._emit_progress(on_event, "Preparing edit…")
 
-            # Build edit prompt
+            # Build edit prompt — strip rendering fields & compact JSON
             raw_edit_prompt = prompt_store.get("edit_flowgram", default=EDIT_FLOWGRAM_PROMPT)
+            fg_dict = self._strip_flowgram_for_llm(
+                flowgram.model_dump(exclude_none=True)
+            )
             prompt = safe_format(
                 raw_edit_prompt,
-                current_flowgram=json.dumps(flowgram.model_dump(), indent=2),
+                current_flowgram=json.dumps(fg_dict),
                 edit_request=edit_request,
                 node_types=get_node_types_description(),
                 node_schema=prompt_store.get_node_schema(),
@@ -2747,7 +2914,29 @@ Return the FULL corrected JSON — every node, every edge, every config field.
             # Invoke LLM
             await self._emit_progress(on_event, "Applying edit — please wait…")
             response = await self._invoke_llm_async(prompt, action="edit")
-            output = self._parse_code_agent_output(response)
+
+            # Try diff-based response first (much faster output)
+            data = self._parse_flowgram_from_response(response)
+            diff = data.get("diff") if data else None
+
+            if diff and not data.get("flowgram"):
+                logger.info("[CodeAgent] Processing diff-based edit response")
+                new_flowgram = self._apply_edit_diff(flowgram, diff)
+                if new_flowgram:
+                    message = self._finalize_message(data.get("message"), new_flowgram)
+                    data_mapping = self._build_data_mapping(data.get("data_mapping"))
+                    output = CodeAgentOutput(
+                        action=CodeAgentAction.EDIT_FLOWGRAM,
+                        message=message,
+                        flowgram=new_flowgram,
+                        data_mapping=data_mapping,
+                    )
+                else:
+                    logger.warning("[CodeAgent] Diff apply failed, falling back to full parse")
+                    output = self._parse_code_agent_output(response)
+            else:
+                # Full flowgram response (backward compat)
+                output = self._parse_code_agent_output(response)
             
             if output.flowgram:
                 output.action = CodeAgentAction.EDIT_FLOWGRAM
