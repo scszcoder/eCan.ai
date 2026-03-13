@@ -21,6 +21,8 @@ export interface PromptSection {
   customLabel?: string; // For custom sections, user-defined label
 }
 
+export type PromptFormat = 'json' | 'md';
+
 export interface Prompt {
   id: string;
   title: string;
@@ -34,4 +36,6 @@ export interface Prompt {
   readOnly?: boolean;
   owner?: string;
   rawContent?: string;
+  format?: PromptFormat; // 'json' (structured sections) or 'md' (markdown source)
+  mdContent?: string; // markdown source text when format is 'md'
 }

@@ -255,3 +255,98 @@
   line-height: 1.6;
   min-height: 100%;
 }
+
+/* ========== Markdown Editor ========== */
+.mdEditor {
+  background: rgba(15, 23, 42, 0.7) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  border-radius: 6px !important;
+  color: #e2e8f0 !important;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.7 !important;
+  padding: 14px !important;
+  tab-size: 2;
+}
+
+.mdEditor:hover {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+.mdEditor:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15) !important;
+}
+
+.mdEditor::placeholder {
+  color: rgba(148, 163, 184, 0.4) !important;
+}
+
+.mdEditorReadonly {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+/* ========== Markdown Preview ========== */
+.mdPreview {
+  color: #cbd5e1;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.mdPreview h1 {
+  font-size: 1.5em;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0.8em 0 0.4em;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding-bottom: 0.3em;
+}
+
+.mdPreview h2 {
+  font-size: 1.3em;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0.7em 0 0.3em;
+}
+
+.mdPreview h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0.6em 0 0.3em;
+}
+
+.mdPreview ul {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+.mdPreview li {
+  margin: 0.2em 0;
+}
+
+.mdPreview strong {
+  color: #f1f5f9;
+}
+
+.mdPreview hr {
+  border: none;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  margin: 12px 0;
+}
+
+.mdPreview p {
+  margin: 0.4em 0;
+}
