@@ -641,6 +641,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
+  const approvingPlanRef = useRef(false);  // prevent double-click on approve button
+  const planApprovedRef = useRef(false);   // once a plan is approved, block subscription from re-showing it
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -924,7 +926,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const state = payload.state;
 
         if (state) {
-          setPipelineState(state);
+          // Don't let a late subscription event regress pipeline state
+          // back to awaiting_plan_approval after the user has already approved.
+          if (state === 'awaiting_plan_approval' && planApprovedRef.current) {
+            // skip — the user already approved this plan
+          } else {
+            setPipelineState(state);
+          }
         }
 
         if (Array.isArray(clarification) && clarification.length > 0) {
@@ -934,9 +942,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           }
           setPendingPlan(null);
         } else if (plan) {
-          setPendingPlan(plan);
-          setPendingClarification(null);
-          setPendingA2UI(null);
+          // Only set pendingPlan if the user hasn't already acted on it.
+          // The subscription stream_end may arrive AFTER the user clicked
+          // approve, which would re-show the plan card and allow a second
+          // (duplicate) approval.
+          if (!approvingPlanRef.current && !planApprovedRef.current) {
+            setPendingPlan(plan);
+            setPendingClarification(null);
+            setPendingA2UI(null);
+          }
         }
         // Don't clear pending states here for bare stream_end (no structured
         // data) — the synchronous response handler may still set them.
@@ -1168,6 +1182,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
   const handlePlanApprove = useCallback(async () => {
     if (!activeSessionId || isLoading || !pendingPlan) return;
+    // Ref-based guard: React state updates are async, so a second click
+    // could slip through before the re-render disables the button.
+    if (approvingPlanRef.current) return;
+    approvingPlanRef.current = true;
+    planApprovedRef.current = true;
 
     console.log('[ChatPanel] Approving plan');
     setIsLoading(true);
@@ -1282,6 +1301,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       }
     } finally {
       setIsLoading(false);
+      approvingPlanRef.current = false;
     }
   }, [activeSessionId, isLoading, pendingPlan, t]);
 
@@ -1374,6 +1394,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
   const handleSend = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
+
+    // Reset plan-approval guard so the next plan can be displayed.
+    planApprovedRef.current = false;
 
     console.log('[ChatPanel] Sending message...');
     const userContent = inputValue.trim();
