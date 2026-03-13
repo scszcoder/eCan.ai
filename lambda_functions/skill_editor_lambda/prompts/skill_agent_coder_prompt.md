@@ -91,6 +91,139 @@ You do **not** need to repeat these rules. If the workflow needs additional data
 
 ---
 
+## Key Concepts: Runtime Variables, Timers, and Hybrid Cloud
+
+### Concept 1: Runtime Variables in Prompts
+
+When an LLM node or browser_automation node prompt needs to reference **dynamic values that are only known at execution time** (e.g., an order ID from an incoming event, a customer name from a webhook payload, a URL passed by another agent), use **runtime variables**.
+
+**How it works:**
+
+1. **In prompt templates**, reference variables with double-brace syntax: `{{variable_name}}`
+2. At execution time, the engine resolves each `{{variable_name}}` through a **cascading resolution chain** (first match wins):
+
+   | Priority | Source | How to set it |
+   |----------|--------|---------------|
+   | 1 | `state["prompt_refs"][var]` | A preceding node writes to `state["prompt_refs"]` (e.g., via a variable node or data_mapping rule) |
+   | 2 | Prompt-level `"variables"` declaration | Declared in the prompt JSON file's `"variables"` array (see source types below) |
+   | 3 | Skill-level `mapping_rules["prompt_variables"]` | Declared in the skill's mapping rules |
+   | 4 | Built-in provider | Always available: `current_time`, `agent_name`, `human_input`, `skills_schema`, `tools_schema`, etc. |
+   | 5 | `""` (empty string) | Fallback if nothing matches |
+
+3. **Variable declaration source types** (for prompt-level or skill-level declarations):
+   - `"static"` — literal value: `{"name": "store_name", "source": "static", "value": "My eBay Store"}`
+   - `"state_path"` — dot-path into state: `{"name": "order_id", "source": "state_path", "path": "attributes.current_order.id"}`
+   - `"builtin"` — delegates to a named provider: `{"name": "current_time", "source": "builtin", "key": "current_time"}`
+   - `"code"` — Python expression: `{"name": "item_count", "source": "code", "code": "len(state.get('items', []))"}`
+
+**Connecting async event data to runtime variables via data_mapping.json:**
+
+When runtime variable values come from **asynchronous sources** (event data from webhooks, human chat, timers, agent-to-agent messages), you must add rules in `data_mapping.json` to move the event payload into state paths that the prompt can reference.
+
+**Example**: A webhook delivers `{"order_id": "12345", "customer_email": "alice@example.com"}`. To make these available as `{{order_id}}` and `{{customer_email}}` in a downstream LLM prompt:
+
+```json
+{
+  "developing": {
+    "mappings": [
+      {
+        "from": ["event.data.order_id"],
+        "to": [{"target": "state.prompt_refs.order_id"}],
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.data.customer_email"],
+        "to": [{"target": "state.prompt_refs.customer_email"}],
+        "on_conflict": "overwrite"
+      }
+    ]
+  }
+}
+```
+
+After this mapping fires, any node prompt containing `{{order_id}}` or `{{customer_email}}` will resolve to the values from the event.
+
+**Rule of thumb**: If a prompt variable's value comes from outside the skill (event, webhook, human input, timer callback, agent message), there **must** be a `data_mapping.json` rule that routes the incoming data into `state.prompt_refs.<var>` or `state.attributes.<path>` (then use a `state_path` declaration to read it).
+
+---
+
+### Concept 2: Timer Naming — Connecting MCP Timer Tool to pend_event
+
+When a workflow needs to wait for a timer (e.g., polling every 15 minutes, delayed retry), the timer setup and the wait point must be connected by a **matching timer name**.
+
+**How it works:**
+
+1. **Start the timer** — Use an MCP tool node that calls the `add_timer` tool with a specific `timer_name` parameter:
+   ```
+   MCP node prompt: "Start a timer named 'poll_orders' that fires every 900 seconds (15 minutes)."
+   Tool: add_timer
+   Input: { "timer_name": "poll_orders", "interval_seconds": 900 }
+   ```
+
+2. **Wait for the timer** — Place a `pend_event_node` downstream with `eventType: "timer"` and `timerName` matching the timer name:
+   ```json
+   {
+     "id": "pend_event_wait_poll",
+     "type": "pend_event_node",
+     "data": {
+       "title": "Wait for Poll Timer",
+       "inputsValues": {
+         "eventType": { "type": "constant", "content": "timer" },
+         "timerName": { "type": "constant", "content": "poll_orders" }
+       }
+     }
+   }
+   ```
+
+3. **The names MUST match exactly** — The `timer_name` in the MCP `add_timer` call and the `timerName` in the pend_event node must be identical strings. If they don't match, the pend_event will never resume.
+
+**Typical pattern:**
+```
+start → mcp_start_timer(add_timer, timer_name="check_orders") → loop {
+    block-start → llm_do_work → pend_event(eventType="timer", timerName="check_orders") → block-end
+} → end
+```
+
+The MCP tool creates the timer once before the loop. Inside the loop, the pend_event node pauses execution until the next timer tick, then the loop body executes and pauses again.
+
+**Multiple timers**: If a workflow uses multiple timers, give each a unique, descriptive name (e.g., `"poll_orders"`, `"retry_backoff"`, `"daily_report"`). Use `pendingSources` to wait on multiple events simultaneously.
+
+---
+
+### Concept 3: Hybrid Cloud Skills — Always Use "passive0" as Ground-Side Skill Name
+
+When the user wants a skill to run in **hybrid cloud mode** (cloud orchestration + local execution), the skill config must specify a ground-side helper skill.
+
+**Rule: Always set `local_helper_skill_name` to `"passive0"`.**
+
+This is the standard naming convention for the ground-side companion skill that assists the cloud skill with local execution (browser automation, local file access, etc.).
+
+**Configuration:**
+```json
+{
+  "run_in_cloud": true,
+  "hybrid_cloud_mode": true,
+  "local_helper_skill_id": "passive0",
+  "local_helper_skill_name": "passive0",
+  "local_helper_machine": "<user's machine name>",
+  "config": {
+    "run_in_cloud": true,
+    "hybrid_cloud_mode": true,
+    "local_helper_skill_id": "passive0",
+    "local_helper_skill_name": "passive0",
+    "local_helper_machine": "<user's machine name>"
+  }
+}
+```
+
+**Important notes:**
+- Both top-level fields and `config.*` fields must be set in sync (runtime reads from `config`).
+- `local_helper_machine` should be the registered machine name where the helper runs (ask the user if unknown).
+- The cloud skill orchestrates (LLM calls, state management, scheduling) while `passive0` on the ground machine handles browser automation, local file access, and MCP tools that need local resources.
+- If the user says "make this a hybrid skill" or "run in cloud with local browser", set these fields and use `"passive0"` as the helper name.
+
+---
+
 ## Flowgram Generation Rules
 
 1. Every flowgram **must** have a `start` node and an `end` node.
@@ -170,6 +303,12 @@ You are building **agentic** workflows, NOT RPA macros. The fundamental differen
    - Simple error checking (sub-agent error handling pattern covers this)
 
 6. **PREFER FEWER, SMARTER NODES.** A single browser_automation node with a 20-line prompt is better than 5 nodes with 3 conditions. A single LLM+MCP sub-agent loop is better than a chain of LLM → condition → MCP → condition → LLM.
+
+### Task Decomposition Constraint (HARD LIMIT)
+
+- **Maximum 2 sub-tasks** per workflow. If the task seems to need more, combine related sub-tasks under a single sub-agent with a richer prompt.
+- **Maximum 8 nodes per sub-task** (including start/end for that sub-task's segment). This forces agentic design — you cannot micro-manage with 8 nodes, so you MUST rely on sophisticated prompts.
+- If a draft flowgram exceeds these limits, **refactor**: merge sequential LLM+condition chains into a single loop with a comprehensive prompt, consolidate browser actions into one browser_automation node, etc.
 
 ### Example — BAD (RPA style, too many conditions):
 ```
@@ -948,6 +1087,8 @@ You **must** respond with valid JSON in one of these structures:
 10. **Generate complete, valid flowgrams** — use descriptive labels, position nodes to avoid overlap, include all configurations, connect all nodes properly.
 11. **Prefer mapping rules for data routing** — use mapping rules in `data_mapping` for moving data between `state` fields. Never use code nodes for data routing.
 12. **Only output extra mapping rules** — the baseline event→state mappings are included automatically. Your `data_mapping` output should contain only workflow-specific additions.
+13. **Maximum 2 sub-tasks per workflow, maximum 8 nodes per sub-task.** If your flowgram exceeds this, refactor: merge condition-heavy chains into a single loop + sub-agent with a richer prompt.
+14. **Prompt-first design** — when facing a decision point, default to embedding it in a sub-agent prompt (as rules/exceptions/verification steps) rather than adding a condition node. Condition nodes are for structural divergence only.
 
 ---
 
