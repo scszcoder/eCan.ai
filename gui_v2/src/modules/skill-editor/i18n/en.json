@@ -364,7 +364,8 @@
     "noMessages": "No messages yet",
     "startNewChat": "Start a new chat or select a session from history.",
     "planning": "Planning...",
-    "thinking": "Thinking..."
+    "thinking": "Thinking...",
+    "cloudProcessing": "⏳ Processing your request — the cloud agent is still working on it. The response will arrive shortly via streaming."
   },
   "selectionPopover": {
     "collapse": "Collapse",
