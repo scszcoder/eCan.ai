@@ -3,6 +3,7 @@ This module contains all document-related routes for the LightRAG API.
 """
 
 import asyncio
+import os
 from lightrag.utils import logger, get_pinyin_sort_key
 import aiofiles
 import shutil
@@ -1701,24 +1702,62 @@ async def pipeline_index_files(
     if not file_paths:
         return
     try:
-        enqueued = False
-
         # Use get_pinyin_sort_key for Chinese pinyin sorting
         sorted_file_paths = sorted(
             file_paths, key=lambda p: get_pinyin_sort_key(str(p))
         )
+        try:
+            batch_size = max(1, int(os.getenv("MAX_PARALLEL_INSERT", "2")))
+        except (TypeError, ValueError):
+            batch_size = 2
 
-        # Process files sequentially with track_id
-        for file_path in sorted_file_paths:
-            success, _ = await pipeline_enqueue_file(rag, file_path, track_id)
-            if success:
-                enqueued = True
+        logger.info(
+            f"[ScanBatch] Indexing {len(sorted_file_paths)} file(s) in enqueue batches of {batch_size}"
+        )
 
-        # Process the queue only if at least one file was successfully enqueued
-        if enqueued:
-            # Process queue in background to avoid blocking
-            import asyncio
-            asyncio.create_task(rag.apipeline_process_enqueue_documents())
+        for batch_start in range(0, len(sorted_file_paths), batch_size):
+            try:
+                from knowledge.lightrag_launcher import get_stop_controller
+                controller = get_stop_controller()
+                if controller.is_stop_requested():
+                    logger.info(
+                        f"[ScanBatch] Stop requested before enqueue batch {(batch_start // batch_size) + 1}, halting remaining files"
+                    )
+                    break
+            except Exception:
+                pass
+
+            current_batch = sorted_file_paths[batch_start: batch_start + batch_size]
+            enqueued = False
+
+            logger.info(
+                f"[ScanBatch] Enqueueing batch {(batch_start // batch_size) + 1}/"
+                f"{(len(sorted_file_paths) + batch_size - 1) // batch_size} with {len(current_batch)} file(s)"
+            )
+
+            for file_path in current_batch:
+                try:
+                    from knowledge.lightrag_launcher import get_stop_controller
+                    controller = get_stop_controller()
+                    if controller.is_stop_requested():
+                        logger.info(
+                            f"[ScanBatch] Stop requested while enqueueing batch, skipping remaining file(s) from {file_path.name}"
+                        )
+                        break
+                except Exception:
+                    pass
+
+                success, _ = await pipeline_enqueue_file(rag, file_path, track_id)
+                if success:
+                    enqueued = True
+
+            if not enqueued:
+                continue
+
+            logger.info(
+                f"[ScanBatch] Processing enqueued batch {(batch_start // batch_size) + 1} immediately"
+            )
+            await rag.apipeline_process_enqueue_documents()
     except Exception as e:
         logger.error(f"Error indexing files: {str(e)}")
         logger.error(traceback.format_exc())
