@@ -1600,15 +1600,14 @@ Continue the JSON output (do not include any text before the continuation):"""
             )
         )
         labels = [node.label or node.id for node in ordered_nodes]
-        path_preview = " → ".join(labels[:6])
-        if len(labels) > 6:
-            path_preview += " → …"
+        path_preview = " → ".join(labels)
 
         type_text = ", ".join(unique_types) if unique_types else "mixed nodes"
         prefix = f"Created '{skill_name}' workflow" if skill_name else "Created workflow"
         summary = f"{prefix} with {total_nodes} nodes ({type_text})."
         if path_preview:
             summary += f" Primary path: {path_preview}."
+        summary += "\n\nPlease go ahead and test this workflow, and let me know what you observe and any issues from your test run."
         return summary
 
     def _finalize_message(self, raw_message: Any, flowgram: Optional[Flowgram]) -> str:
