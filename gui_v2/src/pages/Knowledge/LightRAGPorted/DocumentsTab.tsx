@@ -81,6 +81,8 @@ const DocumentsTab: React.FC = () => {
   const scanPollingStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const statusCountsInFlightRef = useRef(false);
   const consoleRef = useRef<HTMLDivElement | null>(null);
+  const batchCancelRequestedRef = useRef(false);
+  const batchSubmittingRef = useRef(false);
   const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
   const [consoleCollapsed, setConsoleCollapsed] = useState(false); // Console折叠状态，默认展开
   
@@ -89,6 +91,7 @@ const DocumentsTab: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [totalDocs, setTotalDocs] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [ingestBatchSize, setIngestBatchSize] = useState(4);
   
 
   const { t } = useTranslation();
@@ -104,6 +107,112 @@ const DocumentsTab: React.FC = () => {
         consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
       }
     }, 100);
+  };
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const chunkPaths = (paths: string[], batchSize: number) => {
+    const chunks: string[][] = [];
+    for (let i = 0; i < paths.length; i += batchSize) {
+      chunks.push(paths.slice(i, i + batchSize));
+    }
+    return chunks;
+  };
+
+  const requestStopPendingBatches = (reason?: string) => {
+    if (batchSubmittingRef.current && !batchCancelRequestedRef.current) {
+      batchCancelRequestedRef.current = true;
+      appendLog(reason || '已停止后续批次提交，等待当前批次结束...');
+    }
+  };
+
+  const waitForProcessingBackpressure = async () => {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (batchCancelRequestedRef.current) {
+        return;
+      }
+
+      try {
+        const response = await get_ipc_api().lightragApi.getProcessingProgress();
+        if (response.success && response.data) {
+          const progressData = response.data as any;
+          const processingCount = progressData.processing_count || 0;
+          if (processingCount <= 1) {
+            return;
+          }
+        } else {
+          return;
+        }
+      } catch {
+        return;
+      }
+
+      await sleep(1000);
+    }
+  };
+
+  const ingestFilesInBatches = async (paths: string[], sourceLabel: string) => {
+    const sanitizedPaths = paths.filter(Boolean);
+    if (sanitizedPaths.length === 0) {
+      return false;
+    }
+
+    if (batchSubmittingRef.current) {
+      appendLog('已有批次提交任务正在执行，请等待当前任务完成');
+      return false;
+    }
+
+    const batchSize = Math.max(1, ingestBatchSize || 1);
+    const batches = chunkPaths(sanitizedPaths, batchSize);
+    batchCancelRequestedRef.current = false;
+    batchSubmittingRef.current = true;
+
+    try {
+      appendLog(`${sourceLabel}，共 ${sanitizedPaths.length} 个文件，按批次提交（每批 ${batchSize} 个）`);
+
+      for (let i = 0; i < batches.length; i++) {
+        if (batchCancelRequestedRef.current) {
+          appendLog(`已取消后续批次提交，停止在第 ${i + 1}/${batches.length} 批之前`);
+          return false;
+        }
+
+        const batch = batches[i];
+        appendLog(`开始提交第 ${i + 1}/${batches.length} 批，本批 ${batch.length} 个文件`);
+
+        const response = await get_ipc_api().lightragApi.ingestFiles({ paths: batch });
+        if (!response.success) {
+          throw new Error(response.error?.message || `第 ${i + 1} 批提交失败`);
+        }
+
+        appendLog(`第 ${i + 1}/${batches.length} 批提交成功`);
+
+        if (batchCancelRequestedRef.current) {
+          appendLog(`第 ${i + 1}/${batches.length} 批提交后检测到停止请求，跳过扫描`);
+          return false;
+        }
+
+        appendLog(`开始扫描第 ${i + 1}/${batches.length} 批文件`);
+        const scanResponse = await get_ipc_api().lightragApi.scan();
+        if (!scanResponse.success) {
+          throw new Error(scanResponse.error?.message || `第 ${i + 1} 批扫描失败`);
+        }
+        appendLog(`第 ${i + 1}/${batches.length} 批已触发扫描`);
+
+        if (i < batches.length - 1) {
+          await waitForProcessingBackpressure();
+        }
+      }
+
+      if (batchCancelRequestedRef.current) {
+        appendLog('批次提交流程已停止，未继续发送剩余文件');
+        return false;
+      }
+
+      appendLog(`所有批次提交完成，共 ${batches.length} 批`);
+      return true;
+    } finally {
+      batchSubmittingRef.current = false;
+    }
   };
 
   // Load documents on mount (loadDocuments already updates statusCounts from API response)
@@ -136,6 +245,25 @@ const DocumentsTab: React.FC = () => {
     };
   }, [statusCounts.PROCESSING, statusCounts.PENDING]);
 
+  useEffect(() => {
+    const loadIngestBatchSize = async () => {
+      try {
+        const response = await get_ipc_api().lightragApi.getSettings();
+        if (response.success && response.data) {
+          const loadedSettings = response.data as Record<string, string>;
+          const configuredBatchSize = Number(loadedSettings['MAX_PARALLEL_INSERT'] || '2');
+          if (!Number.isNaN(configuredBatchSize) && configuredBatchSize > 0) {
+            setIngestBatchSize(configuredBatchSize);
+          }
+        }
+      } catch (e) {
+        console.error('[DocumentsTab] Failed to load ingest batch size from settings:', e);
+      }
+    };
+
+    loadIngestBatchSize();
+  }, []);
+
   const stopFailureDetectionPolling = () => {
     if (failurePollIntervalRef.current) {
       clearInterval(failurePollIntervalRef.current);
@@ -157,17 +285,29 @@ const DocumentsTab: React.FC = () => {
     let pollCount = 0;
     const maxPolls = 40;
     let failureDetected = false;
+    let completedWithoutFailure = false;
 
     console.log('[DocumentsTab] Starting failure detection polling...');
-    appendLog('🔍 Starting failure detection polling (checking every 3s for up to 120s)...');
+    appendLog('🔍 开始失败检测轮询（每 3 秒检查一次，最长 120 秒）...');
 
     failurePollIntervalRef.current = setInterval(async () => {
       pollCount++;
       console.log(`[DocumentsTab] Poll #${pollCount}/${maxPolls}`);
 
-      if (pollCount >= maxPolls || failureDetected) {
-        console.log(`[DocumentsTab] Stopping polling. Reason: ${failureDetected ? 'failure detected' : 'max polls reached'}`);
-        appendLog(`🛑 Stopping failure detection polling (${failureDetected ? 'failure detected' : 'max attempts reached'})`);
+      if (failureDetected || completedWithoutFailure || pollCount >= maxPolls) {
+        const reason = failureDetected
+          ? 'failure detected'
+          : completedWithoutFailure
+            ? 'processing completed'
+            : 'timeout reached';
+        console.log(`[DocumentsTab] Stopping polling. Reason: ${reason}`);
+        if (failureDetected) {
+          appendLog('🛑 检测到失败文档，停止失败检测轮询');
+        } else if (completedWithoutFailure) {
+          appendLog('✅ 当前处理已结束，停止失败检测轮询');
+        } else {
+          appendLog('ℹ️ 失败检测轮询已结束（120 秒内未检测到新的失败文档）');
+        }
         stopFailureDetectionPolling();
         return;
       }
@@ -266,7 +406,7 @@ const DocumentsTab: React.FC = () => {
 
           if (processingCount === 0 && pendingCount === 0 && pollCount >= 2) {
             console.log(`[DocumentsTab] No documents pending or processing, stopping polling early`);
-            appendLog(`✅ No documents pending or processing, stopping polling early`);
+            appendLog('✅ 当前没有待处理或处理中任务，结束失败检测轮询');
 
             if (documents.length > 0) {
               console.log(`[DocumentsTab] Current documents in UI:`, documents.map(d => ({
@@ -275,8 +415,9 @@ const DocumentsTab: React.FC = () => {
               })));
             }
 
-            stopFailureDetectionPolling();
+            completedWithoutFailure = true;
             await loadDocuments();
+            return;
           }
         }
       } catch (e) {
@@ -328,13 +469,14 @@ const DocumentsTab: React.FC = () => {
         // And auto-stop is enabled
         if (autoStopOnFailure && failedCount > 0 && processingCount === 0 && pendingCount > 0) {
           console.log('[DocumentsTab] Detected failed documents with pending ones, cancelling pipeline...');
+          requestStopPendingBatches(`检测到 ${failedCount} 个文档处理失败，已停止后续批次提交`);
           
           // Cancel pipeline to prevent pending documents from being processed
           try {
             await get_ipc_api().lightragApi.abortDocument({ id: 'auto-cancel' });
             console.log('[DocumentsTab] Pipeline cancelled due to failures');
-            appendLog(`检测到 ${failedCount} 个文档处理失败，已自动停止处理流程`);
-            message.warning(`检测到 ${failedCount} 个文档处理失败，已自动停止处理流程`);
+            appendLog(`检测到 ${failedCount} 个文档处理失败，已停止后续批次并请求停止当前处理`);
+            message.warning(`检测到 ${failedCount} 个文档处理失败，已停止后续批次并请求停止当前处理`);
             
             // Stop polling
             stopProgressPolling();
@@ -472,34 +614,20 @@ const DocumentsTab: React.FC = () => {
       return;
     }
     try {
-      appendLog(t('pages.knowledge.documents.ingestingFiles', { count: selectedFiles.length }));
-      const response = await get_ipc_api().lightragApi.ingestFiles({ paths: selectedFiles });
-      if (response.success && response.data) {
-        const res = response.data as any;
-        appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-        setSelectedFiles([]);
-        
-        // Automatically trigger scan after import (including duplicated files)
-        // This ensures files are scanned into the database even if they already exist
-        appendLog(t('pages.knowledge.documents.startingScan'));
-        const scanResponse = await get_ipc_api().lightragApi.scan();
-        if (scanResponse.success) {
-          appendLog(t('pages.knowledge.documents.scanStarted'));
-          // Reload documents after scan
-          setTimeout(async () => {
-            await loadDocuments();
-            startFailureDetectionPolling(statusCounts.FAILED);
-          }, 2000);
-        } else {
-          appendLog(t('pages.knowledge.documents.errorScanning') + (scanResponse.error?.message || 'Unknown error'));
-          // Still reload documents even if scan fails
-          setTimeout(() => {
-            loadDocuments();
-          }, 2000);
-        }
-      } else {
-        throw new Error(response.error?.message || 'Unknown error');
+      const success = await ingestFilesInBatches(
+        selectedFiles,
+        t('pages.knowledge.documents.ingestingFiles', { count: selectedFiles.length })
+      );
+      if (!success) {
+        return;
       }
+
+      setSelectedFiles([]);
+      appendLog(t('pages.knowledge.documents.scanStarted'));
+      setTimeout(async () => {
+        await loadDocuments();
+        startFailureDetectionPolling(statusCounts.FAILED);
+      }, 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
@@ -525,34 +653,20 @@ const DocumentsTab: React.FC = () => {
         return;
       }
       
-      appendLog(t('pages.knowledge.documents.ingestingFilesFromDirs', { fileCount: allFiles.length, dirCount: selectedDirs.length }));
-      const response = await get_ipc_api().lightragApi.ingestFiles({ paths: allFiles });
-      if (response.success && response.data) {
-        const res = response.data as any;
-        appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
-        setSelectedDirs([]);
-        
-        // Automatically trigger scan after import (including duplicated files)
-        // This ensures files are scanned into the database even if they already exist
-        appendLog(t('pages.knowledge.documents.startingScan'));
-        const scanResponse = await get_ipc_api().lightragApi.scan();
-        if (scanResponse.success) {
-          appendLog(t('pages.knowledge.documents.scanStarted'));
-          // Reload documents after scan
-          setTimeout(async () => {
-            await loadDocuments();
-            startFailureDetectionPolling(statusCounts.FAILED);
-          }, 2000);
-        } else {
-          appendLog(t('pages.knowledge.documents.errorScanning') + (scanResponse.error?.message || 'Unknown error'));
-          // Still reload documents even if scan fails
-          setTimeout(() => {
-            loadDocuments();
-          }, 2000);
-        }
-      } else {
-        throw new Error(response.error?.message || 'Unknown error');
+      const success = await ingestFilesInBatches(
+        allFiles,
+        t('pages.knowledge.documents.ingestingFilesFromDirs', { fileCount: allFiles.length, dirCount: selectedDirs.length })
+      );
+      if (!success) {
+        return;
       }
+
+      setSelectedDirs([]);
+      appendLog(t('pages.knowledge.documents.scanStarted'));
+      setTimeout(async () => {
+        await loadDocuments();
+        startFailureDetectionPolling(statusCounts.FAILED);
+      }, 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
@@ -850,14 +964,15 @@ const DocumentsTab: React.FC = () => {
       onOk: async () => {
         try {
           const docId = doc.id;
+          requestStopPendingBatches('已停止后续批次提交，正在请求停止当前处理...');
           appendLog(t('pages.knowledge.documents.stoppingDocument'));
           
           // Use graceful stop (cancel_pipeline API sets cancellation flag)
           const response = await get_ipc_api().lightragApi.abortDocument({ id: docId });
           
           if (response.success) {
-              appendLog(t('pages.knowledge.documents.documentStopped'));
-              message.success(t('pages.knowledge.documents.documentStopped'));
+              appendLog('已停止后续批次提交，并已发送停止当前处理请求');
+              message.success('已停止后续批次提交，并已发送停止当前处理请求');
               
               // Stop normal polling, start custom polling for this specific document
               console.log('[DocumentsTab] Pipeline cancelled, polling until document becomes deletable...');
@@ -980,6 +1095,7 @@ const DocumentsTab: React.FC = () => {
         try {
           // If document is PROCESSING, cancel pipeline first
           if (isProcessing) {
+            requestStopPendingBatches('删除前已停止后续批次提交，正在请求停止当前处理...');
             appendLog(t('pages.knowledge.documents.stoppingProcessingFirst', { filePath: doc.file_path }));
             
             try {
@@ -1179,7 +1295,7 @@ const DocumentsTab: React.FC = () => {
             {t('pages.knowledge.documents.subtitle')}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="ec-btn" onClick={handleSelectFiles}>
             <FolderOpenOutlined /> {t('pages.knowledge.documents.uploadFiles')}
           </button>

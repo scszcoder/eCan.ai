@@ -6,6 +6,7 @@ all chunk processing tasks for immediate cancellation.
 """
 
 import asyncio
+import os
 from lightrag.utils import logger
 
 # Import original functions and dependencies from lightrag.operate
@@ -573,12 +574,27 @@ async def extract_entities_with_cancellation(
         return maybe_nodes, maybe_edges
 
     # ========== Optimization: Batch processing configuration ==========
-    # Increase batch size for better throughput while maintaining cancellability
-    chunk_max_async = global_config.get("llm_model_max_async", 4)
-    batch_size = min(chunk_max_async * 2, 8)  # Process 2x async limit, max 8
+    # Use a conservative extraction concurrency to improve cancellation responsiveness
+    # and avoid a single document creating too many concurrent LLM requests.
+    llm_model_max_async = global_config.get("llm_model_max_async", 4)
+    try:
+        max_parallel_insert = int(os.getenv("MAX_PARALLEL_INSERT", "2"))
+    except (TypeError, ValueError):
+        max_parallel_insert = 2
+
+    try:
+        llm_model_max_async = int(llm_model_max_async)
+    except (TypeError, ValueError):
+        llm_model_max_async = 4
+
+    chunk_max_async = max(1, min(llm_model_max_async, max_parallel_insert))
+    batch_size = min(chunk_max_async * 2, 8)  # Keep task queue shallow for faster cancellation
     semaphore = asyncio.Semaphore(chunk_max_async)
     
-    logger.info(f"[operate_custom] Batch processing: {batch_size} chunks/batch, {chunk_max_async} concurrent LLM calls")
+    logger.info(
+        f"[operate_custom] Batch processing: {batch_size} chunks/batch, {chunk_max_async} concurrent LLM calls "
+        f"(llm_model_max_async={llm_model_max_async}, MAX_PARALLEL_INSERT={max_parallel_insert})"
+    )
 
     async def _process_with_semaphore(chunk_or_batch):
         async with semaphore:
