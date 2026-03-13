@@ -352,7 +352,8 @@
     "noMessages": "暂无消息",
     "startNewChat": "开始新对话或从历史记录中选择会话。",
     "planning": "规划中...",
-    "thinking": "思考中..."
+    "thinking": "思考中...",
+    "cloudProcessing": "⏳ 正在处理您的请求 — 云端代理仍在运行中，响应将通过流式传输到达。"
   },
   "selectionPopover": {
     "collapse": "折叠",
