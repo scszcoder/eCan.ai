@@ -2866,7 +2866,62 @@ Return the FULL corrected JSON — every node, every edge, every config field.
                 )
         
         return output
-    
+
+    # ------------------------------------------------------------------
+    # Edit-time model routing
+    # ------------------------------------------------------------------
+
+    _COMPLEX_PATTERNS = re.compile(
+        r"\b(wrap|unwrap|loop|condition.*branch|restructur|refactor|sub.?workflow"
+        r"|split|merge|parallel|convert.*to|change.*mode|replace.*with"
+        r"|move.*inside|extract.*from|reorgani[zs]e)",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _classify_edit_complexity(edit_request: str, node_count: int) -> str:
+        """Return 'simple' or 'complex' based on the edit request text and
+        the size of the current flowgram.
+
+        **Simple** (fast model): modify single node config, change a prompt,
+        add/remove one node, rewire 1-2 edges, change a variable.
+
+        **Complex** (full model): wrap/unwrap in loop, add condition branches
+        with multiple paths, restructure 3+ nodes, change execution mode,
+        large flowgrams (>12 nodes).
+        """
+        if node_count > 12:
+            return "complex"
+        if CodeAgent._COMPLEX_PATTERNS.search(edit_request):
+            return "complex"
+        return "simple"
+
+    _fast_llm_cache = None  # class-level cache
+
+    @staticmethod
+    def _get_fast_llm():
+        """Return a lightweight LLM instance for simple edits (gpt-4o-mini).
+        Cached at class level so it's created only once per process."""
+        if CodeAgent._fast_llm_cache is not None:
+            return CodeAgent._fast_llm_cache
+        try:
+            import os
+            from langchain_openai import ChatOpenAI
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                return None
+            inst = ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
+            if hasattr(inst, "max_tokens"):
+                inst.max_tokens = 16384
+            if hasattr(inst, "max_completion_tokens"):
+                inst.max_completion_tokens = 16384
+            CodeAgent._fast_llm_cache = inst
+            logger.info("[CodeAgent] Created fast LLM (gpt-4o-mini) for simple edits")
+            return inst
+        except Exception as exc:
+            logger.warning(f"[CodeAgent] Could not create fast LLM: {exc}")
+            return None
+
     async def edit(
         self,
         edit_request: str,
@@ -2893,7 +2948,19 @@ Return the FULL corrected JSON — every node, every edge, every config field.
             )
         
         logger.info(f"[CodeAgent] Editing flowgram: {edit_request[:100]}...")
-        
+
+        # Model routing: use fast LLM for simple edits
+        complexity = self._classify_edit_complexity(edit_request, len(flowgram.nodes))
+        original_llm = None
+        if complexity == "simple":
+            fast = self._get_fast_llm()
+            if fast is not None:
+                original_llm = self._llm
+                self._llm = fast
+                logger.info("[CodeAgent] Using fast model (gpt-4o-mini) for simple edit")
+        if original_llm is None:
+            logger.info(f"[CodeAgent] Using default model for {complexity} edit")
+
         try:
             await self._emit_progress(on_event, "Preparing edit…")
 
@@ -2966,6 +3033,10 @@ Return the FULL corrected JSON — every node, every edge, every config field.
                 action=CodeAgentAction.REJECT,
                 message=f"Failed to edit flowgram: {str(e)}"
             )
+        finally:
+            # Restore original LLM if we swapped it
+            if original_llm is not None:
+                self._llm = original_llm
     
     def generate_sync(
         self,
