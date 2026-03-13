@@ -274,6 +274,14 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
     if raw_content:
         prompt["rawContent"] = str(raw_content)
 
+    # Preserve format and mdContent for markdown-mode prompts
+    fmt = data.get("format")
+    if fmt in ("json", "md"):
+        prompt["format"] = fmt
+    md_content = data.get("mdContent")
+    if md_content:
+        prompt["mdContent"] = str(md_content)
+
     return prompt
 
 
@@ -502,6 +510,14 @@ def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
     raw_content = prompt.get("rawContent")
     if raw_content:
         data["rawContent"] = str(raw_content)
+
+    # Preserve format and mdContent for markdown-mode prompts
+    fmt = prompt.get("format")
+    if fmt in ("json", "md"):
+        data["format"] = fmt
+    md_content = prompt.get("mdContent")
+    if md_content:
+        data["mdContent"] = str(md_content)
 
     return data
 

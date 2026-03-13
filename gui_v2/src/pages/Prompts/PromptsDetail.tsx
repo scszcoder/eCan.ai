@@ -12,8 +12,10 @@ import {
   AppstoreAddOutlined,
   UndoOutlined,
   RedoOutlined,
+  FileMarkdownOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
-import type { Prompt, PromptSection, PromptSectionType } from './types';
+import type { Prompt, PromptSection, PromptSectionType, PromptFormat } from './types';
 import { useTranslation } from 'react-i18next';
 import styles from './PromptsDetail.module.css';
 import { useToolStore } from '../../stores/toolStore';
@@ -75,6 +77,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   const username = useUserStore((s) => s.username);
   const { tools, fetchTools } = useToolStore();
   const [editing, setEditing] = useState(false);
+  const [editFormat, setEditFormat] = useState<PromptFormat>('json');
 
   // Translation helpers for section labels and placeholders
   const getSectionLabel = useCallback((type: PromptSectionType): string => {
@@ -202,6 +205,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   useEffect(() => {
     setDraft(prompt);
     setEditing(false);
+    setEditFormat(prompt?.format || (prompt?.mdContent ? 'md' : 'json'));
     hasPendingChangesRef.current = false;
     pendingSaveRef.current = false;
     latestDraftRef.current = prompt;
@@ -660,8 +664,14 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     }
     if (editing && draft) {
       cancelAutosave();
-      latestDraftRef.current = draft;
-      commitSave(clonePrompt(draft)).catch(() => {});
+      const savePayload = clonePrompt(draft);
+      // Persist format choice
+      savePayload.format = editFormat;
+      if (editFormat === 'md') {
+        savePayload.mdContent = draft.mdContent || '';
+      }
+      latestDraftRef.current = savePayload;
+      commitSave(savePayload).catch(() => {});
     }
     setEditing((prev) => !prev);
   };
@@ -803,8 +813,65 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     return lines.join('\n');
   }, [active, editing, exampleSlug, sortedSections, t]);
 
+  const handleFormatSwitch = useCallback((newFormat: PromptFormat) => {
+    if (newFormat === editFormat) return;
+
+    if (editing && draft) {
+      if (newFormat === 'md') {
+        // Switching JSON → MD: convert current previewText into mdContent
+        const mdText = draft.mdContent || previewText || '';
+        pushUndoStack(clonePrompt(draft));
+        setDraft((prev) => prev ? { ...prev, format: 'md', mdContent: mdText } : prev);
+        hasPendingChangesRef.current = true;
+        scheduleAutosave();
+      } else {
+        // Switching MD → JSON: keep mdContent as-is but switch view to JSON sections
+        pushUndoStack(clonePrompt(draft));
+        setDraft((prev) => prev ? { ...prev, format: 'json' } : prev);
+        hasPendingChangesRef.current = true;
+        scheduleAutosave();
+      }
+    }
+    setEditFormat(newFormat);
+  }, [editing, draft, editFormat, previewText, pushUndoStack, clonePrompt, scheduleAutosave]);
+
+  // Simple Markdown → HTML renderer for preview panel (MD mode)
+  const renderMdPreviewHtml = useMemo(() => {
+    if (editFormat !== 'md') return '';
+    const src = active.mdContent || '';
+    if (!src.trim()) return '<p style="color:rgba(148,163,184,0.6);font-style:italic;">No content yet.</p>';
+    // Convert markdown to basic HTML
+    let html = src
+      // Escape HTML entities
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      // Headers
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      // Bold and italic
+      .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // Inline code
+      .replace(/`([^`]+)`/g, '<code style="background:rgba(148,163,184,0.15);padding:1px 4px;border-radius:3px;font-size:0.9em;">$1</code>')
+      // Horizontal rule
+      .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(148,163,184,0.2);margin:12px 0;"/>')
+      // Unordered list items
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      // Paragraphs (double newline)
+      .replace(/\n\n/g, '</p><p>')
+      // Single newlines within paragraphs
+      .replace(/\n/g, '<br/>');
+    // Wrap consecutive <li> in <ul>
+    html = html.replace(/(<li>.*?<\/li>(?:<br\/>)?)+/g, (match) => {
+      return '<ul>' + match.replace(/<br\/>/g, '') + '</ul>';
+    });
+    return '<p>' + html + '</p>';
+  }, [editFormat, active.mdContent]);
+
   const copyPreview = async () => {
-    try { await navigator.clipboard.writeText(previewText); message.success(t('pages.prompts.copied', { defaultValue: 'Copied' })); } catch {}
+    const textToCopy = editFormat === 'md' ? (active.mdContent || '') : previewText;
+    try { await navigator.clipboard.writeText(textToCopy); message.success(t('pages.prompts.copied', { defaultValue: 'Copied' })); } catch {}
   };
 
   return (
@@ -840,6 +907,23 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 className={styles.smallButton}
               />
             </Tooltip>
+            <Tooltip title={editFormat === 'json'
+              ? t('pages.prompts.switchToMd', { defaultValue: 'Switch to Markdown mode' })
+              : t('pages.prompts.switchToJson', { defaultValue: 'Switch to JSON mode' })
+            }>
+              <Button
+                size="small"
+                icon={editFormat === 'json' ? <FileMarkdownOutlined /> : <CodeOutlined />}
+                onClick={() => handleFormatSwitch(editFormat === 'json' ? 'md' : 'json')}
+                className={styles.smallButtonWithText}
+                style={{
+                  borderColor: editFormat === 'md' ? '#3b82f6' : undefined,
+                  color: editFormat === 'md' ? '#3b82f6' : undefined,
+                }}
+              >
+                {editFormat === 'json' ? 'MD' : 'JSON'}
+              </Button>
+            </Tooltip>
             {editing && (
               <Button
                 size="small"
@@ -847,6 +931,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 onClick={() => {
                   setDraft(clonePrompt(prompt!));
                   setEditing(false);
+                  setEditFormat(prompt?.format || 'json');
                   cancelAutosave();
                 }}
                 className={styles.smallButtonWithText}
@@ -918,6 +1003,36 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
 
         <Divider style={{ margin: '16px 0' }} />
 
+        {/* MD mode: show markdown source editor */}
+        {editFormat === 'md' && editing ? (
+          <SectionContainer
+            title={t('pages.prompts.mdEditor', { defaultValue: 'Markdown Source' })}
+            extra={
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                <FileMarkdownOutlined style={{ marginRight: 4 }} />
+                {t('pages.prompts.mdEditorHint', { defaultValue: 'Edit raw markdown source' })}
+              </Typography.Text>
+            }
+          >
+            <TextArea
+              value={active.mdContent || ''}
+              onChange={(e) => update((prev) => ({ ...prev, mdContent: e.target.value }))}
+              onKeyDown={handleTabKeyDown}
+              placeholder={t('pages.prompts.placeholders.mdContent', { defaultValue: 'Write your prompt in Markdown...\n\n# Role\nYou are a helpful assistant.\n\n# Instructions\n- Step 1: ...\n- Step 2: ...' })}
+              autoSize={{ minRows: 15, maxRows: 50 }}
+              className={styles.mdEditor}
+            />
+          </SectionContainer>
+        ) : editFormat === 'md' && !editing ? (
+          <SectionContainer
+            title={t('pages.prompts.mdEditor', { defaultValue: 'Markdown Source' })}
+          >
+            <pre className={styles.mdEditorReadonly}>
+              {active.mdContent || t('pages.prompts.noMdContent', { defaultValue: 'No markdown content.' })}
+            </pre>
+          </SectionContainer>
+        ) : (
+        <>
         <SectionContainer
           title={t('pages.prompts.sections.systemPrompt', { defaultValue: 'System Prompt Sections' })}
           extra={
@@ -1371,6 +1486,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
         </SectionContainer>
         </>
         )}
+        </>
+        )}
       </div>
         </>
       )}
@@ -1459,23 +1576,46 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                   borderTop: '1px solid rgba(148, 163, 184, 0.2)',
                   boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.3)'
                 }}>
-                  <pre className={styles.previewContent} style={{ position: 'relative' }}>
-                    <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
-                      <Button 
-                        size="small" 
-                        icon={<CopyOutlined />} 
-                        onClick={copyPreview} 
-                        className={styles.smallButton}
-                        style={{
-                          position: 'absolute',
-                          top: '8px',
-                          right: '8px',
-                          zIndex: 10
-                        }}
+                  {editFormat === 'md' ? (
+                    <div className={styles.previewContent} style={{ position: 'relative' }}>
+                      <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
+                        <Button 
+                          size="small" 
+                          icon={<CopyOutlined />} 
+                          onClick={copyPreview} 
+                          className={styles.smallButton}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            zIndex: 10
+                          }}
+                        />
+                      </Tooltip>
+                      <div
+                        className={styles.mdPreview}
+                        dangerouslySetInnerHTML={{ __html: renderMdPreviewHtml }}
                       />
-                    </Tooltip>
-                    {previewText}
-                  </pre>
+                    </div>
+                  ) : (
+                    <pre className={styles.previewContent} style={{ position: 'relative' }}>
+                      <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
+                        <Button 
+                          size="small" 
+                          icon={<CopyOutlined />} 
+                          onClick={copyPreview} 
+                          className={styles.smallButton}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            zIndex: 10
+                          }}
+                        />
+                      </Tooltip>
+                      {previewText}
+                    </pre>
+                  )}
                 </div>
               )
             }]}
