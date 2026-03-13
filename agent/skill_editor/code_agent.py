@@ -2874,7 +2874,9 @@ Return the FULL corrected JSON — every node, every edge, every config field.
     _COMPLEX_PATTERNS = re.compile(
         r"\b(wrap|unwrap|loop|condition.*branch|restructur|refactor|sub.?workflow"
         r"|split|merge|parallel|convert.*to|change.*mode|replace.*with"
-        r"|move.*inside|extract.*from|reorgani[zs]e)",
+        r"|move.*inside|extract.*from|reorgani[zs]e"
+        r"|add.*node|remove.*node|delete.*node|insert.*node"
+        r"|add.*between|insert.*between)",
         re.IGNORECASE,
     )
 
