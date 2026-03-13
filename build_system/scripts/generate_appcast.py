@@ -942,7 +942,7 @@ class AppcastGenerator:
         for platform, arch in combinations:
             for language in languages:
                 total_count += 1
-                xml_content = self.generate_appcast_xml(platform, arch, language=language)
+                xml_content = self.generate_appcast(platform, arch, language=language)
                 
                 if xml_content:
                     if self.upload_appcast(platform, arch, xml_content, language=language):

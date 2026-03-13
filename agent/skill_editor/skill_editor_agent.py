@@ -337,6 +337,8 @@ class PipelineState(str, Enum):
     CONFIGURING_NODE = "configuring_node"  # Node configuration mode
     COLLECTING_REQUIREMENTS = "collecting_requirements"  # Domain QA collection
     REVIEWING_WORKFLOW_DESCRIPTION = "reviewing_workflow_description"  # User reviewing SOP-based workflow desc
+    COLLECTING_LOG_ANALYSIS_INFO = "collecting_log_analysis_info"  # Pre-analysis info collection
+    AWAITING_LOG_FIX_CONFIRMATION = "awaiting_log_fix_confirmation"  # User confirming auto-fix after log analysis
     COMPLETE = "complete"
 
 
@@ -381,6 +383,7 @@ class SkillEditorAgent:
         self._casual_chat_rounds_by_session: Dict[str, int] = {}
         self._loaded_context_key: Optional[str] = None
         self._log_analysis_context: Optional[Dict[str, str]] = None  # {file_path, log_content, last_analysis}
+        self._pending_log_analysis_info: Optional[Dict[str, Any]] = None  # Pre-analysis info for log analysis
         # --- Taxonomy / domain-aware requirement collection ---
         self._classified_domain: Optional[str] = None
         self._classified_intent_taxonomy: Optional[str] = None
@@ -536,6 +539,14 @@ class SkillEditorAgent:
         return self._workflow_description
 
     @property
+    def pending_log_analysis_info(self) -> Optional[Dict[str, Any]]:
+        return self._pending_log_analysis_info
+
+    @property
+    def log_analysis_context(self) -> Optional[Dict[str, Any]]:
+        return self._log_analysis_context
+
+    @property
     def accumulated_clarification_answers(self) -> Dict[str, Any]:
         return self._accumulated_clarification_answers
 
@@ -556,6 +567,8 @@ class SkillEditorAgent:
         accumulated_clarification_answers: Optional[Dict[str, Any]] = None,
         clarification_round: int = 0,
         pending_clarification: Optional[List[Dict[str, Any]]] = None,
+        pending_log_analysis_info: Optional[Dict[str, Any]] = None,
+        log_analysis_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
@@ -569,6 +582,18 @@ class SkillEditorAgent:
             self._workflow_description = workflow_description
             self._accumulated_clarification_answers = accumulated_clarification_answers or {}
             self._clarification_round = clarification_round
+            self._pending_log_analysis_info = pending_log_analysis_info
+            self._log_analysis_context = log_analysis_context
+
+            # If log analysis info state but no pending info, reset to idle
+            if self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO and not self._pending_log_analysis_info:
+                logger.info("[SkillEditorAgent] COLLECTING_LOG_ANALYSIS_INFO but no pending info — resetting to IDLE")
+                self._pipeline_state = PipelineState.IDLE
+
+            # If awaiting fix confirmation but no analysis context, reset to idle
+            if self._pipeline_state == PipelineState.AWAITING_LOG_FIX_CONFIRMATION and not self._log_analysis_context:
+                logger.info("[SkillEditorAgent] AWAITING_LOG_FIX_CONFIRMATION but no analysis context — resetting to IDLE")
+                self._pipeline_state = PipelineState.IDLE
 
             # Restore pending clarification questions (needed to resolve choice IDs → labels)
             if pending_clarification and isinstance(pending_clarification, list):
@@ -1450,21 +1475,124 @@ class SkillEditorAgent:
         """
         Read a log file from the user's message, analyze it for errors/failures,
         and return a structured summary.
-        """
-        self._pipeline_state = PipelineState.IDLE
-        await self._emit_progress(on_event, "Reading log file...")
 
-        # --- Extract file path ---
-        file_path = self._extract_file_path_from_message(message)
+        First time: asks clarification questions to collect file path, user observation,
+        and expected behavior. When answers come back, proceeds to analysis.
+        """
+        # --- If pre-analysis info was already collected, use it ---
+        if self._pending_log_analysis_info and self._pending_log_analysis_info.get("_collected"):
+            file_path = self._pending_log_analysis_info.get("log_file_path") or self._extract_file_path_from_message(message)
+            user_observation = self._pending_log_analysis_info.get("user_observation", "")
+            expected_behavior = self._pending_log_analysis_info.get("expected_behavior", "")
+            # Clear the pending info so follow-ups don't re-trigger
+            self._pending_log_analysis_info = None
+            self._pipeline_state = PipelineState.IDLE
+            return await self._run_analyze_log_with_info(
+                file_path=file_path,
+                user_observation=user_observation,
+                expected_behavior=expected_behavior,
+                message=message,
+                session_id=session_id,
+                on_event=on_event,
+            )
 
         # --- Follow-up on a previous log analysis? ---
+        file_path = self._extract_file_path_from_message(message)
         if not file_path and self._log_analysis_context:
+            self._pipeline_state = PipelineState.IDLE
             return await self._run_analyze_log_followup(message, session_id, on_event)
+
+        # --- First time: collect pre-analysis info via clarification questions ---
+        self._pending_log_analysis_info = {
+            "original_message": message,
+            "detected_file_path": file_path,  # may be None
+        }
+
+        questions = []
+
+        # Q1: Log file path (only ask if not already detected)
+        if not file_path:
+            questions.append(ClarificationQuestion(
+                id="log_file_path",
+                question="What is the full path to the log file you want me to analyze?",
+                choices=[
+                    ClarificationChoice(
+                        id="path_freeform",
+                        label="Type the file path",
+                        description="e.g. C:\\Users\\me\\logs\\run.log or /home/user/logs/run.log",
+                        allow_freeform=True,
+                    ),
+                ],
+                context="I need the exact file path to locate and read the log.",
+                allow_multiple=False,
+            ))
+
+        # Q2: What went wrong
+        questions.append(ClarificationQuestion(
+            id="user_observation",
+            question="What happened during this skill run? What went wrong?",
+            choices=[
+                ClarificationChoice(id="obs_error", label="It crashed / threw an error", allow_freeform=True),
+                ClarificationChoice(id="obs_wrong_result", label="It finished but the result was wrong", allow_freeform=True),
+                ClarificationChoice(id="obs_stuck", label="It got stuck / timed out", allow_freeform=True),
+                ClarificationChoice(id="obs_partial", label="It only partially completed", allow_freeform=True),
+                ClarificationChoice(id="obs_other", label="Something else", allow_freeform=True),
+            ],
+            context="Describe what you observed — even a rough description helps narrow down the issue.",
+            allow_multiple=False,
+        ))
+
+        # Q3: Expected behavior
+        questions.append(ClarificationQuestion(
+            id="expected_behavior",
+            question="What did you expect to happen instead?",
+            choices=[
+                ClarificationChoice(
+                    id="exp_freeform",
+                    label="Describe expected behavior",
+                    description="e.g. 'should have completed all 5 steps' or 'should have returned a PDF'",
+                    allow_freeform=True,
+                ),
+                ClarificationChoice(id="exp_unsure", label="Not sure / just want a general analysis"),
+            ],
+            context="Knowing the expected outcome helps me compare and pinpoint the failure.",
+            allow_multiple=False,
+        ))
+
+        self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
+        self._pending_clarification = questions
+
+        intro = "Before I analyze the log, I'd like to collect a few details to give you a more targeted diagnosis."
+        if file_path:
+            intro += f"\n\nI detected a file path in your message: **{file_path}**"
+
+        return AgentResponse(
+            message=intro,
+            intent=IntentType.ANALYZE_LOG,
+            clarification=questions,
+            metadata={
+                "session_id": session_id,
+                "state": self._pipeline_state.value,
+            },
+        )
+
+    async def _run_analyze_log_with_info(
+        self,
+        file_path: Optional[str],
+        user_observation: str,
+        expected_behavior: str,
+        message: str,
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Run log analysis after pre-analysis info has been collected."""
+        self._pipeline_state = PipelineState.IDLE
+        await self._emit_progress(on_event, "Reading log file...")
 
         if not file_path:
             return AgentResponse(
                 message=(
-                    "I couldn't find a file path in your message. "
+                    "I couldn't find a file path in your answers. "
                     "Please provide the full path to the log file you want me to analyze.\n\n"
                     "Example: *please analyze my run log in C:\\Users\\me\\logs\\run.log*"
                 ),
@@ -1621,6 +1749,10 @@ class SkillEditorAgent:
             "Be specific — quote relevant log lines when referencing errors.\n\n"
             f"File: {file_path} ({file_size:,} bytes)\n"
             f"User message: {message}\n\n"
+            f"--- USER OBSERVATION (what went wrong) ---\n"
+            f"{user_observation or '(not provided)'}\n\n"
+            f"--- EXPECTED BEHAVIOR ---\n"
+            f"{expected_behavior or '(not provided)'}\n\n"
         ]
 
         # Include pre-filtered highlights section FIRST so the LLM sees issues upfront
@@ -1670,18 +1802,221 @@ class SkillEditorAgent:
             "log_content": log_content,
             "highlights": highlights,
             "last_analysis": analysis_text,
+            "user_observation": user_observation,
+            "expected_behavior": expected_behavior,
         }
+
+        # Offer to auto-fix if analysis found issues
+        analysis_text += (
+            "\n\n---\n"
+            "\U0001f527 **I can try to fix this workflow automatically** based on the issues found above. "
+            "Just say **\"fix it\"** and make sure the affected skill is loaded on canvas."
+        )
+        self._pipeline_state = PipelineState.AWAITING_LOG_FIX_CONFIRMATION
 
         return AgentResponse(
             message=analysis_text,
             intent=IntentType.ANALYZE_LOG,
             metadata={
                 "session_id": session_id,
-                "state": "idle",
+                "state": self._pipeline_state.value,
                 "file_path": file_path,
                 "file_size": file_size,
                 "llm_provider": llm_info["provider"],
                 "llm_model": llm_info["model"],
+            },
+        )
+
+    async def _handle_log_analysis_info_responses(
+        self,
+        clarification_responses: Dict[str, List[str]],
+        message: str,
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Handle pre-analysis info responses and proceed to log analysis."""
+        pending = self._pending_log_analysis_info or {}
+        original_message = pending.get("original_message", message)
+        detected_file_path = pending.get("detected_file_path")
+
+        # Extract answers from clarification responses
+        # Responses are keyed by question ID → list of selected choice IDs or freeform text
+        file_path = detected_file_path
+        user_observation = ""
+        expected_behavior = ""
+
+        for qid, answers in clarification_responses.items():
+            answer_text = " ".join(a for a in answers if a) if isinstance(answers, list) else str(answers)
+            # Strip choice IDs like "obs_error: " prefix — the freeform text follows the choice label
+            if qid == "log_file_path":
+                # User typed a file path
+                cleaned = answer_text.replace("path_freeform", "").strip().strip(":")
+                if cleaned:
+                    file_path = cleaned.strip()
+            elif qid == "user_observation":
+                user_observation = answer_text
+            elif qid == "expected_behavior":
+                expected_behavior = answer_text
+
+        logger.info(
+            f"[SkillEditorAgent] Log analysis info collected: file_path={file_path}, "
+            f"observation_len={len(user_observation)}, expected_len={len(expected_behavior)}"
+        )
+
+        # Mark as collected and proceed
+        self._pending_log_analysis_info = {
+            "log_file_path": file_path,
+            "user_observation": user_observation,
+            "expected_behavior": expected_behavior,
+            "_collected": True,
+        }
+
+        return await self._run_analyze_log(
+            message=original_message,
+            session_id=session_id,
+            on_event=on_event,
+        )
+
+    def _is_fix_confirmation(self, message: str) -> bool:
+        """Check if the user's message is confirming they want auto-fix applied."""
+        msg_lower = message.lower().strip()
+        fix_keywords = [
+            "fix it", "fix this", "apply fix", "apply the fix", "apply fixes",
+            "go ahead", "yes", "yeah", "yep", "sure", "ok", "okay", "do it",
+            "please fix", "auto fix", "autofix", "修复", "修一下", "帮我修",
+            "apply", "patch", "repair",
+        ]
+        return any(kw in msg_lower for kw in fix_keywords)
+
+    async def _apply_log_analysis_fixes(
+        self,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """
+        Apply fixes from a previous log analysis to the current workflow on canvas.
+        Uses the code_agent's edit mode to modify the flowgram based on the analysis.
+        """
+        ctx = self._log_analysis_context
+        if not ctx or not ctx.get("last_analysis"):
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message="No log analysis available to apply fixes from. Please analyze a log first.",
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle"},
+            )
+
+        # Convert canvas context to flowgram
+        current_flowgram = self._canvas_context_to_flowgram(canvas_context)
+        if not current_flowgram or not current_flowgram.nodes:
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message=(
+                    "I can't apply fixes because there is no workflow loaded on the canvas. "
+                    "Please load the affected skill first, then say **\"fix it\"** again."
+                ),
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle"},
+            )
+
+        await self._emit_progress(on_event, "Applying fixes based on log analysis...")
+
+        last_analysis = ctx["last_analysis"]
+        user_observation = ctx.get("user_observation", "")
+        expected_behavior = ctx.get("expected_behavior", "")
+
+        # Build an edit request from the analysis
+        edit_request = (
+            "Apply the following fixes to this workflow based on a log analysis.\n\n"
+            "**IMPORTANT**: Prefer fixing by improving sub-agent prompts (adding rules, "
+            "exceptions, verification steps, output format constraints) over adding new "
+            "condition nodes or structural changes. The workflow should be agentic, not RPA.\n\n"
+        )
+        if user_observation:
+            edit_request += f"**User observation (what went wrong):** {user_observation}\n\n"
+        if expected_behavior:
+            edit_request += f"**Expected behavior:** {expected_behavior}\n\n"
+        edit_request += (
+            "**Log analysis findings and recommended fixes:**\n\n"
+            f"{last_analysis[:12000]}\n\n"
+            "Apply all recommended fixes from the analysis above. For each fix:\n"
+            "1. If the fix is a prompt improvement — update the affected node's prompt text\n"
+            "2. If the fix is a configuration change — update the affected node's config\n"
+            "3. If the fix requires structural changes — add/remove/rewire nodes as needed\n"
+            "4. Preserve all existing nodes and edges that are not affected by the fixes\n"
+        )
+
+        self._pipeline_state = PipelineState.EDITING
+
+        try:
+            # Set the current flowgram so code_agent has context
+            self.code_agent.set_current_flowgram(current_flowgram)
+
+            code_output = await self.code_agent.edit(
+                edit_request=edit_request,
+                current_flowgram=current_flowgram,
+                on_event=on_event,
+            )
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Auto-fix edit failed: {e}")
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message=(
+                    f"I encountered an error while trying to apply fixes: {e}\n\n"
+                    "You can try again, or apply the recommended fixes manually from the analysis above."
+                ),
+                intent=IntentType.ANALYZE_LOG,
+                metadata={"session_id": session_id, "state": "idle"},
+            )
+
+        self._pipeline_state = PipelineState.IDLE
+
+        commands = []
+        skill_path = None
+        if code_output.flowgram:
+            # Preserve the original skill name
+            if current_flowgram.metadata and current_flowgram.metadata.get("skillName"):
+                if not code_output.flowgram.metadata:
+                    code_output.flowgram.metadata = {}
+                code_output.flowgram.metadata["skillName"] = current_flowgram.metadata["skillName"]
+
+            skill_path = self._save_flowgram_to_disk(
+                code_output.flowgram,
+                data_mapping=code_output.data_mapping,
+            )
+            if skill_path:
+                commands = [CanvasCommand(
+                    type="canvas.load_flowgram",
+                    payload={
+                        "skillPath": skill_path,
+                        "skillName": code_output.flowgram.metadata.get("skillName", "fixed_skill"),
+                    },
+                )]
+            else:
+                commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+
+        # Build response message
+        fix_msg = code_output.message or "Fixes applied."
+        fix_msg = (
+            "\U0001f527 **Auto-fix applied based on log analysis**\n\n"
+            f"{fix_msg}\n\n"
+            "The updated workflow has been loaded onto the canvas. "
+            "Please review the changes and test the skill to verify the fixes."
+        )
+
+        # Clear the fix confirmation state (keep analysis context for follow-ups)
+        return AgentResponse(
+            message=fix_msg,
+            commands=[CanvasCommand(type=c.type, payload=c.payload) for c in commands],
+            intent=IntentType.ANALYZE_LOG,
+            flowgram=code_output.flowgram,
+            validation=code_output.validation,
+            metadata={
+                "session_id": session_id,
+                "state": "idle",
+                "skillPath": skill_path,
+                "auto_fix_applied": True,
             },
         )
 
@@ -1884,7 +2219,7 @@ class SkillEditorAgent:
         
         try:
             # If we're waiting on clarification answers, don't let casual messages derail the flow.
-            if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE, PipelineState.COLLECTING_REQUIREMENTS] and not clarification_responses:
+            if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE, PipelineState.COLLECTING_REQUIREMENTS, PipelineState.COLLECTING_LOG_ANALYSIS_INFO, PipelineState.AWAITING_LOG_FIX_CONFIRMATION] and not clarification_responses:
                 if self._is_casual_chat_message(message):
                     response = AgentResponse(
                         message=(
@@ -1896,6 +2231,30 @@ class SkillEditorAgent:
                     )
                     self._add_response_to_history(response)
                     return response
+
+            # Handle log analysis pre-collection responses
+            if clarification_responses and self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO:
+                logger.info("[SkillEditorAgent] Processing log analysis pre-collection responses")
+                response = await self._handle_log_analysis_info_responses(
+                    clarification_responses, message, session_id, on_event
+                )
+                self._add_response_to_history(response)
+                return response
+
+            # Handle log analysis fix confirmation (user typed e.g. "fix it")
+            if self._pipeline_state == PipelineState.AWAITING_LOG_FIX_CONFIRMATION and not clarification_responses:
+                if self._is_fix_confirmation(message):
+                    logger.info("[SkillEditorAgent] User confirmed log analysis auto-fix")
+                    response = await self._apply_log_analysis_fixes(
+                        canvas_context, session_id, on_event
+                    )
+                    self._add_response_to_history(response)
+                    return response
+                else:
+                    # User sent something else — treat as decline, reset to idle
+                    logger.info("[SkillEditorAgent] User did not confirm fix, resetting to idle")
+                    self._pipeline_state = PipelineState.IDLE
+                    # Fall through to normal intent classification
 
             # Handle node configuration clarification responses
             if clarification_responses and self._pipeline_state == PipelineState.CONFIGURING_NODE:

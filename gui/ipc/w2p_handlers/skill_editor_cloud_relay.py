@@ -347,9 +347,9 @@ def relay_send_message(session_id: str,
                 "message": {
                     "id": None,
                     "role": "assistant",
-                    "content": "Processing your request — the cloud agent is still working on it. "
-                               "The response will arrive shortly via streaming.",
+                    "content": "⏳ Processing your request — the cloud agent is still working on it. The response will arrive shortly via streaming.",
                     "timestamp": int(time.time() * 1000),
+                    "metadata": {"placeholder": True},
                 },
             }
         logger.error(f"[se_cloud_relay] send_message errors: {errors}")
