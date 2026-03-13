@@ -884,7 +884,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             if (
               last &&
               last.role === 'assistant' &&
-              /processing|still working|arrive shortly|generating/i.test(last.content)
+              ((last as any).metadata?.placeholder === true || last.content === '⏳')
             ) {
               const updated = [...prev];
               updated[updated.length - 1] = { ...last, id: msgId, content, timestamp: new Date() };
@@ -982,7 +982,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     };
   }, [activeSessionId]);
 
-  // Sync messages with active session
+  // Sync messages with active session — only when switching sessions, not on
+  // every sessions update (which could overwrite in-flight messages).
   useEffect(() => {
     if (activeSession) {
       setMessages(activeSession.messages);
@@ -990,7 +991,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setMessages([]);
     }
     setStreamingStatus('');
-  }, [activeSessionId, sessions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
 
   // Create new session (via backend for persistence)
   const handleNewSession = useCallback(async () => {
@@ -1479,14 +1481,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
       if (response) {
         console.log('[ChatPanel] Received response from backend, state:', response.state);
-        const assistantMessage: ChatMessage = {
+        const isPlaceholder = response.state === 'processing' || response.message?.metadata?.placeholder === true;
+        const assistantMessage: ChatMessage & { metadata?: any } = {
           id: buildMessageId(response.message.id, 'assistant', response.message.content, response.message.timestamp),
           role: 'assistant',
-          content: response.message.content,
+          content: isPlaceholder ? t('chatPanel.cloudProcessing') : response.message.content,
           timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
           state: response.state,
+          ...(isPlaceholder ? { metadata: { placeholder: true } } : {}),
         };
         
         // Deduplicate: the subscription relay (handleDone) may have already
@@ -1591,9 +1595,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const infoMessage: ChatMessage = {
           id: `msg-generating-${Date.now()}`,
           role: 'assistant',
-          content: '⏳ Processing — this may take a minute. Results will appear automatically when ready.',
+          content: '⏳',
           timestamp: new Date(),
-        };
+          metadata: { placeholder: true },
+        } as any;
         setMessages(prev => [...prev, infoMessage]);
         setStreamingStatus('Processing...');
       } else {
