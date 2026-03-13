@@ -395,6 +395,7 @@ class SkillEditorAgent:
         self._all_asked_questions: Dict[str, ClarificationQuestion] = {}  # all questions keyed by id across rounds
         self._clarification_round: int = 0
         self._MAX_CLARIFICATION_ROUNDS: int = 3
+        self._last_saved_skill_name: Optional[str] = None  # persisted across invocations for edit fallback
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -551,6 +552,10 @@ class SkillEditorAgent:
         return self._accumulated_clarification_answers
 
     @property
+    def last_saved_skill_name(self) -> Optional[str]:
+        return self._last_saved_skill_name
+
+    @property
     def clarification_round(self) -> int:
         return self._clarification_round
 
@@ -569,6 +574,7 @@ class SkillEditorAgent:
         pending_clarification: Optional[List[Dict[str, Any]]] = None,
         pending_log_analysis_info: Optional[Dict[str, Any]] = None,
         log_analysis_context: Optional[Dict[str, Any]] = None,
+        last_saved_skill_name: Optional[str] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
@@ -584,6 +590,7 @@ class SkillEditorAgent:
             self._clarification_round = clarification_round
             self._pending_log_analysis_info = pending_log_analysis_info
             self._log_analysis_context = log_analysis_context
+            self._last_saved_skill_name = last_saved_skill_name
 
             # If log analysis info state but no pending info, reset to idle
             if self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO and not self._pending_log_analysis_info:
@@ -1097,23 +1104,26 @@ class SkillEditorAgent:
 
         We treat either:
         - non-empty nodes list, OR
-        - a provided skillName
+        - a provided skillName, OR
+        - a previously saved skill name (from earlier generation in this session)
         as evidence of a loaded workflow.
         """
-        if not canvas_context or not isinstance(canvas_context, dict):
-            return False
-        try:
-            nodes = canvas_context.get("nodes")
-            if isinstance(nodes, list) and len(nodes) > 0:
-                return True
-        except Exception:
-            pass
-        try:
-            skill_name = canvas_context.get("skillName")
-            if isinstance(skill_name, str) and skill_name.strip():
-                return True
-        except Exception:
-            pass
+        if canvas_context and isinstance(canvas_context, dict):
+            try:
+                nodes = canvas_context.get("nodes")
+                if isinstance(nodes, list) and len(nodes) > 0:
+                    return True
+            except Exception:
+                pass
+            try:
+                skill_name = canvas_context.get("skillName")
+                if isinstance(skill_name, str) and skill_name.strip():
+                    return True
+            except Exception:
+                pass
+        # Fallback: check if we previously saved a skill in this session
+        if self._last_saved_skill_name:
+            return True
         return False
 
     def _should_require_edit_confirmation(self, intent: IntentType, message: str, canvas_context: Optional[Dict]) -> bool:
@@ -3594,6 +3604,10 @@ class SkillEditorAgent:
             logger.info(f"[SkillEditorAgent] Canvas context keys: {list(canvas_context.keys())}")
         
         if not canvas_context:
+            # Fallback: if we have a previously saved skill name, try loading from disk
+            if self._last_saved_skill_name:
+                logger.info(f"[SkillEditorAgent] No canvas context but have lastSavedSkillName={self._last_saved_skill_name}, loading from disk")
+                return self._load_flowgram_from_disk(self._last_saved_skill_name)
             logger.warning("[SkillEditorAgent] No canvas context provided for edit operation")
             return None
         
@@ -3604,7 +3618,7 @@ class SkillEditorAgent:
             
             if not nodes_data:
                 # Try to load from disk if skill name is provided
-                skill_name = canvas_context.get("skillName")
+                skill_name = canvas_context.get("skillName") or self._last_saved_skill_name
                 if skill_name:
                     logger.info(f"[SkillEditorAgent] Canvas has no nodes but has skillName: {skill_name}, trying to load from disk")
                     return self._load_flowgram_from_disk(skill_name)
@@ -4150,6 +4164,7 @@ class SkillEditorAgent:
 
             metadata = flowgram.metadata or {}
             skill_name = metadata.get("skillName") or metadata.get("name") or "generated_skill"
+            self._last_saved_skill_name = skill_name
             description = metadata.get("description") or "Workflow generated via Skill Editor"
             from datetime import datetime, timezone
             now_iso = datetime.now(timezone.utc).isoformat()
