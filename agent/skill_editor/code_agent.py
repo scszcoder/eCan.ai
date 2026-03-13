@@ -2912,13 +2912,13 @@ Return the FULL corrected JSON — every node, every edge, every config field.
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
                 return None
-            inst = ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
+            inst = ChatOpenAI(model="gpt-5-mini", api_key=api_key)
             if hasattr(inst, "max_tokens"):
                 inst.max_tokens = 16384
             if hasattr(inst, "max_completion_tokens"):
                 inst.max_completion_tokens = 16384
             CodeAgent._fast_llm_cache = inst
-            logger.info("[CodeAgent] Created fast LLM (gpt-4o-mini) for simple edits")
+            logger.info("[CodeAgent] Created fast LLM (gpt-5-mini) for simple edits")
             return inst
         except Exception as exc:
             logger.warning(f"[CodeAgent] Could not create fast LLM: {exc}")
