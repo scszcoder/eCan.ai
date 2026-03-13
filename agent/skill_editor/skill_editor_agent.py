@@ -396,6 +396,7 @@ class SkillEditorAgent:
         self._clarification_round: int = 0
         self._MAX_CLARIFICATION_ROUNDS: int = 3
         self._last_saved_skill_name: Optional[str] = None  # persisted across invocations for edit fallback
+        self._cached_flowgram_dict: Optional[Dict[str, Any]] = None  # cached flowgram from last generation/edit (survives Lambda restarts via session)
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -556,6 +557,10 @@ class SkillEditorAgent:
         return self._last_saved_skill_name
 
     @property
+    def cached_flowgram_dict(self) -> Optional[Dict[str, Any]]:
+        return self._cached_flowgram_dict
+
+    @property
     def clarification_round(self) -> int:
         return self._clarification_round
 
@@ -575,6 +580,7 @@ class SkillEditorAgent:
         pending_log_analysis_info: Optional[Dict[str, Any]] = None,
         log_analysis_context: Optional[Dict[str, Any]] = None,
         last_saved_skill_name: Optional[str] = None,
+        cached_flowgram_dict: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
@@ -591,6 +597,7 @@ class SkillEditorAgent:
             self._pending_log_analysis_info = pending_log_analysis_info
             self._log_analysis_context = log_analysis_context
             self._last_saved_skill_name = last_saved_skill_name
+            self._cached_flowgram_dict = cached_flowgram_dict
 
             # If log analysis info state but no pending info, reset to idle
             if self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO and not self._pending_log_analysis_info:
@@ -3607,7 +3614,13 @@ class SkillEditorAgent:
             # Fallback: if we have a previously saved skill name, try loading from disk
             if self._last_saved_skill_name:
                 logger.info(f"[SkillEditorAgent] No canvas context but have lastSavedSkillName={self._last_saved_skill_name}, loading from disk")
-                return self._load_flowgram_from_disk(self._last_saved_skill_name)
+                loaded = self._load_flowgram_from_disk(self._last_saved_skill_name)
+                if loaded:
+                    return loaded
+            # Fallback: use cached flowgram from session
+            if self._cached_flowgram_dict:
+                logger.info("[SkillEditorAgent] No canvas context, using cached flowgram dict as fallback")
+                return self._flowgram_dict_to_flowgram(self._cached_flowgram_dict)
             logger.warning("[SkillEditorAgent] No canvas context provided for edit operation")
             return None
         
@@ -3621,7 +3634,18 @@ class SkillEditorAgent:
                 skill_name = canvas_context.get("skillName") or self._last_saved_skill_name
                 if skill_name:
                     logger.info(f"[SkillEditorAgent] Canvas has no nodes but has skillName: {skill_name}, trying to load from disk")
-                    return self._load_flowgram_from_disk(skill_name)
+                    loaded = self._load_flowgram_from_disk(skill_name)
+                    if loaded:
+                        return loaded
+                # Fallback: use cached flowgram from last generation/edit (survives Lambda restarts)
+                if self._cached_flowgram_dict:
+                    logger.info("[SkillEditorAgent] Using cached flowgram dict as fallback (0 canvas nodes, disk load failed/skipped)")
+                    return self._flowgram_dict_to_flowgram(self._cached_flowgram_dict)
+                # Fallback: check if frontend sent lastFlowgramJson in canvas_context
+                last_fj = canvas_context.get("lastFlowgramJson")
+                if isinstance(last_fj, dict):
+                    logger.info("[SkillEditorAgent] Using lastFlowgramJson from canvas_context as fallback")
+                    return self._flowgram_dict_to_flowgram(last_fj)
                 logger.warning("[SkillEditorAgent] Canvas context has no nodes and no skillName")
                 return None
             
@@ -3662,6 +3686,14 @@ class SkillEditorAgent:
             
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed to convert canvas context to flowgram: {e}")
+            return None
+
+    def _flowgram_dict_to_flowgram(self, data: Dict[str, Any]) -> Optional[Flowgram]:
+        """Convert a cached flowgram dict (Flowgram.model_dump() output) back to a Flowgram object."""
+        try:
+            return Flowgram.model_validate(data)
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to restore flowgram from cached dict: {e}")
             return None
     
     def _parse_canvas_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
@@ -4755,6 +4787,12 @@ class SkillEditorAgent:
             # Always dual-write to disk for both create and edit operations
             # This ensures the skill file and bundle stay in sync and frontend can reload
             skill_path = self._save_flowgram_to_disk(code_output.flowgram, data_mapping=code_output.data_mapping)
+
+            # Cache flowgram dict in memory so it survives to the next Lambda invocation (via session state)
+            try:
+                self._cached_flowgram_dict = code_output.flowgram.model_dump()
+            except Exception:
+                pass
             
             # Send load_flowgram command to reload the updated skill
             # The frontend will load the nodes from disk via loadSkillFile
@@ -4937,9 +4975,15 @@ class SkillEditorAgent:
         self._pipeline_state = PipelineState.EDITING
         
         try:
+            # Convert canvas context to Flowgram for editing
+            current_flowgram = self._canvas_context_to_flowgram(canvas_context)
+            if current_flowgram:
+                self.code_agent.set_current_flowgram(current_flowgram)
+
             # Use code agent's edit method
             code_output = await self.code_agent.edit(
                 edit_request=edit_request,
+                current_flowgram=current_flowgram,
                 on_event=on_event
             )
             
@@ -4949,6 +4993,11 @@ class SkillEditorAgent:
             commands = []
             if code_output.flowgram:
                 commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+                # Cache flowgram for session persistence
+                try:
+                    self._cached_flowgram_dict = code_output.flowgram.model_dump()
+                except Exception:
+                    pass
             
             # Check validation
             if code_output.validation and not code_output.validation.valid:

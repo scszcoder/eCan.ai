@@ -83,6 +83,9 @@ export interface CanvasContext {
     source: string;
     target: string;
   }>;
+  skillName?: string;
+  skillId?: string;
+  lastFlowgramJson?: any;
 }
 
 // ============================================================
