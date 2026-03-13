@@ -682,7 +682,10 @@ class UpdateDialog(QDialog):
             if not icon_loaded:
                 # Use default icon from QMessageBox
                 default_icon = QMessageBox.standardIcon(QMessageBox.Icon.Information)
-                default_pixmap = default_icon.pixmap(80, 80)
+                if hasattr(default_icon, 'pixmap'):
+                    default_pixmap = default_icon.pixmap(80, 80)
+                else:
+                    default_pixmap = default_icon
                 icon_label.setPixmap(default_pixmap)
             
             layout.addWidget(icon_label)
@@ -842,6 +845,7 @@ class UpdateDialog(QDialog):
             return
         
         package_path = package_manager.current_package.download_path
+        target_version = self.update_info.get('latest_version', '1.1.0')
         
         # ✅ OTA update installation options - silent mode
         install_opts = {
@@ -851,7 +855,14 @@ class UpdateDialog(QDialog):
         }
         
         logger.info(f"[UpdateDialog] Starting OTA silent installation: {package_path}")
+        logger.info(f"[UpdateDialog] OTA target version: {target_version}")
         logger.info(f"[UpdateDialog] Installation options: {install_opts}")
+
+        try:
+            from ota.core.install_state import write_pending_install_state
+            write_pending_install_state(target_version=target_version, package_path=package_path, logger=logger)
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to write pending install state before launch: {e}")
         
         self.status_label.setText(_tr.tr("preparing_install"))
         
@@ -901,6 +912,11 @@ class UpdateDialog(QDialog):
             logger.info("[UpdateDialog] Installation launched successfully, hiding update dialog")
             self.hide()
         else:
+            try:
+                from ota.core.install_state import clear_pending_install_state
+                clear_pending_install_state(logger=logger)
+            except Exception as e:
+                logger.warning(f"[OTA] Failed to clear pending install state after launch failure: {e}")
             self.status_label.setText(_tr.tr("installation_failed_status"))
             QMessageBox.warning(self, _tr.tr("installation_failed"), message)
     
@@ -1008,7 +1024,10 @@ class UpdateDialog(QDialog):
             
             if not icon_loaded:
                 default_icon = QMessageBox.standardIcon(QMessageBox.Icon.Information)
-                default_pixmap = default_icon.pixmap(80, 80)
+                if hasattr(default_icon, 'pixmap'):
+                    default_pixmap = default_icon.pixmap(80, 80)
+                else:
+                    default_pixmap = default_icon
                 icon_label.setPixmap(default_pixmap)
             
             layout.addWidget(icon_label)

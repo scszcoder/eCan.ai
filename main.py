@@ -653,6 +653,12 @@ try:
     # Print startup banner
     _print_startup_banner(logger, app_info)
 
+    try:
+        from ota.core.install_state import confirm_pending_install_result
+        confirm_pending_install_result(current_version=getattr(app_info, 'version', '1.0.0'), logger=logger)
+    except Exception as e:
+        logger.warning(f"[OTA] Failed to confirm pending installation result on startup: {e}")
+
     # Configure third-party package loggers to use unified logger
     try:
         from utils.thirdparty_logger_config import configure_all_thirdparty_loggers
