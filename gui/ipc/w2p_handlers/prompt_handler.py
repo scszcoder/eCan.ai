@@ -54,6 +54,8 @@ SECTION_TYPES: Tuple[str, ...] = (
     "examples",
     "variables",
     "additional",
+    "exceptions",
+    "extra_attentions",
     "custom",
     "tools_to_use",
 )

@@ -14,9 +14,13 @@
   
   "excluded_fields": [
     "agid",
-    "skid",
-    "owner"
+    "skid"
   ],
+  
+  "operation_specific_exclusions": {
+    "add": ["owner"],
+    "update": ["owner"]
+  },
   
   "json_serialize_fields": [
     "config",
