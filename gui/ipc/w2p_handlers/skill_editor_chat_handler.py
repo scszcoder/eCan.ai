@@ -38,8 +38,6 @@ if USE_CLOUD_SKILL_EDITOR:
             relay_send_message,
             relay_cancel_generation,
             relay_delete_session,
-            relay_upload_log_file,
-            relay_upload_log_file,
         )
         _CLOUD_RELAY_AVAILABLE = True
         logger.info("[SkillEditorChat] Cloud relay mode ENABLED")
@@ -510,26 +508,6 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     except Exception as e:
                         logger.warning(f"[SkillEditorChat] Failed to inject local skill nodes: {e}")
 
-            # --- Upload local log files to S3 for cloud Lambda access ---
-            # Detect local file paths in the message and upload them so the
-            # Lambda agent can read them from S3 instead of the local disk.
-            try:
-                import re as _re
-                from pathlib import Path as _Path
-                _win_path_pat = _re.compile(r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)*[^\s\\/:*?"<>|]+\.\w{1,10}')
-                _unix_path_pat = _re.compile(r'(?:/[^\s/]+){2,}')
-                found_paths = _win_path_pat.findall(content) + _unix_path_pat.findall(content)
-                for fp in found_paths:
-                    local_p = _Path(fp)
-                    if local_p.is_file() and local_p.stat().st_size > 0:
-                        s3_key = relay_upload_log_file(str(local_p))
-                        if s3_key:
-                            content = content + f"\n[S3_LOG_KEY:{s3_key}]"
-                            logger.info(f"[SkillEditorChat] Uploaded local log to S3: {fp} → {s3_key}")
-                        break  # only upload the first matched file
-            except Exception as _upload_err:
-                logger.debug(f"[SkillEditorChat] Local log upload attempt: {_upload_err}")
-
             cloud_result = relay_send_message(
                 session_id=session_id,
                 content=content,
@@ -543,6 +521,89 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     f"[SkillEditorChat] Cloud send_message OK: state={cloud_result.get('state')}, "
                     f"intent={cloud_result.get('intent')}"
                 )
+
+                # --- Log file upload interception ---
+                # If the cloud Lambda returned a presigned upload URL, upload
+                # the local file to S3 and send a follow-up message so the
+                # Lambda can read it and proceed with analysis.
+                _cr_msg = cloud_result.get("message") or {}
+                _cr_meta = _cr_msg.get("metadata") if isinstance(_cr_msg, dict) else None
+                _upload_req = _cr_meta.get("log_upload_request") if isinstance(_cr_meta, dict) else None
+                if isinstance(_upload_req, dict):
+                    _local_path = _upload_req.get("local_file_path", "")
+                    _upload_url = _upload_req.get("upload_url", "")
+                    if _local_path and _upload_url:
+                        # Helper: push a progress message to the chat panel
+                        def _push_upload_status(text: str):
+                            try:
+                                from gui.ipc.api import IPCAPI
+                                _ipc = IPCAPI.get_instance()
+                                _ipc.push_skill_editor_chat_done(
+                                    session_id=session_id,
+                                    message_id=str(uuid.uuid4()),
+                                    full_content=text,
+                                )
+                            except Exception:
+                                pass
+
+                        try:
+                            from pathlib import Path as _P
+                            _fp = _P(_local_path)
+                            if _fp.is_file():
+                                _file_bytes = _fp.read_bytes()
+                                _size_kb = len(_file_bytes) / 1024
+                                _push_upload_status(
+                                    f"\u2B06\uFE0F Uploading log file to cloud storage "
+                                    f"({_size_kb:,.1f} KB)...\n\nFile: `{_local_path}`"
+                                )
+
+                                import requests as _http
+                                _put_resp = _http.put(
+                                    _upload_url,
+                                    data=_file_bytes,
+                                    headers={"Content-Type": "text/plain; charset=utf-8"},
+                                    timeout=120,
+                                )
+                                if _put_resp.status_code in (200, 204):
+                                    logger.info(
+                                        f"[SkillEditorChat] Uploaded log file to S3 "
+                                        f"({len(_file_bytes):,} bytes)"
+                                    )
+                                    _push_upload_status(
+                                        f"\u2705 Log file uploaded successfully "
+                                        f"({_size_kb:,.1f} KB). Analyzing..."
+                                    )
+                                    # Follow-up: trigger Lambda to read from S3 and analyze
+                                    followup = relay_send_message(
+                                        session_id=session_id,
+                                        content="Log file uploaded successfully",
+                                    )
+                                    if followup is not None:
+                                        cloud_result = followup
+                                else:
+                                    logger.warning(
+                                        f"[SkillEditorChat] S3 presigned PUT failed: "
+                                        f"{_put_resp.status_code}"
+                                    )
+                                    _push_upload_status(
+                                        f"\u274C Log file upload failed (HTTP {_put_resp.status_code}). "
+                                        f"Please try again."
+                                    )
+                            else:
+                                logger.warning(
+                                    f"[SkillEditorChat] Log file not found: {_local_path}"
+                                )
+                                _push_upload_status(
+                                    f"\u274C Log file not found: `{_local_path}`\n\n"
+                                    f"Please check the path and try again."
+                                )
+                        except Exception as _upload_err:
+                            logger.warning(
+                                f"[SkillEditorChat] Log upload failed: {_upload_err}"
+                            )
+                            _push_upload_status(
+                                f"\u274C Log file upload failed: {_upload_err}"
+                            )
 
                 # Push result to frontend.  If the AppSync subscription client
                 # is running it already relays stream_chunk / stream_end events

@@ -1508,20 +1508,11 @@ class SkillEditorAgent:
         First time: asks clarification questions to collect file path, user observation,
         and expected behavior. When answers come back, proceeds to analysis.
         """
-        # --- Extract S3 log key if the desktop client pre-uploaded the file ---
-        s3_log_key = None
-        _s3_key_match = re.search(r'\[S3_LOG_KEY:([^\]]+)\]', message)
-        if _s3_key_match:
-            s3_log_key = _s3_key_match.group(1)
-            # Strip the marker from the message so it doesn't confuse the LLM
-            message = message.replace(_s3_key_match.group(0), '').strip()
-
         # --- If pre-analysis info was already collected, use it ---
         if self._pending_log_analysis_info and self._pending_log_analysis_info.get("_collected"):
             file_path = self._pending_log_analysis_info.get("log_file_path") or self._extract_file_path_from_message(message)
             user_observation = self._pending_log_analysis_info.get("user_observation", "")
             expected_behavior = self._pending_log_analysis_info.get("expected_behavior", "")
-            s3_log_key = s3_log_key or self._pending_log_analysis_info.get("s3_log_key")
             # Clear the pending info so follow-ups don't re-trigger
             self._pending_log_analysis_info = None
             self._pipeline_state = PipelineState.IDLE
@@ -1532,12 +1523,11 @@ class SkillEditorAgent:
                 message=message,
                 session_id=session_id,
                 on_event=on_event,
-                s3_log_key=s3_log_key,
             )
 
         # --- Follow-up on a previous log analysis? ---
         file_path = self._extract_file_path_from_message(message)
-        if not file_path and not s3_log_key and self._log_analysis_context:
+        if not file_path and self._log_analysis_context:
             self._pipeline_state = PipelineState.IDLE
             return await self._run_analyze_log_followup(message, session_id, on_event)
 
@@ -1545,7 +1535,6 @@ class SkillEditorAgent:
         self._pending_log_analysis_info = {
             "original_message": message,
             "detected_file_path": file_path,  # may be None
-            "s3_log_key": s3_log_key,  # set when desktop client pre-uploaded
         }
 
         questions = []
@@ -1616,6 +1605,36 @@ class SkillEditorAgent:
             },
         )
 
+    def _sanitize_owner_for_s3(self) -> str:
+        """Sanitize the owner email for use as an S3 directory name.
+        Replaces '@' and '.' with '_', e.g. songc@yahoo.com → songc_yahoo_com
+        """
+        return (self._user_name or "unknown").replace("@", "_").replace(".", "_")
+
+    def _generate_log_upload_url(self, file_path: str) -> Optional[Dict[str, str]]:
+        """Generate a presigned S3 PUT URL for uploading a log file.
+
+        Returns dict with {upload_url, s3_bucket, s3_key} or None.
+        """
+        try:
+            import boto3
+            import time as _time
+            s3_bucket = "ecan-logs"
+            sanitized_owner = self._sanitize_owner_for_s3()
+            filename = Path(file_path).name if file_path else "unknown.log"
+            s3_key = f"{sanitized_owner}/{int(_time.time())}_{filename}"
+            s3 = boto3.client("s3")
+            upload_url = s3.generate_presigned_url(
+                "put_object",
+                Params={"Bucket": s3_bucket, "Key": s3_key},
+                ExpiresIn=900,
+            )
+            logger.info(f"[SkillEditorAgent] Generated presigned upload URL for {s3_key}")
+            return {"upload_url": upload_url, "s3_bucket": s3_bucket, "s3_key": s3_key}
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to generate presigned upload URL: {e}")
+            return None
+
     async def _run_analyze_log_with_info(
         self,
         file_path: Optional[str],
@@ -1625,7 +1644,6 @@ class SkillEditorAgent:
         session_id: Optional[str],
         on_event: Optional[Callable],
         pasted_content: Optional[str] = None,
-        s3_log_key: Optional[str] = None,
     ) -> AgentResponse:
         """Run log analysis after pre-analysis info has been collected.
 
@@ -1633,42 +1651,11 @@ class SkillEditorAgent:
             pasted_content: If provided, use this as the log content directly
                 instead of reading from file_path (for cloud mode where Lambda
                 cannot access local files).
-            s3_log_key: If provided, read the log file from this S3 key
-                (uploaded by the desktop client before relaying to Lambda).
         """
         self._pipeline_state = PipelineState.IDLE
 
-        # --- S3 mode: desktop client pre-uploaded the file to S3 ---
-        if s3_log_key and _is_lambda_runtime():
-            await self._emit_progress(on_event, "Reading log file from cloud storage...")
-            try:
-                import boto3
-                s3_bucket = os.environ.get("S3_BUCKET", "")
-                if not s3_bucket:
-                    raise RuntimeError("S3_BUCKET env var not set")
-                s3 = boto3.client("s3")
-                obj = s3.get_object(Bucket=s3_bucket, Key=s3_log_key)
-                raw = obj["Body"].read().decode("utf-8", errors="replace")
-                file_size = len(raw.encode("utf-8", errors="replace"))
-                logger.info(f"[SkillEditorAgent] Read log from S3: {s3_log_key} ({file_size:,} bytes)")
-                if not raw or not raw.strip():
-                    return AgentResponse(
-                        message="The uploaded log file appears to be empty — nothing to analyze.",
-                        intent=IntentType.ANALYZE_LOG,
-                        metadata={"session_id": session_id, "state": "idle"},
-                    )
-            except Exception as e:
-                logger.error(f"[SkillEditorAgent] Failed to read log from S3 ({s3_log_key}): {e}")
-                return AgentResponse(
-                    message=(
-                        f"Failed to read the uploaded log file from cloud storage: {e}\n\n"
-                        f"You can try pasting the log content directly in the chat instead."
-                    ),
-                    intent=IntentType.ANALYZE_LOG,
-                    metadata={"session_id": session_id, "state": "idle", "s3_read_error": str(e)},
-                )
         # --- Pasted content mode (cloud / Lambda — user pasted log text) ---
-        elif pasted_content:
+        if pasted_content:
             raw = pasted_content.strip()
             file_size = len(raw.encode("utf-8", errors="replace"))
             file_path = "(pasted content)"
@@ -1682,7 +1669,7 @@ class SkillEditorAgent:
         else:
             raw = None  # will be read from file below
 
-        if not pasted_content and not (s3_log_key and _is_lambda_runtime()):
+        if not pasted_content:
             await self._emit_progress(on_event, "Reading log file...")
 
             if not file_path:
@@ -1696,26 +1683,55 @@ class SkillEditorAgent:
                     metadata={"session_id": session_id, "state": "idle", "needs_file_path": True},
                 )
 
-            # --- Cloud mode without pre-uploaded file: ask user to paste ---
+            # --- Cloud mode: generate presigned upload URL for the client ---
             if _is_lambda_runtime():
-                self._pending_log_analysis_info = {
-                    "user_observation": user_observation,
-                    "expected_behavior": expected_behavior,
-                    "_awaiting_paste": True,
-                }
-                self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
-                return AgentResponse(
-                    message=(
-                        f"I'm running in **cloud mode** and cannot directly access "
-                        f"files on your local machine.\n\n"
-                        f"The path you provided: `{file_path}`\n\n"
-                        f"\U0001f4cb **Please paste the log content directly in the chat** "
-                        f"(or the relevant sections — first ~50 lines, the error section, "
-                        f"and ~50 lines after the error), and I'll analyze it for you."
-                    ),
-                    intent=IntentType.ANALYZE_LOG,
-                    metadata={"session_id": session_id, "state": "collecting_log_analysis_info", "cloud_mode_no_local_access": True},
-                )
+                upload_info = self._generate_log_upload_url(file_path)
+                if upload_info:
+                    self._pending_log_analysis_info = {
+                        "user_observation": user_observation,
+                        "expected_behavior": expected_behavior,
+                        "s3_bucket": upload_info["s3_bucket"],
+                        "s3_key": upload_info["s3_key"],
+                        "_awaiting_upload": True,
+                    }
+                    self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
+                    return AgentResponse(
+                        message=(
+                            f"Uploading your log file to cloud storage for analysis...\n\n"
+                            f"File: `{file_path}`"
+                        ),
+                        intent=IntentType.ANALYZE_LOG,
+                        metadata={
+                            "session_id": session_id,
+                            "state": "collecting_log_analysis_info",
+                            "log_upload_request": {
+                                "upload_url": upload_info["upload_url"],
+                                "s3_bucket": upload_info["s3_bucket"],
+                                "s3_key": upload_info["s3_key"],
+                                "local_file_path": file_path,
+                            },
+                        },
+                    )
+                else:
+                    # Fallback: ask user to paste content
+                    self._pending_log_analysis_info = {
+                        "user_observation": user_observation,
+                        "expected_behavior": expected_behavior,
+                        "_awaiting_paste": True,
+                    }
+                    self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
+                    return AgentResponse(
+                        message=(
+                            f"I'm running in **cloud mode** and cannot directly access "
+                            f"files on your local machine.\n\n"
+                            f"The path you provided: `{file_path}`\n\n"
+                            f"\U0001f4cb **Please paste the log content directly in the chat** "
+                            f"(or the relevant sections — first ~50 lines, the error section, "
+                            f"and ~50 lines after the error), and I'll analyze it for you."
+                        ),
+                        intent=IntentType.ANALYZE_LOG,
+                        metadata={"session_id": session_id, "state": "collecting_log_analysis_info"},
+                    )
 
             # --- Resolve file path (handle directory → pick most recent log file) ---
             try:
@@ -1984,7 +2000,6 @@ class SkillEditorAgent:
             "log_file_path": file_path,
             "user_observation": user_observation,
             "expected_behavior": expected_behavior,
-            "s3_log_key": pending.get("s3_log_key"),  # preserve S3 key through roundtrip
             "_collected": True,
         }
 
@@ -2335,6 +2350,47 @@ class SkillEditorAgent:
         self.add_to_history("user", message)
         
         try:
+            # Handle uploaded log file (client uploaded to S3 after receiving presigned URL)
+            if (
+                self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO
+                and not clarification_responses
+            ):
+                pending = self._pending_log_analysis_info or {}
+                if pending.get("_awaiting_upload"):
+                    s3_bucket = pending.get("s3_bucket", "ecan-logs")
+                    s3_key = pending.get("s3_key", "")
+                    user_obs = pending.get("user_observation", "")
+                    expected = pending.get("expected_behavior", "")
+                    logger.info(f"[SkillEditorAgent] Upload complete, reading log from S3: {s3_bucket}/{s3_key}")
+                    self._pending_log_analysis_info = None
+                    try:
+                        import boto3
+                        s3 = boto3.client("s3")
+                        obj = s3.get_object(Bucket=s3_bucket, Key=s3_key)
+                        raw = obj["Body"].read().decode("utf-8", errors="replace")
+                        logger.info(f"[SkillEditorAgent] Read {len(raw):,} bytes from S3")
+                    except Exception as e:
+                        logger.error(f"[SkillEditorAgent] Failed to read log from S3: {e}")
+                        self._pipeline_state = PipelineState.IDLE
+                        response = AgentResponse(
+                            message=f"Failed to read the uploaded log file from cloud storage: {e}",
+                            intent=IntentType.ANALYZE_LOG,
+                            metadata={"session_id": session_id, "state": "idle"},
+                        )
+                        self._add_response_to_history(response)
+                        return response
+                    response = await self._run_analyze_log_with_info(
+                        file_path=s3_key,
+                        user_observation=user_obs,
+                        expected_behavior=expected,
+                        message=message,
+                        session_id=session_id,
+                        on_event=on_event,
+                        pasted_content=raw,
+                    )
+                    self._add_response_to_history(response)
+                    return response
+
             # Handle pasted log content when in cloud mode (Lambda can't access local files)
             if (
                 self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO

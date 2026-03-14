@@ -2069,6 +2069,10 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "flowgram": None,
                 "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
             }
+            # Forward log_upload_request so the client can upload the file
+            _resp_meta = getattr(response, "metadata", None) or {}
+            if isinstance(_resp_meta, dict) and _resp_meta.get("log_upload_request"):
+                stream_end_payload["log_upload_request"] = _resp_meta["log_upload_request"]
             # Convert flowgram to UI format (same as on_event conversion)
             if getattr(response, "flowgram", None):
                 try:
@@ -2155,6 +2159,11 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "hasClarification": bool(getattr(response, "clarification", None)),
                 "hasPlan": bool(getattr(response, "plan", None)),
                 "hasFlowgram": bool(getattr(response, "flowgram", None)),
+                "log_upload_request": (
+                    response.metadata.get("log_upload_request")
+                    if isinstance(getattr(response, "metadata", None), dict)
+                    else None
+                ),
             },
         }
 
