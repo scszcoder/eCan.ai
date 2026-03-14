@@ -38,6 +38,8 @@ if USE_CLOUD_SKILL_EDITOR:
             relay_send_message,
             relay_cancel_generation,
             relay_delete_session,
+            relay_upload_log_file,
+            relay_upload_log_file,
         )
         _CLOUD_RELAY_AVAILABLE = True
         logger.info("[SkillEditorChat] Cloud relay mode ENABLED")
@@ -507,6 +509,26 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                                 logger.info(f"[SkillEditorChat] Injected {len(local_nodes)} nodes from local skill: {skill_name}")
                     except Exception as e:
                         logger.warning(f"[SkillEditorChat] Failed to inject local skill nodes: {e}")
+
+            # --- Upload local log files to S3 for cloud Lambda access ---
+            # Detect local file paths in the message and upload them so the
+            # Lambda agent can read them from S3 instead of the local disk.
+            try:
+                import re as _re
+                from pathlib import Path as _Path
+                _win_path_pat = _re.compile(r'[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)*[^\s\\/:*?"<>|]+\.\w{1,10}')
+                _unix_path_pat = _re.compile(r'(?:/[^\s/]+){2,}')
+                found_paths = _win_path_pat.findall(content) + _unix_path_pat.findall(content)
+                for fp in found_paths:
+                    local_p = _Path(fp)
+                    if local_p.is_file() and local_p.stat().st_size > 0:
+                        s3_key = relay_upload_log_file(str(local_p))
+                        if s3_key:
+                            content = content + f"\n[S3_LOG_KEY:{s3_key}]"
+                            logger.info(f"[SkillEditorChat] Uploaded local log to S3: {fp} → {s3_key}")
+                        break  # only upload the first matched file
+            except Exception as _upload_err:
+                logger.debug(f"[SkillEditorChat] Local log upload attempt: {_upload_err}")
 
             cloud_result = relay_send_message(
                 session_id=session_id,
