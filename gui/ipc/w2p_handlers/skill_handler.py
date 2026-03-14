@@ -130,6 +130,14 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
             c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
             cname = cloud_sk.get('name', '').strip().lower() if cloud_sk.get('name') else None
+            cowner = str(cloud_sk.get('owner') or '').strip().lower()
+            current_user = str(username or '').strip().lower()
+
+            # Standard list semantics:
+            # - local memory/DB already contains my local skills and subscribed skills
+            # - cloud merge should only backfill skills owned by the current user
+            if current_user and cowner and cowner != current_user:
+                continue
             
             # Optimization: Reduced from 6 checks to 3 by combining ID lookups
             # Skip if already present locally (by any identifier)
@@ -138,12 +146,22 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             if cname and cname in local_names_norm:
                 continue
             
-            # NOTE: We no longer skip cloud skills that were deleted locally.
-            # Superset sync policy: local ∪ cloud = everything from both sides.
+            if (cid and cid in _DELETED_SKILL_IDS) or (c_askid and c_askid in _DELETED_SKILL_IDS):
+                logger.info(
+                    f"[skill_handler] Skipping cloud skill rehydrate for deleted skill: "
+                    f"id={cid}, askid={c_askid}, name={cloud_sk.get('name')}"
+                )
+                continue
             
             cloud_sk['_source'] = 'cloud'
             skills_dicts.append(cloud_sk)
             cloud_added += 1
+            if cid:
+                all_local_identifiers.add(cid)
+            if c_askid:
+                all_local_identifiers.add(c_askid)
+            if cname:
+                local_names_norm.add(cname)
 
         logger.info(f"Returning {len(skills_dicts)} skills to frontend "
                      f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
@@ -378,22 +396,27 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
         if not username:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        skill_service = _get_skill_service(request, params)
-        if not skill_service:
-            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
-
-        result = skill_service.get_public_skills()
-        if not result.get('success'):
-            return create_error_response(request, 'GET_PUBLIC_SKILLS_ERROR', str(result.get('error')))
-
-        rows = result.get('data') or []
+        rows = _fetch_cloud_skills(request, params)
+        username_norm = username.strip().lower()
         skills = []
+        seen = set()
+
         for sk in rows:
-            if isinstance(sk, dict):
-                owner = sk.get('owner')
-                if owner and owner == username:
-                    continue
-                skills.append(sk)
+            if not isinstance(sk, dict):
+                continue
+
+            owner = str(sk.get('owner') or '').strip().lower()
+            is_public = bool(sk.get('public', False))
+            if not is_public:
+                continue
+            if owner and owner == username_norm:
+                continue
+
+            key = str(sk.get('id') or sk.get('askid') or '').strip() or f"{owner}::{str(sk.get('name') or '').strip().lower()}"
+            if key in seen:
+                continue
+            seen.add(key)
+            skills.append(sk)
 
         return create_success_response(request, {
             'skills': skills,
@@ -805,12 +828,70 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
             logger.warning(f"Invalid parameters for delete skill: Missing skill_id")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_id')
 
-        skill_id = params['skill_id']
+        requested_skill_id = str(params['skill_id']).strip()
+        skill_id = requested_skill_id
+        local_db_skill_id = requested_skill_id
+        cloud_skill_id = requested_skill_id
+        resolved_skill_record = None
+        resolved_from_cloud = False
 
-        # Track this deletion to prevent cloud re-sync from re-adding it
-        _DELETED_SKILL_IDS.add(skill_id)
+        # Get database service
+        skill_service = _get_skill_service(request, params)
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        logger.info(f"Deleting agent skill for user: {username}, skill_id: {skill_id}")
+        # Resolve requested identifier against local DB records.
+        # Frontend may pass cloud id while local DB primary key is stored separately.
+        try:
+            owned_skills_result = skill_service.get_skills_by_owner(username)
+            owned_skills = owned_skills_result.get('data') if owned_skills_result.get('success') else []
+            for sk in (owned_skills or []):
+                db_id = str(sk.get('id') or '').strip()
+                askid = str(sk.get('askid') or '').strip()
+                if requested_skill_id and requested_skill_id in {db_id, askid}:
+                    resolved_skill_record = sk
+                    local_db_skill_id = db_id or requested_skill_id
+                    cloud_skill_id = askid or requested_skill_id
+                    skill_id = cloud_skill_id or local_db_skill_id
+                    break
+        except Exception as resolve_e:
+            logger.warning(f"[skill_handler] Failed to resolve requested skill identifier: {resolve_e}")
+
+        if not resolved_skill_record:
+            try:
+                cloud_skills = _fetch_cloud_skills(request, params)
+                username_norm = str(username or '').strip().lower()
+                for sk in (cloud_skills or []):
+                    cloud_id = str(sk.get('id') or '').strip()
+                    cloud_askid = str(sk.get('askid') or '').strip()
+                    cloud_owner = str(sk.get('owner') or '').strip().lower()
+                    if username_norm and cloud_owner and cloud_owner != username_norm:
+                        continue
+                    if requested_skill_id and requested_skill_id in {cloud_id, cloud_askid}:
+                        resolved_skill_record = sk
+                        resolved_from_cloud = True
+                        cloud_skill_id = cloud_id or cloud_askid or requested_skill_id
+                        skill_id = cloud_skill_id
+                        break
+            except Exception as cloud_resolve_e:
+                logger.warning(f"[skill_handler] Failed to resolve requested skill from cloud: {cloud_resolve_e}")
+
+        # Track deletion identifiers to prevent cloud re-sync from re-adding it
+        for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
+            if delete_id:
+                _DELETED_SKILL_IDS.add(str(delete_id))
+
+        logger.info(
+            f"[skill_handler] delete_agent_skill request received: "
+            f"username={username}, requested_skill_id={requested_skill_id}, "
+            f"local_db_skill_id={local_db_skill_id}, cloud_skill_id={cloud_skill_id}, "
+            f"resolved_from_cloud={resolved_from_cloud}, params={params}"
+        )
+        logger.info(
+            f"Deleting agent skill for user: {username}, requested_skill_id: {requested_skill_id}, "
+            f"local_db_skill_id: {local_db_skill_id}, cloud_skill_id: {cloud_skill_id}, "
+            f"resolved_from_cloud: {resolved_from_cloud}"
+        )
 
         # Check if this is a read-only skill (cannot be deleted from UI)
         # Also collect askid for deletion tracking
@@ -818,10 +899,14 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
             ctx = get_handler_context(request, params)
             if ctx:
                 for skill in (ctx.get_agent_skills() or []):
-                    if hasattr(skill, 'id') and skill.id == skill_id:
+                    sid = str(getattr(skill, 'id', '') or '').strip()
+                    askid = str(getattr(skill, 'askid', '') or '').strip()
+                    if requested_skill_id in {sid, askid} or local_db_skill_id in {sid, askid} or cloud_skill_id in {sid, askid}:
                         source = getattr(skill, 'source', 'ui')
                         if source == 'code':
-                            _DELETED_SKILL_IDS.discard(skill_id)  # Undo tracking
+                            for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
+                                if delete_id:
+                                    _DELETED_SKILL_IDS.discard(delete_id)
                             logger.warning(f"Attempted to delete code-based skill: {skill_id} (source={source})")
                             return create_error_response(
                                 request,
@@ -829,17 +914,32 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                                 'Code-based skills cannot be deleted. Please remove the source files directly.'
                             )
                         # Also track askid so cloud dedup catches it
-                        askid = getattr(skill, 'askid', None)
-                        if askid:
-                            _DELETED_SKILL_IDS.add(str(askid))
+                        askid_value = getattr(skill, 'askid', None)
+                        if askid_value:
+                            _DELETED_SKILL_IDS.add(str(askid_value))
                         break
         except Exception as e:
             logger.warning(f"[skill_handler] Failed to check skill source: {e}")
 
-        # Get database service
-        skill_service = _get_skill_service(request, params)
-        if not skill_service:
-            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+        # Only allow deleting skills owned by the current user.
+        # Subscribed public skills must use unsubscribe_from_skill instead.
+        try:
+            existing = skill_service.get_skill_by_id(local_db_skill_id)
+            if (not existing.get('success') or not existing.get('data')) and resolved_skill_record:
+                existing = {'success': True, 'data': resolved_skill_record}
+            if existing.get('success') and existing.get('data'):
+                skill_owner = str(existing['data'].get('owner', '') or '').strip()
+                if skill_owner and skill_owner.lower() != username.lower():
+                    for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
+                        if delete_id:
+                            _DELETED_SKILL_IDS.discard(delete_id)
+                    return create_error_response(
+                        request,
+                        'DELETE_SUBSCRIBED_SKILL_NOT_ALLOWED',
+                        'Subscribed public skills cannot be deleted. Use unsubscribe instead.'
+                    )
+        except Exception as owner_check_e:
+            logger.warning(f"[skill_handler] Failed to verify skill ownership before delete: {owner_check_e}")
 
         # Step 0: Get skill path from memory before deletion (for file cleanup)
         skill_path = None
@@ -848,7 +948,9 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
             ctx = get_handler_context(request, params)
             if ctx:
                 for skill in (ctx.get_agent_skills() or []):
-                    if hasattr(skill, 'id') and skill.id == skill_id:
+                    sid = str(getattr(skill, 'id', '') or '').strip()
+                    askid = str(getattr(skill, 'askid', '') or '').strip()
+                    if requested_skill_id in {sid, askid} or local_db_skill_id in {sid, askid} or cloud_skill_id in {sid, askid}:
                         skill_path = getattr(skill, 'path', None)
                         skill_name = getattr(skill, 'name', None)
                         logger.info(f"[skill_handler] Found skill to delete: name={skill_name}, path={skill_path}")
@@ -856,12 +958,16 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         except Exception as e:
             logger.warning(f"[skill_handler] Failed to get skill path: {e}")
 
+        if resolved_skill_record:
+            skill_path = skill_path or resolved_skill_record.get('path')
+            skill_name = skill_name or resolved_skill_record.get('name')
+
         # Step 1: Try to delete from database
-        result = skill_service.delete_skill(skill_id)
+        result = skill_service.delete_skill(local_db_skill_id)
         db_deleted = result.get('success', False)
         
         if db_deleted:
-            logger.info(f"Skill deleted successfully from database: {skill_id}")
+            logger.info(f"Skill deleted successfully from database: {local_db_skill_id}")
         else:
             # Database deletion failed (skill might not exist in DB), but continue to clean memory
             logger.warning(f"Database deletion returned: {result.get('error')} - will still try to clean memory")
@@ -875,7 +981,8 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                 original_count = len(agent_skills)
                 agent_skills[:] = [
                     skill for skill in agent_skills
-                    if not (hasattr(skill, 'id') and skill.id == skill_id)
+                    if str(getattr(skill, 'id', '') or '').strip() not in {requested_skill_id, local_db_skill_id, cloud_skill_id}
+                    and str(getattr(skill, 'askid', '') or '').strip() not in {requested_skill_id, local_db_skill_id, cloud_skill_id}
                 ]
                 new_count = len(agent_skills)
                 if new_count < original_count:
@@ -923,33 +1030,85 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         except Exception as e:
             logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
 
-        # Step 4 & 5: Cloud deletion SKIPPED — superset sync policy.
-        # Local ∪ Cloud should always hold the superset of both.
-        # Deleting locally is fine, but we never propagate deletes to cloud.
         cloud_deleted = False
-        logger.info(f"[skill_handler] Skipping cloud deletion for {skill_id} (superset sync policy)")
+        cloud_cached = False
+        cloud_error = None
+        cloud_task_id = None
+        should_attempt_cloud_delete = bool(
+            db_deleted or (
+                resolved_skill_record
+                and str((resolved_skill_record.get('owner') or '')).strip().lower() == str(username).strip().lower()
+                and cloud_skill_id
+            )
+        )
+        if should_attempt_cloud_delete:
+            try:
+                cloud_delete_data = {
+                    'id': cloud_skill_id,
+                    'owner': username,
+                }
+                if skill_path:
+                    cloud_delete_data['path'] = skill_path
+                cloud_result = _sync_skill_delete_to_cloud(cloud_delete_data)
+                cloud_deleted = bool(cloud_result.get('synced'))
+                cloud_cached = bool(cloud_result.get('cached'))
+                cloud_error = cloud_result.get('error')
+                cloud_task_id = cloud_result.get('task_id')
+                logger.info(
+                    f"[skill_handler] Cloud delete status for {cloud_skill_id}: "
+                    f"deleted={cloud_deleted}, cached={cloud_cached}, "
+                    f"task_id={cloud_task_id or ''}, error={cloud_error or ''}"
+                )
+            except Exception as e:
+                cloud_error = str(e)
+                logger.warning(f"[skill_handler] Failed to sync cloud deletion for {cloud_skill_id}: {e}")
 
         # Return success if any deletion succeeded (local DB, memory, file, or cloud)
-        if db_deleted or mem_deleted or file_deleted or cloud_deleted:
-            return create_success_response(request, {
+        if db_deleted or mem_deleted or file_deleted or cloud_deleted or cloud_cached:
+            response_payload = {
                 'message': 'Delete agent skill successful',
-                'skill_id': skill_id,
+                'skill_id': cloud_skill_id or requested_skill_id,
                 'db_deleted': db_deleted,
                 'mem_deleted': mem_deleted,
                 'file_deleted': file_deleted,
-                'cloud_deleted': cloud_deleted
-            })
+                'cloud_deleted': cloud_deleted,
+                'cloud_cached': cloud_cached,
+                'cloud_error': cloud_error,
+                'cloud_task_id': cloud_task_id,
+            }
+            logger.info(
+                f"[skill_handler] delete_agent_skill result: "
+                f"requested_skill_id={requested_skill_id}, local_db_skill_id={local_db_skill_id}, "
+                f"cloud_skill_id={cloud_skill_id}, resolved_from_cloud={resolved_from_cloud}, "
+                f"db_deleted={db_deleted}, mem_deleted={mem_deleted}, "
+                f"file_deleted={file_deleted}, cloud_deleted={cloud_deleted}, "
+                f"cloud_cached={cloud_cached}, cloud_task_id={cloud_task_id or ''}, "
+                f"cloud_error={cloud_error or ''}"
+            )
+            return create_success_response(request, response_payload)
         else:
             # Neither DB nor memory nor file nor cloud had this skill
             logger.warning(f"Skill not found in database, memory, disk, or cloud: {skill_id}")
-            return create_success_response(request, {
+            response_payload = {
                 'message': 'Skill not found (may have been already deleted)',
-                'skill_id': skill_id,
+                'skill_id': cloud_skill_id or requested_skill_id,
                 'db_deleted': False,
                 'mem_deleted': False,
                 'file_deleted': False,
-                'cloud_deleted': False
-            })
+                'cloud_deleted': False,
+                'cloud_cached': False,
+                'cloud_error': cloud_error,
+                'cloud_task_id': cloud_task_id,
+            }
+            logger.info(
+                f"[skill_handler] delete_agent_skill result: "
+                f"requested_skill_id={requested_skill_id}, local_db_skill_id={local_db_skill_id}, "
+                f"cloud_skill_id={cloud_skill_id}, resolved_from_cloud={resolved_from_cloud}, "
+                f"db_deleted=False, mem_deleted=False, "
+                f"file_deleted=False, cloud_deleted=False, cloud_cached=False, "
+                f"cloud_task_id={cloud_task_id or ''}, cloud_error={cloud_error or ''}"
+            )
+            return create_success_response(request, response_payload)
 
     except Exception as e:
         logger.error(f"Error in delete skill handler: {e} {traceback.format_exc()}")
@@ -1310,6 +1469,62 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     #       Use AGENT_SKILL for Agent-Skill relationship data (agid, skid, owner)
     manager = get_sync_manager()
     manager.sync_to_cloud_async(DataType.SKILL, cloud_data, operation, callback=_log_result)
+
+
+def _sync_skill_delete_to_cloud(skill_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Synchronously sync skill delete to cloud and return detailed result.
+
+    This is used by delete_agent_skill so the caller can distinguish:
+    - actually deleted in cloud
+    - cached to offline queue for later retry
+    - failed immediately
+    """
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+
+    cloud_data = skill_data.copy()
+    raw_path = cloud_data.get('path', '')
+    if raw_path:
+        try:
+            p = Path(raw_path)
+            parts = p.parts
+            for i, part in enumerate(parts):
+                if part == 'my_skills':
+                    cloud_data['path'] = '/'.join(parts[i:])
+                    break
+            else:
+                cloud_data['path'] = p.name
+        except Exception:
+            pass
+
+    logger.info(
+        f"[skill_handler] Syncing skill delete to cloud: id={cloud_data.get('id')}, "
+        f"owner={cloud_data.get('owner')}, path={cloud_data.get('path', '')}"
+    )
+
+    manager = get_sync_manager()
+    result = manager.sync_to_cloud(DataType.SKILL, cloud_data, Operation.DELETE)
+
+    error_msg = result.get('error')
+    if not error_msg:
+        errors = result.get('errors')
+        if isinstance(errors, list) and errors:
+            error_msg = '; '.join([str(e) for e in errors if e])
+
+    logger.info(
+        f"[skill_handler] Skill delete cloud sync result: "
+        f"success={result.get('success')}, synced={result.get('synced')}, "
+        f"cached={result.get('cached')}, error={error_msg or ''}"
+    )
+
+    return {
+        'success': bool(result.get('success')),
+        'synced': bool(result.get('synced')),
+        'cached': bool(result.get('cached')),
+        'task_id': result.get('task_id'),
+        'error': error_msg,
+        'response': result.get('response'),
+    }
 
 
 def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operation') -> None:

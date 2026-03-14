@@ -108,6 +108,10 @@ class GraphQLBuilder:
         "removeAgentOrgRels", "removeAgentSkillRels", "removeAgentTaskRels",
         "removeAgentSkillToolRels", "removeAgentSkillKnowledgeRels", "removeAgentTaskSkillRels",
     }
+
+    # Entity remove mutations that require object input instead of plain ID arrays.
+    ENTITY_REMOVE_OBJECT_INPUT_MUTATIONS = {
+    }
     
     # Return field selection for mutations that return result types
     # Format: mutation_name -> "{ field1 field2 ... }"
@@ -246,20 +250,34 @@ class GraphQLBuilder:
         Relationship remove mutations take [RelationIdInput!]! - array of {id: String!} objects.
         """
         is_relation_remove = mutation_name in self.RELATION_REMOVE_MUTATIONS
+        uses_object_input = (
+            is_relation_remove or
+            mutation_name in self.ENTITY_REMOVE_OBJECT_INPUT_MUTATIONS
+        )
         
         mutation_str = f"mutation MyMutation {{ {mutation_name}(input: ["
         
-        if is_relation_remove:
-            # Relationship removes: [{id: "xxx"}, {id: "yyy"}]
+        if uses_object_input:
+            # Relationship removes use object input.
             obj_strings = []
             for item in items:
-                oid = (item.get("id") or item.get("oid") or
+                oid = (item.get("oid") or item.get("id") or
                        item.get("agid") or item.get("skid") or
                        item.get("task_id") or item.get("tool_id"))
                 if not oid:
                     logger.warning(f"[GraphQLBuilder] Remove item missing ID: {item}")
                     continue
-                obj_strings.append(f'{{ id: "{oid}" }}')
+                if mutation_name in self.ENTITY_REMOVE_OBJECT_INPUT_MUTATIONS:
+                    obj: Dict[str, Any] = {"oid": oid}
+                    owner = item.get("owner")
+                    reason = item.get("reason")
+                    if owner not in (None, ""):
+                        obj["owner"] = owner
+                    if reason not in (None, ""):
+                        obj["reason"] = reason
+                    obj_strings.append(self._build_graphql_object(obj))
+                else:
+                    obj_strings.append(f'{{ id: "{oid}" }}')
             mutation_str += ", ".join(obj_strings)
         else:
             # Entity removes: ["id1", "id2"]
