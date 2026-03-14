@@ -1324,7 +1324,7 @@ class TaskRunner(Generic[Context]):
                 except Exception as e:
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
-                if event_type in {"human_chat", "a2a"}:
+                if event_type in {"human_chat", "a2a", "channel_message"}:
                     fallback_task = self._ensure_chatter_task()
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:

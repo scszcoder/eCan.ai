@@ -59,6 +59,10 @@
       "task_selector": "",
       "queue": "",
       "routing_key": "command.run_id"
+    },
+    "channel_message": {
+      "task_selector": "name_contains:chat",
+      "queue": "chat_queue"
     }
   }
 }

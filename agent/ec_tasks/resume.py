@@ -352,6 +352,8 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 content = raw_params.get("content")
                 if isinstance(content, str) and content:
                     human_text = content
+                elif isinstance(content, dict) and content.get("text"):
+                    human_text = content["text"]
 
         data: Dict[str, Any] = {}
         if human_text is not None:
@@ -993,6 +995,15 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                 new_msgs = list(existing_msgs)
                 new_msgs[1] = evt_chat_id
                 _write(state_patch, "messages", new_msgs, on_conflict="overwrite")
+
+        # Propagate channel metadata into state so outbound bridge can route replies
+        _ch_params = _safe_get(msg, "params") if isinstance(msg, dict) else None
+        if isinstance(_ch_params, dict) and _ch_params.get("channel_id"):
+            for _ck in ("channel_id", "channel_chat_id", "channel_sender_id",
+                        "channel_message_id", "channel_thread_id", "channel_account_id"):
+                _cv = _ch_params.get(_ck)
+                if _cv:
+                    _write(state_patch, f"attributes.{_ck}", _cv, on_conflict="overwrite")
 
         event_data = event.get("data", {}) if isinstance(event, dict) else {}
         human_text = event_data.get("human_text")

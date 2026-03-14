@@ -1,0 +1,31 @@
+{
+  "_comment": "Channel configuration. Set 'enabled' to true and fill in credentials to activate a channel.",
+  "webchat": {
+    "enabled": true
+  },
+  "telegram": {
+    "enabled": false,
+    "bot_token": "",
+    "allowed_chat_ids": [],
+    "polling_timeout": 30,
+    "default_agent_id": ""
+  },
+  "slack": {
+    "enabled": false,
+    "bot_token": "",
+    "app_token": "",
+    "allowed_channels": [],
+    "default_agent_id": ""
+  },
+  "whatsapp": {
+    "enabled": false,
+    "phone_number_id": "",
+    "access_token": "",
+    "verify_token": "",
+    "webhook_port": 8443,
+    "webhook_path": "/webhook/whatsapp",
+    "allowed_numbers": [],
+    "default_agent_id": "",
+    "api_version": "v21.0"
+  }
+}
