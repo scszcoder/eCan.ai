@@ -33,6 +33,18 @@ export interface APIResponse<T = unknown> {
     };
 }
 
+export interface DeleteAgentSkillResult {
+    message?: string;
+    skill_id?: string;
+    db_deleted?: boolean;
+    mem_deleted?: boolean;
+    file_deleted?: boolean;
+    cloud_deleted?: boolean;
+    cloud_cached?: boolean;
+    cloud_error?: string | null;
+    cloud_task_id?: string | null;
+}
+
 export interface TestConfig {
     test_id: string;  // or test_name, depending on your needs
     args?: Record<string, any>;  // Optional arguments for the test
@@ -1941,7 +1953,7 @@ export class IPCAPI {
     );
     }
 
-    public async deleteAgentSkill(username: string, skill_id: string): Promise<APIResponse<void>> {
+    public async deleteAgentSkill(username: string, skill_id: string): Promise<APIResponse<DeleteAgentSkillResult>> {
         // GraphQL mutation expects input: [ID!]!
         return apiRouter.execute(
       {
