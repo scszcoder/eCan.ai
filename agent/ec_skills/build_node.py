@@ -284,12 +284,20 @@ class ActionMessage(BaseMessage):
 
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
-except Exception:
+except ImportError:
     ChatGoogleGenerativeAI = None
 try:
     from langchain_qwq import ChatQwQ
-except Exception:
+except ImportError:
     ChatQwQ = None
+try:
+    from langchain_community.chat_models import ChatZhipuAI
+except ImportError:
+    ChatZhipuAI = None
+try:
+    from langchain_aws import ChatBedrockConverse
+except ImportError:
+    ChatBedrockConverse = None
 
 def get_default_node_schemas():
     schemas = {
@@ -760,14 +768,17 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     Builds a callable function for a LangGraph node that interacts with an LLM.
 
     Args:
-        config_metadata: A dictionary containing the configuration for the LLM node,
-                         including provider, model, temperature, and prompt templates.
-                         - timeout_seconds: Max time for LLM call (default 150)
-                         - enable_guardrail_timer: If True, register pending event for timeout tracking
+        config_metadata (dict): The node configuration from the skill JSON
+        node_name (str): The name of the node
+        skill_name (str): The name of the skill
+        owner (str): The owner of the skill
+        bp_manager: The breakpoint manager
 
     Returns:
-        A callable function that takes a state dictionary and returns the updated state.
+        A callable function that can be used as a LangGraph node
     """
+    _validate_runtime_registry()
+
     # Extract configuration from metadata with sensible defaults (tolerant to missing keys)
     logger.debug("building llm node:", config_metadata)
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
@@ -971,6 +982,236 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
+
+    def _get_runtime_provider_info(provider_name: str) -> dict:
+        provider_name_l = (provider_name or "").lower()
+        try:
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            llm_manager = get_llm_manager()
+            if llm_manager:
+                provider_info = llm_manager.get_provider(provider_name_l)
+                if isinstance(provider_info, dict):
+                    return provider_info
+                for item in llm_manager.get_all_providers() or []:
+                    if not isinstance(item, dict):
+                        continue
+                    pid = (item.get("provider") or "").lower()
+                    name = (item.get("name") or "").lower()
+                    display_name = (item.get("display_name") or "").lower()
+                    if provider_name_l in {pid, name, display_name}:
+                        return item
+        except Exception as e:
+            logger.debug(f"[build_llm_node] Failed to load provider info for '{provider_name}': {e}")
+        return {}
+
+    def _normalize_provider_runtime_spec(provider_name: str, provider_info: dict) -> dict:
+        return {
+            "provider_key": (provider_info.get("provider") or provider_name or "").strip().lower(),
+            "runtime_kind": (provider_info.get("runtime_kind") or "").strip(),
+            "param_mapping": provider_info.get("param_mapping") or {},
+            "api_key_env_vars": provider_info.get("api_key_env_vars") or [],
+            "default_model": provider_info.get("default_model") or "",
+            "base_url": provider_info.get("base_url") or "",
+            "default_params": provider_info.get("default_params") or {},
+            "special_features": provider_info.get("special_features") or {},
+        }
+
+    def _prepare_llm_extra_params(runtime_spec: dict, use_thinking: bool) -> dict:
+        extra_params = {}
+        special_features = runtime_spec.get("special_features") or {}
+        thinking_toggle_mode = special_features.get("thinking_toggle_mode")
+        if thinking_toggle_mode == "extra_body.enable_thinking":
+            if not use_thinking:
+                extra_params["extra_body"] = {"enable_thinking": False}
+                logger.info(f"[LLM] Qwen enable_thinking=False via extra_body")
+            else:
+                logger.info(f"[LLM] Qwen enable_thinking=True (default)")
+        return extra_params
+
+    def _get_runtime_constructor(runtime_kind: str):
+        """
+        Get the LLM constructor class for a given runtime_kind.
+        
+        When adding a new runtime_kind:
+        1. Add the mapping here: "runtime_kind": ConstructorClass
+        2. Ensure the constructor class is imported at the top of this file
+        3. Update llm_providers.json with the new runtime_kind and validation rules
+        """
+        runtime_registry = {
+            "openai_compatible": ChatOpenAI,
+            "anthropic": ChatAnthropic,
+            "google_genai": ChatGoogleGenerativeAI,
+            "deepseek": ChatDeepSeek,
+            "qwq_compatible": ChatQwQ,
+            "ollama_native": ChatOllama,
+            "zhipuai": ChatZhipuAI,
+            "bedrock_converse": ChatBedrockConverse,
+            "azure_openai": AzureChatOpenAI,
+        }
+        return runtime_registry.get((runtime_kind or "").strip())
+    
+    def _validate_runtime_registry():
+        """
+        Self-check: Validate that all runtime_kinds in llm_providers.json 
+        have corresponding constructors in the runtime registry.
+        This runs once at module load time.
+        """
+        try:
+            from gui.config.llm_manager import get_llm_manager
+            llm_manager = get_llm_manager()
+            all_providers = llm_manager.get_all_providers() or []
+            
+            runtime_registry_keys = {
+                "openai_compatible", "anthropic", "google_genai", "deepseek",
+                "qwq_compatible", "ollama_native", "zhipuai", "bedrock_converse", "azure_openai"
+            }
+            
+            missing_constructors = []
+            for provider in all_providers:
+                if not isinstance(provider, dict):
+                    continue
+                runtime_kind = (provider.get("runtime_kind") or "").strip()
+                if runtime_kind and runtime_kind not in runtime_registry_keys:
+                    provider_name = provider.get("name") or provider.get("provider") or "Unknown"
+                    missing_constructors.append(f"{provider_name} (runtime_kind: {runtime_kind})")
+            
+            if missing_constructors:
+                logger.warning(
+                    f"[build_llm_node] Runtime registry missing constructors for: {', '.join(missing_constructors)}. "
+                    "Please add them to _get_runtime_constructor() in build_node.py"
+                )
+        except Exception as e:
+            logger.debug(f"[build_llm_node] Runtime registry validation skipped: {e}")
+
+    def _build_llm_kwargs_from_runtime_spec(
+        runtime_spec: dict,
+        *,
+        model_name_value: str,
+        api_key_value: str,
+        host_value: str,
+        temperature_value: float,
+        use_thinking: bool,
+    ) -> dict:
+        kwargs = dict(runtime_spec.get("default_params") or {})
+        param_mapping = runtime_spec.get("param_mapping") or {}
+        default_model = runtime_spec.get("default_model") or ""
+        default_base_url = runtime_spec.get("base_url") or ""
+        special_features = runtime_spec.get("special_features") or {}
+
+        value_map = {
+            "model": model_name_value or default_model,
+            "api_key": api_key_value,
+            "base_url": host_value or default_base_url,
+            "temperature": temperature_value,
+        }
+
+        for source_key, target_key in param_mapping.items():
+            value = value_map.get(source_key)
+            if value not in (None, ""):
+                kwargs[target_key] = value
+
+        extra_params = _prepare_llm_extra_params(runtime_spec, use_thinking)
+        kwargs.update(extra_params)
+
+        if special_features.get("requires_http_client"):
+            from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
+            sync_client, async_client = _create_no_proxy_http_client()
+            if sync_client and "http_client" not in kwargs:
+                kwargs["http_client"] = sync_client
+            if async_client and "http_async_client" not in kwargs:
+                kwargs["http_async_client"] = async_client
+
+        return kwargs
+
+    def _get_runtime_provider_env_vars(provider_name: str) -> list[str]:
+        provider_info = _get_runtime_provider_info(provider_name)
+        env_vars = provider_info.get("api_key_env_vars") or []
+        return [str(v).strip() for v in env_vars if isinstance(v, str) and str(v).strip()]
+
+    def _resolve_api_key_from_provider_env_vars(provider_name: str, username: str | None = None) -> str | None:
+        env_vars = _get_runtime_provider_env_vars(provider_name)
+        for env_var in env_vars:
+            if "ENDPOINT" in env_var.upper():
+                continue
+            env_value = (os.getenv(env_var) or "").strip()
+            if env_value:
+                return env_value
+            try:
+                secure_value = secure_store.get(env_var, username=username)
+                if secure_value and str(secure_value).strip():
+                    return str(secure_value).strip()
+            except Exception:
+                pass
+        return None
+
+    def _build_runtime_llm(
+        *,
+        provider_name: str,
+        model_name_value: str,
+        api_key_value: str,
+        host_value: str,
+        temperature_value: float,
+        use_thinking: bool,
+        raw_provider_name: str | None,
+        allow_default_openai: bool,
+    ):
+        provider_info = _get_runtime_provider_info(provider_name)
+        runtime_spec = _normalize_provider_runtime_spec(provider_name, provider_info)
+        runtime_kind = runtime_spec.get("runtime_kind") or ""
+        constructor = _get_runtime_constructor(runtime_kind)
+
+        if not runtime_kind or constructor is None:
+            if raw_provider_name and not allow_default_openai:
+                raise ValueError(
+                    f"Unsupported node-specified provider '{raw_provider_name}' (resolved: '{provider_name}'). "
+                    "Please select a configured provider from Settings."
+                )
+            runtime_kind = "openai_compatible"
+            runtime_spec = {
+                "runtime_kind": "openai_compatible",
+                "param_mapping": {
+                    "model": "model",
+                    "api_key": "api_key",
+                    "base_url": "base_url",
+                    "temperature": "temperature",
+                },
+                "default_params": {},
+                "default_model": "",
+                "base_url": "",
+                "special_features": {},
+            }
+            constructor = ChatOpenAI
+
+        special_features = runtime_spec.get("special_features") or {}
+        
+        if special_features.get("check_import"):
+            import_name = special_features["check_import"]
+            if globals().get(import_name) is None:
+                raise ImportError(f"{import_name} is not available. Please install the required package.")
+        
+        if special_features.get("requires_api_key") and not api_key_value:
+            raise ValueError(f"{provider_name} requires an API key")
+        
+        if special_features.get("requires_model") and not model_name_value:
+            raise ValueError(f"{provider_name} requires a model/deployment name")
+        
+        if special_features.get("requires_azure_endpoint"):
+            azure_endpoint = host_value or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if api_key_value else None)
+            if not azure_endpoint:
+                raise ValueError(f"{provider_name} requires AZURE_ENDPOINT")
+            if not runtime_spec.get("base_url"):
+                runtime_spec["base_url"] = azure_endpoint
+            host_value = azure_endpoint
+
+        kwargs = _build_llm_kwargs_from_runtime_spec(
+            runtime_spec,
+            model_name_value=model_name_value,
+            api_key_value=api_key_value,
+            host_value=host_value,
+            temperature_value=temperature_value,
+            use_thinking=use_thinking,
+        )
+        return constructor(**kwargs)
 
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
@@ -1280,37 +1521,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if resolved_key:
                         return resolved_key
 
-                    def gs(name: str) -> str | None:
-                        try:
-                            return secure_store.get(name, username=username)
-                        except Exception:
-                            return None
-                    def env_first(name: str) -> str | None:
-                        env_value = (os.getenv(name) or "").strip()
-                        if env_value:
-                            return env_value
-                        return gs(name)
-
-                    if provider_l in ("openai",):
-                        return env_first("OPENAI_API_KEY")
-                    if provider_l in ("anthropic", "claude"):
-                        return env_first("ANTHROPIC_API_KEY")
-                    if provider_l in ("google", "gemini"):
-                        return env_first("GEMINI_API_KEY")
-                    if provider_l in ("deepseek",):
-                        return env_first("DEEPSEEK_API_KEY")
-                    if provider_l in ("dashscope", "qwen", "qwq"):
-                        return env_first("DASHSCOPE_API_KEY")
-                    if provider_l in ("bytedance", "doubao"):
-                        return env_first("ARK_API_KEY")
-                    if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
-                        return env_first("BAIDU_API_KEY")
-                    if provider_l in ("zhipuai", "chatglm", "glm"):
-                        return env_first("ZHIPUAI_API_KEY")
-                    if provider_l in ("azure", "azure_openai"):
-                        # Azure uses a different key name
-                        return env_first("AZURE_OPENAI_API_KEY")
-                    return None
+                    return _resolve_api_key_from_provider_env_vars(provider_l, username=username)
 
                 key = _resolve_api_key(llm_provider, api_key)
                 host = (api_host or "").strip()
@@ -1322,166 +1533,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     key_preview = ""
                 logger.debug(f"real llm settings: api_key={key_preview} host={host} llm_provider={prov}")
                 
-                # ==================== Unified LLM Parameter Preparation ====================
-                def prepare_llm_extra_params(provider: str, use_thinking: bool) -> dict:
-                    """
-                    Prepare extra parameters for LLM creation based on provider and settings.
-                    This centralizes all provider-specific parameter handling.
-                    
-                    Args:
-                        provider: Provider name (e.g., 'qwen', 'openai', 'deepseek')
-                        use_thinking: Whether to enable thinking mode
-                    
-                    Returns:
-                        Dictionary of extra parameters to merge into LLM kwargs
-                    """
-                    extra_params = {}
-                    
-                    # Qwen providers: Use extra_body for thinking control
-                    if provider in ("dashscope", "qwen", "qwq", "ollama"):
-                        # Qwen default is enable_thinking=True, only set False when disabled
-                        if not use_thinking:
-                            extra_params["extra_body"] = {"enable_thinking": False}
-                            logger.info(f"[LLM] Qwen enable_thinking=False via extra_body")
-                        else:
-                            logger.info(f"[LLM] Qwen enable_thinking=True (default)")
-                    
-                    # Future: Add other provider-specific parameters here
-                    # Example:
-                    # elif provider in ("deepseek",):
-                    #     extra_params["some_param"] = some_value
-                    
-                    return extra_params
-                
-                # Prepare extra parameters for this LLM
-                llm_extra_params = prepare_llm_extra_params(prov, node_use_thinking)
-                # ==================== End Parameter Preparation ====================
-                
-                # Provider-specific construction
-                if prov in ("azure", "azure_openai"):
-                    azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)
-                    if not azure_endpoint or not key:
-                        raise ValueError("Azure OpenAI requires AZURE_ENDPOINT and API key")
-                    kwargs = {
-                        "azure_endpoint": azure_endpoint,
-                        "api_key": key,
-                        "azure_deployment": model_name,
-                        "api_version": "2024-02-15-preview",
-                        "temperature": temperature
-                    }
-                    kwargs.update(llm_extra_params)
-                    llm = AzureChatOpenAI(**kwargs)
-                elif prov in ("openai",):
-                    logger.debug("setting up for openai......")
-                    kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
-                    if host:
-                        kwargs["base_url"] = host
-                    kwargs.update(llm_extra_params)
-                    llm = ChatOpenAI(**kwargs)
-                elif prov in ("anthropic", "claude"):
-                    if not key:
-                        raise ValueError("Anthropic API key missing")
-                    kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
-                    kwargs.update(llm_extra_params)
-                    llm = ChatAnthropic(**kwargs)
-                elif prov in ("google", "gemini"):
-                    if ChatGoogleGenerativeAI is None:
-                        raise ImportError("langchain-google-genai not installed")
-                    if not key:
-                        raise ValueError("Gemini API key missing")
-                    kwargs = {"model": model_name or "gemini-pro", "google_api_key": key, "temperature": temperature}
-                    kwargs.update(llm_extra_params)
-                    llm = ChatGoogleGenerativeAI(**kwargs)
-                elif prov in ("deepseek",):
-                    if not key:
-                        raise ValueError("DeepSeek API key missing")
-                    base_url = host or "https://api.deepseek.com"
-                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
-                    sync_client, async_client = _create_no_proxy_http_client()
-                    kwargs = {
-                        "model": model_name or "deepseek-chat",
-                        "api_key": key,
-                        "base_url": base_url,
-                        "temperature": temperature,
-                        "http_client": sync_client,
-                        "http_async_client": async_client
-                    }
-                    kwargs.update(llm_extra_params)
-                    llm = ChatDeepSeek(**kwargs)
-                elif prov in ("dashscope", "qwen", "qwq"):
-                    if ChatQwQ is None:
-                        raise ImportError("langchain-qwq not installed")
-                    if not key:
-                        raise ValueError("DashScope (Qwen/QwQ) API key missing")
-                    base_url = host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
-                    sync_client, async_client = _create_no_proxy_http_client()
-                    kw = {
-                        "model": model_name or "qwq-plus",
-                        "api_key": key,
-                        "base_url": base_url,
-                        "temperature": temperature
-                    }
-                    if sync_client:
-                        kw["http_client"] = sync_client
-                    if async_client:
-                        kw["http_async_client"] = async_client
-                    # Merge extra parameters from unified preparation
-                    kw.update(llm_extra_params)
-                    llm = ChatQwQ(**kw)
-                elif prov in ("bytedance", "doubao"):
-                    if not key:
-                        raise ValueError("Bytedance (Doubao/ARK) API key missing")
-                    base_url = host or "https://ark.cn-beijing.volces.com/api/v3"
-                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
-                    sync_client, async_client = _create_no_proxy_http_client()
-                    kwargs = {
-                        "model": model_name or "doubao-pro-256k",
-                        "api_key": key,
-                        "base_url": base_url,
-                        "temperature": temperature
-                    }
-                    if sync_client:
-                        kwargs["http_client"] = sync_client
-                    if async_client:
-                        kwargs["http_async_client"] = async_client
-                    kwargs.update(llm_extra_params)
-                    llm = ChatOpenAI(**kwargs)
-                elif prov in ("baidu", "qianfan", "baidu_qianfan"):
-                    if not key:
-                        raise ValueError("Baidu Qianfan API key missing")
-                    base_url = host or "https://qianfan.baidubce.com/v2"
-                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
-                    sync_client, async_client = _create_no_proxy_http_client()
-                    kwargs = {
-                        "model": model_name or "ernie-4.0-8k",
-                        "api_key": key,
-                        "base_url": base_url,
-                        "temperature": temperature
-                    }
-                    if sync_client:
-                        kwargs["http_client"] = sync_client
-                    if async_client:
-                        kwargs["http_async_client"] = async_client
-                    kwargs.update(llm_extra_params)
-                    llm = ChatOpenAI(**kwargs)
-                elif prov in ("ollama",):
-                    base_url = host or "http://localhost:11434"
-                    kwargs = {"model": model_name or "llama3.2", "base_url": base_url, "temperature": temperature}
-                    kwargs.update(llm_extra_params)
-                    llm = ChatOllama(**kwargs)
-                else:
-                    if raw_provider:
-                        raise ValueError(
-                            f"Unsupported node-specified provider '{raw_provider}' (resolved: '{prov}'). "
-                            "Please select a configured provider from Settings."
-                        )
-                    # No provider explicitly specified by node: allow OpenAI-compatible default behavior
-                    kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
-                    if host:
-                        kwargs["base_url"] = host
-                    kwargs.update(llm_extra_params)
-                    llm = ChatOpenAI(**kwargs)
+                llm = _build_runtime_llm(
+                    provider_name=prov,
+                    model_name_value=model_name,
+                    api_key_value=key,
+                    host_value=host,
+                    temperature_value=temperature,
+                    use_thinking=node_use_thinking,
+                    raw_provider_name=raw_provider,
+                    allow_default_openai=not bool(raw_provider),
+                )
 
                 _perf_llm(
                     "build_llm",
@@ -1895,8 +1956,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 f"LLM NODE [{node_name}]: messages empty - running in cloud worker mode without agent context"
             )
             try:
-                import os as _os
-
                 # Resolve API key – prefer node config, fall back to env vars
                 _raw_key = (api_key or "").strip()
 
@@ -1905,71 +1964,23 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     return not v or any(c in v for c in ("*", "•", "·")) or v.lower().startswith("sk-xxxxx")
 
                 if _looks_masked_simple(_raw_key):
-                    _key_env_map = {
-                        "openai": "OPENAI_API_KEY",
-                        "anthropic": "ANTHROPIC_API_KEY",
-                        "claude": "ANTHROPIC_API_KEY",
-                        "google": "GEMINI_API_KEY",
-                        "gemini": "GEMINI_API_KEY",
-                        "deepseek": "DEEPSEEK_API_KEY",
-                        "dashscope": "DASHSCOPE_API_KEY",
-                        "qwen": "DASHSCOPE_API_KEY",
-                        "qwq": "DASHSCOPE_API_KEY",
-                        "bytedance": "ARK_API_KEY",
-                        "doubao": "ARK_API_KEY",
-                        "baidu": "BAIDU_API_KEY",
-                        "qianfan": "BAIDU_API_KEY",
-                        "zhipuai": "ZHIPUAI_API_KEY",
-                        "chatglm": "ZHIPUAI_API_KEY",
-                        "azure": "AZURE_OPENAI_API_KEY",
-                        "azure_openai": "AZURE_OPENAI_API_KEY",
-                    }
-                    _env_var = _key_env_map.get(llm_provider, "OPENAI_API_KEY")
-                    _key = (_os.getenv(_env_var) or "").strip() or _raw_key
+                    _key = _resolve_api_key_from_provider_env_vars(llm_provider)
                 else:
                     _key = _raw_key
 
                 _host = (api_host or "").strip()
                 _prov = llm_provider
 
-                # Build a minimal LLM using already-closed-over config variables
-                if _prov in ("openai",):
-                    _kw = {"model": model_name, "api_key": _key, "temperature": temperature}
-                    if _host:
-                        _kw["base_url"] = _host
-                    _llm = ChatOpenAI(**_kw)
-                elif _prov in ("anthropic", "claude"):
-                    _llm = ChatAnthropic(model=model_name, api_key=_key, temperature=temperature)
-                elif _prov in ("deepseek",):
-                    _base_url = _host or "https://api.deepseek.com"
-                    _llm = ChatDeepSeek(
-                        model=model_name or "deepseek-chat",
-                        api_key=_key,
-                        base_url=_base_url,
-                        temperature=temperature,
-                    )
-                elif _prov in ("dashscope", "qwen", "qwq"):
-                    if ChatQwQ is None:
-                        raise ImportError("langchain-qwq not installed")
-                    _base_url = _host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-                    _llm = ChatQwQ(
-                        model=model_name or "qwq-plus",
-                        api_key=_key,
-                        base_url=_base_url,
-                        temperature=temperature,
-                    )
-                elif _prov in ("ollama",):
-                    _llm = ChatOllama(
-                        model=model_name or "llama3.2",
-                        base_url=_host or "http://localhost:11434",
-                        temperature=temperature,
-                    )
-                else:
-                    # Default to OpenAI-compatible
-                    _kw = {"model": model_name, "api_key": _key, "temperature": temperature}
-                    if _host:
-                        _kw["base_url"] = _host
-                    _llm = ChatOpenAI(**_kw)
+                _llm = _build_runtime_llm(
+                    provider_name=_prov,
+                    model_name_value=model_name,
+                    api_key_value=_key,
+                    host_value=_host,
+                    temperature_value=temperature,
+                    use_thinking=node_use_thinking,
+                    raw_provider_name=None,
+                    allow_default_openai=True,
+                )
 
                 log_msg = f"[LLM_NO_AGENT] Invoking {_prov}/{model_name} with {len(messages)} base messages"
                 logger.info(log_msg)

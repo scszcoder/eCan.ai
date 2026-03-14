@@ -4,7 +4,18 @@
       "name": "OpenAI",
       "display_name": "OpenAI",
       "provider": "openai",
-      "class_name": "ChatOpenAI",
+      "runtime_kind": "openai_compatible",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_api_key": false,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "OPENAI_API_KEY"
       ],
@@ -237,7 +248,17 @@
       "name": "Anthropic Claude",
       "display_name": "Anthropic Claude",
       "provider": "anthropic",
-      "class_name": "ChatAnthropic",
+      "runtime_kind": "anthropic",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_api_key": true,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "ANTHROPIC_API_KEY"
       ],
@@ -302,7 +323,18 @@
       "name": "Google Gemini",
       "display_name": "Google Gemini",
       "provider": "google",
-      "class_name": "ChatGoogleGenerativeAI",
+      "runtime_kind": "google_genai",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "google_api_key",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_api_key": true,
+        "requires_model": false,
+        "check_import": "ChatGoogleGenerativeAI"
+      },
       "api_key_env_vars": [
         "GEMINI_API_KEY"
       ],
@@ -367,7 +399,19 @@
       "name": "DeepSeek",
       "display_name": "DeepSeek",
       "provider": "deepseek",
-      "class_name": "ChatDeepSeek",
+      "runtime_kind": "deepseek",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_http_client": true,
+        "requires_api_key": true,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "DEEPSEEK_API_KEY"
       ],
@@ -408,7 +452,21 @@
       "name": "Qwen (DashScope)",
       "display_name": "Qwen (DashScope)",
       "provider": "dashscope",
-      "class_name": "ChatQwQ",
+      "runtime_kind": "qwq_compatible",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_http_client": true,
+        "thinking_toggle_mode": "extra_body.enable_thinking",
+        "requires_api_key": true,
+        "requires_model": false,
+        "check_import": "ChatQwQ"
+      },
       "api_key_env_vars": [
         "DASHSCOPE_API_KEY"
       ],
@@ -629,7 +687,19 @@
       "name": "Bytedance",
       "display_name": "Bytedance",
       "provider": "bytedance",
-      "class_name": "ChatDoubao",
+      "runtime_kind": "openai_compatible",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_http_client": true,
+        "requires_api_key": false,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "ARK_API_KEY"
       ],
@@ -754,7 +824,19 @@
       "name": "Baidu Qianfan",
       "display_name": "Baidu Qianfan",
       "provider": "baidu_qianfan",
-      "class_name": "ChatBaiduQianfan",
+      "runtime_kind": "openai_compatible",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_http_client": true,
+        "requires_api_key": false,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "BAIDU_API_KEY"
       ],
@@ -795,7 +877,21 @@
       "name": "Azure OpenAI",
       "display_name": "Azure OpenAI",
       "provider": "azure_openai",
-      "class_name": "AzureOpenAI",
+      "runtime_kind": "azure_openai",
+      "param_mapping": {
+        "model": "azure_deployment",
+        "api_key": "api_key",
+        "base_url": "azure_endpoint",
+        "temperature": "temperature"
+      },
+      "default_params": {
+        "api_version": "2024-02-15-preview"
+      },
+      "special_features": {
+        "requires_api_key": true,
+        "requires_model": true,
+        "requires_azure_endpoint": true
+      },
       "api_key_env_vars": [
         "AZURE_ENDPOINT",
         "AZURE_OPENAI_API_KEY"
@@ -837,7 +933,17 @@
       "name": "AWS Bedrock",
       "display_name": "AWS Bedrock",
       "provider": "bedrock",
-      "class_name": "ChatBedrockConverse",
+      "runtime_kind": "bedrock_converse",
+      "param_mapping": {
+        "model": "model",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_api_key": false,
+        "requires_model": false,
+        "check_import": "ChatBedrockConverse"
+      },
       "api_key_env_vars": [
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY"
@@ -879,7 +985,19 @@
       "name": "ChatGLM (Zhipu AI)",
       "display_name": "ChatGLM (Zhipu AI)",
       "provider": "zhipuai",
-      "class_name": "ChatZhipuAI",
+      "runtime_kind": "zhipuai",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "zhipuai_api_base",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_api_key": true,
+        "requires_model": false,
+        "check_import": "ChatZhipuAI"
+      },
       "api_key_env_vars": [
         "ZHIPUAI_API_KEY"
       ],
@@ -932,7 +1050,18 @@
       "name": "Ollama",
       "display_name": "Ollama",
       "provider": "ollama",
-      "class_name": "ChatOpenAI",
+      "runtime_kind": "ollama_native",
+      "param_mapping": {
+        "model": "model",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "thinking_toggle_mode": "extra_body.enable_thinking",
+        "requires_api_key": false,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "OLLAMA_LLM_API_KEY"
       ],
@@ -948,7 +1077,18 @@
       "name": "RyoAIS",
       "display_name": "RyoAIS",
       "provider": "ryoais",
-      "class_name": "ChatOpenAI",
+      "runtime_kind": "openai_compatible",
+      "param_mapping": {
+        "model": "model",
+        "api_key": "api_key",
+        "base_url": "base_url",
+        "temperature": "temperature"
+      },
+      "default_params": {},
+      "special_features": {
+        "requires_api_key": false,
+        "requires_model": false
+      },
       "api_key_env_vars": [
         "RYOAIS_LLM_API_KEY"
       ],
@@ -965,6 +1105,6 @@
     "version": "2.0.0",
     "last_updated": "2026-02-27",
     "description": "LLM provider configurations for eCan.ai - Latest models: GPT-5.3, Qwen3.5-Max, DeepSeek V3/R1, Claude 4.5, Gemini 3",
-    "schema_version": "1.0"
+    "schema_version": "1.1"
   }
 }
