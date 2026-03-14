@@ -128,17 +128,6 @@ class OTATranslations:
             'link_copied': 'Link copied!',
             'link_copied_title': 'Link Copied',
             'link_copied_message': 'Download link has been copied to clipboard:',
-            
-            # Delete download confirmation
-            'delete_download_title': 'Delete Downloaded File?',
-            'delete_download_message': 'Installation package has been downloaded:\n\nFile: {file_path}\nSize: {file_size}\n\nWould you like to delete this file to free up disk space?',
-            'delete_download_info': 'The installer has been launched. You can safely delete the downloaded file after installation completes.',
-            'delete_now': 'Delete Now',
-            'keep_file': 'Keep File',
-            'delete_success_title': 'File Deleted',
-            'delete_success_message': 'Downloaded installation file has been successfully deleted.',
-            'delete_failed_title': 'Delete Failed',
-            'delete_failed_message': 'Failed to delete file: {error}',
         },
         'zh-CN': {
             # Window titles
@@ -255,17 +244,6 @@ class OTATranslations:
             'link_copied': '链接已复制！',
             'link_copied_title': '链接已复制',
             'link_copied_message': '下载链接已复制到剪贴板：',
-            
-            # Delete download confirmation
-            'delete_download_title': '删除下载文件？',
-            'delete_download_message': '安装包已下载完成：\n\n文件：{file_path}\n大小：{file_size}\n\n是否删除此文件以释放磁盘空间？',
-            'delete_download_info': '安装程序已启动。安装完成后可以安全删除下载的文件。',
-            'delete_now': '立即删除',
-            'keep_file': '保留文件',
-            'delete_success_title': '文件已删除',
-            'delete_success_message': '已成功删除下载的安装文件。',
-            'delete_failed_title': '删除失败',
-            'delete_failed_message': '删除文件失败：{error}',
         }
     }
     

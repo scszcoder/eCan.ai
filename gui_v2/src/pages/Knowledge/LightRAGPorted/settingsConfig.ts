@@ -139,9 +139,9 @@ export const RAG_FIELDS: FieldConfig[] = [
   
   // Concurrency
   { key: 'MAX_ASYNC', type: 'number', defaultValue: '6', section: 'concurrency', tooltip: 'tooltips.maxAsync' },
-  { key: 'MAX_PARALLEL_INSERT', type: 'number', defaultValue: '3', section: 'concurrency', tooltip: 'tooltips.maxParallelInsert' },
+  { key: 'MAX_PARALLEL_INSERT', type: 'number', defaultValue: '2', section: 'concurrency', tooltip: 'tooltips.maxParallelInsert' },
   { key: 'EMBEDDING_FUNC_MAX_ASYNC', type: 'number', placeholder: '4', section: 'concurrency' },
-  { key: 'EMBEDDING_BATCH_NUM', type: 'number', placeholder: '64', section: 'concurrency' },
+  { key: 'EMBEDDING_BATCH_NUM', type: 'number', placeholder: '8', section: 'concurrency' },
   
   // Other
   { key: 'OLLAMA_EMULATING_MODEL_NAME', type: 'text', placeholder: 'lightrag', section: 'other' },

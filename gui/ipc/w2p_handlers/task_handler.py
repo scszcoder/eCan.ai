@@ -82,6 +82,27 @@ def _safe_parse_json(value: Any, default: Any = None):
     return default
 
 
+def _clear_skill_runtime_markers(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    cleaned = dict(metadata)
+    state = cleaned.get('state')
+    if isinstance(state, dict):
+        new_state = dict(state)
+        attrs = new_state.get('attributes')
+        if isinstance(attrs, dict):
+            new_attrs = dict(attrs)
+            new_attrs.pop('__this_node__', None)
+            new_attrs.pop('__llm_timings__', None)
+            new_attrs.pop('async_response', None)
+            new_attrs.pop('run_id', None)
+            new_state['attributes'] = new_attrs
+        cleaned['state'] = new_state
+    cleaned.pop('run_id', None)
+    cleaned.pop('runID', None)
+    return cleaned
+
+
 def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, agent_task_id: Optional[str] = None) -> Dict[str, Any]:
     """Prepare agent task data for database storage
 
@@ -125,6 +146,26 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         agent_task_data['id'] = agent_task_id
 
     return agent_task_data
+
+
+def _skill_binding_changed(task_id: str, incoming_skill_ids: list, request=None, params=None) -> bool:
+    try:
+        task_service = _get_agent_task_service(request, params)
+        if not task_service or not task_id:
+            return False
+        existing = task_service.get_task_skills(task_id, role='primary')
+        existing_ids = []
+        if existing.get('success') and existing.get('data'):
+            existing_ids = sorted(
+                str(rel.get('skill_id')).strip()
+                for rel in existing.get('data', [])
+                if rel.get('skill_id')
+            )
+        incoming_ids = sorted(str(skill_id).strip() for skill_id in (incoming_skill_ids or []) if skill_id)
+        return existing_ids != incoming_ids
+    except Exception as e:
+        logger.warning(f"[task_handler] Failed to compare task skill bindings: {e}")
+        return False
 
 
 def _manage_task_skill_relationships(task_id: str, skill_ids: list, request=None, params=None) -> bool:
@@ -449,6 +490,12 @@ def _sync_runtime_task_skill(
             for t in agent_tasks:
                 if getattr(t, 'id', None) == task_id:
                     t.skill = compiled_skill
+                    current_metadata = getattr(t, 'metadata', {}) or {}
+                    if isinstance(current_metadata, dict):
+                        t.metadata = _clear_skill_runtime_markers(current_metadata)
+                    current_state = getattr(t, 'state', None)
+                    if isinstance(current_state, dict):
+                        t.state = _clear_skill_runtime_markers({'state': current_state}).get('state', {})
                     updated += 1
 
             # Runner may hold task refs in a dict as well
@@ -458,6 +505,12 @@ def _sync_runtime_task_skill(
                 rt = runner_tasks.get(task_id)
                 if rt is not None:
                     rt.skill = compiled_skill
+                    current_metadata = getattr(rt, 'metadata', {}) or {}
+                    if isinstance(current_metadata, dict):
+                        rt.metadata = _clear_skill_runtime_markers(current_metadata)
+                    current_state = getattr(rt, 'state', None)
+                    if isinstance(current_state, dict):
+                        rt.state = _clear_skill_runtime_markers({'state': current_state}).get('state', {})
 
         if updated > 0:
             logger.info(
@@ -918,8 +971,18 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
         if not agent_task_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
+        skill_ids = agent_task_info.get('skill_ids', []) if isinstance(agent_task_info, dict) else []
+        if not skill_ids:
+            single_id = agent_task_info.get('skill_id') if isinstance(agent_task_info, dict) else None
+            skill_ids = [single_id] if single_id else []
+
+        skill_binding_changed = _skill_binding_changed(agent_task_id, skill_ids, request=request, params=params) if agent_task_id else False
+
         # Prepare agent task data
         agent_task_data = _prepare_agent_task_data(agent_task_info, username, agent_task_id)
+        if skill_binding_changed:
+            agent_task_data['settings'] = _clear_skill_runtime_markers(agent_task_data.get('settings', {}))
+            logger.info(f"[task_handler] Reset runtime state due to skill change: task_id={agent_task_id}, skill_ids={skill_ids}")
 
         # Check if agent task exists
         existing_agent_task = agent_task_service.query_tasks(id=agent_task_id)
@@ -942,11 +1005,6 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.info(f"Agent task saved successfully: {agent_task_data['name']} (ID: {actual_agent_task_id})")
 
             # Step 1.5: Manage task-skill relationships (supports multiple skills)
-            skill_ids = agent_task_info.get('skill_ids', [])
-            if not skill_ids:
-                # Fallback to single skill_id
-                single_id = agent_task_info.get('skill_id')
-                skill_ids = [single_id] if single_id else []
             # Batch process: clear existing and add all new ones
             logger.debug(f"[task_handler] Managing skill relationships: task_id={actual_agent_task_id}, skill_ids={skill_ids}")
             _manage_task_skill_relationships(actual_agent_task_id, skill_ids, request=request, params=params)

@@ -6,6 +6,7 @@ all chunk processing tasks for immediate cancellation.
 """
 
 import asyncio
+import os
 from lightrag.utils import logger
 
 # Import original functions and dependencies from lightrag.operate
@@ -573,12 +574,25 @@ async def extract_entities_with_cancellation(
         return maybe_nodes, maybe_edges
 
     # ========== Optimization: Batch processing configuration ==========
-    # Increase batch size for better throughput while maintaining cancellability
-    chunk_max_async = global_config.get("llm_model_max_async", 4)
-    batch_size = min(chunk_max_async * 2, 8)  # Process 2x async limit, max 8
+    llm_model_max_async = global_config.get("llm_model_max_async", 4)
+    try:
+        extract_max_async = int(os.getenv("EXTRACT_MAX_ASYNC", "4"))
+    except (TypeError, ValueError):
+        extract_max_async = 4
+
+    try:
+        llm_model_max_async = int(llm_model_max_async)
+    except (TypeError, ValueError):
+        llm_model_max_async = 4
+
+    chunk_max_async = max(1, min(llm_model_max_async, extract_max_async))
+    batch_size = min(chunk_max_async * 2, 8)  # Keep task queue shallow for faster cancellation
     semaphore = asyncio.Semaphore(chunk_max_async)
     
-    logger.info(f"[operate_custom] Batch processing: {batch_size} chunks/batch, {chunk_max_async} concurrent LLM calls")
+    logger.info(
+        f"[operate_custom] Batch processing: {batch_size} chunks/batch, {chunk_max_async} concurrent LLM calls "
+        f"(llm_model_max_async={llm_model_max_async}, EXTRACT_MAX_ASYNC={extract_max_async})"
+    )
 
     async def _process_with_semaphore(chunk_or_batch):
         async with semaphore:
