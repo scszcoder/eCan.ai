@@ -815,7 +815,20 @@ class SkillEditorAgent:
             message  # case-sensitive original to preserve paths
         ))
 
-        return has_file_ref
+        if has_file_ref:
+            return True
+
+        # Even without a file path, if the user explicitly asks to analyze
+        # logs (e.g. "help me analyze the logs", "analyze my run log"),
+        # classify as ANALYZE_LOG — the clarification flow will ask for the path.
+        analyze_verbs = ["analyze", "analyse", "diagnose", "debug", "check", "inspect", "review", "look at", "examine"]
+        log_nouns = ["log", "logs", "run log", "error log", "logfile", "log file"]
+        has_analyze = any(v in msg for v in analyze_verbs)
+        has_log_noun = any(n in msg for n in log_nouns)
+        if has_analyze and has_log_noun:
+            return True
+
+        return False
 
     def _extract_file_path_from_message(self, message: str) -> Optional[str]:
         """Extract a file path from a user message."""
