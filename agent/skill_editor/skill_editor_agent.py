@@ -1613,60 +1613,128 @@ class SkillEditorAgent:
         message: str,
         session_id: Optional[str],
         on_event: Optional[Callable],
+        pasted_content: Optional[str] = None,
     ) -> AgentResponse:
-        """Run log analysis after pre-analysis info has been collected."""
+        """Run log analysis after pre-analysis info has been collected.
+
+        Args:
+            pasted_content: If provided, use this as the log content directly
+                instead of reading from file_path (for cloud mode where Lambda
+                cannot access local files).
+        """
         self._pipeline_state = PipelineState.IDLE
-        await self._emit_progress(on_event, "Reading log file...")
 
-        if not file_path:
-            return AgentResponse(
-                message=(
-                    "I couldn't find a file path in your answers. "
-                    "Please provide the full path to the log file you want me to analyze.\n\n"
-                    "Example: *please analyze my run log in C:\\Users\\me\\logs\\run.log*"
-                ),
-                intent=IntentType.ANALYZE_LOG,
-                metadata={"session_id": session_id, "state": "idle", "needs_file_path": True},
-            )
-
-        # --- Resolve file path (handle directory → pick most recent log file) ---
-        try:
-            p = Path(file_path)
-            if not p.exists():
+        # --- Pasted content mode (cloud / Lambda — user pasted log text) ---
+        if pasted_content:
+            raw = pasted_content.strip()
+            file_size = len(raw.encode("utf-8", errors="replace"))
+            file_path = "(pasted content)"
+            if not raw:
                 return AgentResponse(
-                    message=f"File not found: **{file_path}**\n\nPlease double-check the path and try again.",
+                    message="The pasted content appears to be empty — nothing to analyze.",
                     intent=IntentType.ANALYZE_LOG,
-                    metadata={"session_id": session_id, "state": "idle", "file_not_found": True},
+                    metadata={"session_id": session_id, "state": "idle"},
                 )
-            if p.is_dir():
-                log_exts = {".log", ".txt", ".out", ".err"}
-                candidates = [
-                    f for f in p.iterdir()
-                    if f.is_file() and f.suffix.lower() in log_exts
-                ]
-                if not candidates:
+            # Skip directly to analysis (after the file-reading block below)
+        else:
+            raw = None  # will be read from file below
+
+        if not pasted_content:
+            await self._emit_progress(on_event, "Reading log file...")
+
+            if not file_path:
+                return AgentResponse(
+                    message=(
+                        "I couldn't find a file path in your answers. "
+                        "Please provide the full path to the log file you want me to analyze.\n\n"
+                        "Example: *please analyze my run log in C:\\Users\\me\\logs\\run.log*"
+                    ),
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "idle", "needs_file_path": True},
+                )
+
+            # --- Cloud mode: Lambda cannot access local filesystem paths ---
+            if _is_lambda_runtime():
+                self._pending_log_analysis_info = {
+                    "user_observation": user_observation,
+                    "expected_behavior": expected_behavior,
+                    "_awaiting_paste": True,
+                }
+                self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
+                return AgentResponse(
+                    message=(
+                        f"I'm running in **cloud mode** and cannot directly access "
+                        f"files on your local machine.\n\n"
+                        f"The path you provided: `{file_path}`\n\n"
+                        f"\U0001f4cb **Please paste the log content directly in the chat** "
+                        f"(or the relevant sections — first ~50 lines, the error section, "
+                        f"and ~50 lines after the error), and I'll analyze it for you."
+                    ),
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "collecting_log_analysis_info", "cloud_mode_no_local_access": True},
+                )
+
+            # --- Resolve file path (handle directory → pick most recent log file) ---
+            try:
+                p = Path(file_path)
+                if not p.exists():
                     return AgentResponse(
-                        message=(
-                            f"**{file_path}** is a directory but contains no log files "
-                            f"(.log, .txt, .out, .err).\n\n"
-                            "Please provide the full path to a specific file."
-                        ),
+                        message=f"File not found: **{file_path}**\n\nPlease double-check the path and try again.",
                         intent=IntentType.ANALYZE_LOG,
-                        metadata={"session_id": session_id, "state": "idle"},
+                        metadata={"session_id": session_id, "state": "idle", "file_not_found": True},
                     )
-                # Pick the most recently modified file
-                p = max(candidates, key=lambda f: f.stat().st_mtime)
-                file_path = str(p)
-                await self._emit_progress(
-                    on_event,
-                    f"Directory provided — using most recent file: {p.name}"
+                if p.is_dir():
+                    log_exts = {".log", ".txt", ".out", ".err"}
+                    candidates = [
+                        f for f in p.iterdir()
+                        if f.is_file() and f.suffix.lower() in log_exts
+                    ]
+                    if not candidates:
+                        return AgentResponse(
+                            message=(
+                                f"**{file_path}** is a directory but contains no log files "
+                                f"(.log, .txt, .out, .err).\n\n"
+                                "Please provide the full path to a specific file."
+                            ),
+                            intent=IntentType.ANALYZE_LOG,
+                            metadata={"session_id": session_id, "state": "idle"},
+                        )
+                    # Pick the most recently modified file
+                    p = max(candidates, key=lambda f: f.stat().st_mtime)
+                    file_path = str(p)
+                    await self._emit_progress(
+                        on_event,
+                        f"Directory provided — using most recent file: {p.name}"
+                    )
+            except Exception as e:
+                return AgentResponse(
+                    message=f"Error accessing path **{file_path}**: {e}",
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "idle", "read_error": str(e)},
                 )
-        except Exception as e:
-            return AgentResponse(
-                message=f"Error accessing path **{file_path}**: {e}",
-                intent=IntentType.ANALYZE_LOG,
-                metadata={"session_id": session_id, "state": "idle", "read_error": str(e)},
-            )
+
+            # --- Read the file ---
+            read_error = None
+            file_size = 0
+            try:
+                file_size = p.stat().st_size
+                raw = p.read_text(encoding="utf-8", errors="replace")
+            except Exception as e:
+                read_error = str(e)
+
+            if read_error:
+                return AgentResponse(
+                    message=f"Failed to read **{file_path}**: {read_error}",
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "idle", "read_error": read_error},
+                )
+
+            if not raw or not raw.strip():
+                return AgentResponse(
+                    message=f"The file **{file_path}** is empty — nothing to analyze.",
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "idle"},
+                )
 
         # --- Log LLM info ---
         llm_info = self._get_llm_info()
@@ -1675,30 +1743,6 @@ class SkillEditorAgent:
             f"provider={llm_info['provider']}, model={llm_info['model']}, "
             f"class={llm_info['class']}, base_url={llm_info.get('base_url', '')}"
         )
-
-        # --- Read the file ---
-        raw = None
-        read_error = None
-        file_size = 0
-        try:
-            file_size = p.stat().st_size
-            raw = p.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
-            read_error = str(e)
-
-        if read_error:
-            return AgentResponse(
-                message=f"Failed to read **{file_path}**: {read_error}",
-                intent=IntentType.ANALYZE_LOG,
-                metadata={"session_id": session_id, "state": "idle", "read_error": read_error},
-            )
-
-        if not raw or not raw.strip():
-            return AgentResponse(
-                message=f"The file **{file_path}** is empty — nothing to analyze.",
-                intent=IntentType.ANALYZE_LOG,
-                metadata={"session_id": session_id, "state": "idle"},
-            )
 
         await self._emit_progress(on_event, f"Pre-filtering {file_size:,} bytes of log data...")
 
@@ -2247,6 +2291,29 @@ class SkillEditorAgent:
         self.add_to_history("user", message)
         
         try:
+            # Handle pasted log content when in cloud mode (Lambda can't access local files)
+            if (
+                self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO
+                and not clarification_responses
+            ):
+                pending = self._pending_log_analysis_info or {}
+                if pending.get("_awaiting_paste"):
+                    logger.info("[SkillEditorAgent] Received pasted log content for cloud-mode analysis")
+                    user_obs = pending.get("user_observation", "")
+                    expected = pending.get("expected_behavior", "")
+                    self._pending_log_analysis_info = None
+                    response = await self._run_analyze_log_with_info(
+                        file_path=None,
+                        user_observation=user_obs,
+                        expected_behavior=expected,
+                        message=message,
+                        session_id=session_id,
+                        on_event=on_event,
+                        pasted_content=message,
+                    )
+                    self._add_response_to_history(response)
+                    return response
+
             # If we're waiting on clarification answers, don't let casual messages derail the flow.
             if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE, PipelineState.COLLECTING_REQUIREMENTS, PipelineState.COLLECTING_LOG_ANALYSIS_INFO, PipelineState.AWAITING_LOG_FIX_CONFIRMATION] and not clarification_responses:
                 if self._is_casual_chat_message(message):

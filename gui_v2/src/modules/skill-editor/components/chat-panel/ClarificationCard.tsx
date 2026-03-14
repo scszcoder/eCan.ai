@@ -289,11 +289,11 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
                   </ChoiceItem>
                 );
               })}
-              {/* Freeform text input: show when a choice with allow_freeform is selected */}
+              {/* Freeform text input: show when ANY selected choice has allow_freeform */}
               {(() => {
-                const freeformChoice = question.choices.find(c => c.allow_freeform);
-                const freeformSelected = freeformChoice && (displayAnswers[question.id] || []).includes(freeformChoice.id);
-                if (!freeformSelected) return null;
+                const selectedIds = displayAnswers[question.id] || [];
+                const anyFreeformSelected = question.choices.some(c => c.allow_freeform && selectedIds.includes(c.id));
+                if (!anyFreeformSelected) return null;
                 if (isReadOnly) {
                   const text = displayFreeform[question.id];
                   return text ? <FreeformReadOnly>{text}</FreeformReadOnly> : null;
