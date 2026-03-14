@@ -337,25 +337,28 @@ class CloudAPIService:
         Returns:
             Delete operation format data
         """
-        # Different data types have different ID field names in cloud format
-        # Note: These are CLOUD field names (after schema conversion)
+        # Different data types have different ID field names in cloud format.
+        # For skills, delete schema currently keeps `id` and excludes `skid`.
         id_field_mapping = {
-            DataType.SKILL: 'skid',
+            DataType.SKILL: 'id',
             DataType.TASK: 'id',
             DataType.AGENT: 'agid',  # ✅ Fixed: Agent uses 'agid' in cloud format
             DataType.TOOL: 'id',
         }
         
         id_field = id_field_mapping.get(self.data_type, 'id')
-        
-        return [
-            {
-                'oid': item.get(id_field, item.get('id', item.get('agid'))),  # ✅ Fallback to common ID fields
-                'owner': item.get('owner', ''),
+        delete_items = []
+        for item in cloud_items:
+            oid = item.get(id_field, item.get('id', item.get('agid')))
+            delete_item = {
+                'oid': oid,
                 'reason': f'User deleted {self.data_type.value}'
             }
-            for item in cloud_items
-        ]
+            owner = item.get('owner')
+            if owner not in (None, ''):
+                delete_item['owner'] = owner
+            delete_items.append(delete_item)
+        return delete_items
     
     def load_from_cloud(self, username: str, query_params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """

@@ -47,6 +47,28 @@ const Skills: React.FC = () => {
 
         try {
             await fetchItems(username);
+            const api = get_ipc_api();
+
+            const [publicResp, subscribedResp] = await Promise.all([
+                api.getPublicSkills<any>(username),
+                api.getSubscribedSkillIds<any>(username),
+            ]);
+
+            if (publicResp.success) {
+                const publicData = publicResp.data as any;
+                const rows = Array.isArray(publicData) ? publicData : (publicData?.skills || []);
+                setPublicSkills(rows);
+            } else {
+                setPublicSkills([]);
+            }
+
+            if (subscribedResp.success) {
+                const subscribedData = subscribedResp.data as any;
+                const ids = Array.isArray(subscribedData) ? subscribedData : [];
+                setSubscribedSkillIds(ids.map((id: any) => String(id)));
+            } else {
+                setSubscribedSkillIds([]);
+            }
         } catch (error) {
             logger.error('[Skills] Error fetching skills:', error);
             message.error(t('pages.skills.fetchError', { defaultValue: 'Failed to fetch skills' }));
@@ -59,26 +81,33 @@ const Skills: React.FC = () => {
         }
     }, [username, fetchSkills]);
 
-    useEffect(() => {
-        if (!username) return;
-        // Your deployed AppSync schema no longer exposes getPublicSkills/getSubscribedSkillIds.
-        // Derive what we can locally to avoid GraphQL FieldUndefined errors.
-        const u = String(username).trim().toLowerCase();
-        const derivedPublic = (skills || []).filter((s) => {
-            const isPublic = (s as any)?.public === true;
-            const owner = String((s as any)?.owner || '').trim().toLowerCase();
-            return isPublic && owner && owner !== u;
-        });
-
-        setPublicSkills(derivedPublic);
-        setSubscribedSkillIds([]);
-    }, [username, skills]);
-
     const handleRefresh = useCallback(async () => {
         if (!username) return;
 
         try {
             await forceRefresh(username);
+            const api = get_ipc_api();
+
+            const [publicResp, subscribedResp] = await Promise.all([
+                api.getPublicSkills<any>(username),
+                api.getSubscribedSkillIds<any>(username),
+            ]);
+
+            if (publicResp.success) {
+                const publicData = publicResp.data as any;
+                const rows = Array.isArray(publicData) ? publicData : (publicData?.skills || []);
+                setPublicSkills(rows);
+            } else {
+                setPublicSkills([]);
+            }
+
+            if (subscribedResp.success) {
+                const subscribedData = subscribedResp.data as any;
+                const ids = Array.isArray(subscribedData) ? subscribedData : [];
+                setSubscribedSkillIds(ids.map((id: any) => String(id)));
+            } else {
+                setSubscribedSkillIds([]);
+            }
         } catch (error) {
             logger.error('[Skills] Error refreshing skills:', error);
             message.error(t('pages.skills.fetchError', { defaultValue: 'Failed to refresh skills' }));
@@ -170,7 +199,6 @@ const Skills: React.FC = () => {
     const handleSkillDelete = () => {
         // After delete, clear selected status and close details page
         setSelectedSkill(null);
-        handleRefresh();
     };
 
     const handleSubscribe = async (skillId: string) => {

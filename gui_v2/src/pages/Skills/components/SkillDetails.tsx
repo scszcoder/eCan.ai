@@ -23,8 +23,9 @@ import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
 
 import { useNavigate } from 'react-router-dom';
 import { useSkillStore } from '@/stores/domain/skillStore';
-import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
+import { get_ipc_api } from '@/services/ipc_api';
+import { logger } from '@/utils/logger';
 import { IPCAPI } from '@/services/ipc/api';
 import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
@@ -490,14 +491,37 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             cancelText: t('common.cancel', 'Cancel'),
             onOk: async () => {
                 try {
+                    logger.info('[SkillDetails] Confirm delete skill', {
+                        selectedSkillId: String((skill as any)?.id || ''),
+                        selectedSkillName: String((skill as any)?.name || ''),
+                        selectedSkillOwner: String((skill as any)?.owner || ''),
+                        username,
+                    });
                     const api = get_ipc_api();
-                    const resp = await api.deleteAgentSkill(username, String((skill as any).id));
+                    const skillId = String((skill as any).id);
+                    logger.info('[SkillDetails] Calling deleteAgentSkill', { username, skillId });
+                    const resp = await api.deleteAgentSkill(username, skillId);
+                    const deleteResult = resp.data;
+                    const deleteSucceeded = Boolean(
+                        resp.success && (
+                            deleteResult?.db_deleted ||
+                            deleteResult?.mem_deleted ||
+                            deleteResult?.file_deleted ||
+                            deleteResult?.cloud_deleted ||
+                            deleteResult?.cloud_cached
+                        )
+                    );
+                    logger.info('[SkillDetails] deleteAgentSkill response', {
+                        outerSuccess: resp.success,
+                        skillId,
+                        deleteResult,
+                    });
                     
-                    if (resp.success) {
+                    if (deleteSucceeded) {
                         message.success(t('pages.skills.deleteSuccess', 'Skill deleted successfully'));
                         // Remove from store
                         const removeItem = useSkillStore.getState().removeItem;
-                        removeItem(String((skill as any).id));
+                        removeItem(skillId);
                         // Call onDelete callback to close detail page
                         if (onDelete) {
                             onDelete();
@@ -506,7 +530,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             onRefresh();
                         }
                     } else {
-                        message.error(resp.error?.message || t('pages.skills.deleteError', 'Failed to delete skill'));
+                        const errorMessage =
+                            deleteResult?.cloud_error ||
+                            deleteResult?.message ||
+                            resp.error?.message ||
+                            t('pages.skills.deleteError', 'Failed to delete skill');
+                        message.error(errorMessage);
                     }
                 } catch (error) {
                     console.error('[SkillDetails] Delete error:', error);
