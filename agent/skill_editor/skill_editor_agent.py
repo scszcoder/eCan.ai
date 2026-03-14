@@ -1639,7 +1639,11 @@ class SkillEditorAgent:
             s3 = boto3.client("s3")
             upload_url = s3.generate_presigned_url(
                 "put_object",
-                Params={"Bucket": s3_bucket, "Key": s3_key},
+                Params={
+                    "Bucket": s3_bucket,
+                    "Key": s3_key,
+                    "ContentType": "text/plain; charset=utf-8",
+                },
                 ExpiresIn=900,
             )
             logger.info(f"[SkillEditorAgent] Generated presigned upload URL for {s3_key}")
