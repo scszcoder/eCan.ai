@@ -1508,11 +1508,20 @@ class SkillEditorAgent:
         First time: asks clarification questions to collect file path, user observation,
         and expected behavior. When answers come back, proceeds to analysis.
         """
+        # --- Extract S3 log key if the desktop client pre-uploaded the file ---
+        s3_log_key = None
+        _s3_key_match = re.search(r'\[S3_LOG_KEY:([^\]]+)\]', message)
+        if _s3_key_match:
+            s3_log_key = _s3_key_match.group(1)
+            # Strip the marker from the message so it doesn't confuse the LLM
+            message = message.replace(_s3_key_match.group(0), '').strip()
+
         # --- If pre-analysis info was already collected, use it ---
         if self._pending_log_analysis_info and self._pending_log_analysis_info.get("_collected"):
             file_path = self._pending_log_analysis_info.get("log_file_path") or self._extract_file_path_from_message(message)
             user_observation = self._pending_log_analysis_info.get("user_observation", "")
             expected_behavior = self._pending_log_analysis_info.get("expected_behavior", "")
+            s3_log_key = s3_log_key or self._pending_log_analysis_info.get("s3_log_key")
             # Clear the pending info so follow-ups don't re-trigger
             self._pending_log_analysis_info = None
             self._pipeline_state = PipelineState.IDLE
@@ -1523,11 +1532,12 @@ class SkillEditorAgent:
                 message=message,
                 session_id=session_id,
                 on_event=on_event,
+                s3_log_key=s3_log_key,
             )
 
         # --- Follow-up on a previous log analysis? ---
         file_path = self._extract_file_path_from_message(message)
-        if not file_path and self._log_analysis_context:
+        if not file_path and not s3_log_key and self._log_analysis_context:
             self._pipeline_state = PipelineState.IDLE
             return await self._run_analyze_log_followup(message, session_id, on_event)
 
@@ -1535,6 +1545,7 @@ class SkillEditorAgent:
         self._pending_log_analysis_info = {
             "original_message": message,
             "detected_file_path": file_path,  # may be None
+            "s3_log_key": s3_log_key,  # set when desktop client pre-uploaded
         }
 
         questions = []
@@ -1614,6 +1625,7 @@ class SkillEditorAgent:
         session_id: Optional[str],
         on_event: Optional[Callable],
         pasted_content: Optional[str] = None,
+        s3_log_key: Optional[str] = None,
     ) -> AgentResponse:
         """Run log analysis after pre-analysis info has been collected.
 
@@ -1621,11 +1633,42 @@ class SkillEditorAgent:
             pasted_content: If provided, use this as the log content directly
                 instead of reading from file_path (for cloud mode where Lambda
                 cannot access local files).
+            s3_log_key: If provided, read the log file from this S3 key
+                (uploaded by the desktop client before relaying to Lambda).
         """
         self._pipeline_state = PipelineState.IDLE
 
+        # --- S3 mode: desktop client pre-uploaded the file to S3 ---
+        if s3_log_key and _is_lambda_runtime():
+            await self._emit_progress(on_event, "Reading log file from cloud storage...")
+            try:
+                import boto3
+                s3_bucket = os.environ.get("S3_BUCKET", "")
+                if not s3_bucket:
+                    raise RuntimeError("S3_BUCKET env var not set")
+                s3 = boto3.client("s3")
+                obj = s3.get_object(Bucket=s3_bucket, Key=s3_log_key)
+                raw = obj["Body"].read().decode("utf-8", errors="replace")
+                file_size = len(raw.encode("utf-8", errors="replace"))
+                logger.info(f"[SkillEditorAgent] Read log from S3: {s3_log_key} ({file_size:,} bytes)")
+                if not raw or not raw.strip():
+                    return AgentResponse(
+                        message="The uploaded log file appears to be empty — nothing to analyze.",
+                        intent=IntentType.ANALYZE_LOG,
+                        metadata={"session_id": session_id, "state": "idle"},
+                    )
+            except Exception as e:
+                logger.error(f"[SkillEditorAgent] Failed to read log from S3 ({s3_log_key}): {e}")
+                return AgentResponse(
+                    message=(
+                        f"Failed to read the uploaded log file from cloud storage: {e}\n\n"
+                        f"You can try pasting the log content directly in the chat instead."
+                    ),
+                    intent=IntentType.ANALYZE_LOG,
+                    metadata={"session_id": session_id, "state": "idle", "s3_read_error": str(e)},
+                )
         # --- Pasted content mode (cloud / Lambda — user pasted log text) ---
-        if pasted_content:
+        elif pasted_content:
             raw = pasted_content.strip()
             file_size = len(raw.encode("utf-8", errors="replace"))
             file_path = "(pasted content)"
@@ -1639,7 +1682,7 @@ class SkillEditorAgent:
         else:
             raw = None  # will be read from file below
 
-        if not pasted_content:
+        if not pasted_content and not (s3_log_key and _is_lambda_runtime()):
             await self._emit_progress(on_event, "Reading log file...")
 
             if not file_path:
@@ -1653,7 +1696,7 @@ class SkillEditorAgent:
                     metadata={"session_id": session_id, "state": "idle", "needs_file_path": True},
                 )
 
-            # --- Cloud mode: Lambda cannot access local filesystem paths ---
+            # --- Cloud mode without pre-uploaded file: ask user to paste ---
             if _is_lambda_runtime():
                 self._pending_log_analysis_info = {
                     "user_observation": user_observation,
@@ -1941,6 +1984,7 @@ class SkillEditorAgent:
             "log_file_path": file_path,
             "user_observation": user_observation,
             "expected_behavior": expected_behavior,
+            "s3_log_key": pending.get("s3_log_key"),  # preserve S3 key through roundtrip
             "_collected": True,
         }
 
