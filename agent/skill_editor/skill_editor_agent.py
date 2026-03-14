@@ -1634,7 +1634,12 @@ class SkillEditorAgent:
             import time as _time
             s3_bucket = "ecan-logs"
             sanitized_owner = self._sanitize_owner_for_s3()
-            filename = Path(file_path).name if file_path else "unknown.log"
+            # Handle Windows paths on Linux: Path.name won't parse backslashes
+            if file_path:
+                import ntpath
+                filename = ntpath.basename(file_path) or Path(file_path).name
+            else:
+                filename = "unknown.log"
             s3_key = f"{sanitized_owner}/{int(_time.time())}_{filename}"
             s3 = boto3.client("s3")
             upload_url = s3.generate_presigned_url(
