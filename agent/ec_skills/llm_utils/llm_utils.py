@@ -2621,7 +2621,21 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
             send_result = self_agent.a2a_send_chat_message_async(opposite_agent, agent_response_message)
             return send_result
         else:
-            # No opposite agent found (human user chat) — send directly to GUI
+            # No opposite agent found (human user chat)
+            # Check if this message originated from an external channel
+            try:
+                from app_context import AppContext
+                _mainwin = AppContext.get_main_window()
+                _bridge = getattr(_mainwin, "channel_bridge", None)
+                if _bridge:
+                    _result = _bridge.route_reply(state, next_msg)
+                    if _result is not None:
+                        # Reply was routed to an external channel
+                        return state
+            except Exception as _ch_err:
+                logger.debug(f"[send_response_back] Channel bridge check failed: {_ch_err}")
+
+            # Fall through to GUI path
             from agent.ec_tasks.message_sender import ChatMessageSender
             logger.info(f"[send_response_back] No opposite agent, sending directly to GUI chat={chat_id}")
             sender = ChatMessageSender(self_agent)

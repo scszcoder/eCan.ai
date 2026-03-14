@@ -521,6 +521,28 @@ class MainWindow:
             except Exception as sub_err:
                 logger.debug(f"[MainWindow] AppSync subscription start skipped: {sub_err}")
 
+            # Start communication channels (Telegram, Slack, WhatsApp, etc.)
+            try:
+                from agent.channels import ChannelManager, ChannelRegistry, ChannelBridge
+                from pathlib import Path
+
+                registry = ChannelRegistry()
+                registry.discover_adapters()
+
+                bridge = ChannelBridge(self, None)  # manager set below
+                self.channel_manager = ChannelManager(
+                    on_message=bridge.dispatch_inbound,
+                )
+                bridge._channel_manager = self.channel_manager
+
+                config_path = Path(__file__).parent.parent / "agent" / "agent_files" / "channels.json"
+                self.channel_manager.load_config(config_path)
+                self.channel_manager.start_all()
+                self.channel_bridge = bridge
+                logger.info("[MainWindow] Channel manager started")
+            except Exception as ch_err:
+                logger.debug(f"[MainWindow] Channel manager start skipped: {ch_err}")
+
             # TEST: Push demo ad after initialization (comment out after testing)
             # self._test_push_demo_ad()
 
@@ -3782,6 +3804,14 @@ class MainWindow:
             
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error stopping local server: {e}")
+
+        # Stop communication channels
+        try:
+            if hasattr(self, 'channel_manager') and self.channel_manager:
+                self.channel_manager.stop_all()
+                logger.info("[MainWindow] Channel manager stopped")
+        except Exception as e:
+            logger.warning(f"[MainWindow] Error stopping channel manager: {e}")
 
         # Close MCP client manager session
         try:

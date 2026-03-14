@@ -4085,21 +4085,37 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                     chat_id = state["messages"][1]
 
             if chat_id and response and str(response).strip():
-                agent_id = state.get("messages", [""])[0] if isinstance(state.get("messages"), list) else ""
-                agent_obj = None
-                if agent_id:
-                    try:
-                        from agent.agent_service import get_agent_by_id
-                        agent_obj = get_agent_by_id(agent_id)
-                    except Exception:
-                        pass
-                sender = ChatMessageSender(agent_obj)
-                sender.send_text(chat_id, response)
+                # Check if this message originated from an external channel
+                _sent_via_channel = False
+                try:
+                    from app_context import AppContext
+                    _mw = AppContext.get_main_window()
+                    _bridge = getattr(_mw, "channel_bridge", None)
+                    if _bridge:
+                        _ch_result = _bridge.route_reply(state, response)
+                        if _ch_result is not None:
+                            _sent_via_channel = True
+                            logger.info(f"[chat_node] Sent response via channel, len={len(response)}")
+                except Exception as _ch_err:
+                    logger.debug(f"[chat_node] Channel bridge check failed: {_ch_err}")
+
+                if not _sent_via_channel:
+                    agent_id = state.get("messages", [""])[0] if isinstance(state.get("messages"), list) else ""
+                    agent_obj = None
+                    if agent_id:
+                        try:
+                            from agent.agent_service import get_agent_by_id
+                            agent_obj = get_agent_by_id(agent_id)
+                        except Exception:
+                            pass
+                    sender = ChatMessageSender(agent_obj)
+                    sender.send_text(chat_id, response)
+                    logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(response)}")
+                    send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
+
                 # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
                 if isinstance(state.get("attributes"), dict):
                     state["attributes"]["chat_response_sent"] = True
-                logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(response)}")
-                send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
             elif not response or not str(response).strip():
                 logger.debug("[chat_node] Skipping send: response text is empty")
             else:
