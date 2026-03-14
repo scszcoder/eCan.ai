@@ -19,6 +19,12 @@ The Mapping DSL lets you declare data movement rules in `data_mapping.json` so t
 
 {mapping_dsl}
 
+## Available MCP Tools Catalog
+
+When editing `mcp_tool` nodes, use exact tool names and parameter names from this catalog. Only fall back to `"llm-auto-select"` when no specific tool matches the task.
+
+{tools_catalog}
+
 ---
 
 ## Your Role
