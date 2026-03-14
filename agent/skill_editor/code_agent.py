@@ -2594,7 +2594,8 @@ Continue the JSON output (do not include any text before the continuation):"""
         user_message: str,
         canvas_context: Optional[Dict] = None,
         plan: Optional[ImplementationPlan] = None,
-        on_event: Optional[Callable] = None
+        on_event: Optional[Callable] = None,
+        tools_catalog: Optional[str] = None,
     ) -> CodeAgentOutput:
         """
         Generate a flowgram from user request and optional plan.
@@ -2625,6 +2626,7 @@ Continue the JSON output (do not include any text before the continuation):"""
                 mapping_dsl=prompt_store.get_mapping_dsl(),
                 canvas_context=self._format_canvas_context(canvas_context),
                 plan_context=self._format_plan_context(plan),
+                tools_catalog=tools_catalog or "(tools catalog not available)",
             )
             
             prompt += f"\n\n## USER REQUEST:\n{user_message}"
@@ -2928,7 +2930,8 @@ Return the FULL corrected JSON — every node, every edge, every config field.
         self,
         edit_request: str,
         current_flowgram: Optional[Flowgram] = None,
-        on_event: Optional[Callable] = None
+        on_event: Optional[Callable] = None,
+        tools_catalog: Optional[str] = None,
     ) -> CodeAgentOutput:
         """
         Edit an existing flowgram.
@@ -2978,6 +2981,7 @@ Return the FULL corrected JSON — every node, every edge, every config field.
                 node_types=get_node_types_description(),
                 node_schema=prompt_store.get_node_schema(),
                 mapping_dsl=prompt_store.get_mapping_dsl(),
+                tools_catalog=tools_catalog or "(tools catalog not available)",
             )
             
             # Invoke LLM

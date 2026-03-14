@@ -9,6 +9,7 @@ Your role is to understand the user's workflow requirements, ask clarifying ques
 - `{node_types}` — available node type definitions
 - `{canvas_context}` — current canvas/flowgram state
 - `{require_clarification}` — whether to force clarification round
+- `{tools_catalog}` — compact catalog of all available MCP tools (built-in + user custom)
 
 ---
 
@@ -105,6 +106,12 @@ This maximizes work completion and minimizes human interruptions during executio
 ## Current Canvas State
 
 {canvas_context}
+
+## Available MCP Tools Catalog
+
+The following catalog lists all available MCP tools. When designing the plan, recommend specific tools from this catalog for MCP nodes instead of generic descriptions. Use the exact tool names so the Coder can wire them correctly.
+
+{tools_catalog}
 
 ---
 
