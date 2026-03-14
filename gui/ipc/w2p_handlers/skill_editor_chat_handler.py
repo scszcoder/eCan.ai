@@ -574,6 +574,25 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 except Exception as relay_push_err:
                     logger.debug(f"[SkillEditorChat] Cloud relay push to frontend skipped: {relay_push_err}")
 
+                # When subscription is active the real data (plan, clarification,
+                # flowgram) will arrive via stream_end events.  Returning the
+                # full result here would cause the frontend to render duplicate
+                # messages/plans.  Return a "processing" placeholder instead.
+                if sub_active:
+                    msg = cloud_result.get("message") or {}
+                    placeholder = {
+                        "sessionId": cloud_result.get("sessionId", session_id),
+                        "state": "processing",
+                        "intent": cloud_result.get("intent"),
+                        "message": {
+                            "id": msg.get("id") if isinstance(msg, dict) else None,
+                            "role": "assistant",
+                            "content": "",
+                            "timestamp": int(time.time() * 1000),
+                            "metadata": {"placeholder": True},
+                        },
+                    }
+                    return create_success_response(request, placeholder)
                 return create_success_response(request, cloud_result)
             else:
                 logger.warning("[SkillEditorChat] Cloud send_message failed, falling back to local agent")
