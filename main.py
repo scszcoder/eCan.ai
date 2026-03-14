@@ -653,6 +653,12 @@ try:
     # Print startup banner
     _print_startup_banner(logger, app_info)
 
+    try:
+        from ota.core.install_state import confirm_pending_install_result
+        confirm_pending_install_result(current_version=getattr(app_info, 'version', '1.0.0'), logger=logger)
+    except Exception as e:
+        logger.warning(f"[OTA] Failed to confirm pending installation result on startup: {e}")
+
     # Configure third-party package loggers to use unified logger
     try:
         from utils.thirdparty_logger_config import configure_all_thirdparty_loggers
@@ -742,6 +748,13 @@ try:
         ctx.set_logger(logger)
         ctx.set_config(app_settings)
         ctx.set_app_info(app_info)
+
+        # Handle deferred OTA installer cleanup after successful upgrade
+        try:
+            from ota.core.install_state import handle_pending_install_cleanup
+            handle_pending_install_cleanup(current_version=app_info.version, logger=logger)
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to handle pending install cleanup on startup: {e}")
 
         # Initialize GUI dispatcher to ensure it's created on the main thread
         from utils.gui_dispatch import init_gui_dispatch

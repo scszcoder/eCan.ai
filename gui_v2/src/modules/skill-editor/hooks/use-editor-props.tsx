@@ -41,6 +41,7 @@ import { SelectorBoxPopover } from '../components/selector-box-popover';
 import { BaseNode, CommentRender, GroupNodeRender, LineAddButton, NodePanel } from '../components';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { useSheetsStore } from '../stores/sheets-store';
+import { traverseWorkflowNodes } from '../utils/traverse-workflow-nodes';
 import { setWorkflowDocumentRef } from '../workflow-document-binding';
 
 export function useEditorProps(
@@ -231,12 +232,46 @@ export function useEditorProps(
        * Content change
        * TEMPORARILY DISABLED: Testing if onContentChange causes the crash
        */
-      onContentChange: (() => {
-        console.log('[onContentChange] DISABLED for testing - returning no-op');
-        return () => {
-          // no-op - disabled for debugging
-        };
-      })(),
+      onContentChange: debounce((ctx) => {
+        try {
+          const json = ctx?.document?.toJSON?.();
+          if (!json) {
+            return;
+          }
+
+          const { isFlipped } = useNodeFlipStore.getState();
+          const breakpoints = new Set<string>(useSkillInfoStore.getState().breakpoints || []);
+
+          const syncNodeState = (nodes: any[]) => {
+            traverseWorkflowNodes(nodes, (node: any) => {
+              if (!node.data) {
+                node.data = {};
+              }
+
+              if (isFlipped(node.id)) {
+                node.data.hFlip = true;
+              } else if (node.data.hFlip) {
+                delete node.data.hFlip;
+              }
+
+              if (breakpoints.has(node.id)) {
+                node.data.breakpoint = true;
+              } else if (node.data.breakpoint) {
+                delete node.data.breakpoint;
+              }
+            });
+          };
+
+          if (Array.isArray(json.nodes)) {
+            syncNodeState(json.nodes);
+          }
+
+          useSheetsStore.getState().saveActiveDocument(json);
+          useSkillInfoStore.getState().setHasUnsavedChanges(true);
+        } catch (error) {
+          console.warn('[onContentChange] Failed to sync document state:', error);
+        }
+      }, 250),
       /**
        * Running line
        */
