@@ -11,11 +11,8 @@ Uses Content-Type: application/json (required when variables are present).
 from __future__ import annotations
 
 import json
-import os
-import re
 import time
 import traceback
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
@@ -375,68 +372,6 @@ def relay_send_message(session_id: str,
         msg["attachments"] = _parse_awsjson(msg.get("attachments"))
 
     return raw
-
-
-def relay_upload_log_file(local_path: str) -> Optional[str]:
-    """Upload a local log file to S3 via presigned URL for cloud-mode analysis.
-
-    Returns the S3 key on success, or None on failure.
-    """
-    ctx = _get_cloud_context()
-    if ctx is None:
-        logger.warning("[se_cloud_relay] No cloud context for log file upload")
-        return None
-
-    owner = ctx["owner"]
-    file_name = os.path.basename(local_path)
-    # Use a dedicated pseudo-skill for log uploads so keys are predictable
-    skill_id = "_log_uploads"
-
-    mutation = """
-        mutation RequestSkillFileUploadUrl($input: SkillFileUploadInput!) {
-            requestSkillFileUploadUrl(input: $input) {
-                uploadUrl s3Key expiresIn
-            }
-        }
-    """
-    variables = {
-        "input": {
-            "skillId": skill_id,
-            "owner": owner,
-            "fileName": f"{int(time.time())}_{file_name}",
-        }
-    }
-    jresp = _appsync_request(mutation, ctx, variables=variables, timeout=30)
-    if "errors" in jresp:
-        logger.warning(f"[se_cloud_relay] requestSkillFileUploadUrl error: {jresp['errors']}")
-        return None
-    data = (jresp.get("data") or {}).get("requestSkillFileUploadUrl")
-    if not data or not data.get("uploadUrl"):
-        logger.warning(f"[se_cloud_relay] No uploadUrl in response")
-        return None
-
-    upload_url = data["uploadUrl"]
-    s3_key = data["s3Key"]
-
-    # Read file and upload via presigned PUT
-    try:
-        import requests as http_requests
-        file_bytes = open(local_path, "rb").read()
-        resp = http_requests.put(
-            upload_url,
-            data=file_bytes,
-            headers={"Content-Type": "text/plain; charset=utf-8"},
-            timeout=120,
-        )
-        if resp.status_code in (200, 204):
-            logger.info(f"[se_cloud_relay] Log file uploaded to S3: {s3_key} ({len(file_bytes)} bytes)")
-            return s3_key
-        else:
-            logger.warning(f"[se_cloud_relay] S3 upload failed: {resp.status_code} {resp.text[:200]}")
-            return None
-    except Exception as exc:
-        logger.error(f"[se_cloud_relay] Log file upload error: {exc}")
-        return None
 
 
 def relay_cancel_generation(session_id: str) -> bool:
