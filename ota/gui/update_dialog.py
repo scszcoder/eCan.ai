@@ -615,6 +615,14 @@ class UpdateDialog(QDialog):
         
         # Update global download manager
         download_manager.complete_download(success, message)
+        logger.info(f"[UpdateDialog] download_finished called: success={success}, message={message}")
+        logger.info(
+            f"[UpdateDialog] download manager state after completion: "
+            f"is_downloading={download_manager.is_downloading()}, "
+            f"is_installing={download_manager.is_installing()}, "
+            f"progress={getattr(download_manager, 'progress', 'unknown')}, "
+            f"version={getattr(download_manager, 'version', 'unknown')}"
+        )
         
         if success:
             # ✅ Update progress to 100%
@@ -629,10 +637,12 @@ class UpdateDialog(QDialog):
                 logger.info("[UpdateDialog] Download complete, auto-starting installation...")
                 from PySide6.QtCore import QTimer
                 QTimer.singleShot(1000, self.install_update)  # Wait 1 second then install
+                logger.info("[UpdateDialog] install_update scheduled via QTimer.singleShot(delay_ms=1000)")
             else:
                 logger.warning("[UpdateDialog] Skipping auto-install: installer already launched")
         else:
             self.status_label.setText(message)
+            logger.warning(f"[UpdateDialog] Download failed, installation will not start: {message}")
             
             # Hide progress related controls
             self.progress_bar.setVisible(False)
@@ -682,7 +692,10 @@ class UpdateDialog(QDialog):
             if not icon_loaded:
                 # Use default icon from QMessageBox
                 default_icon = QMessageBox.standardIcon(QMessageBox.Icon.Information)
-                default_pixmap = default_icon.pixmap(80, 80)
+                if hasattr(default_icon, 'pixmap'):
+                    default_pixmap = default_icon.pixmap(80, 80)
+                else:
+                    default_pixmap = default_icon
                 icon_label.setPixmap(default_pixmap)
             
             layout.addWidget(icon_label)
@@ -820,8 +833,18 @@ class UpdateDialog(QDialog):
     
     def install_update(self):
         """Install update - called automatically after download"""
+        logger.info("[UpdateDialog] install_update invoked")
         if not self.update_info:
+            logger.warning("[UpdateDialog] install_update aborted: self.update_info is empty")
             return
+
+        logger.info(
+            f"[UpdateDialog] install_update context: "
+            f"latest_version={self.update_info.get('latest_version', 'unknown')}, "
+            f"download_url={self.update_info.get('download_url', '')}, "
+            f"file_size={self.update_info.get('file_size', 0)}, "
+            f"download_manager.is_installing={download_manager.is_installing()}"
+        )
 
         # Global guard: prevent launching installer twice (Inno Setup may rollback/exit on second instance)
         if download_manager.is_installing():
@@ -830,18 +853,39 @@ class UpdateDialog(QDialog):
         
         # Check if already installing
         if self.install_worker and self.install_worker.isRunning():
-            logger.warning("Installation already in progress")
+            logger.warning("[UpdateDialog] install_update aborted: install_worker already running")
             return
         
         # Get downloaded package path
         from ota.core.package_manager import package_manager
+        logger.info(
+            f"[UpdateDialog] package_manager state before install: "
+            f"has_current_package={package_manager.current_package is not None}"
+        )
         
         if not package_manager.current_package or not package_manager.current_package.download_path:
+            logger.error(
+                f"[UpdateDialog] install_update aborted: invalid package state - "
+                f"current_package={package_manager.current_package}, "
+                f"download_path={getattr(package_manager.current_package, 'download_path', None)}"
+            )
             self.status_label.setText(_tr.tr("package_not_found"))
             QMessageBox.warning(self, _tr.tr("installation_failed"), _tr.tr("package_not_found_message"))
             return
         
         package_path = package_manager.current_package.download_path
+        target_version = self.update_info.get('latest_version', '1.1.0')
+        package_exists = os.path.exists(package_path)
+        logger.info(
+            f"[UpdateDialog] resolved package path for install: path={package_path}, exists={package_exists}, "
+            f"is_downloaded={getattr(package_manager.current_package, 'is_downloaded', None)}, "
+            f"is_verified={getattr(package_manager.current_package, 'is_verified', None)}"
+        )
+        if package_exists:
+            try:
+                logger.info(f"[UpdateDialog] package file size before install: {os.path.getsize(package_path)} bytes")
+            except Exception as e:
+                logger.warning(f"[UpdateDialog] Failed to stat package before install: {e}")
         
         # ✅ OTA update installation options - silent mode
         install_opts = {
@@ -851,7 +895,14 @@ class UpdateDialog(QDialog):
         }
         
         logger.info(f"[UpdateDialog] Starting OTA silent installation: {package_path}")
+        logger.info(f"[UpdateDialog] OTA target version: {target_version}")
         logger.info(f"[UpdateDialog] Installation options: {install_opts}")
+
+        try:
+            from ota.core.install_state import write_pending_install_state
+            write_pending_install_state(target_version=target_version, package_path=package_path, logger=logger)
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to write pending install state before launch: {e}")
         
         self.status_label.setText(_tr.tr("preparing_install"))
         
@@ -861,6 +912,10 @@ class UpdateDialog(QDialog):
         self.install_worker.install_completed.connect(self.install_finished)
         self.install_worker.installation_progress.connect(self.installation_progress_updated)
         self.install_worker.start()
+        logger.info(
+            f"[UpdateDialog] InstallWorker started: isRunning={self.install_worker.isRunning()}, "
+            f"thread={self.install_worker}"
+        )
         
         logger.info("[UpdateDialog] Installation started in background thread (auto-install, no confirmation)")
     
@@ -887,85 +942,27 @@ class UpdateDialog(QDialog):
     
     def install_finished(self, success: bool, message: str):
         """Installation finished"""
+        logger.info(f"[UpdateDialog] install_finished called: success={success}, message={message}")
         self.install_worker = None
         
         if success:
             # ✅ Update status but don't show dialog
             # The system installer will show its own window
             self.status_label.setText(_tr.tr("installer_launched_status"))
-            
-            # ✅ Show delete downloaded file confirmation dialog
-            self._show_delete_download_confirmation()
+            logger.info("[UpdateDialog] Installer reported as launched successfully; update dialog will hide")
+            logger.info("[UpdateDialog] Downloaded installer will be cleaned up on next successful startup")
             
             # ✅ Hide the update dialog since installation is in progress
             logger.info("[UpdateDialog] Installation launched successfully, hiding update dialog")
             self.hide()
         else:
+            try:
+                from ota.core.install_state import clear_pending_install_state
+                clear_pending_install_state(logger=logger)
+            except Exception as e:
+                logger.warning(f"[OTA] Failed to clear pending install state after launch failure: {e}")
             self.status_label.setText(_tr.tr("installation_failed_status"))
             QMessageBox.warning(self, _tr.tr("installation_failed"), message)
-    
-    def _show_delete_download_confirmation(self):
-        """Show confirmation dialog to delete downloaded installation file"""
-        try:
-            from ota.core.package_manager import package_manager
-            
-            # Get downloaded package path
-            if not package_manager.current_package or not package_manager.current_package.download_path:
-                logger.info("[UpdateDialog] No package to delete")
-                return
-            
-            package_path = package_manager.current_package.download_path
-            if not os.path.exists(package_path):
-                logger.info(f"[UpdateDialog] Package file not found: {package_path}")
-                return
-            
-            # Get file size for display
-            file_size = os.path.getsize(package_path)
-            size_mb = file_size / (1024 * 1024)
-            
-            # Create confirmation dialog
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle(_tr.tr("delete_download_title"))
-            msg_box.setIcon(QMessageBox.Question)
-            
-            # Message text
-            message_text = _tr.tr("delete_download_message").format(
-                file_path=package_path,
-                file_size=f"{size_mb:.1f} MB"
-            )
-            msg_box.setText(message_text)
-            msg_box.setInformativeText(_tr.tr("delete_download_info"))
-            
-            # Buttons
-            delete_button = msg_box.addButton(_tr.tr("delete_now"), QMessageBox.YesRole)
-            keep_button = msg_box.addButton(_tr.tr("keep_file"), QMessageBox.NoRole)
-            msg_box.setDefaultButton(keep_button)
-            
-            # Show dialog
-            msg_box.exec()
-            
-            # Check which button was clicked
-            if msg_box.clickedButton() == delete_button:
-                try:
-                    os.remove(package_path)
-                    logger.info(f"[UpdateDialog] Deleted downloaded file: {package_path}")
-                    QMessageBox.information(
-                        self,
-                        _tr.tr("delete_success_title"),
-                        _tr.tr("delete_success_message")
-                    )
-                except Exception as e:
-                    logger.error(f"[UpdateDialog] Failed to delete file: {e}")
-                    QMessageBox.warning(
-                        self,
-                        _tr.tr("delete_failed_title"),
-                        _tr.tr("delete_failed_message").format(error=str(e))
-                    )
-            else:
-                logger.info(f"[UpdateDialog] User chose to keep downloaded file: {package_path}")
-                
-        except Exception as e:
-            logger.error(f"[UpdateDialog] Error in delete confirmation dialog: {e}")
     
     def _show_installation_launched_dialog(self):
         """Show beautiful installation launched dialog"""
@@ -1008,7 +1005,10 @@ class UpdateDialog(QDialog):
             
             if not icon_loaded:
                 default_icon = QMessageBox.standardIcon(QMessageBox.Icon.Information)
-                default_pixmap = default_icon.pixmap(80, 80)
+                if hasattr(default_icon, 'pixmap'):
+                    default_pixmap = default_icon.pixmap(80, 80)
+                else:
+                    default_pixmap = default_icon
                 icon_label.setPixmap(default_pixmap)
             
             layout.addWidget(icon_label)

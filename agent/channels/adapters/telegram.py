@@ -1,271 +1,168 @@
 """
-Telegram channel adapter using the Bot API (long polling mode).
+Telegram channel adapter — Bot API long polling.
 
-Requires: pip install python-telegram-bot
-Config keys:
-  bot_token       — (required) Telegram Bot API token from @BotFather
-  allowed_chat_ids — (optional) list of chat IDs to accept messages from; empty = accept all
-  polling_timeout  — (optional) long-poll timeout in seconds, default 30
-  default_agent_id — (optional) agent ID to route messages to
+Requires: ``requests`` (already in requirements-base.txt).
+Config keys: ``bot_token``, ``allowed_chat_ids`` (optional list),
+             ``default_agent_id`` (optional).
 """
-
 from __future__ import annotations
 
+import logging
 import time
 from threading import Event
-from typing import Callable, List, Optional
-
-from utils.logger_helper import logger_helper as logger
+from typing import Any, Callable, Dict, List, Optional
 
 from agent.channels.base import (
     ChannelMessage,
     ChannelPlugin,
+    MessageType,
     OutboundMessage,
     SendResult,
 )
 from agent.channels.registry import ChannelRegistry
 
+logger = logging.getLogger(__name__)
 
-class TelegramChannel(ChannelPlugin):
-    _channel_id = "telegram"
+_API = "https://api.telegram.org/bot{token}/{method}"
+
+
+class TelegramPlugin(ChannelPlugin):
+    channel_type = "telegram"
 
     def __init__(self):
-        self._bot = None
-        self._bot_token: str = ""
-        self._allowed_chat_ids: List[str] = []
-        self._polling_timeout: int = 30
+        self._token: str = ""
+        self._allowed: Optional[List[str]] = None
         self._default_agent_id: Optional[str] = None
-        self._bot_info: Optional[dict] = None
-        self._last_update_id: int = 0
+        self._offset: int = 0
 
-    @property
-    def channel_id(self) -> str:
-        return "telegram"
-
-    @property
-    def display_name(self) -> str:
-        return "Telegram"
-
-    # ---- lifecycle ----
-
-    def configure(self, config: dict) -> None:
-        self._bot_token = config.get("bot_token", "")
-        if not self._bot_token:
-            raise ValueError("Telegram config requires 'bot_token'")
-
-        self._allowed_chat_ids = [
-            str(cid) for cid in config.get("allowed_chat_ids", [])
-        ]
-        self._polling_timeout = config.get("polling_timeout", 30)
-        self._default_agent_id = config.get("default_agent_id")
+    def configure(self, config: Dict[str, Any]) -> None:
+        self._token = config.get("bot_token", "")
+        if not self._token:
+            raise ValueError("Telegram bot_token is required")
+        allowed = config.get("allowed_chat_ids")
+        self._allowed = [str(c) for c in allowed] if allowed else None
+        self._default_agent_id = config.get("default_agent_id") or None
 
     def start(self, on_message: Callable[[ChannelMessage], None], stop_event: Event) -> None:
-        """Long-polling loop using requests (no async dependency)."""
         import requests
 
-        base_url = f"https://api.telegram.org/bot{self._bot_token}"
-
-        # Fetch bot info
-        try:
-            me = requests.get(f"{base_url}/getMe", timeout=10).json()
-            if me.get("ok"):
-                self._bot_info = me["result"]
-                logger.info(
-                    f"[Telegram] Bot connected: @{self._bot_info.get('username')}"
-                )
-        except Exception as exc:
-            logger.error(f"[Telegram] getMe failed: {exc}")
-            raise
-
+        logger.info("[Telegram] Starting long-polling loop")
         while not stop_event.is_set():
             try:
-                params = {
-                    "timeout": self._polling_timeout,
-                    "allowed_updates": '["message"]',
-                }
-                if self._last_update_id:
-                    params["offset"] = self._last_update_id + 1
-
                 resp = requests.get(
-                    f"{base_url}/getUpdates",
-                    params=params,
-                    timeout=self._polling_timeout + 10,
+                    _API.format(token=self._token, method="getUpdates"),
+                    params={"offset": self._offset, "timeout": 30},
+                    timeout=35,
                 )
-                data = resp.json()
-
-                if not data.get("ok"):
-                    logger.warning(f"[Telegram] getUpdates error: {data}")
-                    stop_event.wait(5)
+                if resp.status_code != 200:
+                    logger.warning(f"[Telegram] API error {resp.status_code}")
+                    time.sleep(2)
                     continue
-
+                data = resp.json()
                 for update in data.get("result", []):
-                    self._last_update_id = update["update_id"]
-                    message = update.get("message")
-                    if not message:
+                    self._offset = update["update_id"] + 1
+                    msg = update.get("message") or update.get("edited_message")
+                    if not msg:
                         continue
-
-                    chat = message.get("chat", {})
-                    chat_id_str = str(chat.get("id", ""))
-
-                    # Filter by allowed_chat_ids
-                    if self._allowed_chat_ids and chat_id_str not in self._allowed_chat_ids:
-                        logger.debug(f"[Telegram] Ignoring message from chat {chat_id_str} (not in allowlist)")
+                    chat_id = str(msg["chat"]["id"])
+                    if self._allowed and chat_id not in self._allowed:
                         continue
-
-                    cm = self._normalize(message)
-                    if cm:
+                    cm = ChannelMessage(
+                        channel_id="telegram",
+                        chat_id=chat_id,
+                        sender_id=str(msg["from"]["id"]),
+                        sender_name=msg["from"].get("first_name", ""),
+                        text=msg.get("text", ""),
+                        message_type=self._detect_type(msg),
+                        attachments=self._extract_attachments(msg),
+                        raw=msg,
+                        timestamp=float(msg.get("date", time.time())),
+                        message_id=str(msg["message_id"]),
+                    )
+                    try:
                         on_message(cm)
-
-            except requests.exceptions.Timeout:
-                continue  # normal for long polling
-            except Exception as exc:
-                logger.error(f"[Telegram] Polling error: {exc}")
-                stop_event.wait(3)
+                    except Exception as e:
+                        logger.error(f"[Telegram] on_message error: {e}")
+            except Exception as e:
+                if not stop_event.is_set():
+                    logger.warning(f"[Telegram] Poll error: {e}")
+                    time.sleep(3)
+        logger.info("[Telegram] Polling loop exited")
 
     def stop(self) -> None:
-        pass  # stop_event handles it; requests timeout will break the loop
-
-    # ---- outbound ----
+        pass  # stop_event handles it
 
     def send(self, chat_id: str, message: OutboundMessage) -> SendResult:
         import requests
 
-        base_url = f"https://api.telegram.org/bot{self._bot_token}"
-
         try:
-            if message.media_url:
-                return self._send_media(base_url, chat_id, message)
-
-            payload = {
-                "chat_id": chat_id,
-                "text": message.text or "(empty)",
-                "parse_mode": "Markdown",
-            }
-            if message.reply_to_id:
-                payload["reply_to_message_id"] = message.reply_to_id
-
-            resp = requests.post(f"{base_url}/sendMessage", json=payload, timeout=15)
-            data = resp.json()
-
-            if data.get("ok"):
-                return SendResult(
-                    success=True,
-                    message_id=str(data["result"]["message_id"]),
-                    raw=data,
-                )
-            else:
-                return SendResult(success=False, error=data.get("description", str(data)), raw=data)
-
-        except Exception as exc:
-            return SendResult(success=False, error=str(exc))
-
-    def _send_media(self, base_url: str, chat_id: str, message: OutboundMessage) -> SendResult:
-        import requests
-
-        media_type = (message.media_type or "file").lower()
-        method_map = {
-            "image": "sendPhoto",
-            "photo": "sendPhoto",
-            "audio": "sendAudio",
-            "video": "sendVideo",
-            "file": "sendDocument",
-            "document": "sendDocument",
-        }
-        method = method_map.get(media_type, "sendDocument")
-        field_map = {
-            "sendPhoto": "photo",
-            "sendAudio": "audio",
-            "sendVideo": "video",
-            "sendDocument": "document",
-        }
-        field_name = field_map[method]
-
-        payload = {
-            "chat_id": chat_id,
-            field_name: message.media_url,
-        }
-        if message.caption:
-            payload["caption"] = message.caption
-
-        try:
-            resp = requests.post(f"{base_url}/{method}", json=payload, timeout=30)
+            if message.attachments:
+                return self._send_media(chat_id, message)
+            resp = requests.post(
+                _API.format(token=self._token, method="sendMessage"),
+                json={
+                    "chat_id": chat_id,
+                    "text": message.text,
+                    "parse_mode": "Markdown",
+                },
+                timeout=15,
+            )
             data = resp.json()
             if data.get("ok"):
                 return SendResult(success=True, message_id=str(data["result"]["message_id"]), raw=data)
-            else:
-                return SendResult(success=False, error=data.get("description", str(data)), raw=data)
-        except Exception as exc:
-            return SendResult(success=False, error=str(exc))
+            return SendResult(success=False, error=data.get("description", "Unknown"), raw=data)
+        except Exception as e:
+            return SendResult(success=False, error=str(e))
 
-    # ---- helpers ----
+    def _send_media(self, chat_id: str, message: OutboundMessage) -> SendResult:
+        import requests
 
-    def _normalize(self, message: dict) -> Optional[ChannelMessage]:
-        """Convert a Telegram message dict to ChannelMessage."""
-        text = message.get("text", "")
-        caption = message.get("caption", "")
-        content = text or caption
+        att = message.attachments[0]
+        media_type = att.get("type", "photo")
+        method_map = {"image": "sendPhoto", "photo": "sendPhoto", "document": "sendDocument",
+                      "audio": "sendAudio", "video": "sendVideo", "voice": "sendVoice"}
+        method = method_map.get(media_type, "sendDocument")
+        field = "photo" if "photo" in method.lower() else media_type
+        try:
+            resp = requests.post(
+                _API.format(token=self._token, method=method),
+                json={"chat_id": chat_id, field: att.get("url", ""), "caption": message.text},
+                timeout=30,
+            )
+            data = resp.json()
+            if data.get("ok"):
+                return SendResult(success=True, message_id=str(data["result"]["message_id"]), raw=data)
+            return SendResult(success=False, error=data.get("description", "Unknown"), raw=data)
+        except Exception as e:
+            return SendResult(success=False, error=str(e))
 
-        if not content and not self._has_media(message):
-            return None  # skip non-text, non-media messages
+    @staticmethod
+    def _detect_type(msg: dict) -> MessageType:
+        if "photo" in msg:
+            return MessageType.IMAGE
+        if "document" in msg:
+            return MessageType.FILE
+        if "audio" in msg or "voice" in msg:
+            return MessageType.AUDIO
+        if "video" in msg:
+            return MessageType.VIDEO
+        if "sticker" in msg:
+            return MessageType.STICKER
+        if "location" in msg:
+            return MessageType.LOCATION
+        return MessageType.TEXT
 
-        chat = message.get("chat", {})
-        sender = message.get("from", {})
-
-        attachments = self._extract_attachments(message)
-
-        return ChannelMessage(
-            channel_id="telegram",
-            account_id=str(self._bot_info.get("id", "")) if self._bot_info else "",
-            sender_id=str(sender.get("id", "")),
-            sender_name=(
-                sender.get("first_name", "") +
-                (" " + sender.get("last_name", "") if sender.get("last_name") else "")
-            ).strip() or sender.get("username", "unknown"),
-            chat_id=str(chat.get("id", "")),
-            content=content,
-            attachments=attachments,
-            thread_id=str(message.get("message_thread_id", "")) or None,
-            reply_to_id=str(message.get("reply_to_message", {}).get("message_id", "")) or None,
-            raw=message,
-            timestamp=float(message.get("date", time.time())),
-            message_id=str(message.get("message_id", "")),
-            target_agent_id=self._default_agent_id,
-        )
-
-    def _has_media(self, message: dict) -> bool:
-        return any(
-            key in message
-            for key in ("photo", "audio", "video", "document", "voice", "sticker")
-        )
-
-    def _extract_attachments(self, message: dict) -> list:
+    @staticmethod
+    def _extract_attachments(msg: dict) -> list:
         attachments = []
-        if "photo" in message:
-            # Telegram sends multiple sizes; take the largest
-            photo = message["photo"][-1] if message["photo"] else {}
-            attachments.append({
-                "type": "image",
-                "file_id": photo.get("file_id"),
-                "file_size": photo.get("file_size"),
-            })
-        for key in ("document", "audio", "video", "voice"):
-            if key in message:
-                item = message[key]
-                attachments.append({
-                    "type": key,
-                    "file_id": item.get("file_id"),
-                    "file_name": item.get("file_name", ""),
-                    "mime_type": item.get("mime_type", ""),
-                    "file_size": item.get("file_size"),
-                })
+        if "photo" in msg:
+            best = max(msg["photo"], key=lambda p: p.get("file_size", 0))
+            attachments.append({"type": "image", "file_id": best["file_id"]})
+        for key in ("document", "audio", "voice", "video"):
+            if key in msg:
+                attachments.append({"type": key, "file_id": msg[key]["file_id"]})
         return attachments
 
-    def get_status_extra(self) -> dict:
-        info = {}
-        if self._bot_info:
-            info["bot_username"] = self._bot_info.get("username", "")
-        return info
 
-
-# Auto-register on import
-ChannelRegistry().register(TelegramChannel)
+# Auto-register
+ChannelRegistry.register("telegram", TelegramPlugin)

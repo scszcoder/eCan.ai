@@ -1,5 +1,6 @@
 """
 Channel adapter implementations.
 
-Each adapter module registers itself with the ChannelRegistry on import.
+Each adapter module auto-registers its ChannelPlugin subclass with the
+ChannelRegistry on import.
 """

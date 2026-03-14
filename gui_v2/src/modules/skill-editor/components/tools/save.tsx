@@ -16,6 +16,7 @@ import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
+import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
 
@@ -37,9 +38,7 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
   // Read all notes from the store once (avoids per-node getState calls)
   const allNotes = useNodeNoteStore.getState().notes;
 
-  // Recursive function to process nodes (including subcanvas)
-  const processNodes = (nodes: any[]) => {
-    nodes.forEach((node: any) => {
+  traverseWorkflowNodes(diagram.nodes || [], (node: any) => {
       if (!node.data) node.data = {};
       
       // Persist flip states
@@ -63,14 +62,7 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
         node.data.agentNote = note;
       }
       
-      // Recursively process subcanvas nodes
-      if (node.data?.subcanvas?.nodes) {
-        processNodes(node.data.subcanvas.nodes);
-      }
-    });
-  };
-  
-  processNodes(diagram.nodes || []);
+  });
 }
 
 /**

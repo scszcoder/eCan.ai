@@ -48,6 +48,17 @@ class InstallationManager:
             
         try:
             logger.info(f"Starting installation: {package_path}")
+            logger.info(
+                f"[OTA Installer] install_package called: path={package_path}, "
+                f"exists={package_path.exists()}, suffix={package_path.suffix.lower()}, "
+                f"platform={self.platform}, frozen={getattr(sys, 'frozen', False)}, "
+                f"options={install_options}"
+            )
+            if package_path.exists():
+                try:
+                    logger.info(f"[OTA Installer] package size: {package_path.stat().st_size} bytes")
+                except Exception as e:
+                    logger.warning(f"[OTA Installer] Failed to stat package: {e}")
             
             # Create backup
             if install_options.get('create_backup', True):
@@ -233,12 +244,10 @@ class InstallationManager:
             if sys.platform != 'win32':
                 return
 
-            if os.environ.get('ECAN_OTA_INNO_LOG', '').strip() != '1':
-                return
-
             log_path = Path(tempfile.gettempdir()) / f"ecan_ota_install_{int(time.time())}.log"
             cmd.append(f'/LOG="{log_path}"')
             logger.info(f"Inno Setup logging enabled: {log_path}")
+            logger.info(f"[OTA Installer] Inno Setup log path appended to command: {log_path}")
         except Exception as e:
             logger.debug(f"Failed to enable Inno Setup logging (safe to ignore): {e}")
 
@@ -257,22 +266,31 @@ class InstallationManager:
             raise RuntimeError("Windows-only helper")
 
         exe_path = cmd[0]
-        args_str = subprocess.list2cmdline(cmd[1:]) if len(cmd) > 1 else ""
-        exe_path_quoted = subprocess.list2cmdline([exe_path])
+        raw_args = cmd[1:] if len(cmd) > 1 else []
+
+        def _escape_batch_token(token: str) -> str:
+            return str(token).replace('%', '%%')
+
+        exe_path_quoted = f'"{_escape_batch_token(exe_path)}"'
+        args_str = ' '.join(_escape_batch_token(arg) for arg in raw_args)
 
         # Use fixed user directory instead of temporary directory
         from config.app_info import app_info
         user_data_root = Path(app_info.appdata_path)
         scripts_dir = user_data_root / "ota_scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
+
+        template_path = Path(__file__).resolve().parent.parent / "resources" / "ecan_ota_launcher_template.bat"
+        if not template_path.exists():
+            raise FileNotFoundError(f"OTA launcher BAT template not found: {template_path}")
         
         bat_path = str(scripts_dir / "ecan_ota_launcher.bat")
+        installer_command = f"{exe_path_quoted}{(' ' + args_str) if args_str else ''}"
+        bat_template = template_path.read_text(encoding='utf-8')
         bat_content = (
-            "@echo off\r\n"
-            "setlocal\r\n"
-            f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
-            f"echo [OTA] Launching installer: {exe_path_quoted} {args_str}\r\n"
-            f"start \"\" {exe_path_quoted}{(' ' + args_str) if args_str else ''}\r\n"
+            bat_template
+            .replace("__DELAY_SECONDS__", str(int(delay_seconds)))
+            .replace("__INSTALLER_COMMAND__", installer_command)
         )
 
         with open(bat_path, 'w', encoding='utf-8') as f:
@@ -285,9 +303,12 @@ class InstallationManager:
         )
 
         logger.info(f"BAT launcher written to: {bat_path}")
+        logger.info(f"[OTA Installer] BAT launcher directory ensured: {scripts_dir}")
+        logger.info(f"[OTA Installer] BAT launcher template used: {template_path}")
         logger.info(f"Installer executable: {exe_path}")
+        logger.info(f"[OTA Installer] Raw installer argument list: {raw_args}")
         logger.info(f"Installer arguments: {args_str}")
-        logger.info(f"Installer command for cmd.exe: start \"\" {exe_path_quoted}{(' ' + args_str) if args_str else ''}")
+        logger.info(f"Installer command for cmd.exe: start \"\" {installer_command}")
         logger.info(f"BAT launcher content: {bat_content!r}")
         logger.info(f"Delay before launch: {delay_seconds}s")
 
@@ -300,6 +321,7 @@ class InstallationManager:
             stderr=subprocess.DEVNULL,
         )
         logger.info(f"BAT launcher started successfully (PID: {p.pid})")
+        logger.info(f"[OTA Installer] BAT launcher process detached successfully: pid={p.pid}, creation_flags={creation_flags}")
         return p.pid
     
     def _create_backup(self) -> bool:
@@ -492,6 +514,11 @@ rm -f "$0"
         """Install Windows EXE package - OTA silent update"""
         try:
             logger.info(f"Installing Windows EXE: {package_path}")
+            logger.info(
+                f"[OTA Installer] _install_exe start: path={package_path}, exists={package_path.exists()}, "
+                f"silent={install_options.get('silent', True)}, frozen={getattr(sys, 'frozen', False)}, "
+                f"sys_executable={sys.executable}"
+            )
             
             # For OTA updates, use truly silent installation
             if install_options.get('silent', True):
@@ -519,6 +546,7 @@ rm -f "$0"
                             install_dir = Path(sys.executable).parent
 
                     logger.info(f"Target installation directory: {str(install_dir)}")
+                    logger.info(f"[OTA Installer] Resolved install directory (frozen mode): {install_dir}")
 
                     # Note: Process termination is handled by Inno Setup's CloseApplications=yes
                     # No need to manually terminate processes here as it may conflict with installer
@@ -529,14 +557,13 @@ rm -f "$0"
                     # /NORESTART = Don't restart computer
                     # /SP- = Skip the "This will install..." message box
                     # /DIR= = Installation directory (must use quotes if path has spaces)
-                    # Note: We DON'T use /CLOSEAPPLICATIONS because it may cause the installer to exit
-                    # Instead, we let the parent process exit gracefully first
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
+                        '/CLOSEAPPLICATIONS',
                         f'/DIR="{str(install_dir)}"'
                     ]
 
@@ -544,11 +571,13 @@ rm -f "$0"
                     
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART")
+                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
+                    logger.info(f"[OTA Installer] Final Inno Setup command length: {len(cmd)} args")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
+                    logger.info("[OTA Installer] download_manager.set_installing(True) called")
                     
                     # Launch installer without waiting
                     try:
@@ -562,19 +591,22 @@ rm -f "$0"
                             creation_flags = 0
 
                         if sys.platform == 'win32':
-                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
+                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=3)
                             logger.info(f"Installer launch script started (PID: {pid})")
+                            logger.info("[OTA Installer] Windows delayed installer launcher started successfully")
                         else:
                             process = subprocess.Popen(cmd, creationflags=creation_flags)
                             logger.info(f"Installer launched (PID: {process.pid})")
                         
                         logger.info("Application will exit in 3 seconds for file replacement...")
+                        logger.info("[OTA Installer] delayed_exit thread will terminate current process in 3 seconds")
                         
                         # Schedule application exit
                         import threading
                         def delayed_exit():
                             time.sleep(3)
                             logger.info("Exiting for installer to replace files...")
+                            logger.info("[OTA Installer] delayed_exit triggered, flushing stdio before os._exit(0)")
                             # Force flush all file handles and buffers
                             import sys as sys_module
                             try:
@@ -585,15 +617,18 @@ rm -f "$0"
                             os._exit(0)
                         
                         threading.Thread(target=delayed_exit, daemon=True).start()
+                        logger.info("[OTA Installer] delayed_exit thread started")
                         
                         return True
                         
                     except Exception as e:
                         logger.error(f"Failed to launch installer: {e}")
+                        logger.error(f"[OTA Installer] Failed after download_manager.set_installing(True): {e}")
                         return False
                 else:
                     # Development environment - use /SILENT for OTA testing
                     logger.warning("Running in development mode, using /SILENT for OTA testing")
+                    logger.info("[OTA Installer] Entering development-mode EXE install path")
                     
                     # Note: We do NOT terminate processes here in dev mode because:
                     # 1. Dev version runs from workspace, not LOCALAPPDATA\eCan
@@ -613,6 +648,7 @@ rm -f "$0"
                     else:
                         install_dir = self._get_windows_standard_install_dir()
                         logger.info(f"[OTA Dev] Using standard installation directory: {str(install_dir)}")
+                    logger.info(f"[OTA Installer] Resolved install directory (dev mode): {install_dir}")
                     
                     # Development OTA command - silent mode with progress
                     cmd = [
@@ -628,6 +664,7 @@ rm -f "$0"
                     self._append_inno_log_if_enabled(cmd)
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Development OTA command: {repr(cmd)}")
+                    logger.info(f"[OTA Installer] Development command length: {len(cmd)} args")
 
                     if sys.platform == 'win32':
                         creation_flags = (
@@ -639,10 +676,11 @@ rm -f "$0"
                         creation_flags = 0
 
                     if sys.platform == 'win32':
-                        # Use longer delay in dev mode to ensure app fully exits
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                        # Use a modest delay in dev mode to allow app shutdown without excessive waiting
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
                         logger.info(f"Installer launch script started (PID: {pid})")
-                        logger.info("Installer will start in 8 seconds after app exits")
+                        logger.info("Installer will start in 5 seconds after app exits")
+                        logger.info("[OTA Installer] Development-mode delayed launcher started successfully")
                     else:
                         process = subprocess.Popen(cmd, creationflags=creation_flags)
                         logger.info(f"Installer launched (PID: {process.pid})")
@@ -652,6 +690,7 @@ rm -f "$0"
                     def delayed_exit():
                         time.sleep(5)  # Increased from 3 to 5 seconds
                         logger.info("Development mode: Exiting for installer to replace files...")
+                        logger.info("[OTA Installer] Development-mode delayed_exit triggered")
                         # Force flush all file handles and buffers
                         import sys as sys_module
                         try:
@@ -663,16 +702,19 @@ rm -f "$0"
                     
                     threading.Thread(target=delayed_exit, daemon=True).start()
                     logger.info("Development mode: Application will exit in 5 seconds...")
+                    logger.info("[OTA Installer] Development-mode delayed_exit thread started")
                     
                     return True
             else:
                 # Non-silent mode - launch installer with UI
                 logger.info("Launching installer with UI")
+                logger.info(f"[OTA Installer] Non-silent install path selected for package: {package_path}")
                 subprocess.Popen([str(package_path)])
                 return True
                 
         except Exception as e:
             logger.error(f"EXE installation error: {e}")
+            logger.error(f"[OTA Installer] _install_exe fatal error: {e}")
             return False
     
     def _install_msi(self, package_path: Path, install_options: Dict[str, Any]) -> bool:

@@ -1244,6 +1244,11 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             
             # Check if skillName changed - need to rename directory and files
             new_skill_name = skill_info.get('skillName', '')
+            skill_id_from_info = (
+                skill_info.get('skillId')
+                or skill_info.get('id')
+                or skill_info.get('skill_id')
+            )
             renamed = False
             new_file_path = None
             
@@ -1304,7 +1309,7 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                     old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
                                     new_base_name = expected_new_stem.replace('_skill', '') if expected_new_stem.endswith('_skill') else expected_new_stem
                                     
-                                    logger.info(f"[AutoSave] Looking for skill: old_dir={old_dir_name}, old_base={old_base_name}")
+                                    logger.info(f"[AutoSave] Looking for skill: old_dir={old_dir_name}, old_base={old_base_name}, skill_id={skill_id_from_info}")
                                     
                                     # Update database
                                     db_updated = False
@@ -1312,24 +1317,37 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                     if ec_db_mgr:
                                         skill_service = ec_db_mgr.get_skill_service()
                                         if skill_service:
-                                            # Find skill by old path using search_skills
-                                            all_skills = skill_service.search_skills()  # Returns list directly
-                                            logger.info(f"[AutoSave] Found {len(all_skills)} skills in database")
-                                            for skill in all_skills:
-                                                skill_path = skill.get('path', '')
-                                                skill_name_db = skill.get('name', '')
-                                                if skill_path and old_dir_name in skill_path:
-                                                    skill_id = skill.get('id')
-                                                    update_result = skill_service.update_skill(skill_id, {
-                                                        'name': expected_new_stem,
-                                                        'path': str(new_skill_file),
-                                                    })
-                                                    if update_result.get('success'):
-                                                        logger.info(f"[AutoSave] ✅ Database updated (ID: {skill_id})")
-                                                        db_updated = True
-                                                    else:
-                                                        logger.warning(f"[AutoSave] ⚠️ Failed to update database: {update_result.get('error')}")
-                                                    break
+                                            target_skill_id = skill_id_from_info
+                                            if target_skill_id:
+                                                update_result = skill_service.update_skill(target_skill_id, {
+                                                    'name': expected_new_stem,
+                                                    'path': str(new_skill_file),
+                                                })
+                                                if update_result.get('success'):
+                                                    logger.info(f"[AutoSave] ✅ Database updated by skill_id (ID: {target_skill_id})")
+                                                    db_updated = True
+                                                else:
+                                                    logger.warning(f"[AutoSave] ⚠️ Failed to update database by skill_id={target_skill_id}: {update_result.get('error')}")
+                                            if not db_updated:
+                                                all_skills = skill_service.search_skills()  # Returns list directly
+                                                logger.info(f"[AutoSave] Found {len(all_skills)} skills in database")
+                                                for skill in all_skills:
+                                                    skill_path = skill.get('path', '')
+                                                    skill_name_db = skill.get('name', '')
+                                                    name_match = skill_name_db == old_dir_name or skill_name_db == old_base_name
+                                                    path_match = skill_path and old_dir_name in skill_path
+                                                    if path_match or name_match:
+                                                        skill_id = skill.get('id')
+                                                        update_result = skill_service.update_skill(skill_id, {
+                                                            'name': expected_new_stem,
+                                                            'path': str(new_skill_file),
+                                                        })
+                                                        if update_result.get('success'):
+                                                            logger.info(f"[AutoSave] ✅ Database updated by fallback match (ID: {skill_id})")
+                                                            db_updated = True
+                                                        else:
+                                                            logger.warning(f"[AutoSave] ⚠️ Failed to update database: {update_result.get('error')}")
+                                                        break
                                             if not db_updated:
                                                 logger.info(f"[AutoSave] No matching skill found in database for path containing: {old_dir_name}")
                                     
