@@ -799,6 +799,9 @@ Return ONLY the fixed JSON, no explanations."""
                         # Store in the most common location
                         node["internal_edges"] = internal_edges
         
+        # Fix MCP llm-auto-select nodes missing a preceding LLM node
+        self._fix_mcp_without_preceding_llm(data)
+
         return data
 
     def _normalize_edges(self, edges: List[Dict]) -> None:
@@ -807,6 +810,210 @@ Return ONLY the fixed JSON, no explanations."""
             to_delete = [k for k, v in e.items() if v is None]
             for k in to_delete:
                 del e[k]
+
+    # ------------------------------------------------------------------
+    # MCP llm-auto-select without preceding LLM node — auto-insert fix
+    # ------------------------------------------------------------------
+
+    def _fix_mcp_without_preceding_llm(self, data: Dict) -> None:
+        """
+        Detect MCP nodes that use ``llm-auto-select`` but have no LLM node as
+        their immediate predecessor.  For every such node, insert a new LLM node
+        between its predecessor and the MCP node, with a prompt derived from the
+        MCP node's ``agentNote`` / ``callable.desc`` so the LLM knows which tool
+        to call and with what parameters.
+
+        Processes both top-level nodes and inner blocks of loop nodes.
+        """
+        flowgram = data.get("flowgram") or data.get("workFlow") or data
+        nodes = flowgram.get("nodes", [])
+        edges = flowgram.get("edges")
+        if edges is None:
+            edges = []
+            flowgram["edges"] = edges
+
+        self._fix_mcp_auto_select_in_scope(nodes, edges)
+
+        # Also fix inside loop blocks
+        for node in nodes:
+            if node.get("type") != "loop":
+                continue
+            blocks = node.get("blocks", []) or node.get("data", {}).get("blocks", [])
+            inner_edges = (
+                node.get("edges", [])
+                or node.get("internal_edges", [])
+                or node.get("data", {}).get("edges", [])
+                or node.get("data", {}).get("internal_edges", [])
+            )
+            if blocks:
+                self._fix_mcp_auto_select_in_scope(blocks, inner_edges)
+                # Persist inner_edges back
+                if node.get("edges") is not None:
+                    node["edges"] = inner_edges
+                elif node.get("internal_edges") is not None:
+                    node["internal_edges"] = inner_edges
+                elif node.get("data", {}).get("edges") is not None:
+                    node["data"]["edges"] = inner_edges
+                elif node.get("data", {}).get("internal_edges") is not None:
+                    node["data"]["internal_edges"] = inner_edges
+
+    @staticmethod
+    def _is_llm_auto_select_mcp(node: Dict) -> bool:
+        """Return True if *node* is an MCP node using llm-auto-select."""
+        if node.get("type") not in ("mcp", "mcp_tool"):
+            return False
+        callable_info = node.get("data", {}).get("callable", {})
+        if not callable_info:
+            # Also check nested data.data.callable (common alternate shape)
+            callable_info = node.get("data", {}).get("data", {}).get("callable", {})
+        cid = (callable_info.get("id") or "").lower().replace(" ", "-")
+        return cid == "llm-auto-select"
+
+    def _fix_mcp_auto_select_in_scope(
+        self, nodes: List[Dict], edges: List[Dict]
+    ) -> None:
+        """
+        For each MCP llm-auto-select node in *nodes* whose immediate predecessor
+        is NOT an LLM node, insert a new LLM node and rewire edges.
+        """
+        import random, string
+
+        node_by_id = {n.get("id"): n for n in nodes if n.get("id")}
+
+        # Build a map: target_node_id -> list of predecessor edges
+        incoming_map: Dict[str, List[Dict]] = {}
+        for e in edges:
+            tgt = e.get("targetNodeID") or e.get("target")
+            if tgt:
+                incoming_map.setdefault(tgt, []).append(e)
+
+        mcp_nodes_to_fix = []
+        for n in nodes:
+            if not self._is_llm_auto_select_mcp(n):
+                continue
+            mcp_id = n.get("id")
+            predecessors = incoming_map.get(mcp_id, [])
+            # Check if ANY immediate predecessor is an LLM node
+            has_llm_pred = False
+            for e in predecessors:
+                src_id = e.get("sourceNodeID") or e.get("source")
+                src_node = node_by_id.get(src_id)
+                if src_node and src_node.get("type") == "llm":
+                    has_llm_pred = True
+                    break
+            if not has_llm_pred:
+                mcp_nodes_to_fix.append(n)
+
+        if not mcp_nodes_to_fix:
+            return
+
+        for mcp_node in mcp_nodes_to_fix:
+            mcp_id = mcp_node.get("id", "mcp_unknown")
+            # Derive a description for the LLM prompt from MCP node metadata
+            agent_note = (
+                mcp_node.get("data", {}).get("agentNote", "")
+                or mcp_node.get("data", {}).get("note", "")
+            )
+            callable_info = mcp_node.get("data", {}).get("callable", {})
+            if not callable_info:
+                callable_info = mcp_node.get("data", {}).get("data", {}).get("callable", {})
+            callable_desc = callable_info.get("desc", "")
+            instruction = (
+                mcp_node.get("data", {}).get("inputsValues", {})
+                .get("inputsValues", {})
+            )
+            if isinstance(instruction, dict):
+                instruction = instruction.get("content", {})
+                if isinstance(instruction, dict):
+                    instruction_text = (
+                        instruction.get("instruction", {})
+                    )
+                    if isinstance(instruction_text, dict):
+                        instruction_text = instruction_text.get("content", "")
+                else:
+                    instruction_text = str(instruction)
+            else:
+                instruction_text = ""
+
+            # Build a contextual prompt for the LLM node
+            context_parts = [p for p in [agent_note, callable_desc, instruction_text] if p]
+            context_desc = " ".join(context_parts) if context_parts else f"Execute the MCP tool for node {mcp_id}."
+
+            nanoid = "".join(random.choices(string.ascii_letters + string.digits, k=5))
+            llm_id = f"llm_{nanoid}"
+
+            # Position the new LLM node slightly before the MCP node
+            mcp_pos = mcp_node.get("meta", {}).get("position", {})
+            llm_x = (mcp_pos.get("x", 300) or 300) - 220
+            llm_y = mcp_pos.get("y", 200) or 200
+
+            llm_prompt = (
+                f"You are a tool-selection assistant. Based on the following task description, "
+                f"decide which MCP tool to call and with what parameters.\n\n"
+                f"Task: {context_desc}\n\n"
+                f"Respond in JSON:\n"
+                f'{{"next_tool_name": "<tool_name>", "next_tool_input": {{...}}, "work_done": false}}'
+            )
+
+            llm_node = {
+                "id": llm_id,
+                "type": "llm",
+                "meta": {"position": {"x": llm_x, "y": llm_y}},
+                "data": {
+                    "title": f"LLM plan for {mcp_node.get('data', {}).get('title', mcp_id)}",
+                    "agentNote": (
+                        f"Auto-inserted LLM node to provide tool selection for the downstream "
+                        f"MCP llm-auto-select node '{mcp_id}'. The prompt instructs the LLM to "
+                        f"pick the correct tool and parameters."
+                    ),
+                    "inputsValues": {
+                        "modelProvider": {"type": "constant", "content": "openai"},
+                        "modelName": {"type": "constant", "content": "gpt-4o-mini"},
+                        "systemPrompt": {"type": "constant", "content": llm_prompt},
+                        "prompt": {"type": "constant", "content": context_desc},
+                        "temperature": {"type": "constant", "content": 0},
+                    },
+                    "inputs": {
+                        "type": "object",
+                        "properties": {
+                            "modelProvider": {"type": "string"},
+                            "modelName": {"type": "string"},
+                            "systemPrompt": {"type": "string"},
+                            "prompt": {"type": "string"},
+                            "temperature": {"type": "number"},
+                        },
+                    },
+                    "outputs": {
+                        "type": "object",
+                        "properties": {
+                            "result": {"type": "string"},
+                        },
+                    },
+                },
+            }
+
+            # Insert the LLM node into the nodes list just before the MCP node
+            try:
+                mcp_idx = next(i for i, n in enumerate(nodes) if n.get("id") == mcp_id)
+                nodes.insert(mcp_idx, llm_node)
+            except StopIteration:
+                nodes.append(llm_node)
+
+            # Rewire edges: every edge that pointed TO the MCP node now points to
+            # the new LLM node, and a new edge goes from LLM → MCP.
+            for e in edges:
+                tgt = e.get("targetNodeID") or e.get("target")
+                if tgt == mcp_id:
+                    if "targetNodeID" in e:
+                        e["targetNodeID"] = llm_id
+                    if "target" in e:
+                        e["target"] = llm_id
+            edges.append({"sourceNodeID": llm_id, "targetNodeID": mcp_id})
+
+            logger.info(
+                f"[ValidatorAgent] Inserted LLM node '{llm_id}' before MCP "
+                f"llm-auto-select node '{mcp_id}'"
+            )
 
     def _normalize_condition_handles(
         self,
