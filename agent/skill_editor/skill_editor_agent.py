@@ -53,6 +53,7 @@ from .planner_agent import PlannerAgent, get_planner_agent
 from .code_agent import CodeAgent, get_code_agent
 from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
 from .prompt_store import prompt_store
+from .tools_catalog import build_tools_catalog
 
 
 def _is_lambda_runtime() -> bool:
@@ -504,6 +505,18 @@ class SkillEditorAgent:
             self._node_config_agent = NodeConfigAgent(llm=self._llm)
             logger.debug("[SkillEditorAgent] Created NodeConfigAgent")
         return self._node_config_agent
+
+    @property
+    def tools_catalog_text(self) -> str:
+        """Build and cache the compact tools catalog for prompt injection."""
+        if not hasattr(self, "_tools_catalog_cache"):
+            try:
+                self._tools_catalog_cache = build_tools_catalog(owner=self._user_name)
+                logger.info("[SkillEditorAgent] Tools catalog built (%d chars)", len(self._tools_catalog_cache))
+            except Exception as exc:
+                logger.warning("[SkillEditorAgent] Failed to build tools catalog: %s", exc)
+                self._tools_catalog_cache = "(tools catalog not available)"
+        return self._tools_catalog_cache
     
     @property
     def pipeline_state(self) -> PipelineState:
@@ -2129,6 +2142,7 @@ class SkillEditorAgent:
                 edit_request=edit_request,
                 current_flowgram=current_flowgram,
                 on_event=on_event,
+                tools_catalog=self.tools_catalog_text,
             )
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Auto-fix edit failed: {e}")
@@ -3125,6 +3139,7 @@ class SkillEditorAgent:
             on_event=on_event,
             require_clarification=require_clarification,
             domain_questions=domain_qa_override,
+            tools_catalog=self.tools_catalog_text,
         )
         
         logger.info(f"[SkillEditorAgent] Planner action: {planner_output.action.value}")
@@ -3224,6 +3239,7 @@ class SkillEditorAgent:
             clarification_responses=self._accumulated_clarification_answers,
             on_event=on_event,
             require_clarification=False,
+            tools_catalog=self.tools_catalog_text,
         )
         
         if planner_output.action == PlannerAction.ASK_CLARIFICATION and not force_plan:
@@ -3252,6 +3268,7 @@ class SkillEditorAgent:
                     clarification_responses=self._accumulated_clarification_answers,
                     on_event=on_event,
                     require_clarification=False,
+                    tools_catalog=self.tools_catalog_text,
                 )
                 plan = planner_output2.plan
             self._current_plan = plan
@@ -4815,7 +4832,8 @@ class SkillEditorAgent:
             user_message=full_context,
             canvas_context=canvas_context,
             plan=self._current_plan,
-            on_event=on_event
+            on_event=on_event,
+            tools_catalog=self.tools_catalog_text,
         )
         
         # If no flowgram was produced, surface a clear failure message rather
@@ -4943,13 +4961,15 @@ class SkillEditorAgent:
             code_output = await self.code_agent.edit(
                 edit_request=message,
                 current_flowgram=current_flowgram,
-                on_event=on_event
+                on_event=on_event,
+                tools_catalog=self.tools_catalog_text,
             )
         else:
             code_output = await self.code_agent.generate(
                 user_message=message,
                 canvas_context=canvas_context,
-                on_event=on_event
+                on_event=on_event,
+                tools_catalog=self.tools_catalog_text,
             )
         
         self._pipeline_state = PipelineState.COMPLETE
@@ -5203,7 +5223,8 @@ class SkillEditorAgent:
             code_output = await self.code_agent.edit(
                 edit_request=edit_request,
                 current_flowgram=current_flowgram,
-                on_event=on_event
+                on_event=on_event,
+                tools_catalog=self.tools_catalog_text,
             )
             
             self._pipeline_state = PipelineState.COMPLETE

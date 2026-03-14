@@ -613,6 +613,7 @@ class PlannerAgent:
         on_event: Optional[Callable] = None,
         require_clarification: bool = False,
         domain_questions: Optional[str] = None,
+        tools_catalog: Optional[str] = None,
     ) -> PlannerOutput:
         """
         Run the planning process.
@@ -640,6 +641,7 @@ class PlannerAgent:
                 canvas_context=self._format_canvas_context(canvas_context),
                 require_clarification=str(require_clarification).lower(),
                 domain_questions=domain_questions or prompt_store.get_domain_qa(),
+                tools_catalog=tools_catalog or "(tools catalog not available)",
             )
             
             # Build conversation context
