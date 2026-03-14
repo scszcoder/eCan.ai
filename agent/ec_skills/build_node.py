@@ -3903,6 +3903,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             if isinstance(envelope, dict) and envelope.get("data"):
                 event_record["data"] = envelope["data"]
             state.setdefault("events", []).append(event_record)
+            # Expose the last event to LLM prompt templates via {{events}}
+            state.setdefault("prompt_refs", {})["events"] = json.dumps(
+                event_record, ensure_ascii=False, default=str
+            )
             logger.debug(f"[pend_event_node] Appended event to state['events']: type={event_record['event_type']}, source={event_record['source']}")
         except Exception as ev_err:
             logger.debug(f"[pend_event_node] Failed to append event record: {ev_err}")

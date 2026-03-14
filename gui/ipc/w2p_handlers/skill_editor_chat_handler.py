@@ -1070,6 +1070,110 @@ def _send_canvas_commands(session_id: str, commands: list) -> None:
         logger.error(f"[SkillEditorChat] Failed to send canvas commands: {e}\n{traceback.format_exc()}")
 
 
+# ---------------------------------------------------------------------------
+# Fallback message translations
+# ---------------------------------------------------------------------------
+
+_FALLBACK_MESSAGES = {
+    'en-US': {
+        'greeting': (
+            "Hello! I'm your AI assistant for building workflows. "
+            "Describe what you'd like to create, and I'll help you build it step by step."
+        ),
+        'create': (
+            "I understand you want to create a workflow. To help you better, could you describe:\n\n"
+            "1. **What is the main goal** of this workflow?\n"
+            "2. **What inputs** does it need?\n"
+            "3. **What outputs** should it produce?\n\n"
+            "For example: 'Create a workflow that takes a PDF file, extracts text, and summarizes it using an LLM.'"
+        ),
+        'add_node': (
+            "I can help you add nodes to your workflow. Available node types include:\n\n"
+            "- **LLM Node**: For AI/language model processing\n"
+            "- **Code Node**: For custom Python/JavaScript code\n"
+            "- **HTTP Node**: For API calls\n"
+            "- **Condition Node**: For branching logic\n"
+            "- **Loop Node**: For iterating over data\n\n"
+            "Which type of node would you like to add?"
+        ),
+        'canvas_context': (
+            "I can see your current workflow has **{node_count} nodes** and **{edge_count} connections**. "
+            "What would you like to modify or add?"
+        ),
+        'default': (
+            "I'm here to help you build and edit workflows through conversation. "
+            "You can ask me to:\n\n"
+            "- **Create** a new workflow from a description\n"
+            "- **Add** nodes (LLM, code, HTTP, conditions, etc.)\n"
+            "- **Connect** nodes together\n"
+            "- **Run** and debug your workflow\n"
+            "- **Explain** what a workflow does\n\n"
+            "What would you like to do?"
+        ),
+    },
+    'zh-CN': {
+        'greeting': (
+            "你好！我是你的 AI 工作流助手。"
+            "请描述你想创建的内容，我会一步步帮你构建。"
+        ),
+        'create': (
+            "我了解你想创建一个工作流。为了更好地帮助你，请描述：\n\n"
+            "1. **这个工作流的主要目标**是什么？\n"
+            "2. 它需要**哪些输入**？\n"
+            "3. 它应该产生**什么输出**？\n\n"
+            "例如：'创建一个工作流，读取 PDF 文件，提取文本，并使用 LLM 进行摘要。'"
+        ),
+        'add_node': (
+            "我可以帮你向工作流添加节点。可用的节点类型包括：\n\n"
+            "- **LLM 节点**：用于 AI / 大语言模型处理\n"
+            "- **代码节点**：用于自定义 Python/JavaScript 代码\n"
+            "- **HTTP 节点**：用于 API 调用\n"
+            "- **条件节点**：用于分支逻辑\n"
+            "- **循环节点**：用于数据迭代\n\n"
+            "你想添加哪种类型的节点？"
+        ),
+        'canvas_context': (
+            "我可以看到你当前的工作流有 **{node_count} 个节点**和 **{edge_count} 个连接**。"
+            "你想修改或添加什么？"
+        ),
+        'default': (
+            "我可以通过对话帮你构建和编辑工作流。"
+            "你可以让我：\n\n"
+            "- **创建**一个新的工作流\n"
+            "- **添加**节点（LLM、代码、HTTP、条件等）\n"
+            "- **连接**节点\n"
+            "- **运行**和调试工作流\n"
+            "- **解释**工作流的功能\n\n"
+            "你想做什么？"
+        ),
+    },
+}
+
+
+def _get_fallback_lang() -> str:
+    """Detect language for fallback messages (cached after first call)."""
+    if not hasattr(_get_fallback_lang, '_cached'):
+        try:
+            from utils.i18n_helper import detect_language
+            _get_fallback_lang._cached = detect_language(
+                default_lang='zh-CN',
+                supported_languages=list(_FALLBACK_MESSAGES.keys())
+            )
+        except Exception:
+            _get_fallback_lang._cached = 'zh-CN'
+    return _get_fallback_lang._cached
+
+
+def _fb(key: str, **kwargs) -> str:
+    """Get a localized fallback message by key."""
+    lang = _get_fallback_lang()
+    msgs = _FALLBACK_MESSAGES.get(lang, _FALLBACK_MESSAGES['zh-CN'])
+    msg = msgs.get(key, _FALLBACK_MESSAGES['en-US'].get(key, key))
+    if kwargs:
+        return msg.format(**kwargs)
+    return msg
+
+
 def _process_fallback(
     message: ChatMessage,
     canvas_context: Optional[Dict[str, Any]]
@@ -1087,49 +1191,23 @@ def _process_fallback(
     
     content = message.content.lower()
     
-    if "hello" in content or "hi" in content:
+    if "hello" in content or "hi" in content or "你好" in content:
         logger.debug("[SkillEditorChat] Fallback matched: greeting")
-        return "Hello! I'm your AI assistant for building workflows. Describe what you'd like to create, and I'll help you build it step by step."
+        return _fb('greeting')
     
-    if "create" in content or "build" in content or "make" in content:
+    if "create" in content or "build" in content or "make" in content or "创建" in content or "构建" in content:
         logger.debug("[SkillEditorChat] Fallback matched: create/build/make")
-        return (
-            "I understand you want to create a workflow. To help you better, could you describe:\n\n"
-            "1. **What is the main goal** of this workflow?\n"
-            "2. **What inputs** does it need?\n"
-            "3. **What outputs** should it produce?\n\n"
-            "For example: 'Create a workflow that takes a PDF file, extracts text, and summarizes it using an LLM.'"
-        )
+        return _fb('create')
     
-    if "node" in content or "add" in content:
+    if "node" in content or "add" in content or "节点" in content or "添加" in content:
         logger.debug("[SkillEditorChat] Fallback matched: node/add")
-        return (
-            "I can help you add nodes to your workflow. Available node types include:\n\n"
-            "- **LLM Node**: For AI/language model processing\n"
-            "- **Code Node**: For custom Python/JavaScript code\n"
-            "- **HTTP Node**: For API calls\n"
-            "- **Condition Node**: For branching logic\n"
-            "- **Loop Node**: For iterating over data\n\n"
-            "Which type of node would you like to add?"
-        )
+        return _fb('add_node')
     
     if canvas_context:
         node_count = len(canvas_context.get("nodes", []))
         edge_count = len(canvas_context.get("edges", []))
         logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
-        return (
-            f"I can see your current workflow has **{node_count} nodes** and **{edge_count} connections**. "
-            "What would you like to modify or add?"
-        )
+        return _fb('canvas_context', node_count=node_count, edge_count=edge_count)
     
     logger.debug("[SkillEditorChat] Fallback matched: default response")
-    return (
-        "I'm here to help you build and edit workflows through conversation. "
-        "You can ask me to:\n\n"
-        "- **Create** a new workflow from a description\n"
-        "- **Add** nodes (LLM, code, HTTP, conditions, etc.)\n"
-        "- **Connect** nodes together\n"
-        "- **Run** and debug your workflow\n"
-        "- **Explain** what a workflow does\n\n"
-        "What would you like to do?"
-    )
+    return _fb('default')
