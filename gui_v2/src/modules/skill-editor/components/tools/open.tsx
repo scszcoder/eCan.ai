@@ -13,6 +13,7 @@ import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { detectPlatform } from '../../../../config/platform';
+import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 
 // Note: The Modal is now rendered in OpenPickerModal component at Editor level
 // to prevent it from being unmounted during Tools error boundary recovery
@@ -129,9 +130,8 @@ export const Open = ({ disabled }: OpenProps) => {
           clearFlipStore();
           useNodeNoteStore.getState().clear();
           setTimeout(() => {
-            // Recursive function to restore flip states for all nodes
             const restoreFlipStates = (nodes: any[]) => {
-              nodes.forEach((node: any) => {
+              traverseWorkflowNodes(nodes, (node: any) => {
                 if (node?.data?.hFlip === true) {
                   console.log('[Open] Restoring hFlip state for node:', node.id);
                   setFlipped(node.id, true);
@@ -152,11 +152,6 @@ export const Open = ({ disabled }: OpenProps) => {
                 if (node?.data?.agentNote) {
                   useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
                 }
-                
-                // Recursively restore flip states for subcanvas nodes
-                if (node?.data?.subcanvas?.nodes) {
-                  restoreFlipStates(node.data.subcanvas.nodes);
-                }
               });
             };
             restoreFlipStates(diagram.nodes);
@@ -171,15 +166,11 @@ export const Open = ({ disabled }: OpenProps) => {
           clearFlipStore();
           useNodeNoteStore.getState().clear();
           if ((data as any).nodes) {
-            // Recursive function to restore flip states and notes
             const restoreStates = (nodes: any[]) => {
-              nodes.forEach((node: any) => {
+              traverseWorkflowNodes(nodes, (node: any) => {
                 if (node?.data?.hFlip === true) setFlipped(node.id, true);
                 if (node?.data?.agentNote) {
                   useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
-                }
-                if (node?.data?.subcanvas?.nodes) {
-                  restoreStates(node.data.subcanvas.nodes);
                 }
               });
             };

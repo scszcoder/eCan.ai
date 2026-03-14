@@ -5,6 +5,7 @@ import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
+import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -122,9 +123,8 @@ export const ActiveSheetBinder = () => {
         // Restore flip states from loaded document (including subcanvas nodes)
         if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
           addTimeout(() => {
-            // Recursive function to restore flip states for all nodes (including subcanvas)
             const restoreFlipStates = (nodes: any[]) => {
-              nodes.forEach((node: any) => {
+              traverseWorkflowNodes(nodes, (node: any) => {
                 if (node?.data?.hFlip === true) {
                   const loadedNode = ctx.document.getNode(node.id);
                   if (loadedNode) {
@@ -163,11 +163,6 @@ export const ActiveSheetBinder = () => {
                 // Restore agentNote to note store
                 if (node?.data?.agentNote) {
                   useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
-                }
-                
-                // Recursively restore flip states for subcanvas nodes
-                if (node?.data?.subcanvas?.nodes && Array.isArray(node.data.subcanvas.nodes)) {
-                  restoreFlipStates(node.data.subcanvas.nodes);
                 }
               });
             };
