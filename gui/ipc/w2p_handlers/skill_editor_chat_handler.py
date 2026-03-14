@@ -534,15 +534,23 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     _upload_url = _upload_req.get("upload_url", "")
                     if _local_path and _upload_url:
                         # Helper: push a progress message to the chat panel
-                        def _push_upload_status(text: str):
+                        def _push_upload_status(text: str, as_chunk: bool = False):
                             try:
                                 from gui.ipc.api import IPCAPI
                                 _ipc = IPCAPI.get_instance()
-                                _ipc.push_skill_editor_chat_done(
-                                    session_id=session_id,
-                                    message_id=str(uuid.uuid4()),
-                                    full_content=text,
-                                )
+                                if as_chunk:
+                                    _ipc.push_skill_editor_chat_chunk(
+                                        session_id=session_id,
+                                        message_id="log-upload-status",
+                                        chunk=text,
+                                        chunk_index=0,
+                                    )
+                                else:
+                                    _ipc.push_skill_editor_chat_done(
+                                        session_id=session_id,
+                                        message_id=str(uuid.uuid4()),
+                                        full_content=text,
+                                    )
                             except Exception:
                                 pass
 
@@ -552,9 +560,10 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                             if _fp.is_file():
                                 _file_bytes = _fp.read_bytes()
                                 _size_kb = len(_file_bytes) / 1024
+                                # Show as streaming status (won't conflict with subscription messages)
                                 _push_upload_status(
-                                    f"\u2B06\uFE0F Uploading log file to cloud storage "
-                                    f"({_size_kb:,.1f} KB)...\n\nFile: `{_local_path}`"
+                                    f"⬆️ Uploading log file ({_size_kb:,.1f} KB)...",
+                                    as_chunk=True,
                                 )
 
                                 import requests as _http
