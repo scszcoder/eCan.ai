@@ -1,22 +1,22 @@
 """
-Communications Channel Architecture for eCan.ai.
+agent.channels — Multi-channel communication architecture.
 
-3-layer design:
-  Layer 1: Channel Adapters (thin) — connect, listen, normalize, send
-  Layer 2: Channel Manager (lifecycle) — start/stop/restart, status tracking
-  Layer 3: Bridge to existing pipeline — ChannelMessage → req → event_routing → runner
+Three-layer design:
+  Layer 1: Channel Adapters (base.py + adapters/)
+  Layer 2: Channel Manager (channel_manager.py)
+  Layer 3: Bridge to agent pipeline (bridge.py)
 """
-
 from agent.channels.base import (
-    ChannelPlugin,
     ChannelMessage,
+    ChannelPlugin,
+    ChannelStatus,
+    MessageType,
     OutboundMessage,
     SendResult,
-    ChannelStatus,
 )
-from agent.channels.registry import ChannelRegistry
-from agent.channels.channel_manager import ChannelManager
 from agent.channels.bridge import ChannelBridge
+from agent.channels.channel_manager import ChannelManager
+from agent.channels.registry import ChannelRegistry
 
 __all__ = [
     "ChannelPlugin",
@@ -24,6 +24,7 @@ __all__ = [
     "OutboundMessage",
     "SendResult",
     "ChannelStatus",
+    "MessageType",
     "ChannelRegistry",
     "ChannelManager",
     "ChannelBridge",

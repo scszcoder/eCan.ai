@@ -1,10 +1,9 @@
 """
-Layer 1: Channel Plugin Contract + Data Models.
+Channel Plugin base abstractions.
 
-Minimal 4-method ABC for channel adapters, plus normalized data classes
-for inbound/outbound messages.
+Defines the minimal contract every channel adapter must implement,
+plus normalized message dataclasses shared across the architecture.
 """
-
 from __future__ import annotations
 
 import time
@@ -17,162 +16,160 @@ from typing import Any, Callable, Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
-# Data models
+# Enums
 # ---------------------------------------------------------------------------
 
 class ChannelStatus(str, Enum):
-    """Runtime status of a channel."""
-    STOPPED = "stopped"
+    IDLE = "idle"
     STARTING = "starting"
     RUNNING = "running"
-    ERROR = "error"
     STOPPING = "stopping"
+    STOPPED = "stopped"
+    ERROR = "error"
 
+
+class MessageType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    FILE = "file"
+    AUDIO = "audio"
+    VIDEO = "video"
+    LOCATION = "location"
+    STICKER = "sticker"
+    INTERACTIVE = "interactive"
+    UNKNOWN = "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Normalized message dataclasses
+# ---------------------------------------------------------------------------
 
 @dataclass
 class ChannelMessage:
-    """Normalized inbound message — every channel converts to this before
-    entering the agent pipeline."""
-
-    channel_id: str               # "telegram", "slack", "whatsapp", "webchat"
-    account_id: str = ""          # multi-account support (bot username, workspace id, …)
-    sender_id: str = ""           # platform-specific sender ID
-    sender_name: str = ""         # display name
-    chat_id: str = ""             # conversation / group / DM id on the platform
-    content: str = ""             # text body
-    attachments: List[dict] = field(default_factory=list)  # normalized attachment dicts
-    thread_id: Optional[str] = None   # for threaded channels (Slack threads, etc.)
-    reply_to_id: Optional[str] = None
-    raw: dict = field(default_factory=dict)  # original platform payload (escape hatch)
+    """Normalized inbound message envelope from any channel."""
+    channel_id: str                          # e.g. "telegram", "slack"
+    chat_id: str                             # platform-specific conversation id
+    sender_id: str                           # platform-specific sender id
+    sender_name: str = ""
+    text: str = ""
+    message_type: MessageType = MessageType.TEXT
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    raw: Any = None                          # original platform payload
     timestamp: float = field(default_factory=time.time)
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-
-    # Routing hints (populated by bridge or channel adapter)
-    target_agent_id: Optional[str] = None  # explicit agent routing
+    thread_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class OutboundMessage:
-    """Payload for sending a reply back through a channel."""
+    """Normalized outbound message payload to send through a channel."""
     text: str = ""
-    media_url: Optional[str] = None
-    media_type: Optional[str] = None   # "image", "audio", "video", "file"
-    caption: Optional[str] = None
-    reply_to_id: Optional[str] = None  # platform message id to reply to
+    message_type: MessageType = MessageType.TEXT
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    reply_to: Optional[str] = None           # message_id to reply to
     thread_id: Optional[str] = None
-    extra: dict = field(default_factory=dict)  # channel-specific extras
 
 
 @dataclass
 class SendResult:
     """Result of an outbound send attempt."""
-    success: bool = False
-    message_id: Optional[str] = None   # platform-assigned message id
+    success: bool
+    message_id: Optional[str] = None
     error: Optional[str] = None
-    raw: dict = field(default_factory=dict)
+    raw: Any = None
 
 
 # ---------------------------------------------------------------------------
-# Capability mixins (optional — channels implement only what they support)
+# Capability Mixins (optional — adapters can declare extra capabilities)
 # ---------------------------------------------------------------------------
 
 class ThreadingCapable:
-    """Mixin for channels that support threaded conversations."""
-
-    def send_to_thread(
-        self, chat_id: str, thread_id: str, message: OutboundMessage
-    ) -> SendResult:
-        raise NotImplementedError
+    """Marker: adapter supports threaded conversations."""
+    pass
 
 
 class MediaCapable:
-    """Mixin for channels that support media attachments."""
-
-    def send_media(
-        self, chat_id: str, media_url: str, caption: Optional[str] = None
-    ) -> SendResult:
-        raise NotImplementedError
+    """Marker: adapter supports sending/receiving media."""
+    pass
 
 
 class GroupCapable:
-    """Mixin for channels that support group/channel listing."""
+    """Marker: adapter supports group conversations."""
+    pass
 
-    def list_groups(self) -> List[dict]:
-        raise NotImplementedError
+
+class ReactionCapable:
+    """Marker: adapter supports emoji reactions."""
+    pass
 
 
 # ---------------------------------------------------------------------------
-# Channel Plugin ABC — the minimal contract
+# Channel Plugin ABC
 # ---------------------------------------------------------------------------
 
 class ChannelPlugin(ABC):
     """
-    Minimal channel adapter contract.
+    Minimal 4-method contract for a channel adapter.
 
-    Implementors must provide exactly 4 methods:
-      configure  — validate credentials, set up API client
-      start      — long-running inbound listener (blocking; runs in its own thread)
-      stop       — graceful shutdown (called from manager thread)
-      send       — outbound message delivery
+    Lifecycle:
+        configure(config)  →  start(on_message, stop_event)  →  stop()
 
-    The ``on_message`` callback passed to ``start()`` accepts a single
-    ``ChannelMessage`` argument and bridges it into the agent pipeline.
+    Sending:
+        send(chat_id, message) → SendResult
     """
 
-    # ---- identity ----
-    @property
+    # Subclasses set this; also used as registry key
+    channel_type: str = ""
+
     @abstractmethod
-    def channel_id(self) -> str:
-        """Unique channel type identifier, e.g. 'telegram', 'slack'."""
-        ...
-
-    @property
-    def display_name(self) -> str:
-        """Human-readable name for UI."""
-        return self.channel_id.title()
-
-    # ---- lifecycle ----
-    @abstractmethod
-    def configure(self, config: dict) -> None:
-        """Validate and apply configuration (tokens, webhook URLs, etc.).
-
-        Should raise ``ValueError`` on invalid config.
+    def configure(self, config: Dict[str, Any]) -> None:
+        """
+        Validate and store configuration (tokens, webhook URLs, etc.).
+        Called once before start().
         """
         ...
 
     @abstractmethod
-    def start(self, on_message: Callable[[ChannelMessage], None], stop_event: Event) -> None:
-        """Run the inbound monitor loop.
-
-        This method is called in a dedicated daemon thread and should block
-        until ``stop_event`` is set.  When the event fires, clean up and return.
-
-        Args:
-            on_message: Callback to invoke for each normalized inbound message.
-            stop_event: ``threading.Event`` that signals the monitor to stop.
+    def start(
+        self,
+        on_message: Callable[[ChannelMessage], None],
+        stop_event: Event,
+    ) -> None:
+        """
+        Begin listening for inbound messages.  **Blocks** until *stop_event*
+        is set.  Must call *on_message* for every normalized inbound message.
+        Runs inside a dedicated daemon thread managed by ChannelManager.
         """
         ...
 
     @abstractmethod
     def stop(self) -> None:
-        """Perform any additional cleanup beyond what stop_event handles."""
-        ...
-
-    # ---- outbound ----
-    @abstractmethod
-    def send(self, chat_id: str, message: OutboundMessage) -> SendResult:
-        """Send an outbound message to the given chat/conversation.
-
-        Args:
-            chat_id: Platform-specific conversation identifier.
-            message: The outbound payload.
-
-        Returns:
-            ``SendResult`` with success flag and optional platform message id.
+        """
+        Perform any cleanup beyond what *stop_event* already handles
+        (close sockets, flush queues, etc.).
         """
         ...
 
-    # ---- optional helpers ----
-    def get_status_extra(self) -> dict:
-        """Return channel-specific status info (bot username, webhook url, …)."""
-        return {}
+    @abstractmethod
+    def send(self, chat_id: str, message: OutboundMessage) -> SendResult:
+        """
+        Send an outbound message to *chat_id* on this channel.
+        Returns a SendResult indicating success/failure.
+        """
+        ...
+
+    # ---- convenience wrappers ------------------------------------------------
+
+    def send_text(self, chat_id: str, text: str) -> SendResult:
+        """Shorthand to send a plain-text message."""
+        return self.send(chat_id, OutboundMessage(text=text))
+
+    def send_media(self, chat_id: str, url: str, caption: str = "", media_type: str = "image") -> SendResult:
+        """Shorthand to send a media message."""
+        return self.send(chat_id, OutboundMessage(
+            text=caption,
+            message_type=MessageType.IMAGE,
+            attachments=[{"type": media_type, "url": url}],
+        ))

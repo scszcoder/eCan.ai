@@ -10,6 +10,7 @@ import { IPCAPI } from '../../../services/ipc/api';
 import React from 'react';
 import { useNodeFlipStore } from './node-flip-store';
 import { sanitizeNodeApiKeys } from '../utils/sanitize-utils';
+import { traverseWorkflowNodes } from '../utils/traverse-workflow-nodes';
 
 // Data structure for saving to backend
 export interface EditorSaveData {
@@ -82,23 +83,15 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
         const { isFlipped } = useNodeFlipStore.getState();
         
         if (workFlowCopy.nodes) {
-          // Recursive function to process nodes (including subcanvas)
-          const processNodes = (nodes: any[]) => {
-            nodes.forEach((node: any) => {
-              if (!node.data) node.data = {};
-              const flipState = isFlipped(node.id);
-              if (flipState) {
-                node.data.hFlip = true;
-              } else if (node.data.hFlip) {
-                delete node.data.hFlip;
-              }
-              // Recursively process subcanvas nodes
-              if (node.data?.subcanvas?.nodes) {
-                processNodes(node.data.subcanvas.nodes);
-              }
-            });
-          };
-          processNodes(workFlowCopy.nodes);
+          traverseWorkflowNodes(workFlowCopy.nodes, (node: any) => {
+            if (!node.data) node.data = {};
+            const flipState = isFlipped(node.id);
+            if (flipState) {
+              node.data.hFlip = true;
+            } else if (node.data.hFlip) {
+              delete node.data.hFlip;
+            }
+          });
         }
         
         saveData.skillInfo = {
@@ -126,24 +119,16 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
         
         Object.values(sanitizedData.sheets.sheets).forEach((sheet: any) => {
           if (sheet.document?.nodes) {
-            // Recursive function to process nodes (including subcanvas)
-            const processNodes = (nodes: any[]) => {
-              nodes.forEach((node: any) => {
-                if (!node.data) node.data = {};
-                const flipState = isFlipped(node.id);
-                if (flipState) {
-                  node.data.hFlip = true;
-                } else if (node.data.hFlip) {
-                  delete node.data.hFlip;
-                }
-                // Recursively process subcanvas nodes
-                if (node.data?.subcanvas?.nodes) {
-                  processNodes(node.data.subcanvas.nodes);
-                }
-              });
-            };
-            processNodes(sheet.document.nodes);
-            
+            traverseWorkflowNodes(sheet.document.nodes, (node: any) => {
+              if (!node.data) node.data = {};
+              const flipState = isFlipped(node.id);
+              if (flipState) {
+                node.data.hFlip = true;
+              } else if (node.data.hFlip) {
+                delete node.data.hFlip;
+              }
+            });
+
             // Sanitize API keys
             sanitizeNodeApiKeys(sheet.document.nodes);
           }

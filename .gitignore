@@ -58,3 +58,7 @@ debug/workflows/
 
 # Proprietary prompt files (not for version control)
 lambda_functions/skill_editor_lambda/prompts/
+
+# OTA runtime-generated files
+/ota_scripts/
+/ota_install_state.json

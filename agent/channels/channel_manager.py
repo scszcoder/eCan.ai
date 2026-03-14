@@ -1,21 +1,18 @@
 """
-Layer 2: Channel Manager — lifecycle controller.
+Channel Manager — lifecycle controller for channel adapters.
 
-Starts/stops channel adapters in dedicated threads, tracks runtime status,
-and auto-restarts failed channels with exponential backoff.
+Manages starting, stopping, restarting channels in dedicated threads,
+tracks status per channel, and implements exponential backoff on crash.
 """
-
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
-import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
-
-from utils.logger_helper import logger_helper as logger
+from typing import Any, Callable, Dict, Optional
 
 from agent.channels.base import (
     ChannelMessage,
@@ -26,6 +23,8 @@ from agent.channels.base import (
 )
 from agent.channels.registry import ChannelRegistry
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Restart policy
@@ -34,8 +33,8 @@ from agent.channels.registry import ChannelRegistry
 @dataclass
 class RestartPolicy:
     max_retries: int = 5
-    base_delay: float = 2.0        # seconds
-    max_delay: float = 120.0       # seconds
+    base_delay: float = 2.0
+    max_delay: float = 60.0
     backoff_factor: float = 2.0
 
 
@@ -47,14 +46,12 @@ class RestartPolicy:
 class _ChannelRuntime:
     channel_id: str
     plugin: ChannelPlugin
-    config: dict
-    status: ChannelStatus = ChannelStatus.STOPPED
+    config: Dict[str, Any]
+    status: ChannelStatus = ChannelStatus.IDLE
     thread: Optional[threading.Thread] = None
     stop_event: threading.Event = field(default_factory=threading.Event)
-    last_start: Optional[float] = None
-    last_stop: Optional[float] = None
-    last_error: Optional[str] = None
     restart_count: int = 0
+    last_error: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -63,12 +60,12 @@ class _ChannelRuntime:
 
 class ChannelManager:
     """
-    Lifecycle manager for communication channels.
+    Lifecycle manager for channel plugins.
 
-    Typical usage::
+    Usage::
 
         mgr = ChannelManager(on_message=bridge.dispatch_inbound)
-        mgr.load_config("agent/agent_files/channels.json")
+        mgr.load_config(Path("agent/agent_files/channels.json"))
         mgr.start_all()
         ...
         mgr.stop_all()
@@ -80,237 +77,173 @@ class ChannelManager:
         restart_policy: Optional[RestartPolicy] = None,
     ):
         self._on_message = on_message
-        self._restart_policy = restart_policy or RestartPolicy()
-        self._runtimes: Dict[str, _ChannelRuntime] = {}
+        self._policy = restart_policy or RestartPolicy()
+        self._channels: Dict[str, _ChannelRuntime] = {}
         self._lock = threading.Lock()
-        self._registry = ChannelRegistry()
 
-    # ---- config ----
+    # -- config ----------------------------------------------------------------
 
-    def load_config(self, config_path: str | Path) -> None:
-        """Load channel configs from a JSON file and register runtimes."""
-        config_path = Path(config_path)
-        if not config_path.exists():
-            logger.info(f"[ChannelManager] No config file at {config_path} — no channels loaded")
-            return
-
+    def load_config(self, config_path: Path) -> None:
+        """Load channel configurations from a JSON file."""
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                configs: dict = json.load(f)
-        except Exception as exc:
-            logger.error(f"[ChannelManager] Failed to read {config_path}: {exc}")
+                raw = json.load(f)
+        except FileNotFoundError:
+            logger.warning(f"[ChannelManager] Config not found: {config_path}")
+            return
+        except json.JSONDecodeError as e:
+            logger.error(f"[ChannelManager] Invalid JSON in {config_path}: {e}")
             return
 
-        for channel_id, cfg in configs.items():
-            if channel_id.startswith("_"):
-                continue  # skip meta keys
-            if not cfg.get("enabled", False):
-                logger.debug(f"[ChannelManager] Channel '{channel_id}' disabled — skipping")
-                continue
-            self.register_channel(channel_id, cfg)
+        channels_cfg = raw.get("channels", raw)
+        if isinstance(channels_cfg, dict):
+            for channel_id, cfg in channels_cfg.items():
+                if not cfg.get("enabled", False):
+                    logger.debug(f"[ChannelManager] Channel {channel_id} disabled, skipping")
+                    continue
+                self._register_channel(channel_id, cfg)
 
-    def register_channel(self, channel_id: str, config: dict) -> bool:
-        """Instantiate a plugin for *channel_id* and prepare it for start."""
-        plugin_cls = self._registry.get(channel_id)
+    def _register_channel(self, channel_id: str, config: Dict[str, Any]) -> None:
+        plugin_cls = ChannelRegistry.get(channel_id)
         if plugin_cls is None:
-            logger.warning(f"[ChannelManager] No plugin registered for '{channel_id}'")
-            return False
-
+            logger.warning(f"[ChannelManager] No adapter registered for '{channel_id}'")
+            return
+        plugin = plugin_cls()
         try:
-            plugin = plugin_cls()
             plugin.configure(config)
-        except Exception as exc:
-            logger.error(f"[ChannelManager] configure() failed for '{channel_id}': {exc}")
-            return False
-
+        except Exception as e:
+            logger.error(f"[ChannelManager] Failed to configure {channel_id}: {e}")
+            return
         with self._lock:
-            self._runtimes[channel_id] = _ChannelRuntime(
+            self._channels[channel_id] = _ChannelRuntime(
                 channel_id=channel_id,
                 plugin=plugin,
                 config=config,
             )
-        logger.info(f"[ChannelManager] Channel '{channel_id}' registered")
-        return True
+        logger.info(f"[ChannelManager] Channel registered: {channel_id}")
 
-    # ---- lifecycle ----
+    # -- lifecycle -------------------------------------------------------------
 
     def start_all(self) -> None:
-        """Start all registered (and enabled) channels."""
         with self._lock:
-            ids = list(self._runtimes.keys())
-        for cid in ids:
-            self.start_channel(cid)
+            for cid in list(self._channels):
+                self._start_channel_locked(cid)
 
-    def stop_all(self) -> None:
-        """Gracefully stop every running channel."""
+    def start_channel(self, channel_id: str) -> None:
         with self._lock:
-            ids = list(self._runtimes.keys())
-        for cid in ids:
-            self.stop_channel(cid)
+            self._start_channel_locked(channel_id)
 
-    def start_channel(self, channel_id: str) -> bool:
-        with self._lock:
-            rt = self._runtimes.get(channel_id)
-            if rt is None:
-                logger.warning(f"[ChannelManager] Unknown channel '{channel_id}'")
-                return False
-            if rt.status == ChannelStatus.RUNNING:
-                logger.debug(f"[ChannelManager] '{channel_id}' already running")
-                return True
+    def _start_channel_locked(self, channel_id: str) -> None:
+        rt = self._channels.get(channel_id)
+        if rt is None:
+            logger.warning(f"[ChannelManager] Unknown channel: {channel_id}")
+            return
+        if rt.status == ChannelStatus.RUNNING:
+            return
 
-            rt.stop_event.clear()
-            rt.status = ChannelStatus.STARTING
-            rt.last_start = time.time()
-
-            t = threading.Thread(
-                target=self._run_channel,
-                args=(rt,),
-                name=f"channel-{channel_id}",
-                daemon=True,
-            )
-            rt.thread = t
-            t.start()
-        logger.info(f"[ChannelManager] Starting channel '{channel_id}'")
-        return True
+        rt.stop_event.clear()
+        rt.status = ChannelStatus.STARTING
+        rt.thread = threading.Thread(
+            target=self._run_channel,
+            args=(channel_id,),
+            name=f"channel-{channel_id}",
+            daemon=True,
+        )
+        rt.thread.start()
+        logger.info(f"[ChannelManager] Started channel thread: {channel_id}")
 
     def stop_channel(self, channel_id: str) -> None:
         with self._lock:
-            rt = self._runtimes.get(channel_id)
+            rt = self._channels.get(channel_id)
             if rt is None:
-                return
-            if rt.status in (ChannelStatus.STOPPED, ChannelStatus.STOPPING):
                 return
             rt.status = ChannelStatus.STOPPING
-
-        rt.stop_event.set()
+            rt.stop_event.set()
+        # Let plugin do extra cleanup
         try:
             rt.plugin.stop()
-        except Exception as exc:
-            logger.warning(f"[ChannelManager] stop() error for '{channel_id}': {exc}")
-
+        except Exception as e:
+            logger.debug(f"[ChannelManager] Error stopping {channel_id}: {e}")
+        # Wait briefly for thread to exit
         if rt.thread and rt.thread.is_alive():
-            rt.thread.join(timeout=10.0)
-
+            rt.thread.join(timeout=5)
         with self._lock:
             rt.status = ChannelStatus.STOPPED
-            rt.last_stop = time.time()
-            rt.thread = None
+        logger.info(f"[ChannelManager] Stopped channel: {channel_id}")
 
-        logger.info(f"[ChannelManager] Stopped channel '{channel_id}'")
-
-    def restart_channel(self, channel_id: str) -> bool:
-        self.stop_channel(channel_id)
-        return self.start_channel(channel_id)
-
-    # ---- status ----
-
-    def get_status(self, channel_id: str) -> Optional[dict]:
+    def stop_all(self) -> None:
         with self._lock:
-            rt = self._runtimes.get(channel_id)
-            if rt is None:
-                return None
-            extra = {}
-            try:
-                extra = rt.plugin.get_status_extra()
-            except Exception:
-                pass
-            return {
-                "channel_id": channel_id,
-                "status": rt.status.value,
-                "display_name": rt.plugin.display_name,
-                "last_start": rt.last_start,
-                "last_stop": rt.last_stop,
-                "last_error": rt.last_error,
-                "restart_count": rt.restart_count,
-                **extra,
-            }
+            ids = list(self._channels)
+        for cid in ids:
+            self.stop_channel(cid)
 
-    def get_all_statuses(self) -> List[dict]:
-        with self._lock:
-            ids = list(self._runtimes.keys())
-        return [self.get_status(cid) for cid in ids if self.get_status(cid)]
+    # -- channel thread --------------------------------------------------------
 
-    # ---- outbound ----
+    def _run_channel(self, channel_id: str) -> None:
+        rt = self._channels[channel_id]
+        try:
+            rt.status = ChannelStatus.RUNNING
+            rt.plugin.start(self._on_message, rt.stop_event)
+        except Exception as e:
+            rt.last_error = str(e)
+            logger.error(f"[ChannelManager] Channel {channel_id} crashed: {e}")
+            if not rt.stop_event.is_set():
+                rt.status = ChannelStatus.ERROR
+                self._maybe_restart(channel_id)
+                return
+        rt.status = ChannelStatus.STOPPED
+
+    def _maybe_restart(self, channel_id: str) -> None:
+        rt = self._channels.get(channel_id)
+        if rt is None or rt.stop_event.is_set():
+            return
+        if rt.restart_count >= self._policy.max_retries:
+            logger.error(f"[ChannelManager] {channel_id} exceeded max retries ({self._policy.max_retries})")
+            return
+        delay = min(
+            self._policy.base_delay * (self._policy.backoff_factor ** rt.restart_count),
+            self._policy.max_delay,
+        )
+        rt.restart_count += 1
+        logger.info(f"[ChannelManager] Restarting {channel_id} in {delay:.1f}s (attempt {rt.restart_count})")
+        time.sleep(delay)
+        if not rt.stop_event.is_set():
+            with self._lock:
+                self._start_channel_locked(channel_id)
+
+    # -- sending ---------------------------------------------------------------
 
     def send(self, channel_id: str, chat_id: str, message: OutboundMessage) -> SendResult:
-        """Send an outbound message through the named channel."""
-        with self._lock:
-            rt = self._runtimes.get(channel_id)
+        rt = self._channels.get(channel_id)
         if rt is None:
             return SendResult(success=False, error=f"Unknown channel: {channel_id}")
         if rt.status != ChannelStatus.RUNNING:
-            return SendResult(success=False, error=f"Channel '{channel_id}' is not running (status={rt.status.value})")
+            return SendResult(success=False, error=f"Channel {channel_id} is {rt.status}")
         try:
             return rt.plugin.send(chat_id, message)
-        except Exception as exc:
-            logger.error(f"[ChannelManager] send() failed for '{channel_id}': {exc}")
-            return SendResult(success=False, error=str(exc))
+        except Exception as e:
+            logger.error(f"[ChannelManager] Send failed on {channel_id}: {e}")
+            return SendResult(success=False, error=str(e))
 
-    def get_plugin(self, channel_id: str) -> Optional[ChannelPlugin]:
-        with self._lock:
-            rt = self._runtimes.get(channel_id)
-            return rt.plugin if rt else None
+    def send_text(self, channel_id: str, chat_id: str, text: str) -> SendResult:
+        return self.send(channel_id, chat_id, OutboundMessage(text=text))
 
-    # ---- internal ----
+    # -- status ----------------------------------------------------------------
 
-    def _run_channel(self, rt: _ChannelRuntime) -> None:
-        """Thread target — run the channel monitor with auto-restart."""
-        policy = self._restart_policy
-        attempt = 0
+    def get_status(self, channel_id: str) -> Optional[ChannelStatus]:
+        rt = self._channels.get(channel_id)
+        return rt.status if rt else None
 
-        while not rt.stop_event.is_set():
-            try:
-                with self._lock:
-                    rt.status = ChannelStatus.RUNNING
-                    rt.last_error = None
-                logger.info(f"[ChannelManager] Channel '{rt.channel_id}' monitor started")
+    def get_all_status(self) -> Dict[str, Dict[str, Any]]:
+        result = {}
+        for cid, rt in self._channels.items():
+            result[cid] = {
+                "status": rt.status.value,
+                "restart_count": rt.restart_count,
+                "last_error": rt.last_error,
+            }
+        return result
 
-                rt.plugin.start(self._on_message, rt.stop_event)
-
-                # start() returned normally — check if we should stop
-                if rt.stop_event.is_set():
-                    break
-                # If start() returns without stop_event, treat as clean exit
-                logger.info(f"[ChannelManager] Channel '{rt.channel_id}' monitor exited cleanly")
-                break
-
-            except Exception as exc:
-                tb = traceback.format_exc()
-                logger.error(f"[ChannelManager] Channel '{rt.channel_id}' crashed: {exc}\n{tb}")
-                with self._lock:
-                    rt.status = ChannelStatus.ERROR
-                    rt.last_error = str(exc)
-                    rt.restart_count += 1
-
-                attempt += 1
-                if attempt > policy.max_retries:
-                    logger.error(
-                        f"[ChannelManager] Channel '{rt.channel_id}' exceeded max retries "
-                        f"({policy.max_retries}) — giving up"
-                    )
-                    break
-
-                delay = min(
-                    policy.base_delay * (policy.backoff_factor ** (attempt - 1)),
-                    policy.max_delay,
-                )
-                logger.info(
-                    f"[ChannelManager] Restarting '{rt.channel_id}' in {delay:.1f}s "
-                    f"(attempt {attempt}/{policy.max_retries})"
-                )
-                rt.stop_event.wait(delay)
-                if rt.stop_event.is_set():
-                    break
-
-                # Re-configure before restart in case config was updated
-                try:
-                    rt.plugin.configure(rt.config)
-                except Exception as cfg_exc:
-                    logger.error(f"[ChannelManager] Re-configure failed for '{rt.channel_id}': {cfg_exc}")
-                    break
-
-        with self._lock:
-            if rt.status != ChannelStatus.STOPPED:
-                rt.status = ChannelStatus.STOPPED
-            rt.last_stop = time.time()
-        logger.info(f"[ChannelManager] Channel '{rt.channel_id}' thread exiting")
+    def get_channel(self, channel_id: str) -> Optional[ChannelPlugin]:
+        rt = self._channels.get(channel_id)
+        return rt.plugin if rt else None

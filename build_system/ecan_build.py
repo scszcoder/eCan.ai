@@ -708,7 +708,7 @@ begin
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait postinstall
+Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"

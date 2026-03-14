@@ -3,6 +3,7 @@ This module contains all document-related routes for the LightRAG API.
 """
 
 import asyncio
+import os
 from lightrag.utils import logger, get_pinyin_sort_key
 import aiofiles
 import shutil
@@ -1675,6 +1676,15 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = No
         track_id: Optional tracking ID
     """
     try:
+        try:
+            from knowledge.lightrag_launcher import get_stop_controller
+            stop_controller = get_stop_controller()
+            if stop_controller.is_stop_requested():
+                stop_controller.reset()
+                logger.info("[ScanBatch] Reset StopController for new single-file indexing operation")
+        except Exception:
+            pass
+
         success, returned_track_id = await pipeline_enqueue_file(
             rag, file_path, track_id
         )
@@ -1701,24 +1711,71 @@ async def pipeline_index_files(
     if not file_paths:
         return
     try:
-        enqueued = False
+        try:
+            from knowledge.lightrag_launcher import get_stop_controller
+            stop_controller = get_stop_controller()
+            if stop_controller.is_stop_requested():
+                stop_controller.reset()
+                logger.info("[ScanBatch] Reset StopController for new multi-file indexing operation")
+        except Exception:
+            pass
 
         # Use get_pinyin_sort_key for Chinese pinyin sorting
         sorted_file_paths = sorted(
             file_paths, key=lambda p: get_pinyin_sort_key(str(p))
         )
+        try:
+            batch_size = max(1, int(os.getenv("MAX_PARALLEL_INSERT", "2")))
+        except (TypeError, ValueError):
+            batch_size = 2
 
-        # Process files sequentially with track_id
-        for file_path in sorted_file_paths:
-            success, _ = await pipeline_enqueue_file(rag, file_path, track_id)
-            if success:
-                enqueued = True
+        logger.info(
+            f"[ScanBatch] Indexing {len(sorted_file_paths)} file(s) in enqueue batches of {batch_size}"
+        )
 
-        # Process the queue only if at least one file was successfully enqueued
-        if enqueued:
-            # Process queue in background to avoid blocking
-            import asyncio
-            asyncio.create_task(rag.apipeline_process_enqueue_documents())
+        for batch_start in range(0, len(sorted_file_paths), batch_size):
+            try:
+                from knowledge.lightrag_launcher import get_stop_controller
+                controller = get_stop_controller()
+                if controller.is_stop_requested():
+                    logger.info(
+                        f"[ScanBatch] Stop requested before enqueue batch {(batch_start // batch_size) + 1}, halting remaining files"
+                    )
+                    break
+            except Exception:
+                pass
+
+            current_batch = sorted_file_paths[batch_start: batch_start + batch_size]
+            enqueued = False
+
+            logger.info(
+                f"[ScanBatch] Enqueueing batch {(batch_start // batch_size) + 1}/"
+                f"{(len(sorted_file_paths) + batch_size - 1) // batch_size} with {len(current_batch)} file(s)"
+            )
+
+            for file_path in current_batch:
+                try:
+                    from knowledge.lightrag_launcher import get_stop_controller
+                    controller = get_stop_controller()
+                    if controller.is_stop_requested():
+                        logger.info(
+                            f"[ScanBatch] Stop requested while enqueueing batch, skipping remaining file(s) from {file_path.name}"
+                        )
+                        break
+                except Exception:
+                    pass
+
+                success, _ = await pipeline_enqueue_file(rag, file_path, track_id)
+                if success:
+                    enqueued = True
+
+            if not enqueued:
+                continue
+
+            logger.info(
+                f"[ScanBatch] Processing enqueued batch {(batch_start // batch_size) + 1} immediately"
+            )
+            await rag.apipeline_process_enqueue_documents()
     except Exception as e:
         logger.error(f"Error indexing files: {str(e)}")
         logger.error(traceback.format_exc())
@@ -1740,6 +1797,15 @@ async def pipeline_index_texts(
     """
     if not texts:
         return
+    try:
+        from knowledge.lightrag_launcher import get_stop_controller
+        stop_controller = get_stop_controller()
+        if stop_controller.is_stop_requested():
+            stop_controller.reset()
+            logger.info("[ScanBatch] Reset StopController for new text indexing operation")
+    except Exception:
+        pass
+
     if file_sources is not None:
         if len(file_sources) != 0 and len(file_sources) != len(texts):
             [
@@ -1765,6 +1831,15 @@ async def run_scanning_process(
         track_id: Optional tracking ID to pass to all scanned files
     """
     try:
+        try:
+            from knowledge.lightrag_launcher import get_stop_controller
+            stop_controller = get_stop_controller()
+            if stop_controller.is_stop_requested():
+                stop_controller.reset()
+                logger.info("[ScanBatch] Reset StopController for new scanning operation")
+        except Exception:
+            pass
+
         new_files = doc_manager.scan_directory_for_new_files()
         total_files = len(new_files)
         logger.info(f"Found {total_files} files to index.")
@@ -3251,20 +3326,9 @@ def create_document_routes(
             # Reset pipeline busy status
             async with pipeline_status_lock:
                 pipeline_status["busy"] = False
-                pipeline_status["cancellation_requested"] = False
                 done_msg = f"Pipeline cancelled. {processing_count} documents marked as FAILED."
                 pipeline_status["latest_message"] = done_msg
                 pipeline_status["history_messages"].append(done_msg)
-
-            # ========== eCan.ai Custom: Reset StopController ==========
-            try:
-                from knowledge.lightrag_launcher import get_stop_controller
-                stop_controller = get_stop_controller()
-                stop_controller.reset()
-                logger.info("[cancel_pipeline] StopController reset for next operation")
-            except Exception as e:
-                logger.warning(f"[cancel_pipeline] Could not reset StopController: {e}")
-            # ========== End eCan.ai Custom ==========
 
             return CancelPipelineResponse(
                 status="cancelled",

@@ -1,21 +1,15 @@
 """
-WebChat channel adapter — wraps the existing GUI chat pipeline.
+WebChat channel adapter — wraps existing GUI chat pipeline.
 
-This adapter doesn't run its own monitor; the existing GUI IPC path
-(handle_send_chat → gui_a2a_send_chat) already handles inbound.
-
-The adapter is registered so that:
-  - ChannelManager.get_all_statuses() includes webchat
-  - Outbound routing can identify "webchat" as a known channel (and skip
-    external routing, falling through to the normal GUI push path)
+This adapter is a no-op that registers itself so the ChannelManager
+recognizes "webchat" as a valid channel type.  Inbound and outbound
+messages for the GUI are already handled by the existing IPC/WS pipeline.
 """
-
 from __future__ import annotations
 
+import logging
 from threading import Event
-from typing import Callable, Optional
-
-from utils.logger_helper import logger_helper as logger
+from typing import Any, Callable, Dict
 
 from agent.channels.base import (
     ChannelMessage,
@@ -25,51 +19,28 @@ from agent.channels.base import (
 )
 from agent.channels.registry import ChannelRegistry
 
+logger = logging.getLogger(__name__)
 
-class WebChatChannel(ChannelPlugin):
-    _channel_id = "webchat"
 
-    def __init__(self):
-        self._default_agent_id: Optional[str] = None
+class WebChatPlugin(ChannelPlugin):
+    channel_type = "webchat"
 
-    @property
-    def channel_id(self) -> str:
-        return "webchat"
-
-    @property
-    def display_name(self) -> str:
-        return "Web Chat (GUI)"
-
-    def configure(self, config: dict) -> None:
-        self._default_agent_id = config.get("default_agent_id")
+    def configure(self, config: Dict[str, Any]) -> None:
+        pass  # no external configuration needed
 
     def start(self, on_message: Callable[[ChannelMessage], None], stop_event: Event) -> None:
-        # WebChat doesn't have its own monitor — the existing IPC path
-        # (handle_send_chat) is the inbound source.  Just block until stopped.
-        logger.info("[WebChat] Adapter active (inbound handled by existing IPC path)")
+        # The existing GUI IPC pipeline handles inbound messages.
+        # Just block until stopped so ChannelManager sees this as "running".
+        logger.info("[WebChat] Adapter active (GUI IPC handles messages)")
         stop_event.wait()
 
     def stop(self) -> None:
         pass
 
     def send(self, chat_id: str, message: OutboundMessage) -> SendResult:
-        # Outbound for webchat goes through the existing ChatMessageSender /
-        # db_chat_service.push_message_to_chat path, NOT through this adapter.
-        # This method is here only for completeness.
-        try:
-            from app_context import AppContext
-            from agent.ec_tasks.message_sender import ChatMessageSender
-
-            mainwin = AppContext.get_main_window()
-            sender = ChatMessageSender()
-            ok = sender.send_text(chat_id, message.text)
-            return SendResult(success=ok)
-        except Exception as exc:
-            return SendResult(success=False, error=str(exc))
-
-    def get_status_extra(self) -> dict:
-        return {"note": "Inbound handled by existing IPC path"}
+        # Outbound for webchat goes through ChatMessageSender / IPC, not here.
+        return SendResult(success=True, message_id="gui")
 
 
-# Auto-register on import
-ChannelRegistry().register(WebChatChannel)
+# Auto-register
+ChannelRegistry.register("webchat", WebChatPlugin)
