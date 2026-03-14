@@ -1993,24 +1993,42 @@ class SkillEditorAgent:
         original_message = pending.get("original_message", message)
         detected_file_path = pending.get("detected_file_path")
 
+        logger.info(f"[SkillEditorAgent] Raw clarification_responses keys: {list(clarification_responses.keys())}")
+        for k, v in clarification_responses.items():
+            logger.info(f"[SkillEditorAgent]   {k!r} -> {v!r}")
+
         # Extract answers from clarification responses
-        # Responses are keyed by question ID → list of selected choice IDs or freeform text
+        # Frontend sends two keys per question:
+        #   "{qid}": ["choice_id"]              — the selected choice
+        #   "freeform_{qid}": ["typed text"]     — optional freeform text for that choice
         file_path = detected_file_path
         user_observation = ""
         expected_behavior = ""
 
-        for qid, answers in clarification_responses.items():
-            answer_text = " ".join(a for a in answers if a) if isinstance(answers, list) else str(answers)
-            # Strip choice IDs like "obs_error: " prefix — the freeform text follows the choice label
-            if qid == "log_file_path":
-                # User typed a file path
-                cleaned = answer_text.replace("path_freeform", "").strip().strip(":")
-                if cleaned:
-                    file_path = cleaned.strip()
-            elif qid == "user_observation":
-                user_observation = answer_text
-            elif qid == "expected_behavior":
-                expected_behavior = answer_text
+        def _get_freeform(qid: str) -> str:
+            """Get freeform text for a question, checking freeform_{qid} key first."""
+            freeform_val = clarification_responses.get(f"freeform_{qid}")
+            if freeform_val:
+                text = freeform_val[0] if isinstance(freeform_val, list) else str(freeform_val)
+                if text.strip():
+                    return text.strip()
+            # Fallback: check if the answer itself contains text beyond choice IDs
+            ans = clarification_responses.get(qid)
+            if ans:
+                text = " ".join(a for a in ans if a) if isinstance(ans, list) else str(ans)
+                return text.strip()
+            return ""
+
+        # Q1: log file path
+        freeform_path = _get_freeform("log_file_path")
+        if freeform_path and freeform_path != "path_freeform":
+            file_path = freeform_path
+
+        # Q2: user observation — combine choice label + freeform details
+        user_observation = _get_freeform("user_observation")
+
+        # Q3: expected behavior
+        expected_behavior = _get_freeform("expected_behavior")
 
         logger.info(
             f"[SkillEditorAgent] Log analysis info collected: file_path={file_path}, "
