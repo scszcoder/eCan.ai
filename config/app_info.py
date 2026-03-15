@@ -50,15 +50,15 @@ class AppInfo:
         """Get production application data path.
         
         Uses standard OS-specific paths (matches build_config.json):
-        - Windows: %LOCALAPPDATA%\eCan
+        - Windows: %LOCALAPPDATA%/eCan
         - macOS: ~/Library/Application Support/eCan
         - Linux: ~/.local/share/eCan (XDG Base Directory)
         """
         if platform.system() == 'Windows':
-            # Windows: Use %LOCALAPPDATA%\eCan
+            # Windows: Use %LOCALAPPDATA%/eCan
             localappdata = os.environ.get('LOCALAPPDATA', '')
             if not localappdata:
-                # Fallback to %USERPROFILE%\AppData\Local if LOCALAPPDATA not set
+                # Fallback to %USERPROFILE%/AppData/Local if LOCALAPPDATA not set
                 userprofile = os.environ.get('USERPROFILE', '')
                 localappdata = os.path.join(userprofile, 'AppData', 'Local')
             

@@ -104,8 +104,8 @@ class InstallationManager:
         r"""Read current installation directory from Windows Registry.
         
         This is critical for OTA upgrades to preserve custom installation paths.
-        If the user installed to D:\MyApps\eCan, we must upgrade to the same location,
-        not default to C:\Users\...\AppData\Local\eCan.
+        If the user installed to D:/MyApps/eCan, we must upgrade to the same location,
+        not default to C:/Users/.../AppData/Local/eCan.
         
         Returns:
             Path to current installation directory, or None if not found in registry

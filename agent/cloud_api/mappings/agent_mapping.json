@@ -21,6 +21,7 @@
     "skills",
     "tasks",
     "tools",
+    "avatar",
     "owner",
     "org_id",
     "created_at",
@@ -36,7 +37,8 @@
   "json_serialize_fields": [
     "personalities",
     "extra_data",
-    "capabilities"
+    "capabilities",
+    "title"
   ],
   
   "aws_date_fields": [

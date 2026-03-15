@@ -51,8 +51,17 @@ export const detectPlatform = (): PlatformType => {
       return 'desktop';
     }
     
-    // Desktop mode: localhost or 127.0.0.1
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.')) {
+    // Desktop mode: localhost, loopback, or private LAN IP
+    const isPrivateLanHost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
+      hostname.startsWith('169.254.');
+
+    if (isPrivateLanHost) {
       return 'desktop';
     }
     
