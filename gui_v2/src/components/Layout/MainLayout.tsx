@@ -36,6 +36,7 @@ import QuickActionMenu from './QuickActionMenu';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { logoutManager } from '../../services/LogoutManager';
 import { pushTestAds } from '../../stores/adStore';
+import { isDesktopPlatform, isWebPlatform } from '../../config/platform';
 
 
 const StyledLayout = styled(Layout)`
@@ -117,30 +118,34 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     };
 
 
-    const menuItems = React.useMemo<MenuProps['items']>(() => [
-        { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
-        { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },
-        { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },
-        { key: '/skills', icon: <ThunderboltOutlined />, label: t('menu.skills') },
-        { key: '/skill_editor', icon: <EditOutlined />, label: t('menu.skill_editor') },
-        { key: '/schedule', icon: <CalendarOutlined />, label: t('menu.schedule') },
-        { key: '/orgs', icon: <ApartmentOutlined />, label: t('menu.organizations') },
-        { key: '/vehicles', icon: <LaptopOutlined />, label: t('menu.vehicles') },
-        { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
-        { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
-        { key: '/avatars', icon: <UserOutlined />, label: t('menu.avatars') },
-        { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
-        { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
-        { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },
-        { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
-        { key: '/rag', icon: <DatabaseOutlined />, label: 'RAG Documents' },
-        { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
-        { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
+    const menuItems = React.useMemo<MenuProps['items']>(() => {
+        const isDesktop = isDesktopPlatform();
+        const isWeb = isWebPlatform();
 
-        { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },
-        { key: '/tests', icon: <ExperimentOutlined />, label: t('menu.tests') },
-        { key: '/chat-test', icon: <CustomerServiceOutlined />, label: t('menu.chat_test') },
-    ], [t]);
+        return [
+            { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
+            { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },
+            { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },
+            { key: '/skills', icon: <ThunderboltOutlined />, label: t('menu.skills') },
+            { key: '/skill_editor', icon: <EditOutlined />, label: t('menu.skill_editor') },
+            { key: '/schedule', icon: <CalendarOutlined />, label: t('menu.schedule') },
+            { key: '/orgs', icon: <ApartmentOutlined />, label: t('menu.organizations') },
+            { key: '/vehicles', icon: <LaptopOutlined />, label: t('menu.vehicles') },
+            { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
+            { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
+            { key: '/avatars', icon: <UserOutlined />, label: t('menu.avatars') },
+            { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
+            { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
+            ...(!isWeb ? [{ key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') }] : []),
+            { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
+            ...(!isDesktop ? [{ key: '/rag', icon: <DatabaseOutlined />, label: 'RAG Documents' }] : []),
+            { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
+            { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
+            { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },
+            { key: '/tests', icon: <ExperimentOutlined />, label: t('menu.tests') },
+            { key: '/chat-test', icon: <CustomerServiceOutlined />, label: t('menu.chat_test') },
+        ];
+    }, [t]);
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },

@@ -2309,11 +2309,44 @@ class TaskRunner(Generic[Context]):
 
             login = AppContext.get_login()
             tokens = login.auth_manager.get_tokens()
-            auth_token = tokens.get('access_token')
             
             mainwin = AppContext.get_main_window()
+            auth_token = ""
+            auth_token_source = "none"
+            if mainwin:
+                try:
+                    auth_token = mainwin.get_auth_token() or ""
+                    if auth_token:
+                        auth_token_source = "mainwin.get_auth_token"
+                except Exception:
+                    auth_token = ""
+            if not auth_token:
+                auth_token = (
+                    tokens.get('id_token')
+                    or tokens.get('IdToken')
+                    or tokens.get('access_token')
+                    or tokens.get('AccessToken')
+                    or ""
+                )
+                if auth_token:
+                    if tokens.get('id_token'):
+                        auth_token_source = "tokens.id_token"
+                    elif tokens.get('IdToken'):
+                        auth_token_source = "tokens.IdToken"
+                    elif tokens.get('access_token'):
+                        auth_token_source = "tokens.access_token"
+                    elif tokens.get('AccessToken'):
+                        auth_token_source = "tokens.AccessToken"
             api_key = mainwin.getWanApiKey() if mainwin else ""
             endpoint = mainwin.getWanApiEndpoint() if mainwin else ""
+
+            masked_token = f"{auth_token[:12]}...{auth_token[-6:]}" if auth_token and len(auth_token) > 18 else ("<short>" if auth_token else "<empty>")
+            masked_api_key = f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else ("<short>" if api_key else "<empty>")
+            logger.info(
+                f"[TaskStatus] Preparing subscription auth: run_id={run_id}, "
+                f"token_source={auth_token_source}, token={masked_token}, "
+                f"api_key={masked_api_key}, endpoint={endpoint or '<empty>'}"
+            )
             
             config = AppSyncApiKeyConfig(
                 http_endpoint=endpoint,

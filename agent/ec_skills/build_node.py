@@ -777,8 +777,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     Returns:
         A callable function that can be used as a LangGraph node
     """
-    _validate_runtime_registry()
-
     # Extract configuration from metadata with sensible defaults (tolerant to missing keys)
     logger.debug("building llm node:", config_metadata)
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
