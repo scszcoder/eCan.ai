@@ -2424,7 +2424,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_write_file",
-        description="<category>OS</category><sub-category>File</sub-category>Write contents to a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text mode, provide a string. For binary mode, provide base64-encoded data. Parent directories are created automatically if they do not exist. Paths can use forward slashes on all platforms.",
+        description="<category>OS</category><sub-category>File</sub-category>Write contents to a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text mode, provide a string. For binary mode, provide base64-encoded data. Parent directories are created automatically if they do not exist. Safe-write: when overwriting (not append), if the target file already exists it is backed up as name(1), name(2), etc. Paths can use forward slashes on all platforms.",
         inputSchema={
             "type": "object",
             "required": ["input"],

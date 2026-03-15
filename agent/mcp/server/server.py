@@ -2773,7 +2773,9 @@ async def os_read_file(mainwin, args):
 async def os_write_file(mainwin, args):
     """Write file contents — platform-independent (Windows/macOS/Linux).
     Supports text and binary (base64-encoded input) modes.
-    Creates parent directories automatically."""
+    Creates parent directories automatically.
+    Safe-write: if the target file already exists (and not in append mode),
+    the existing file is renamed to name(1), name(2), etc. before writing."""
     try:
         from pathlib import Path
         import base64
@@ -2788,6 +2790,21 @@ async def os_write_file(mainwin, args):
 
         # Create parent directories if they don't exist
         file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Safe-write: back up existing file when not appending
+        backed_up_to = None
+        if not append and file_path.exists():
+            stem = file_path.stem
+            suffix = file_path.suffix
+            parent = file_path.parent
+            counter = 1
+            while True:
+                backup_path = parent / f"{stem}({counter}){suffix}"
+                if not backup_path.exists():
+                    break
+                counter += 1
+            file_path.rename(backup_path)
+            backed_up_to = str(backup_path)
 
         if mode == "binary":
             raw = base64.b64decode(content)
@@ -2805,13 +2822,17 @@ async def os_write_file(mainwin, args):
                 file_path.write_text(content, encoding=encoding)
             written_bytes = len(content.encode(encoding))
 
-        result_json = json.dumps({
+        result = {
             "file_path": str(file_path),
             "mode": mode,
             "append": append,
             "written_bytes": written_bytes,
             "status": "success",
-        }, indent=2)
+        }
+        if backed_up_to:
+            result["backed_up_existing_to"] = backed_up_to
+
+        result_json = json.dumps(result, indent=2)
 
         return [TextContent(type="text", text=result_json)]
     except Exception as e:
