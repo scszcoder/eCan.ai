@@ -210,12 +210,12 @@ _MESSAGES = {
         "en": (
             "I couldn't find a file path in your answers. "
             "Please provide the full path to the log file you want me to analyze.\n\n"
-            "Example: *please analyze my run log in C:\\Users\\me\\logs\\run.log*"
+            "Example: *please analyze my run log in C:/Users/me/logs/run.log*"
         ),
         "zh": (
             "我无法从你的回答中找到文件路径。"
             "请提供你想分析的日志文件的完整路径。\n\n"
-            "示例：*请分析我的运行日志 C:\\Users\\me\\logs\\run.log*"
+            "示例：*请分析我的运行日志 C:/Users/me/logs/run.log*"
         ),
     },
     "log_uploading": {

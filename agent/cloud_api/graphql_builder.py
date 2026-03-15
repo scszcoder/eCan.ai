@@ -199,11 +199,12 @@ class GraphQLBuilder:
             return self._build_remove_mutation(mutation_name, items)
         else:
             return self._build_add_update_mutation(
-                mutation_name, items, schema, settings
+                operation, mutation_name, items, schema, settings
             )
     
     def _build_add_update_mutation(
         self,
+        operation: Operation,
         mutation_name: str,
         items: List[Dict[str, Any]],
         schema,
@@ -217,7 +218,8 @@ class GraphQLBuilder:
         item_strings = []
         for item in items:
             # Transform to cloud format using schema
-            cloud_item = schema.to_cloud(item)
+            operation_str = operation.value if hasattr(operation, 'value') else str(operation)
+            cloud_item = schema.to_cloud(item, operation=operation_str)
             
             # Build GraphQL object string
             item_str = self._build_graphql_object(cloud_item)
