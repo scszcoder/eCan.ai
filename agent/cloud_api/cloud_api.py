@@ -901,6 +901,8 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
     """Report vehicle status to cloud using updateVehicles API.
     
     Note: Previously used deprecated reportVehicles API, now uses updateVehicles.
+    Includes upsert logic: if updateVehicles returns NOT_FOUND for any vehicle,
+    auto-registers them via addVehicles and retries the update.
     """
     queryInfo = gen_report_vehicles_string(vehicles)
 
@@ -914,6 +916,50 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
     else:
         # updateVehicles returns [VehicleMutationResult!]! not AWSJSON
         jresponse = jresp.get("data", {}).get("updateVehicles", [])
+
+        # Upsert: auto-register vehicles that returned NOT_FOUND, then retry update
+        not_found_ids = set()
+        if isinstance(jresponse, list):
+            for item in jresponse:
+                if isinstance(item, dict) and not item.get("success"):
+                    err = item.get("error", "")
+                    if "NOT_FOUND" in err:
+                        not_found_ids.add(item.get("id", ""))
+
+        if not_found_ids:
+            # Build addVehicles input from the original report data
+            vehicles_to_add = []
+            for v in vehicles:
+                vname = v.get("vname", "")
+                if vname in not_found_ids:
+                    vehicles_to_add.append({
+                        "id": vname,
+                        "name": vname,
+                        "status": v.get("status", ""),
+                        "ip_address": v.get("ip", ""),
+                        "platform": v.get("software", ""),
+                        "architecture": v.get("hardware", ""),
+                    })
+
+            if vehicles_to_add:
+                logger_helper.info(
+                    f"[CloudVehicle] Auto-registering {len(vehicles_to_add)} vehicle(s) "
+                    f"not found in cloud: {[v['id'] for v in vehicles_to_add]}"
+                )
+                add_mutation = gen_add_vehicles_string(vehicles_to_add)
+                add_resp = appsync_http_request(add_mutation, session, token, endpoint)
+                if "errors" in add_resp:
+                    logger_helper.warning(
+                        f"[CloudVehicle] addVehicles failed: {add_resp['errors']}"
+                    )
+                else:
+                    add_results = add_resp.get("data", {}).get("addVehicles", [])
+                    logger_helper.info(f"[CloudVehicle] addVehicles result: {add_results}")
+
+                    # Retry the original update now that vehicles exist
+                    jresp2 = appsync_http_request(queryInfo, session, token, endpoint)
+                    if "errors" not in jresp2:
+                        jresponse = jresp2.get("data", {}).get("updateVehicles", [])
 
     return jresponse
 
