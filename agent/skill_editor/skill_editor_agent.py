@@ -54,6 +54,7 @@ from .code_agent import CodeAgent, get_code_agent
 from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
 from .prompt_store import prompt_store
 from .tools_catalog import build_tools_catalog
+from .i18n import t, detect_language, get_language_instruction
 
 
 def _is_lambda_runtime() -> bool:
@@ -398,6 +399,7 @@ class SkillEditorAgent:
         self._MAX_CLARIFICATION_ROUNDS: int = 3
         self._last_saved_skill_name: Optional[str] = None  # persisted across invocations for edit fallback
         self._cached_flowgram_dict: Optional[Dict[str, Any]] = None  # cached flowgram from last generation/edit (survives Lambda restarts via session)
+        self._user_lang: str = "en"  # detected language: 'zh' or 'en'
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -422,7 +424,7 @@ class SkillEditorAgent:
         return build_skill_editor_system_prompt(
             user_name=self._user_name,
             current_flowgram_summary=workflow_summary,
-        )
+        ) + get_language_instruction(self._user_lang)
     
     def build_messages(self, user_message: str, canvas_context: Optional[Dict] = None) -> List:
         """
@@ -693,9 +695,13 @@ class SkillEditorAgent:
             "repair",
         ]
         edit_targets = ["workflow", "skill", "flowgram", "canvas", "node", "edge", "connection", "loop", "condition", "branch"]
-        # Chinese edit markers: 修改(modify) 编辑(edit) 调整(adjust) 微调(tweak) 修复(fix) 更改(change) 改一下(change a bit)
-        edit_markers_zh = ["修改", "编辑", "调整", "微调", "修复", "更改", "改一下", "改下"]
-        edit_targets_zh = ["工作流", "技能", "流程", "节点", "连接", "循环", "条件", "分支"]
+        # Chinese edit markers: 修改(modify) 编辑(edit) 调整(adjust) 微调(tweak) 修复(fix) 更改(change)
+        # 纠正(correct) 修正(amend) 改动(alter) 改进(improve) 改一下(change a bit)
+        edit_markers_zh = [
+            "修改", "编辑", "调整", "微调", "修复", "更改", "改一下", "改下",
+            "纠正", "修正", "改动", "改进", "优化", "重构", "重新连接", "重新布线",
+        ]
+        edit_targets_zh = ["工作流", "技能", "流程", "节点", "连接", "循环", "条件", "分支", "画布"]
         has_edit_marker = has_modif_stem or any(w in msg_lower for w in edit_markers)
         has_edit_marker_zh = any(w in message for w in edit_markers_zh)
         has_edit_target = any(t in msg_lower for t in edit_targets)
@@ -703,12 +709,14 @@ class SkillEditorAgent:
         if (has_edit_marker and has_edit_target) or (has_edit_marker_zh and has_edit_target_zh):
             return IntentType.MODIFY_NODE
         
-        # Load skill intent - check first as it's specific
-        if any(phrase in msg_lower for phrase in ["load", "open", "load up", "switch to"]) and "skill" in msg_lower:
+        # Load skill intent - check first as it's specific (English + Chinese)
+        if (any(phrase in msg_lower for phrase in ["load", "open", "load up", "switch to"]) and "skill" in msg_lower) or \
+           any(w in message for w in ["加载技能", "打开技能", "加载", "切换到"]):
             return IntentType.LOAD_SKILL
         
-        # Save skill intent
-        if any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower):
+        # Save skill intent (English + Chinese)
+        if (any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower)) or \
+           any(w in message for w in ["保存", "存一下", "存储", "导出"]):
             return IntentType.SAVE_SKILL
         
         # Creation intents - explicit creation keywords (including -ing forms)
@@ -736,17 +744,24 @@ class SkillEditorAgent:
             r"\b(why|how come|what went wrong|what happened|figure out|diagnose|debug|explain|wrong|issue|problem|broken)",
             msg_lower,
         ))
-        if _question_prefix and not any(w in msg_lower for w in [
+        # Chinese diagnostic words: 检查(check) 纠错(find errors) 查错(check errors) 查出(find out)
+        # 溯源(trace origin) 追溯(trace back) 追查(investigate) 为什么(why) 怎么回事(what happened)
+        _question_prefix_zh = any(w in message for w in [
+            "检查", "检察", "纠错", "查错", "查出", "溯源", "追溯", "追查",
+            "为什么", "怎么回事", "什么问题", "哪里出错", "出了什么", "诊断", "排查",
+            "出错了", "有问题", "不对", "不正确", "不工作", "失败了", "报错",
+        ])
+        if (_question_prefix or _question_prefix_zh) and not any(w in msg_lower for w in [
             "add a ", "add an ", "please add", "insert a ", "remove the ", "delete the ",
-        ]):
+        ]) and not any(w in message for w in ["添加", "添加一个", "删除", "移除"]):
             return IntentType.EXPLAIN
 
-        # Node operations
-        if "add" in msg_lower and "node" in msg_lower:
+        # Node operations (English + Chinese)
+        if ("add" in msg_lower and "node" in msg_lower) or any(w in message for w in ["添加节点", "加个节点", "加一个节点", "新增节点"]):
             return IntentType.ADD_NODE
-        if "remove" in msg_lower or "delete" in msg_lower:
+        if "remove" in msg_lower or "delete" in msg_lower or any(w in message for w in ["删除", "移除", "去掉"]):
             return IntentType.REMOVE_NODE
-        if "connect" in msg_lower or "link" in msg_lower:
+        if "connect" in msg_lower or "link" in msg_lower or any(w in message for w in ["连接", "关联", "连线"]):
             return IntentType.CONNECT_NODES
         if has_modif_stem:
             return IntentType.MODIFY_NODE
@@ -773,14 +788,16 @@ class SkillEditorAgent:
             if any(w in msg_lower for w in ["flowgram", "workflow", "canvas", "connections", "edges", "condition"]):
                 return IntentType.MODIFY_NODE
         
-        # Test skill intents
-        if any(phrase in msg_lower for phrase in ["test", "run test", "step through", "pause", "exit test"]) and \
-           any(word in msg_lower for word in ["skill", "workflow", "this"]):
+        # Test skill intents (English + Chinese)
+        if (any(phrase in msg_lower for phrase in ["test", "run test", "step through", "pause", "exit test"]) and \
+           any(word in msg_lower for word in ["skill", "workflow", "this"])) or \
+           any(w in message for w in ["测试", "运行测试", "试运行", "试一下", "跑一下"]):
             return IntentType.TEST_SKILL
         
-        # Deploy skill intents
-        if any(phrase in msg_lower for phrase in ["deploy", "schedule", "create task", "assign agent", "kick off"]) and \
-           any(word in msg_lower for word in ["skill", "workflow", "this"]):
+        # Deploy skill intents (English + Chinese)
+        if (any(phrase in msg_lower for phrase in ["deploy", "schedule", "create task", "assign agent", "kick off"]) and \
+           any(word in msg_lower for word in ["skill", "workflow", "this"])) or \
+           any(w in message for w in ["部署", "发布", "上线", "安排任务", "创建任务"]):
             return IntentType.DEPLOY_SKILL
         
         # Execution intents (legacy - for direct run without test mode)
@@ -1247,6 +1264,7 @@ class SkillEditorAgent:
             f"has_canvas={str(has_canvas).lower()}\n"
             f"canvas_summary={canvas_summary}\n\n"
             f"user_message={json.dumps(message)}\n"
+            f"{get_language_instruction(self._user_lang)}"
         )
 
         try:
@@ -1384,19 +1402,14 @@ class SkillEditorAgent:
         max_rounds = 10
         if rounds > max_rounds:
             return AgentResponse(
-                message=(
-                    "Happy to chat, but let’s keep moving in the Skill Editor. "
-                    "What do you want to do next: create a new workflow, load an existing skill, or modify the current canvas?"
-                ),
+                message=t("casual_chat_redirect", self._user_lang),
                 intent=IntentType.CASUAL_CHAT,
                 metadata={"session_id": session_id, "state": self._pipeline_state.value, "casual_rounds": rounds},
             )
 
         # Default: acknowledge and gently pivot back.
         return AgentResponse(
-            message=(
-                "Got it. When you’re ready, tell me what workflow you want to build (or what you want to change on the canvas)."
-            ),
+            message=t("casual_chat_default", self._user_lang),
             intent=IntentType.CASUAL_CHAT,
             metadata={"session_id": session_id, "state": self._pipeline_state.value, "casual_rounds": rounds},
         )
@@ -1734,7 +1747,7 @@ class SkillEditorAgent:
             file_path = "(pasted content)"
             if not raw:
                 return AgentResponse(
-                    message="The pasted content appears to be empty — nothing to analyze.",
+                    message=t("log_empty_paste", self._user_lang),
                     intent=IntentType.ANALYZE_LOG,
                     metadata={"session_id": session_id, "state": "idle"},
                 )
@@ -1743,15 +1756,11 @@ class SkillEditorAgent:
             raw = None  # will be read from file below
 
         if not pasted_content:
-            await self._emit_progress(on_event, "Reading log file...")
+            await self._emit_progress(on_event, t("progress_reading_log", self._user_lang))
 
             if not file_path:
                 return AgentResponse(
-                    message=(
-                        "I couldn't find a file path in your answers. "
-                        "Please provide the full path to the log file you want me to analyze.\n\n"
-                        "Example: *please analyze my run log in C:\\Users\\me\\logs\\run.log*"
-                    ),
+                    message=t("log_no_file_path", self._user_lang),
                     intent=IntentType.ANALYZE_LOG,
                     metadata={"session_id": session_id, "state": "idle", "needs_file_path": True},
                 )
@@ -1769,10 +1778,7 @@ class SkillEditorAgent:
                     }
                     self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
                     return AgentResponse(
-                        message=(
-                            f"Uploading your log file to cloud storage for analysis...\n\n"
-                            f"File: `{file_path}`"
-                        ),
+                        message=t("log_uploading", self._user_lang, file_path=file_path),
                         intent=IntentType.ANALYZE_LOG,
                         metadata={
                             "session_id": session_id,
@@ -1794,14 +1800,7 @@ class SkillEditorAgent:
                     }
                     self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
                     return AgentResponse(
-                        message=(
-                            f"I'm running in **cloud mode** and cannot directly access "
-                            f"files on your local machine.\n\n"
-                            f"The path you provided: `{file_path}`\n\n"
-                            f"\U0001f4cb **Please paste the log content directly in the chat** "
-                            f"(or the relevant sections — first ~50 lines, the error section, "
-                            f"and ~50 lines after the error), and I'll analyze it for you."
-                        ),
+                        message=t("log_cloud_paste_request", self._user_lang, file_path=file_path),
                         intent=IntentType.ANALYZE_LOG,
                         metadata={"session_id": session_id, "state": "collecting_log_analysis_info"},
                     )
@@ -1811,7 +1810,7 @@ class SkillEditorAgent:
                 p = Path(file_path)
                 if not p.exists():
                     return AgentResponse(
-                        message=f"File not found: **{file_path}**\n\nPlease double-check the path and try again.",
+                        message=t("log_file_not_found", self._user_lang, file_path=file_path),
                         intent=IntentType.ANALYZE_LOG,
                         metadata={"session_id": session_id, "state": "idle", "file_not_found": True},
                     )
@@ -1823,24 +1822,17 @@ class SkillEditorAgent:
                     ]
                     if not candidates:
                         return AgentResponse(
-                            message=(
-                                f"**{file_path}** is a directory but contains no log files "
-                                f"(.log, .txt, .out, .err).\n\n"
-                                "Please provide the full path to a specific file."
-                            ),
+                            message=t("log_dir_no_logs", self._user_lang, file_path=file_path),
                             intent=IntentType.ANALYZE_LOG,
                             metadata={"session_id": session_id, "state": "idle"},
                         )
                     # Pick the most recently modified file
                     p = max(candidates, key=lambda f: f.stat().st_mtime)
                     file_path = str(p)
-                    await self._emit_progress(
-                        on_event,
-                        f"Directory provided — using most recent file: {p.name}"
-                    )
+                    await self._emit_progress(on_event, t("log_dir_using_recent", self._user_lang, filename=p.name))
             except Exception as e:
                 return AgentResponse(
-                    message=f"Error accessing path **{file_path}**: {e}",
+                    message=t("log_read_error", self._user_lang, file_path=file_path, error=str(e)),
                     intent=IntentType.ANALYZE_LOG,
                     metadata={"session_id": session_id, "state": "idle", "read_error": str(e)},
                 )
@@ -1856,14 +1848,14 @@ class SkillEditorAgent:
 
             if read_error:
                 return AgentResponse(
-                    message=f"Failed to read **{file_path}**: {read_error}",
+                    message=t("log_read_failed", self._user_lang, file_path=file_path, error=read_error),
                     intent=IntentType.ANALYZE_LOG,
                     metadata={"session_id": session_id, "state": "idle", "read_error": read_error},
                 )
 
             if not raw or not raw.strip():
                 return AgentResponse(
-                    message=f"The file **{file_path}** is empty — nothing to analyze.",
+                    message=t("log_file_empty", self._user_lang, file_path=file_path),
                     intent=IntentType.ANALYZE_LOG,
                     metadata={"session_id": session_id, "state": "idle"},
                 )
@@ -1876,7 +1868,7 @@ class SkillEditorAgent:
             f"class={llm_info['class']}, base_url={llm_info.get('base_url', '')}"
         )
 
-        await self._emit_progress(on_event, f"Pre-filtering {file_size:,} bytes of log data...")
+        await self._emit_progress(on_event, t("progress_pre_filtering", self._user_lang, size=f"{file_size:,}"))
 
         # --- Stage 1: Pre-filter — extract ERROR/WARNING/Exception lines with context ---
         highlights = self._extract_log_highlights(raw)
@@ -1920,7 +1912,7 @@ class SkillEditorAgent:
             else:
                 log_content = raw
 
-        await self._emit_progress(on_event, f"Analyzing with {llm_info['provider']} / {llm_info['model']}...")
+        await self._emit_progress(on_event, t("progress_analyzing", self._user_lang, provider=llm_info['provider'], model=llm_info['model']))
 
         # --- Build analysis prompt ---
         prompt_parts = [
@@ -2125,7 +2117,7 @@ class SkillEditorAgent:
         if not ctx or not ctx.get("last_analysis"):
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message="No log analysis available to apply fixes from. Please analyze a log first.",
+                message=t("log_no_analysis_for_fix", self._user_lang),
                 intent=IntentType.ANALYZE_LOG,
                 metadata={"session_id": session_id, "state": "idle"},
             )
@@ -2135,15 +2127,12 @@ class SkillEditorAgent:
         if not current_flowgram or not current_flowgram.nodes:
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message=(
-                    "I can't apply fixes because there is no workflow loaded on the canvas. "
-                    "Please load the affected skill first, then say **\"fix it\"** again."
-                ),
+                message=t("log_no_workflow_for_fix", self._user_lang),
                 intent=IntentType.ANALYZE_LOG,
                 metadata={"session_id": session_id, "state": "idle"},
             )
 
-        await self._emit_progress(on_event, "Applying fixes based on log analysis...")
+        await self._emit_progress(on_event, t("progress_applying_fixes", self._user_lang))
 
         last_analysis = ctx["last_analysis"]
         user_observation = ctx.get("user_observation", "")
@@ -2181,15 +2170,13 @@ class SkillEditorAgent:
                 current_flowgram=current_flowgram,
                 on_event=on_event,
                 tools_catalog=self.tools_catalog_text,
+                user_lang=self._user_lang,
             )
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Auto-fix edit failed: {e}")
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message=(
-                    f"I encountered an error while trying to apply fixes: {e}\n\n"
-                    "You can try again, or apply the recommended fixes manually from the analysis above."
-                ),
+                message=t("log_fix_error", self._user_lang, error=str(e)),
                 intent=IntentType.ANALYZE_LOG,
                 metadata={"session_id": session_id, "state": "idle"},
             )
@@ -2257,7 +2244,7 @@ class SkillEditorAgent:
         last_analysis = ctx["last_analysis"]
         file_size = ctx.get("file_size", 0)
 
-        await self._emit_progress(on_event, f"Answering follow-up about {Path(file_path).name}...")
+        await self._emit_progress(on_event, t("progress_answering_followup", self._user_lang, filename=Path(file_path).name))
 
         # Build recent conversation history for context
         history_block = ""
@@ -2327,12 +2314,14 @@ class SkillEditorAgent:
 
     async def _run_explain(self, message: str, session_id: Optional[str], on_event: Optional[Callable]) -> AgentResponse:
         self._pipeline_state = PipelineState.IDLE
-        await self._emit_progress(on_event, "Answering...")
+        await self._emit_progress(on_event, t("progress_answering", self._user_lang))
 
+        lang_inst = get_language_instruction(self._user_lang)
         prompt = (
             "You are a helpful assistant. Answer the user's question directly and concisely. "
             "If the question is about current events and you are not fully certain, say that your information may be outdated.\n\n"
             f"user_question={json.dumps(message)}\n"
+            f"{lang_inst}"
         )
 
         try:
@@ -2427,7 +2416,10 @@ class SkillEditorAgent:
         # Back-fill nodes/edges from lastFlowgramJson when documentService is out of sync
         canvas_context = self._normalize_canvas_context(canvas_context)
 
-        await self._emit_progress(on_event, "Thinking...")
+        # Detect user language for i18n
+        self._user_lang = detect_language(message)
+
+        await self._emit_progress(on_event, t("progress_thinking", self._user_lang))
 
         # Restore per-skill chat context (conversation history) once per (skill, session_id)
         try:
@@ -2468,7 +2460,7 @@ class SkillEditorAgent:
                         logger.error(f"[SkillEditorAgent] Failed to read log from S3: {e}")
                         self._pipeline_state = PipelineState.IDLE
                         response = AgentResponse(
-                            message=f"Failed to read the uploaded log file from cloud storage: {e}",
+                            message=t("log_cloud_read_failed", self._user_lang, error=str(e)),
                             intent=IntentType.ANALYZE_LOG,
                             metadata={"session_id": session_id, "state": "idle"},
                         )
@@ -2513,10 +2505,7 @@ class SkillEditorAgent:
             if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE, PipelineState.COLLECTING_REQUIREMENTS, PipelineState.COLLECTING_LOG_ANALYSIS_INFO, PipelineState.AWAITING_LOG_FIX_CONFIRMATION] and not clarification_responses:
                 if self._is_casual_chat_message(message):
                     response = AgentResponse(
-                        message=(
-                            "Got it. When you’re ready, please answer the questions above (or cancel), "
-                            "so I can continue."
-                        ),
+                        message=t("casual_chat_awaiting_answers", self._user_lang),
                         intent=IntentType.CASUAL_CHAT,
                         metadata={"session_id": session_id, "state": self._pipeline_state.value},
                     )
@@ -2588,10 +2577,7 @@ class SkillEditorAgent:
 
                 if self._is_casual_chat_message(message):
                     response = AgentResponse(
-                        message=(
-                            "Got it. If you want me to proceed with the plan, reply 'yes' (or click Approve). "
-                            "If you want to stop, reply 'cancel'."
-                        ),
+                        message=t("casual_chat_awaiting_approval", self._user_lang),
                         intent=IntentType.CASUAL_CHAT,
                         metadata={"session_id": session_id, "state": self._pipeline_state.value, "awaiting_plan_approval": True},
                     )
@@ -2599,13 +2585,13 @@ class SkillEditorAgent:
                     return response
                 
                 # Approval: short message (<=10 words) that starts with or is an approval phrase
-                approval_phrases = ["yes", "ok", "okay", "approve", "proceed", "do it", "do them", "go ahead", "let's go", "sounds good", "looks good", "go for it"]
+                approval_phrases = ["yes", "ok", "okay", "approve", "proceed", "do it", "do them", "go ahead", "let's go", "sounds good", "looks good", "go for it", "是", "好", "好的", "可以", "确认", "执行", "继续", "没问题", "同意", "通过"]
                 is_short_message = len(msg_words) <= 10
                 starts_with_approval = any(msg_lower.startswith(phrase) for phrase in approval_phrases)
                 is_approval_only = msg_lower in approval_phrases or msg_lower.rstrip('.!') in approval_phrases
                 
                 # Rejection: short message that starts with or is a rejection phrase
-                rejection_phrases = ["no", "cancel", "revise", "change", "wait", "hold on", "stop", "not yet"]
+                rejection_phrases = ["no", "cancel", "revise", "change", "wait", "hold on", "stop", "not yet", "不", "不要", "取消", "停", "等等", "修改", "重来", "不行"]
                 starts_with_rejection = any(msg_lower.startswith(phrase) for phrase in rejection_phrases)
                 is_rejection_only = msg_lower in rejection_phrases or msg_lower.rstrip('.!') in rejection_phrases
                 
@@ -2636,11 +2622,7 @@ class SkillEditorAgent:
                     is_edit_plan = self._is_edit_plan(self._current_plan)
                     self._current_plan = None
                     return AgentResponse(
-                        message=(
-                            "Understood. Please describe what you'd like to change."
-                            if is_edit_plan
-                            else "Understood. Please describe what you'd like to change about the plan."
-                        ),
+                        message=(t("plan_rejected_edit", self._user_lang) if is_edit_plan else t("plan_rejected_create", self._user_lang)),
                         intent=IntentType.GENERAL_CHAT,
                         metadata={"session_id": session_id}
                     )
@@ -2653,7 +2635,7 @@ class SkillEditorAgent:
                     # Fall through to normal intent classification
             
             # Classify intent
-            await self._emit_progress(on_event, "Classifying intent...")
+            await self._emit_progress(on_event, t("progress_classifying", self._user_lang))
             intent = self._classify_intent_simple(message)
 
             # If the user returns to work-related actions, reset the casual chat counter.
@@ -2720,7 +2702,7 @@ class SkillEditorAgent:
                 return response
 
             if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
-                await self._emit_progress(on_event, "Preparing to modify the current workflow...")
+                await self._emit_progress(on_event, t("progress_preparing_modify", self._user_lang))
             
             # Store current request
             self._current_request = message
@@ -2731,17 +2713,14 @@ class SkillEditorAgent:
                 if self._is_vague_edit_request(message):
                     self._pipeline_state = PipelineState.IDLE
                     return AgentResponse(
-                        message=(
-                            "What specific change do you want me to make to the currently loaded workflow? "
-                            "For example: 'wrap node X in a loop', 'connect A -> B', or 'change the LLM prompt in node Y'."
-                        ),
+                        message=t("vague_edit_request", self._user_lang),
                         intent=IntentType.GENERAL_CHAT,
                         metadata={"session_id": session_id, "state": "idle", "needs_edit_details": True},
                     )
 
             # Edit confirmation gate: propose an edit plan, then wait for explicit approval.
             if self._should_require_edit_confirmation(intent, message, canvas_context):
-                await self._emit_progress(on_event, "Waiting for confirmation...")
+                await self._emit_progress(on_event, t("progress_waiting_confirmation", self._user_lang))
 
                 items = [p.strip() for p in re.split(r"(?:\n+|;)+", (message or "").strip()) if p.strip()]
                 if not items:
@@ -2765,10 +2744,7 @@ class SkillEditorAgent:
                 self._current_plan = plan
                 plan_text = self._format_plan_for_display(plan)
                 return AgentResponse(
-                    message=(
-                        f"I’m ready to apply this edit to the currently loaded workflow:\n\n{plan_text}\n\n"
-                        "Proceed?"
-                    ),
+                    message=t("edit_confirmation", self._user_lang, plan_text=plan_text),
                     intent=IntentType.MODIFY_NODE,
                     plan=plan,
                     metadata={"session_id": session_id, "state": "awaiting_plan_approval", "edit_confirmation": True},
@@ -2865,7 +2841,7 @@ class SkillEditorAgent:
         
         if not skill_name:
             return AgentResponse(
-                message="I couldn't determine which skill to load. Please specify the skill name, e.g., 'load ebay000 skill'.",
+                message=t("load_skill_no_name", self._user_lang),
                 intent=IntentType.LOAD_SKILL,
                 metadata={"session_id": session_id}
             )
@@ -2885,7 +2861,7 @@ class SkillEditorAgent:
             available_skills = self._list_available_skills()
             skills_list = ", ".join(available_skills[:10]) if available_skills else "none found"
             return AgentResponse(
-                message=f"Skill '{skill_name}' not found. Available skills: {skills_list}",
+                message=t("load_skill_not_found", self._user_lang, skill_name=skill_name, skills_list=skills_list),
                 intent=IntentType.LOAD_SKILL,
                 metadata={"session_id": session_id, "available_skills": available_skills}
             )
@@ -2895,7 +2871,7 @@ class SkillEditorAgent:
         
         if not flowgram:
             return AgentResponse(
-                message=f"Failed to load skill '{skill_name}'. The skill file may be corrupted.",
+                message=t("load_skill_corrupted", self._user_lang, skill_name=skill_name),
                 intent=IntentType.LOAD_SKILL,
                 metadata={"session_id": session_id}
             )
@@ -2921,7 +2897,7 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Loaded skill '{skill_name}' with {node_count} nodes, {edge_count} edges")
         
         return AgentResponse(
-            message=f"Loaded skill **{skill_name}** with {node_count} nodes and {edge_count} edges. You can now edit this workflow.",
+            message=t("load_skill_success", self._user_lang, skill_name=skill_name, node_count=node_count, edge_count=edge_count),
             commands=commands,
             intent=IntentType.LOAD_SKILL,
             flowgram=flowgram,
@@ -2946,7 +2922,7 @@ class SkillEditorAgent:
         
         if not flowgram:
             return AgentResponse(
-                message="No workflow to save. Please create or load a skill first.",
+                message=t("save_no_workflow", self._user_lang),
                 intent=IntentType.SAVE_SKILL,
                 metadata={"session_id": session_id}
             )
@@ -2965,7 +2941,7 @@ class SkillEditorAgent:
         
         if not skill_path:
             return AgentResponse(
-                message="Failed to save the skill. Please try again.",
+                message=t("save_failed", self._user_lang),
                 intent=IntentType.SAVE_SKILL,
                 metadata={"session_id": session_id}
             )
@@ -2977,7 +2953,7 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Saved skill '{skill_name}' to {skill_path}")
         
         return AgentResponse(
-            message=f"Saved skill **{skill_name}** with {node_count} nodes and {edge_count} edges to `{skill_path}`.",
+            message=t("save_skill_success", self._user_lang, skill_name=skill_name, node_count=node_count, edge_count=edge_count, skill_path=skill_path),
             intent=IntentType.SAVE_SKILL,
             flowgram=flowgram,
             metadata={"session_id": session_id, "skillPath": skill_path}
@@ -3040,7 +3016,7 @@ class SkillEditorAgent:
         if not selected_node:
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message="Please select a node on the canvas first, then tell me how you'd like to configure it.",
+                message=t("node_config_select_first", self._user_lang),
                 intent=IntentType.MODIFY_NODE,
                 metadata={"session_id": session_id}
             )
@@ -3107,7 +3083,7 @@ class SkillEditorAgent:
         if not self._selected_node:
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message="I lost track of which node we were configuring. Please select the node again.",
+                message=t("node_config_lost_track", self._user_lang),
                 intent=IntentType.MODIFY_NODE,
                 metadata={"session_id": session_id}
             )
@@ -3181,6 +3157,7 @@ class SkillEditorAgent:
             require_clarification=require_clarification,
             domain_questions=domain_qa_override,
             tools_catalog=self.tools_catalog_text,
+            user_lang=self._user_lang,
         )
         
         logger.info(f"[SkillEditorAgent] Planner action: {planner_output.action.value}")
@@ -3210,7 +3187,7 @@ class SkillEditorAgent:
             plan_text = self._format_plan_for_display(planner_output.plan)
             
             return AgentResponse(
-                message=f"{planner_output.message or 'Here is my implementation plan:'}\n\n{plan_text}\n\nWould you like me to proceed with this plan?",
+                message=t("plan_present", self._user_lang, plan_message=planner_output.message or t("plan_present_default_header", self._user_lang), plan_text=plan_text),
                 intent=IntentType.CREATE_FLOWGRAM,
                 plan=planner_output.plan,
                 metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
@@ -3281,6 +3258,7 @@ class SkillEditorAgent:
             on_event=on_event,
             require_clarification=False,
             tools_catalog=self.tools_catalog_text,
+            user_lang=self._user_lang,
         )
         
         if planner_output.action == PlannerAction.ASK_CLARIFICATION and not force_plan:
@@ -3310,13 +3288,14 @@ class SkillEditorAgent:
                     on_event=on_event,
                     require_clarification=False,
                     tools_catalog=self.tools_catalog_text,
+                    user_lang=self._user_lang,
                 )
                 plan = planner_output2.plan
             self._current_plan = plan
             if plan:
                 plan_text = self._format_plan_for_display(plan)
                 return AgentResponse(
-                    message=f"Based on your answers, here's my plan:\n\n{plan_text}\n\nShall I proceed?",
+                    message=t("plan_from_answers", self._user_lang, plan_text=plan_text),
                     intent=IntentType.CREATE_FLOWGRAM,
                     plan=plan,
                     metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
@@ -3350,7 +3329,7 @@ class SkillEditorAgent:
         domain = self._classified_domain or "need_info"
         logger.info(f"[SkillEditorAgent] Starting requirement collection for domain={domain}")
         self._pipeline_state = PipelineState.COLLECTING_REQUIREMENTS
-        await self._emit_progress(on_event, f"Gathering domain requirements ({domain})…")
+        await self._emit_progress(on_event, t("progress_gathering_requirements", self._user_lang, domain=domain))
 
         domain_qa = prompt_store.get_domain_qa_for(domain) or ""
         req_collector_prompt = prompt_store.get("requirement_collector", default="")
@@ -3419,6 +3398,7 @@ class SkillEditorAgent:
             "so the user can provide a custom answer.\n\n"
             f"classified_domain={domain}\n"
             f"user_message={json.dumps(message)}\n"
+            f"{get_language_instruction(self._user_lang)}"
         )
 
         try:
@@ -3466,9 +3446,7 @@ class SkillEditorAgent:
 
             self._pending_clarification = questions
             return AgentResponse(
-                message=(
-                    "Before I design the workflow, I need a few details about your requirements:\n"
-                ),
+                message=t("requirement_collection_intro", self._user_lang),
                 intent=IntentType.CREATE_FLOWGRAM,
                 clarification=questions,
                 metadata={
@@ -3573,7 +3551,7 @@ class SkillEditorAgent:
         the answers already collected in the initial round to produce targeted
         follow-up questions.
         """
-        await self._emit_progress(on_event, f"Asking domain-specific questions ({domain})…")
+        await self._emit_progress(on_event, t("progress_asking_domain_questions", self._user_lang, domain=domain))
 
         # Build summary of answers collected so far
         answers_summary = ""
@@ -3621,6 +3599,7 @@ class SkillEditorAgent:
             ']\n\n'
             f"classified_domain={domain}\n"
             f"user_message={json.dumps(self._current_request or '')}\n"
+            f"{get_language_instruction(self._user_lang)}"
         )
 
         try:
@@ -3669,10 +3648,7 @@ class SkillEditorAgent:
 
             self._pending_clarification = questions
             return AgentResponse(
-                message=(
-                    f"Great — now a few **{domain.replace('_', ' ')}**-specific questions "
-                    "to refine the design:\n"
-                ),
+                message=t("domain_qa_intro", self._user_lang, domain=domain.replace("_", " ")),
                 intent=IntentType.CREATE_FLOWGRAM,
                 clarification=questions,
                 metadata={
@@ -3703,7 +3679,7 @@ class SkillEditorAgent:
         domain = self._classified_domain or "need_info"
         logger.info(f"[SkillEditorAgent] Generating workflow description for domain={domain}")
         self._pipeline_state = PipelineState.REVIEWING_WORKFLOW_DESCRIPTION
-        await self._emit_progress(on_event, "Drafting workflow description…")
+        await self._emit_progress(on_event, t("progress_drafting_description", self._user_lang))
 
         sop_content = prompt_store.get_sop_for(domain) or ""
         domain_qa = prompt_store.get_domain_qa_for(domain) or ""
@@ -3753,6 +3729,7 @@ class SkillEditorAgent:
             "**Outputs**: <what the workflow produces>\n\n"
             f"classified_domain={domain}\n"
             f"user_message={json.dumps(message)}\n"
+            f"{get_language_instruction(self._user_lang)}"
         )
 
         try:
@@ -3765,12 +3742,7 @@ class SkillEditorAgent:
             )
 
         return AgentResponse(
-            message=(
-                "Here is the workflow I'm planning to build:\n\n"
-                f"{self._workflow_description}\n\n"
-                "---\n"
-                "Would you like me to **proceed** with this design, or do you have any **changes**?"
-            ),
+            message=t("workflow_description_review", self._user_lang, description=self._workflow_description),
             intent=IntentType.CREATE_FLOWGRAM,
             metadata={
                 "session_id": session_id,
@@ -3794,10 +3766,12 @@ class SkillEditorAgent:
             "yes", "ok", "okay", "approve", "proceed", "do it", "go ahead",
             "let's go", "sounds good", "looks good", "go for it", "confirmed",
             "confirm", "build it", "let's build",
+            "是", "好", "好的", "可以", "确认", "执行", "继续", "没问题", "同意", "通过", "开始构建",
         ]
         rejection_phrases = [
             "no", "cancel", "stop", "start over", "restart", "never mind",
             "start fresh", "start afresh", "from scratch",
+            "不", "不要", "取消", "停", "重来", "重新开始", "从头开始",
         ]
 
         is_short = len(msg_words) <= 10
@@ -3805,7 +3779,7 @@ class SkillEditorAgent:
         is_rejection = any(msg_lower.startswith(p) for p in rejection_phrases) or msg_lower.rstrip(".!") in rejection_phrases
 
         # Detect "start over" intent even in longer messages (e.g. "i'd like to start afresh build a new skill")
-        restart_cues = ["start over", "start fresh", "start afresh", "from scratch", "new skill", "build a new", "create a new"]
+        restart_cues = ["start over", "start fresh", "start afresh", "from scratch", "new skill", "build a new", "create a new", "重新开始", "从头开始", "新技能", "创建新"]
         wants_restart = any(cue in msg_lower for cue in restart_cues)
 
         if is_short and is_rejection:
@@ -3817,7 +3791,7 @@ class SkillEditorAgent:
             self._domain_qa_done = False
             self._classified_domain = None
             return AgentResponse(
-                message="Understood. Please describe what you'd like to build and we'll start over.",
+                message=t("plan_rejected_start_over", self._user_lang),
                 intent=IntentType.GENERAL_CHAT,
                 metadata={"session_id": session_id},
             )
@@ -3844,7 +3818,7 @@ class SkillEditorAgent:
         if is_approval or (is_short and is_approval):
             # Approved — feed workflow description into planner
             logger.info("[SkillEditorAgent] Workflow description approved, proceeding to planner")
-            await self._emit_progress(on_event, "Workflow design approved — planning implementation…")
+            await self._emit_progress(on_event, t("progress_approved_planning", self._user_lang))
 
             # Enrich the current request with the approved workflow description
             enriched_request = (
@@ -3864,7 +3838,7 @@ class SkillEditorAgent:
 
         # User has modifications — regenerate description with their feedback
         logger.info("[SkillEditorAgent] User provided feedback on workflow description, regenerating")
-        await self._emit_progress(on_event, "Updating workflow description with your feedback…")
+        await self._emit_progress(on_event, t("progress_updating_description", self._user_lang))
 
         # Append feedback to context and regenerate
         feedback_message = (
@@ -4842,7 +4816,7 @@ class SkillEditorAgent:
         """Generate flowgram from the current plan"""
         logger.info("[SkillEditorAgent] Generating flowgram from plan")
         self._pipeline_state = PipelineState.GENERATING
-        await self._emit_progress(on_event, "Plan approved — starting code generation…")
+        await self._emit_progress(on_event, t("progress_plan_approved_codegen", self._user_lang))
 
         # Build full context from conversation history
         # This ensures the code agent has the complete picture of what user wants
@@ -4875,6 +4849,7 @@ class SkillEditorAgent:
             plan=self._current_plan,
             on_event=on_event,
             tools_catalog=self.tools_catalog_text,
+            user_lang=self._user_lang,
         )
         
         # If no flowgram was produced, surface a clear failure message rather
@@ -4883,11 +4858,7 @@ class SkillEditorAgent:
             logger.warning("[SkillEditorAgent] Code generation produced no flowgram — returning error to user")
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message=(
-                    "I wasn't able to generate the workflow from the plan. "
-                    "This can happen when the model returns an incomplete response. "
-                    "Please try again — you can start a new session or re-describe your workflow."
-                ),
+                message=t("codegen_failed", self._user_lang),
                 intent=IntentType.CREATE_FLOWGRAM,
                 metadata={"session_id": session_id, "state": "idle", "generation_failed": True},
             )
@@ -4899,7 +4870,7 @@ class SkillEditorAgent:
         skill_path = None
         if code_output.flowgram:
             # Dual-write skill + bundle to disk
-            await self._emit_progress(on_event, "Saving workflow…")
+            await self._emit_progress(on_event, t("progress_saving", self._user_lang))
             skill_path = self._save_flowgram_to_disk(code_output.flowgram, data_mapping=code_output.data_mapping)
             
             # If skill was scaffolded to disk, only send load_flowgram command
@@ -4934,7 +4905,7 @@ class SkillEditorAgent:
         """Run direct code generation without planning"""
         logger.info(f"[SkillEditorAgent] Direct code generation for intent: {intent.value}")
         self._pipeline_state = PipelineState.GENERATING
-        await self._emit_progress(on_event, f"Working on your request ({intent.value})\u2026")
+        await self._emit_progress(on_event, t("progress_working", self._user_lang, intent=intent.value))
 
         msg_lower = (message or "").lower()
 
@@ -4975,7 +4946,7 @@ class SkillEditorAgent:
 
                         self._pipeline_state = PipelineState.COMPLETE
                         return AgentResponse(
-                            message="Validated and fixed the current flowgram’s connections.",
+                            message=t("validated_connections", self._user_lang),
                             commands=[CanvasCommand(type=c.type, payload=c.payload) for c in commands],
                             intent=IntentType.MODIFY_NODE,
                             flowgram=fixed_flowgram,
@@ -5004,6 +4975,7 @@ class SkillEditorAgent:
                 current_flowgram=current_flowgram,
                 on_event=on_event,
                 tools_catalog=self.tools_catalog_text,
+                user_lang=self._user_lang,
             )
         else:
             code_output = await self.code_agent.generate(
@@ -5011,6 +4983,7 @@ class SkillEditorAgent:
                 canvas_context=canvas_context,
                 on_event=on_event,
                 tools_catalog=self.tools_catalog_text,
+                user_lang=self._user_lang,
             )
         
         self._pipeline_state = PipelineState.COMPLETE
@@ -5053,11 +5026,7 @@ class SkillEditorAgent:
                     )
                     self._pipeline_state = PipelineState.COMPLETE
                     return AgentResponse(
-                        message=(
-                            "I refused to apply this update because it would remove existing nodes from your canvas. "
-                            "This usually happens when the LLM returns a partial flowgram. "
-                            "Please retry, or use the validate/repair request which runs deterministically."
-                        ),
+                        message=t("edit_refused_node_loss", self._user_lang),
                         intent=intent,
                         metadata={"session_id": session_id, "state": "complete", "refused": True}
                     )
@@ -5266,6 +5235,7 @@ class SkillEditorAgent:
                 current_flowgram=current_flowgram,
                 on_event=on_event,
                 tools_catalog=self.tools_catalog_text,
+                user_lang=self._user_lang,
             )
             
             self._pipeline_state = PipelineState.COMPLETE
@@ -5302,7 +5272,7 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] Edit flowgram error: {e}\n{traceback.format_exc()}")
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message=f"I encountered an error editing the workflow: {str(e)}",
+                message=t("error_editing", self._user_lang, error=str(e)),
                 intent=IntentType.UNKNOWN,
                 metadata={"error": str(e), "session_id": session_id}
             )
@@ -5396,7 +5366,7 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] Configure node error: {e}\n{traceback.format_exc()}")
             self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message=f"I encountered an error configuring the node: {str(e)}",
+                message=t("error_configuring_node", self._user_lang, error=str(e)),
                 intent=IntentType.UNKNOWN,
                 metadata={"error": str(e), "session_id": session_id}
             )
@@ -5450,7 +5420,7 @@ class SkillEditorAgent:
         
         if not skill_name:
             return AgentResponse(
-                message="No skill is currently loaded. Please load or create a skill first.",
+                message=t("no_skill_loaded", self._user_lang),
                 intent=IntentType.TEST_SKILL,
                 metadata={"session_id": session_id}
             )
@@ -5517,7 +5487,7 @@ class SkillEditorAgent:
         
         if not skill_name:
             return AgentResponse(
-                message="No skill is currently loaded. Please load or create a skill first before deploying.",
+                message=t("no_skill_for_deploy", self._user_lang),
                 intent=IntentType.DEPLOY_SKILL,
                 metadata={"session_id": session_id}
             )

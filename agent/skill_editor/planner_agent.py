@@ -614,6 +614,7 @@ class PlannerAgent:
         require_clarification: bool = False,
         domain_questions: Optional[str] = None,
         tools_catalog: Optional[str] = None,
+        user_lang: str = "en",
     ) -> PlannerOutput:
         """
         Run the planning process.
@@ -652,6 +653,11 @@ class PlannerAgent:
             
             # Combine into full prompt
             full_prompt = f"{system_prompt}\n\n{conversation}"
+            
+            # Add language instruction for Chinese users
+            if user_lang == "zh":
+                from .i18n import get_language_instruction
+                full_prompt += get_language_instruction(user_lang)
             
             # Invoke LLM
             logger.debug("[PlannerAgent] Invoking LLM for planning")

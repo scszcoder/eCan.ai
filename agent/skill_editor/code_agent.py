@@ -2596,6 +2596,7 @@ Continue the JSON output (do not include any text before the continuation):"""
         plan: Optional[ImplementationPlan] = None,
         on_event: Optional[Callable] = None,
         tools_catalog: Optional[str] = None,
+        user_lang: str = "en",
     ) -> CodeAgentOutput:
         """
         Generate a flowgram from user request and optional plan.
@@ -2630,6 +2631,11 @@ Continue the JSON output (do not include any text before the continuation):"""
             )
             
             prompt += f"\n\n## USER REQUEST:\n{user_message}"
+            
+            # Add language instruction for Chinese users
+            if user_lang == "zh":
+                from .i18n import get_language_instruction
+                prompt += get_language_instruction(user_lang)
             
             # Invoke LLM
             await self._emit_progress(on_event, "Generating workflow — this may take 1-2 minutes for complex skills…")
@@ -2932,6 +2938,7 @@ Return the FULL corrected JSON — every node, every edge, every config field.
         current_flowgram: Optional[Flowgram] = None,
         on_event: Optional[Callable] = None,
         tools_catalog: Optional[str] = None,
+        user_lang: str = "en",
     ) -> CodeAgentOutput:
         """
         Edit an existing flowgram.
@@ -2983,6 +2990,11 @@ Return the FULL corrected JSON — every node, every edge, every config field.
                 mapping_dsl=prompt_store.get_mapping_dsl(),
                 tools_catalog=tools_catalog or "(tools catalog not available)",
             )
+            
+            # Add language instruction for Chinese users
+            if user_lang == "zh":
+                from .i18n import get_language_instruction
+                prompt += get_language_instruction(user_lang)
             
             # Invoke LLM
             await self._emit_progress(on_event, "Applying edit — please wait…")
