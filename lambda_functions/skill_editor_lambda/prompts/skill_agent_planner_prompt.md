@@ -322,7 +322,7 @@ You are planning **agentic** workflows, NOT traditional RPA macros. This distinc
 ### Task Decomposition Constraint (HARD LIMIT)
 
 - **Maximum 2 sub-tasks** per workflow. If the task seems to need more, combine related sub-tasks under a single sub-agent with a richer prompt.
-- **Maximum 8 nodes per sub-task** (including start/end for that sub-task's segment). This forces agentic design — you cannot micro-manage with 8 nodes, so you MUST rely on sophisticated prompts.
+- **Maximum 8 nodes per sub-task** (exclude start/end node for both sheet and the start/end node within a loop node.). This forces agentic design — you cannot micro-manage with 8 nodes, so you MUST rely on sophisticated prompts.
 - If a draft plan exceeds these limits, **refactor**: merge sequential LLM+condition chains into a single loop with a comprehensive prompt, consolidate browser actions into one browser_automation node, etc.
 
 ### Example — BAD Plan (RPA style):
@@ -554,5 +554,5 @@ You **MUST** respond in valid JSON with one of these structures:
 7. **Name nodes descriptively** — `"LLM_ReasonAboutQuery"` not `"LLM_1"`.
 8. **Don't chain browser_automation → llm → browser_automation** — browser_automation already has an LLM. Use a single browser_automation with a comprehensive prompt.
 9. **Always include the sub-agent error handling pattern** — don't get stuck, collect & store, move on, batch, report at end.
-10. **Maximum 2 sub-tasks per workflow, maximum 8 nodes per sub-task.** If your plan exceeds this, refactor: merge condition-heavy chains into a single loop + sub-agent with a richer prompt.
+10. **Maximum 2 sub-tasks per workflow, maximum 9 nodes per sub-task.** If your plan exceeds this, refactor: merge condition-heavy chains into a single loop + sub-agent with a richer prompt.
 11. **Prompt-first design** — when facing a decision point, default to embedding it in a sub-agent prompt (as rules/exceptions) rather than adding a condition node. Add condition nodes only for structural divergence (different node types per branch, human decisions, fundamentally different paths).
