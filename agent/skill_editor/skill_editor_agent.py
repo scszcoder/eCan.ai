@@ -1625,7 +1625,7 @@ class SkillEditorAgent:
                     ClarificationChoice(
                         id="path_freeform",
                         label="Type the file path",
-                        description="e.g. C:\\Users\\me\\logs\\run.log or /home/user/logs/run.log",
+                        description="e.g. C:/Users/me/logs/run.log or /home/user/logs/run.log",
                         allow_freeform=True,
                     ),
                 ],
