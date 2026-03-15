@@ -1,6 +1,8 @@
+import io
 import json
 import logging
 import os
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -2717,6 +2719,71 @@ def _handle_request_skill_file_upload_url(event: Dict[str, Any]) -> Dict[str, An
         raise
 
 
+def _handle_process_skill_zip_upload(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Download a skill zip from S3, extract contents, and write individual files."""
+    logger.info("[processSkillZipUpload] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+
+    skill_name = input_.get("skillName") or args.get("skillName")
+    owner = input_.get("owner") or args.get("owner") or _owner_from_event(event)
+
+    if not skill_name or not owner:
+        raise RuntimeError("skillName and owner are required")
+
+    safe_skill = _safe_skill_dir_name(skill_name)
+    skill_root = _skill_root_prefix(env, owner, safe_skill)
+    zip_key = _s3_key(skill_root, f"{safe_skill}.zip")
+
+    client = _s3_client()
+    bucket = env.s3_bucket
+
+    # Download the zip
+    try:
+        resp = client.get_object(Bucket=bucket, Key=zip_key)
+        zip_bytes = resp["Body"].read()
+    except Exception as e:
+        logger.error(f"[processSkillZipUpload] Failed to download zip {zip_key}: {e}")
+        return {"success": False, "error": f"Zip not found: {zip_key}", "extractedFiles": []}
+
+    # Extract and upload individual files
+    extracted: List[str] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            for name in zf.namelist():
+                # Skip directories and hidden files
+                if name.endswith("/") or "/__MACOSX" in name or name.startswith("__MACOSX"):
+                    continue
+
+                content = zf.read(name)
+                target_key = _s3_key(skill_root, name)
+
+                content_type = "application/json" if name.endswith(".json") else "application/octet-stream"
+                if name.endswith(".md"):
+                    content_type = "text/markdown"
+                elif name.endswith(".py"):
+                    content_type = "text/x-python"
+
+                client.put_object(
+                    Bucket=bucket,
+                    Key=target_key,
+                    Body=content,
+                    ContentType=content_type,
+                )
+                extracted.append(target_key)
+                logger.info(f"[processSkillZipUpload] Extracted: {target_key} ({len(content)} bytes)")
+    except zipfile.BadZipFile:
+        logger.error(f"[processSkillZipUpload] Invalid zip file: {zip_key}")
+        return {"success": False, "error": "Invalid zip file", "extractedFiles": []}
+
+    # Ensure skill directory structure
+    _ensure_skill_dirs(env, owner, safe_skill)
+
+    logger.info(f"[processSkillZipUpload] Done. Extracted {len(extracted)} files from {zip_key}")
+    return {"success": True, "error": None, "extractedFiles": extracted}
+
+
 def _handle_request_skill_file_download_url(event: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("[requestSkillFileDownloadUrl] Starting handler")
     env = _load_env()
@@ -2946,6 +3013,8 @@ def handler(event, context):
             return _handle_write_skill_file(event)
         if field == "requestSkillFileUploadUrl":
             return _handle_request_skill_file_upload_url(event)
+        if field == "processSkillZipUpload":
+            return _handle_process_skill_zip_upload(event)
         if field == "requestSkillFileDownloadUrl":
             return _handle_request_skill_file_download_url(event)
         if field == "deleteSkillFiles":
