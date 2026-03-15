@@ -6730,6 +6730,123 @@ async function processEvent(event, context, callback, test_stub) {
             }
             break;
 
+          case "reqPromptAutoCompletion":
+            {
+              const input = event.arguments?.input || {};
+              const prefix = input.prefix || "";
+              const suffix = input.suffix || "";
+              const section = input.section || "";
+              const promptName = input.prompt_name || "";
+              const maxTokens = Number(input.max_tokens) || 100;
+              const temperature = input.temperature != null ? Number(input.temperature) : 0.3;
+
+              // Resolve API key: prefer user's stored key from settings, fall back to env
+              let apiKey = "";
+              let modelToUse = input.model || "gpt-4o-mini";
+              const providerToUse = (input.provider || "openai").toLowerCase();
+
+              try {
+                const settingsOwner = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+                const userSettings = await settingsService.getSettingsByOwner(settingsOwner);
+                if (userSettings) {
+                  const llmProviders = userSettings.llm_providers || {};
+                  // Try to get API key from user's stored provider config
+                  const providerConfig = llmProviders[providerToUse] || llmProviders["openai"] || {};
+                  if (providerConfig.api_key) {
+                    apiKey = providerConfig.api_key;
+                  }
+                  // Use user's default model if not specified in input
+                  if (!input.model && userSettings.settings?.default_llm) {
+                    const dlm = userSettings.settings.default_llm;
+                    // Only use if it looks like a real model name (contains a dash or dot), not a class name like "ChatOpenAI"
+                    if (dlm.includes("-") || dlm.includes(".")) {
+                      modelToUse = dlm;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn(`[reqPromptAutoCompletion] Failed to load user settings: ${e.message}`);
+              }
+
+              if (!apiKey) {
+                apiKey = process.env.OPENAI_API_KEY || "";
+              }
+
+              if (!apiKey) {
+                returnData = { completion: "", model: modelToUse, error: "No API key configured" };
+                break;
+              }
+
+              // Build prompt
+              let systemMsg, userMsg;
+              if (suffix) {
+                // Fill-in-the-middle mode: text exists both before and after cursor
+                systemMsg = "You are an AI writing assistant. The user is editing a prompt template and needs you to fill in text at the cursor position. " +
+                  "You will receive text BEFORE the cursor and text AFTER the cursor. " +
+                  "Output ONLY the missing text that bridges the two parts naturally. Keep it concise — typically a few words to one sentence. " +
+                  "Do NOT repeat any text from the before or after sections. Do NOT add explanations." +
+                  (section ? ` Context: this is the "${section}" section of a prompt.` : "") +
+                  (promptName ? ` The prompt is named "${promptName}".` : "");
+                userMsg = "TEXT BEFORE CURSOR:\n" + prefix + "\n\nTEXT AFTER CURSOR:\n" + suffix + "\n\nFill in the missing text at the cursor position:";
+              } else {
+                // Continuation mode: just continue from the end
+                systemMsg = "You are an AI writing assistant helping complete a prompt template for an AI agent workflow system. " +
+                  "Continue the text naturally from where the user left off. Output ONLY the completion text, no explanation or preamble. " +
+                  "Stop before any double-brace variable placeholder (e.g. {{var}}) and stop at paragraph boundaries." +
+                  (section ? ` This text is from the "${section}" section of the prompt.` : "") +
+                  (promptName ? ` The prompt is named "${promptName}".` : "");
+                userMsg = prefix;
+              }
+
+              try {
+                // gpt-5 models only support temperature=1 and use max_completion_tokens;
+                // gpt-4 models support custom temperature and use max_tokens
+                const isGpt5 = modelToUse.startsWith("gpt-5") || modelToUse.startsWith("o");
+                const bodyParams = {
+                  model: modelToUse,
+                  messages: [
+                    { role: "system", content: systemMsg },
+                    { role: "user", content: userMsg },
+                  ],
+                };
+                if (isGpt5) {
+                  bodyParams.max_completion_tokens = maxTokens;
+                } else {
+                  bodyParams.max_tokens = maxTokens;
+                  bodyParams.temperature = temperature;
+                }
+
+                const oaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${apiKey}`,
+                  },
+                  body: JSON.stringify(bodyParams),
+                });
+
+                if (oaiRes.ok) {
+                  const oaiData = await oaiRes.json();
+                  const completion = oaiData.choices?.[0]?.message?.content || "";
+                  const usage = oaiData.usage || null;
+                  returnData = {
+                    completion,
+                    model: oaiData.model || modelToUse,
+                    usage: usage ? JSON.stringify(usage) : null,
+                    error: null,
+                  };
+                } else {
+                  const errText = await oaiRes.text();
+                  console.error(`[reqPromptAutoCompletion] LLM API error ${oaiRes.status}: ${errText}`);
+                  returnData = { completion: "", model: modelToUse, error: `LLM API error: ${oaiRes.status}` };
+                }
+              } catch (e) {
+                console.error(`[reqPromptAutoCompletion] fetch error: ${e.message}`);
+                returnData = { completion: "", model: modelToUse, error: e.message };
+              }
+            }
+            break;
+
           default:
             return UNRECOGNIZED_INPUT;
         }
