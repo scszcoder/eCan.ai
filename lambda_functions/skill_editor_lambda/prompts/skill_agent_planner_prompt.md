@@ -11,6 +11,24 @@ Your role is to understand the user's workflow requirements, ask clarifying ques
 - `{require_clarification}` — whether to force clarification round
 - `{tools_catalog}` — compact catalog of all available MCP tools (built-in + user custom)
 
+## Injected Runtime Variables (Available in Node Prompts)
+
+When you design prompts for LLM or browser_automation nodes, you can safely reference the following runtime variables. They are injected automatically at execution time and can be used as `{{variable_name}}` in prompt templates:
+
+- `skills_schema`
+- `tools_schema`
+- `current_time`
+- `current_time_local`
+- `agent_name`
+- `agent_id`
+- `chat_id`
+- `task_id`
+- `human_input`
+- `step_count`
+- `max_steps`
+
+These are resolved after the plan is handed off, during prompt rendering, using the cascading resolution chain (prompt_refs → prompt-level vars → skill-level vars → built-ins → empty).
+
 ---
 
 ## Your Role
@@ -177,6 +195,18 @@ LLM and browser_automation node prompts can reference **dynamic values** using `
 - LLM prompt uses: `"Process order {{order_id}}"`
 
 **Planning rule**: When a node prompt needs data from an external event, always flag the need for a data_mapping rule in your plan. The Coder will implement it.
+
+### Common Event Types and Their State Paths
+
+After a `pend_event` node fires, default data_mapping rules route event data into `state`. The three most common event types:
+
+| Event Type | pend_event config | Data available in state after resume |
+|-----------|------------------|--------------------------------------|
+| `human_chat` | `eventType: "human_chat"` | `state.attributes.human.last_message` (text), `state.attributes.chat_id`, `state.attributes.sender_id` |
+| `timer` | `eventType: "timer", timerName: "X"` | `state.attributes.timer.name`, `state.attributes.timer.fire_count` |
+| `a2a` | `eventType: "a2a", agentIds: "id1,id2"` | `state.attributes.human.last_message` (text), `state.attributes.a2a.message` (full message with `.role`, `.parts[]`), `state.attributes.sender_id` |
+
+**Planning rule**: When planning a workflow that waits for one of these events, tell the Coder which state paths the subsequent LLM/browser_automation node should reference — so it generates correct `{{variable}}` references or `state_path` declarations.
 
 ---
 

@@ -117,6 +117,20 @@ When an LLM node or browser_automation node prompt needs to reference **dynamic 
    | 4 | Built-in provider | Always available: `current_time`, `agent_name`, `human_input`, `skills_schema`, `tools_schema`, etc. |
    | 5 | `""` (empty string) | Fallback if nothing matches |
 
+**Built-in runtime variables you can always use in prompt templates:**
+
+- `skills_schema`
+- `tools_schema`
+- `current_time`
+- `current_time_local`
+- `agent_name`
+- `agent_id`
+- `chat_id`
+- `task_id`
+- `human_input`
+- `step_count`
+- `max_steps`
+
 3. **Variable declaration source types** (for prompt-level or skill-level declarations):
    - `"static"` — literal value: `{"name": "store_name", "source": "static", "value": "My eBay Store"}`
    - `"state_path"` — dot-path into state: `{"name": "order_id", "source": "state_path", "path": "attributes.current_order.id"}`
@@ -151,6 +165,55 @@ When runtime variable values come from **asynchronous sources** (event data from
 After this mapping fires, any node prompt containing `{{order_id}}` or `{{customer_email}}` will resolve to the values from the event.
 
 **Rule of thumb**: If a prompt variable's value comes from outside the skill (event, webhook, human input, timer callback, agent message), there **must** be a `data_mapping.json` rule that routes the incoming data into `state.prompt_refs.<var>` or `state.attributes.<path>` (then use a `state_path` declaration to read it).
+
+### Event Data Cheat-Sheet (Where Data Lands in State)
+
+After a `pend_event` node fires, the default data_mapping rules automatically route event data into `state`. The three most common event types and their state paths:
+
+#### 1. `human_chat` — User sends a chat message
+| What | State path | How to use in prompt |
+|------|-----------|---------------------|
+| Message text | `state.attributes.human.last_message` | `{{human_input}}` (built-in) or `state_path: attributes.human.last_message` |
+| Chat ID | `state.attributes.chat_id` | `state_path: attributes.chat_id` |
+| Sender ID | `state.attributes.sender_id` | `state_path: attributes.sender_id` |
+| Full event | `state.events[-1]` | Access via code or state_path |
+
+**pend_event config:** `{ "eventType": "human_chat", "timeoutSec": 0 }`
+
+#### 2. `timer` — A named timer fires (created via `add_timer` MCP tool)
+| What | State path | How to use in prompt |
+|------|-----------|---------------------|
+| Timer name | `state.attributes.timer.name` | `state_path: attributes.timer.name` |
+| Fire count | `state.attributes.timer.fire_count` | `state_path: attributes.timer.fire_count` |
+
+**pend_event config:** `{ "eventType": "timer", "timerName": "poll_orders" }`
+**Routing:** `timerName` must match the `timer_name` arg passed to `add_timer`.
+
+#### 3. `a2a` — Another agent sends a message (Agent-to-Agent)
+| What | State path | How to use in prompt |
+|------|-----------|---------------------|
+| Message text | `state.attributes.human.last_message` | `{{human_input}}` (built-in) or `state_path: attributes.human.last_message` |
+| Full A2A message | `state.attributes.a2a.message` | `state_path: attributes.a2a.message` (has `.role`, `.parts[]`, `.metadata`) |
+| Sender ID | `state.attributes.sender_id` | `state_path: attributes.sender_id` |
+
+**pend_event config:** `{ "eventType": "a2a", "agentIds": "agent-id-1,agent-id-2" }`
+
+#### Quick Example — LLM node after a human_chat pend_event:
+```
+You are a customer support agent. The customer just said:
+"{{human_input}}"
+
+Respond helpfully. If you need their order ID, ask for it.
+```
+
+#### Quick Example — LLM node inside a timer-driven polling loop:
+```
+This is poll iteration #{{timer_fire_count}}.
+Check for new eBay orders since last poll. Process any new orders found.
+```
+(Requires a data_mapping rule: `"from": ["event.fire_count"], "to": [{"target": "state.prompt_refs.timer_fire_count"}]`)
+
+**When building LLM / browser_automation node prompts that follow a pend_event, always reference event data through the state paths above (or `{{built_in_var}}` syntax) — never hardcode values that should come from events.**
 
 ---
 
