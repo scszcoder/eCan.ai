@@ -409,6 +409,8 @@ You are building **agentic** workflows, NOT RPA macros. The fundamental differen
 
 6. **PREFER FEWER, SMARTER NODES.** A single browser_automation node with a 20-line prompt is better than 5 nodes with 3 conditions. A single LLM+MCP sub-agent loop is better than a chain of LLM → condition → MCP → condition → LLM.
 
+7. **ALWAYS EMBED CODE EXECUTION GUARDRAILS.** Whenever an LLM+MCP sub-agent has access to `run_code` or `run_shell_script`, its prompt **MUST** include the "Code Execution Safety Rules" guardrail block (defined in the sub-agent prompt template section 4). This is non-negotiable — never generate a prompt that gives an LLM code execution capability without the guardrails.
+
 ### Task Decomposition Constraint (HARD LIMIT)
 
 - **Maximum 2 sub-tasks** per workflow. If the task seems to need more, combine related sub-tasks under a single sub-agent with a richer prompt.
@@ -767,6 +769,29 @@ When an LLM node works with `mcp_tool` as a sub-agent, the prompt **must** inclu
    - Use `run_code` (Python) for complex data structures, JSON, math
    - Write robust code with error handling and progress messages
    - Verify code results
+   - **CODE EXECUTION GUARDRAILS — ALWAYS INCLUDE WHEN PROMPT USES `run_code` OR `run_shell_script`:**
+     Every sub-agent prompt that may invoke `run_code` or `run_shell_script` MUST contain the following guardrail block (copy it verbatim into the prompt's rules section, adjusting only the allowed-paths list to match the task):
+     ```
+     --- Code Execution Safety Rules ---
+     ALLOWED directories (read/write/create): only paths under the working directory or /tmp.
+     FORBIDDEN file-system operations:
+       - Do NOT read, write, delete, move, or chmod anything outside the allowed directories.
+       - Do NOT access or modify system directories: /etc, /var, /usr, /boot, /sys, /proc, /dev, /root, ~/.ssh, ~/.config, ~/.bashrc, ~/.profile.
+       - Do NOT access other users' home directories.
+     FORBIDDEN process operations:
+       - Do NOT kill, stop, restart, or send signals to any process you did not start yourself.
+       - Do NOT stop or restart system services (systemctl, service, launchctl, etc.).
+       - Do NOT spawn background daemons or listeners (bind to ports, start servers).
+     FORBIDDEN network operations:
+       - Do NOT download or curl/wget executables.
+       - Do NOT install system packages (apt, yum, brew, pip install --system).
+       - Do NOT modify firewall rules (iptables, ufw, etc.).
+     FORBIDDEN destructive commands:
+       - Do NOT use: rm -rf /, mkfs, dd if=/dev/zero, :(){ :|:& };:, or any disk-wiping/fork-bomb pattern.
+       - Do NOT unset or overwrite critical environment variables (PATH, HOME, USER).
+     If a task requires operations outside these boundaries, STOP and report that the action is restricted instead of attempting it.
+     ```
+     Adjust "ALLOWED directories" to match the task's actual workspace (e.g., `/home/user/project/output`). The FORBIDDEN lists should always remain as-is.
 5. **rules:**
    - ONLY use tools from [Tools To Use] section
    - Verify tool name matches exactly before calling
