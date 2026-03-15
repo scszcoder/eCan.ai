@@ -14,6 +14,11 @@ from agent.cloud_api.cloud_api import (
 )
 import json
 
+# Circuit breaker: skip getNodesPrompts calls after a schema-level failure.
+# Resets on process restart.  When the cloud schema is deployed, the next
+# session will succeed automatically.
+_nodes_prompts_available = True
+
 
 def ecan_ai_api_query_components(mainwin, empty_components):
     filled_components = []
@@ -174,6 +179,10 @@ def ecan_ai_api_rerank_results(mainwin, rank_query):
 
 
 def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
+    global _nodes_prompts_available
+    if not _nodes_prompts_available:
+        logger.debug("[getNodesPrompts] Skipped — schema not available (circuit breaker open)")
+        return []
     try:
         session = mainwin.session
         token = mainwin.get_auth_token()
@@ -185,6 +194,15 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         
         # 检查响应是否包含错误
         if "errors" in response:
+            for err in response.get("errors", []):
+                msg = err.get("message", "")
+                if "FieldUndefined" in msg or "is undefined" in msg:
+                    _nodes_prompts_available = False
+                    logger.warning(
+                        "[getNodesPrompts] Cloud schema missing 'getNodesPrompts' — "
+                        "disabling cloud prompt fetch for this session"
+                    )
+                    break
             logger.debug("API returned errors:", response["errors"])
             return []
         

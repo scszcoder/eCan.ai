@@ -778,7 +778,7 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
                 logger.info(f"[SKILL_IO][BACKEND] Syncing skill to database: {file_path}")
                 try:
                     from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-                    result = sync_skill_from_file(file_path, request, params)
+                    result = sync_skill_from_file(file_path)
                     
                     if result.get('success'):
                         operation = result.get('operation', 'unknown')

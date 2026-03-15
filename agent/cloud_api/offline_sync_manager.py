@@ -255,6 +255,21 @@ class OfflineSyncManager:
                         self.sync_queue.mark_success(task_id)
                         synced_count += 1
                         logger.info(f"[OfflineSyncManager] ✅ Queue task: record already exists in cloud (duplicate key), marking as success: {task_id}")
+                    elif 'NOT_FOUND' in error_str and operation == 'update':
+                        # UPDATE failed because resource doesn't exist in cloud.
+                        # Retry with ADD to register it first.
+                        logger.info(f"[OfflineSyncManager] 🔄 Queue task NOT_FOUND on UPDATE, retrying with ADD: {task_id}")
+                        add_result = service.sync_to_cloud([data], operation=Operation.ADD, timeout=timeout_per_task)
+                        if add_result['success']:
+                            self.sync_queue.mark_success(task_id)
+                            synced_count += 1
+                            logger.info(f"[OfflineSyncManager] ✅ Queue task synced via ADD fallback: {task_id}")
+                        else:
+                            add_errors = add_result.get('errors', [])
+                            add_error_str = ', '.join(str(e) for e in add_errors)
+                            self.sync_queue.mark_failed(task_id, add_error_str or error_str or 'ADD fallback failed')
+                            failed_count += 1
+                            logger.warning(f"[OfflineSyncManager] ⚠️ Queue task ADD fallback also failed: {task_id}")
                     else:
                         # Sync failed, mark as failed
                         self.sync_queue.mark_failed(task_id, error_str or 'Unknown error')
