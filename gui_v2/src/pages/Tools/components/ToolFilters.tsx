@@ -8,10 +8,13 @@ import styled from '@emotion/styled';
 const FilterContainer = styled.div`
   padding: 8px;
   padding-bottom: 12px;
-  background: transparent;
+  background: rgba(30, 41, 59, 0.98);
   margin-bottom: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 `;
 
 const FilterRow = styled.div`

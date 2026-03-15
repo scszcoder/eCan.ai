@@ -147,22 +147,7 @@ const Tools: React.FC = () => {
               onCancelAdd={handleCancelAdd}
             />
           )}
-          <ActionButtons
-            onAdd={handleAddTool}
-            onEdit={() => {}}
-            onDelete={() => {}}
-            onRefresh={handleRefresh}
-            onExport={() => {}}
-            onImport={() => {}}
-            onSettings={() => {}}
-            addText={t('pages.tools.addTool')}
-            editText={t('pages.tools.editTool')}
-            deleteText={t('pages.tools.deleteTool')}
-            refreshText={t('pages.tools.refreshTools')}
-            exportText={t('pages.tools.exportTools')}
-            importText={t('pages.tools.importTools')}
-            settingsText={t('pages.tools.toolSettings')}
-          />
+          {/* ActionButtons hidden while all tools are read-only */}
         </>
       }
     />
