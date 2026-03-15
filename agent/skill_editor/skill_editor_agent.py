@@ -693,8 +693,14 @@ class SkillEditorAgent:
             "repair",
         ]
         edit_targets = ["workflow", "skill", "flowgram", "canvas", "node", "edge", "connection", "loop", "condition", "branch"]
+        # Chinese edit markers: 修改(modify) 编辑(edit) 调整(adjust) 微调(tweak) 修复(fix) 更改(change) 改一下(change a bit)
+        edit_markers_zh = ["修改", "编辑", "调整", "微调", "修复", "更改", "改一下", "改下"]
+        edit_targets_zh = ["工作流", "技能", "流程", "节点", "连接", "循环", "条件", "分支"]
         has_edit_marker = has_modif_stem or any(w in msg_lower for w in edit_markers)
-        if has_edit_marker and any(t in msg_lower for t in edit_targets):
+        has_edit_marker_zh = any(w in message for w in edit_markers_zh)
+        has_edit_target = any(t in msg_lower for t in edit_targets)
+        has_edit_target_zh = any(t in message for t in edit_targets_zh)
+        if (has_edit_marker and has_edit_target) or (has_edit_marker_zh and has_edit_target_zh):
             return IntentType.MODIFY_NODE
         
         # Load skill intent - check first as it's specific
@@ -706,13 +712,22 @@ class SkillEditorAgent:
             return IntentType.SAVE_SKILL
         
         # Creation intents - explicit creation keywords (including -ing forms)
-        if any(word in msg_lower for word in ["create", "creating", "build", "building", "make", "making", "generate", "generating", "new workflow", "new skill"]):
+        # Also match Chinese: 创建(create) 新建(new-create) 生成(generate) 产生(produce) 构建(build) 制作(make) 搭建(set up)
+        create_keywords_en = ["create", "creating", "build", "building", "make", "making", "generate", "generating", "new workflow", "new skill"]
+        create_keywords_zh = ["创建", "新建", "生成", "产生", "构建", "制作", "搭建", "新的工作流", "全新工作流", "新工作流", "新技能"]
+        if any(word in msg_lower for word in create_keywords_en) or any(word in message for word in create_keywords_zh):
             return IntentType.CREATE_FLOWGRAM
         
         # Creation intents - "workflow" or "skill" with action phrases (e.g., "lets do an ebay workflow")
-        if any(word in msg_lower for word in ["workflow", "skill", "automation"]):
-            if (not has_edit_marker) and any(phrase in msg_lower for phrase in ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]):
-                return IntentType.CREATE_FLOWGRAM
+        # Also match Chinese: 工作流(workflow) 技能(skill) 自动化(automation) with action phrases
+        workflow_words_en = ["workflow", "skill", "automation"]
+        workflow_words_zh = ["工作流", "技能", "自动化", "流程"]
+        action_phrases_en = ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]
+        action_phrases_zh = ["我要", "我想", "我需要", "帮我", "请", "做一个", "做个", "来一个", "来个", "弄一个", "弄个"]
+        has_workflow_word = any(word in msg_lower for word in workflow_words_en) or any(word in message for word in workflow_words_zh)
+        has_action_phrase = any(phrase in msg_lower for phrase in action_phrases_en) or any(phrase in message for phrase in action_phrases_zh)
+        if has_workflow_word and (not has_edit_marker) and has_action_phrase:
+            return IntentType.CREATE_FLOWGRAM
         
         # Diagnostic / "why" questions — recognise before node-operation rules
         # so that "why the added node has the wrong connection" isn't mistaken
@@ -1143,6 +1158,29 @@ class SkillEditorAgent:
         if not plan or not plan.summary:
             return False
         return plan.summary.strip().lower().startswith("edit:")
+
+    def _normalize_canvas_context(self, canvas_context: Optional[Dict]) -> Optional[Dict]:
+        """Normalize canvas_context by back-filling nodes/edges from lastFlowgramJson.
+
+        When the frontend's documentService is out of sync (e.g. skill just
+        loaded), it sends nodes=[] but includes a `lastFlowgramJson` fallback.
+        This method merges the fallback into the primary fields so all
+        downstream code sees a consistent view.
+        """
+        if not canvas_context or not isinstance(canvas_context, dict):
+            return canvas_context
+        nodes = canvas_context.get("nodes")
+        if isinstance(nodes, list) and len(nodes) > 0:
+            return canvas_context  # already has real nodes
+        last_fj = canvas_context.get("lastFlowgramJson")
+        if isinstance(last_fj, dict):
+            wf = last_fj.get("workFlow") or last_fj
+            fallback_nodes = wf.get("nodes") or []
+            fallback_edges = wf.get("edges") or []
+            if fallback_nodes:
+                logger.info(f"[SkillEditorAgent] Back-filling canvas_context from lastFlowgramJson: {len(fallback_nodes)} nodes, {len(fallback_edges)} edges")
+                canvas_context = {**canvas_context, "nodes": fallback_nodes, "edges": fallback_edges}
+        return canvas_context
 
     def _has_loaded_canvas(self, canvas_context: Optional[Dict]) -> bool:
         """Return True if the user has an existing workflow loaded.
@@ -2385,6 +2423,9 @@ class SkillEditorAgent:
         if canvas_context is not None and not isinstance(canvas_context, dict):
             logger.warning(f"[SkillEditorAgent] canvas_context is not a dict ({type(canvas_context)}), setting to None")
             canvas_context = None
+
+        # Back-fill nodes/edges from lastFlowgramJson when documentService is out of sync
+        canvas_context = self._normalize_canvas_context(canvas_context)
 
         await self._emit_progress(on_event, "Thinking...")
 
