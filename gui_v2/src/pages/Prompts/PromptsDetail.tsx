@@ -22,6 +22,7 @@ import type { Prompt, PromptSection, PromptSectionType, PromptFormat } from './t
 import { useTranslation } from 'react-i18next';
 import styles from './PromptsDetail.module.css';
 import { useToolStore } from '../../stores/toolStore';
+import TextareaAutoComplete from './components/TextareaAutoComplete';
 import { useUserStore } from '../../stores/userStore';
 
 interface PromptsDetailProps {
@@ -1080,6 +1081,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
         </div>
       ) : (
         <>
+        <TextareaAutoComplete containerRef={containerRef} promptName={active.title || undefined} />
         <div className={styles.header}>
           <Typography.Title level={4} className={styles.headerTitle}>
             {active.title || t('pages.prompts.details', { defaultValue: 'Prompt Details' })}
