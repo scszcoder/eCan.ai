@@ -57,18 +57,19 @@ const GHOST_STYLE: React.CSSProperties = {
   position: 'fixed',
   pointerEvents: 'none',
   zIndex: 9998,
-  color: 'rgba(148, 163, 184, 0.5)',
+  color: 'rgba(120, 160, 220, 0.85)',
   whiteSpace: 'pre-wrap',
   wordWrap: 'break-word',
   overflow: 'hidden',
+  fontStyle: 'italic',
 };
 
 const GHOST_HINT_STYLE: React.CSSProperties = {
   position: 'fixed',
   zIndex: 9999,
   fontSize: 10,
-  color: 'rgba(148, 163, 184, 0.6)',
-  background: 'rgba(30, 41, 59, 0.8)',
+  color: 'rgba(180, 200, 230, 0.9)',
+  background: 'rgba(30, 41, 59, 0.9)',
   borderRadius: 4,
   padding: '1px 6px',
   pointerEvents: 'none',
