@@ -14,6 +14,9 @@ import {
   RedoOutlined,
   FileMarkdownOutlined,
   CodeOutlined,
+  SearchOutlined,
+  CloseOutlined,
+  CodeSandboxOutlined,
 } from '@ant-design/icons';
 import type { Prompt, PromptSection, PromptSectionType, PromptFormat } from './types';
 import { useTranslation } from 'react-i18next';
@@ -110,6 +113,34 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   const redoStackRef = useRef<Prompt[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
+  const searchInputRef = useRef<any>(null);
+
+  // System variables available for insertion into prompt text
+  const SYSTEM_VARIABLES = useMemo(() => [
+    { value: 'skills_schema', label: 'skills_schema' },
+    { value: 'tools_schema', label: 'tools_schema' },
+    { value: 'current_time', label: 'current_time' },
+    { value: 'current_time_local', label: 'current_time_local' },
+    { value: 'agent_name', label: 'agent_name' },
+    { value: 'agent_id', label: 'agent_id' },
+    { value: 'chat_id', label: 'chat_id' },
+    { value: 'task_id', label: 'task_id' },
+    { value: 'human_input', label: 'human_input' },
+    { value: 'step_count', label: 'step_count' },
+    { value: 'max_steps', label: 'max_steps' },
+    { value: 'user_defined', label: t('pages.prompts.userDefined', { defaultValue: '+ User Defined' }) },
+  ], [t]);
+
+  // Track last focused textarea + cursor position for variable insertion
+  // We store the raw DOM textarea element (from e.target, which is always the real <textarea>)
+  const lastTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastCursorPosRef = useRef<number>(0);
+  const lastSelectionEndRef = useRef<number>(0);
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef(false);
@@ -315,6 +346,173 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     setCanUndo(false);
     setCanRedo(false);
   }, [editing, prompt?.id]);
+
+  // Ctrl+F opens custom search bar
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+      if (e.key === 'Escape' && searchOpen) {
+        setSearchOpen(false);
+        setSearchTerm('');
+        setSearchIndex(0);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [searchOpen]);
+
+  // Synchronously build match list from current DOM. Called on every navigation.
+  const buildSearchMatches = useCallback((term: string) => {
+    if (!term) return [];
+    const container = containerRef.current;
+    if (!container) return [];
+    // Only search within the scroll container (skip search input itself)
+    const scrollContainer = container.querySelector('[class*="scrollContainer"]');
+    const searchRoot = scrollContainer || container;
+    const textareas = searchRoot.querySelectorAll('textarea');
+    const lowerTerm = term.toLowerCase();
+    const results: { ta: HTMLTextAreaElement; start: number }[] = [];
+    textareas.forEach(ta => {
+      const val = ta.value.toLowerCase();
+      let pos = 0;
+      while (true) {
+        const idx = val.indexOf(lowerTerm, pos);
+        if (idx === -1) break;
+        results.push({ ta, start: idx });
+        pos = idx + 1;
+      }
+    });
+    return results;
+  }, []);
+
+  // Match count for UI display — updated whenever searchTerm or content changes
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  useEffect(() => {
+    setSearchMatchCount(buildSearchMatches(searchTerm).length);
+  }, [searchTerm, draft, editing, buildSearchMatches]);
+
+  // Navigate to a specific match: focus textarea, select match text, scroll into view
+  const navigateToMatch = useCallback((term: string, targetIdx: number) => {
+    const matches = buildSearchMatches(term);
+    if (matches.length === 0) return;
+    const idx = ((targetIdx % matches.length) + matches.length) % matches.length;
+    const match = matches[idx];
+    if (!match) return;
+    const { ta, start } = match;
+    const end = start + term.length;
+
+    // 1) Scroll the outer container so the textarea element is visible
+    ta.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+    // 2) Focus and select the matched text
+    ta.focus();
+    ta.setSelectionRange(start, end);
+
+    // 3) Scroll WITHIN the textarea to make the selected text visible.
+    //    We create a temporary mirror div to measure the pixel offset of the match.
+    const mirror = document.createElement('div');
+    const cs = window.getComputedStyle(ta);
+    mirror.style.cssText = [
+      `position:absolute`, `visibility:hidden`, `white-space:pre-wrap`, `word-wrap:break-word`,
+      `width:${ta.clientWidth}px`,
+      `font:${cs.font}`, `font-size:${cs.fontSize}`, `line-height:${cs.lineHeight}`,
+      `padding:${cs.padding}`, `border:${cs.border}`, `letter-spacing:${cs.letterSpacing}`,
+    ].join(';');
+    // Insert text up to the match start, then measure height
+    mirror.textContent = ta.value.substring(0, start);
+    document.body.appendChild(mirror);
+    const matchTop = mirror.scrollHeight;
+    document.body.removeChild(mirror);
+
+    // Center the match vertically within the textarea's viewport
+    const taVisibleHeight = ta.clientHeight;
+    ta.scrollTop = Math.max(0, matchTop - taVisibleHeight / 2);
+
+    // 4) Re-apply selection after scroll (some browsers reset it)
+    ta.setSelectionRange(start, end);
+  }, [buildSearchMatches]);
+
+  // Track which textarea the user last interacted with, and their cursor position.
+  // We use a global listener on the container so we always get the real <textarea> DOM node
+  // via e.target (not the Ant Design wrapper).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const saveCursor = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof HTMLTextAreaElement)) return;
+      if (!container.contains(target)) return;
+      lastTextareaRef.current = target;
+      // Defer reading selection so browser has settled it
+      setTimeout(() => {
+        if (lastTextareaRef.current === target) {
+          lastCursorPosRef.current = target.selectionStart ?? 0;
+          lastSelectionEndRef.current = target.selectionEnd ?? lastCursorPosRef.current;
+        }
+      }, 0);
+    };
+
+    // mouseup = after click/drag selection; keyup = after typing/arrow keys
+    container.addEventListener('mouseup', saveCursor, true);
+    container.addEventListener('keyup', saveCursor, true);
+    return () => {
+      container.removeEventListener('mouseup', saveCursor, true);
+      container.removeEventListener('keyup', saveCursor, true);
+    };
+  }, []);
+
+  // Insert variable at the last known cursor position using native value setter
+  const handleInsertVariable = useCallback((varName: string) => {
+    const tag = `{{${varName}}}`;
+    const ta = lastTextareaRef.current;
+    if (!ta) {
+      navigator.clipboard.writeText(tag).then(() => {
+        message.info(t('pages.prompts.varCopied', { defaultValue: `Copied ${tag} to clipboard` }));
+      }).catch(() => {});
+      return;
+    }
+    const start = lastCursorPosRef.current;
+    const end = lastSelectionEndRef.current;
+    const before = ta.value.substring(0, start);
+    const after = ta.value.substring(end);
+    const newValue = before + tag + after;
+    const newPos = start + tag.length;
+
+    // Save scroll positions BEFORE any changes
+    const savedTaScrollTop = ta.scrollTop;
+    const scrollContainer = ta.closest('[class*="scrollContainer"]') as HTMLElement | null;
+    const savedContainerScroll = scrollContainer?.scrollTop ?? 0;
+
+    // Use native setter to trigger React's controlled input onChange
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    if (nativeSetter) {
+      nativeSetter.call(ta, newValue);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Refocus and set cursor position after React re-renders
+    requestAnimationFrame(() => {
+      // Restore outer scroll position first (React re-render may have reset it)
+      if (scrollContainer) scrollContainer.scrollTop = savedContainerScroll;
+
+      // Focus without letting browser auto-scroll
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(newPos, newPos);
+      lastCursorPosRef.current = newPos;
+      lastSelectionEndRef.current = newPos;
+
+      // Restore the textarea's internal scroll to where it was
+      ta.scrollTop = savedTaScrollTop;
+
+      // Ensure outer container scroll is still correct after focus
+      if (scrollContainer) scrollContainer.scrollTop = savedContainerScroll;
+    });
+  }, [t]);
 
   // Avoid early return before hooks to keep hook order stable
   const hasDraft = !!(prompt && draft);
@@ -925,6 +1123,18 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
               </Button>
             </Tooltip>
             {editing && (
+              <Select
+                size="small"
+                placeholder={t('pages.prompts.insertVar', { defaultValue: '{{ var }}' })}
+                value={null}
+                options={SYSTEM_VARIABLES}
+                onChange={(value: string) => { if (value) handleInsertVariable(value); }}
+                style={{ minWidth: 120 }}
+                popupMatchSelectWidth={false}
+                suffixIcon={<CodeSandboxOutlined style={{ fontSize: 12 }} />}
+              />
+            )}
+            {editing && (
               <Button
                 size="small"
                 icon={<UndoOutlined />}
@@ -950,7 +1160,58 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             </Button>
           </Space>
         </div>
-      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: '60px' }}>
+      {/* Search bar */}
+      {searchOpen && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 12px',
+          background: 'rgba(30, 41, 59, 0.95)',
+          borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+          position: 'sticky', top: 0, zIndex: 60,
+        }}>
+          <SearchOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
+          <Input
+            ref={searchInputRef}
+            size="small"
+            placeholder={t('common.search', { defaultValue: 'Search...' })}
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setSearchIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                // Navigate to current match, then advance index for next press
+                navigateToMatch(searchTerm, searchIndex);
+                setSearchIndex(prev => prev + (e.shiftKey ? -1 : 1));
+              }
+              if (e.key === 'Escape') { setSearchOpen(false); setSearchTerm(''); setSearchIndex(0); }
+            }}
+            style={{ width: 220, background: 'rgba(15,23,42,0.7)', borderColor: 'rgba(148,163,184,0.3)', color: '#e2e8f0' }}
+            allowClear
+          />
+          {searchTerm && (
+            <Typography.Text style={{ color: '#94a3b8', fontSize: 12, whiteSpace: 'nowrap', minWidth: 36, textAlign: 'center' }}>
+              {searchMatchCount > 0
+                ? `${(((searchIndex % searchMatchCount) + searchMatchCount) % searchMatchCount) + 1}/${searchMatchCount}`
+                : '0/0'}
+            </Typography.Text>
+          )}
+          <Button type="text" size="small" icon={<ArrowUpOutlined style={{ fontSize: 12 }} />}
+            onClick={() => { const i = searchIndex - 1; navigateToMatch(searchTerm, i); setSearchIndex(i); }}
+            disabled={searchMatchCount === 0}
+            style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
+          <Button type="text" size="small" icon={<ArrowDownOutlined style={{ fontSize: 12 }} />}
+            onClick={() => { const i = searchIndex + 1; navigateToMatch(searchTerm, i); setSearchIndex(i); }}
+            disabled={searchMatchCount === 0}
+            style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
+          <Button type="text" size="small" icon={<CloseOutlined style={{ fontSize: 12 }} />}
+            onClick={() => { setSearchOpen(false); setSearchTerm(''); setSearchIndex(0); }}
+            style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
+        </div>
+      )}
+      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 0, paddingBottom: '60px' }}>
         {/* Raw content display for non-JSON-parsable prompts */}
         {active.rawContent ? (
           <SectionContainer title={t('pages.prompts.rawContent', { defaultValue: 'Prompt Content (plain text)' })}>

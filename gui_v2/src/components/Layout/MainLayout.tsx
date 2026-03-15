@@ -49,9 +49,12 @@ const StyledInnerLayout = styled(Layout)`
     flex-direction: column;
 `;
 
+const DEV_MENU_KEYS = new Set(['/tests', '/chat-test']);
+
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [collapsed, setCollapsed] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [showDevMenu, setShowDevMenu] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
     const { t, i18n } = useTranslation();
@@ -92,6 +95,18 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             i18n.changeLanguage(savedLanguage);
         }
     }, [i18n]);
+
+    // Ctrl+Shift+T toggles visibility of Test / Chat Test sidebar items
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+                e.preventDefault();
+                setShowDevMenu(prev => !prev);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     // Trigger test ads after login initialization completes
     // useEffect(() => {
@@ -146,6 +161,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             { key: '/chat-test', icon: <CustomerServiceOutlined />, label: t('menu.chat_test') },
         ];
     }, [t]);
+
+    // Filter out dev/test menu items unless toggled visible via Ctrl+Shift+T
+    const filteredMenuItems = React.useMemo(() => {
+        if (showDevMenu) return menuItems;
+        return menuItems?.filter(item => item && !DEV_MENU_KEYS.has(item.key as string)) ?? [];
+    }, [menuItems, showDevMenu]);
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },
@@ -211,7 +232,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <A11yFocusGuard />
             <AppSider
                 collapsed={collapsed}
-                menuItems={menuItems}
+                menuItems={filteredMenuItems}
                 selectedKey={getSelectedMenuKey()}
                 onMenuClick={onMenuClick}
             />

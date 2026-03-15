@@ -184,6 +184,16 @@
   overflow-y: auto;
 }
 
+/* ========== Search Match Highlight (global class — applied via DOM) ========== */
+:global(.prompt-search-match) {
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.8), inset 0 0 12px rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.8) !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+:global(.prompt-search-match) textarea {
+  border-color: rgba(245, 158, 11, 0.8) !important;
+}
+
 /* ========== Divider ========== */
 .divider {
   margin: 20px 0 !important;
@@ -194,28 +204,32 @@
 .scrollContainer {
   flex: 1;
   min-height: 0;
-  overflow: auto;
   overflow-y: scroll;
 }
 
 /* ========== Scrollbar ========== */
 .scrollContainer::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 .scrollContainer::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5);
-  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 5px;
 }
 
 .scrollContainer::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
-  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 5px;
+  min-height: 40px;
 }
 
 .scrollContainer::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.scrollContainer::-webkit-scrollbar-thumb:active {
+  background: rgba(148, 163, 184, 0.7);
 }
 
 /* ========== Empty State ========== */
