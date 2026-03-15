@@ -60,9 +60,17 @@ runs:
       shell: bash
       run: |
         echo "=== Creating Virtual Environment ==="
-        if [ -d ".venv" ]; then
-          echo "Existing virtual environment detected (possibly from cache); reusing .venv"
+        if [ "${{ inputs.platform }}" = "windows" ]; then
+          VENV_PYTHON=".venv/Scripts/python.exe"
         else
+          VENV_PYTHON=".venv/bin/python"
+        fi
+
+        if [ -d ".venv" ] && [ -f "$VENV_PYTHON" ]; then
+          echo "Existing virtual environment detected (from cache); reusing .venv"
+        else
+          echo "No usable venv found; creating fresh .venv"
+          rm -rf .venv
           python -m venv .venv
         fi
 
