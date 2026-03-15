@@ -201,11 +201,13 @@ class WebGUI(QMainWindow):
         # Set up shortcuts (after all components initialized)
         self._setup_shortcuts()
 
-        # Create custom title bar menu on Windows and Linux
-        if sys.platform in ['win32', 'linux']:
+        # Create custom title bar menu on Windows only.
+        # Linux and macOS use the native window frame (provides resize/drag)
+        # with a standard menu bar.
+        if sys.platform == 'win32':
             self._setup_custom_titlebar_with_menu()
         else:
-            # Use standard menu bar on macOS
+            # Use standard menu bar on macOS and Linux
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
 
@@ -1011,6 +1013,29 @@ class WebGUI(QMainWindow):
             # and/or lose the proper taskbar icon association.
             self.setWindowFlags((self.windowFlags() | Qt.Window) | Qt.FramelessWindowHint)
 
+            # Re-add native resize frame style that FramelessWindowHint strips.
+            # Without WS_THICKFRAME, Windows ignores the resize hit-test codes
+            # (HTLEFT, HTRIGHT, etc.) returned from WM_NCHITTEST.
+            if sys.platform == 'win32':
+                import ctypes
+                hwnd = int(self.winId())
+                GWL_STYLE = -16
+                WS_THICKFRAME = 0x00040000
+                WS_MINIMIZEBOX = 0x00020000
+                WS_MAXIMIZEBOX = 0x00010000
+                style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+                style |= WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+                # Notify Windows of the style change
+                SWP_FRAMECHANGED = 0x0020
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_NOZORDER = 0x0004
+                ctypes.windll.user32.SetWindowPos(
+                    hwnd, 0, 0, 0, 0, 0,
+                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                )
+
             # Create custom title bar container
             self.custom_titlebar = QWidget()
             self.custom_titlebar.setFixedHeight(32)  # Standard Windows title bar height
@@ -1418,14 +1443,9 @@ class WebGUI(QMainWindow):
         self.custom_titlebar.mouseDoubleClickEvent = self._titlebar_double_click
         self._drag_position = None
 
-        # Disable custom resize cursor handling - rely on nativeEvent for Windows resize
-        # This prevents cursor getting stuck in resize mode
-        self._resize_margin = 8  # Larger margin for easier resizing
+        self._resize_margin = 6  # Margin for resize grips
         self._resizing = False
         self._resize_direction = None
-
-        # DO NOT install event filter or enable mouse tracking
-        # The nativeEvent handler will take care of resize detection
 
         # Force cursor to arrow on window
         self.setCursor(Qt.ArrowCursor)
@@ -1498,10 +1518,11 @@ class WebGUI(QMainWindow):
 
     def _perform_resize(self, global_pos):
         """Perform window resize based on mouse movement"""
+        from PySide6.QtCore import QRect
         delta = global_pos - self._resize_start_pos
         geo = self._resize_start_geometry
 
-        new_geo = geo
+        new_geo = QRect(geo)  # Copy to avoid mutating saved geometry
 
         if 'left' in self._resize_direction:
             new_geo.setLeft(geo.left() + delta.x())
