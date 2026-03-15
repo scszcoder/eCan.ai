@@ -2388,6 +2388,82 @@ def build_agent_mcp_tools_schemas():
     add_gcloud_read_billing_tool_schema(tool_schemas)
     add_gcloud_shutdown_tool_schema(tool_schemas)
 
+    # OS file read/write tools
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_read_file",
+        description="<category>OS</category><sub-category>File</sub-category>Read the contents of a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text files the content is returned as a string. For binary files the content is returned as a base64-encoded string. Paths can use forward slashes on all platforms.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["file_path"],
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Full path of the file to read",
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["text", "binary"],
+                            "default": "text",
+                            "description": "Read mode: 'text' returns UTF-8 string, 'binary' returns base64-encoded string",
+                        },
+                        "encoding": {
+                            "type": "string",
+                            "default": "utf-8",
+                            "description": "Text encoding to use when mode is 'text' (e.g. 'utf-8', 'gbk', 'latin-1')",
+                        },
+                    },
+                }
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_write_file",
+        description="<category>OS</category><sub-category>File</sub-category>Write contents to a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text mode, provide a string. For binary mode, provide base64-encoded data. Parent directories are created automatically if they do not exist. Paths can use forward slashes on all platforms.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["file_path", "content"],
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Full path of the file to write",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Content to write. Plain text when mode is 'text', base64-encoded string when mode is 'binary'",
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["text", "binary"],
+                            "default": "text",
+                            "description": "Write mode: 'text' writes a UTF-8 string, 'binary' decodes base64 and writes raw bytes",
+                        },
+                        "encoding": {
+                            "type": "string",
+                            "default": "utf-8",
+                            "description": "Text encoding to use when mode is 'text' (e.g. 'utf-8', 'gbk', 'latin-1')",
+                        },
+                        "append": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "If true, append to the file instead of overwriting it",
+                        },
+                    },
+                }
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
     # Save schema to JSON file in working directory
     _save_tool_schemas_to_json(tool_schemas)
 
