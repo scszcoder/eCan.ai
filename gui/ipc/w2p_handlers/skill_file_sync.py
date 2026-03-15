@@ -252,6 +252,29 @@ def _request_download_url(skill_id: str, owner: str, ctx: Dict[str, Any]) -> Opt
     return data
 
 
+def _process_skill_zip(skill_name: str, ctx: Dict[str, Any]) -> bool:
+    """Call processSkillZipUpload mutation to extract zip contents in S3."""
+    query = """
+    mutation ProcessSkillZip($input: ProcessSkillZipInput!) {
+        processSkillZipUpload(input: $input) {
+            success error extractedFiles
+        }
+    }
+    """
+    variables = {"input": {"skillName": skill_name, "owner": ctx["owner"]}}
+    resp = _appsync_request(query, ctx, variables=variables)
+    errors = resp.get("errors")
+    if errors:
+        logger.warning(f"[skill_file_sync] processSkillZipUpload error: {errors}")
+        return False
+    data = resp.get("data", {}).get("processSkillZipUpload") or {}
+    if data.get("success"):
+        logger.info(f"[skill_file_sync] Zip extracted: {len(data.get('extractedFiles', []))} files for '{skill_name}'")
+        return True
+    logger.warning(f"[skill_file_sync] processSkillZipUpload failed: {data.get('error')}")
+    return False
+
+
 def _upload_to_s3(upload_url: str, zip_bytes: bytes) -> bool:
     """PUT zip bytes to S3 via presigned URL."""
     try:
@@ -423,6 +446,8 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
             ok = _upload_to_s3(url_info["uploadUrl"], zip_bytes)
             if ok:
                 logger.info(f"[skill_file_sync] ✅ Uploaded skill files '{skill_dir.name}' to S3 (key={url_info.get('s3Key')})")
+                # Extract zip contents into individual S3 objects
+                _process_skill_zip(skill_dir.name, ctx)
             else:
                 logger.warning(f"[skill_file_sync] ❌ Failed to upload skill files '{skill_dir.name}'")
         except Exception as exc:
@@ -586,6 +611,7 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
                         continue
 
                     if _upload_to_s3(url_info["uploadUrl"], zip_bytes):
+                        _process_skill_zip(skill_dir.name, ctx)
                         ok_count += 1
                     else:
                         err_count += 1
