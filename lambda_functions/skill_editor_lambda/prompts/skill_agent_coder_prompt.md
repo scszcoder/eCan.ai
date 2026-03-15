@@ -204,12 +204,20 @@ You are a customer support agent. The customer just said:
 "{{human_input}}"
 
 Respond helpfully. If you need their order ID, ask for it.
+
+--- Runtime Data Access ---
+Human chat input : {{human_input}}
+Chat ID          : state_path: attributes.chat_id
 ```
 
 #### Quick Example — LLM node inside a timer-driven polling loop:
 ```
 This is poll iteration #{{timer_fire_count}}.
 Check for new eBay orders since last poll. Process any new orders found.
+
+--- Runtime Data Access ---
+Timer fire count : {{timer_fire_count}}  (via data_mapping from event.fire_count)
+Timer name       : state_path: attributes.timer.name
 ```
 (Requires a data_mapping rule: `"from": ["event.fire_count"], "to": [{"target": "state.prompt_refs.timer_fire_count"}]`)
 
@@ -369,7 +377,20 @@ You are building **agentic** workflows, NOT RPA macros. The fundamental differen
    - **Guidelines**: Preferred approaches, heuristics, priorities
    - **Rules**: Hard constraints and boundaries (what the agent must NOT do)
    - **Instructions**: Step-by-step guidance (but the agent may adapt if needed)
-   - **Output format**: What JSON structure to return, including status flags
+   - **Output format**: What JSON structure to return, it should include k-v pairs such as status flags, current plan/todos, current_progress, next_goal, tools_use etc.
+   - **Runtime Data Access** (MANDATORY when the node follows a pend_event or needs event/state data): Always include a short reference block so the runtime sub-agent knows where its inputs come from. Use this template and keep only the rows relevant to the node:
+     ```
+     --- Runtime Data Access ---
+     Human chat input : {{human_input}}  (or state_path: attributes.human.last_message)
+     Chat / Sender ID : state_path: attributes.chat_id / attributes.sender_id
+     Timer name       : state_path: attributes.timer.name
+     Timer fire count : state_path: attributes.timer.fire_count
+     A2A message      : state_path: attributes.a2a.message  (.role, .parts[], .metadata)
+     Current time     : {{current_time}}
+     Agent name       : {{agent_name}}
+     Any prompt_ref   : {{variable_name}}  (set via data_mapping)
+     ```
+     Only include lines the node actually uses. If the node doesn't consume event data, omit this section entirely.
 
 3. **LET SUB-AGENTS VERIFY THEIR OWN GOALS.** Instead of: `browser_automation → condition (check success?) → retry/fail`, write: `browser_automation` with a prompt that says "Verify you achieved X before reporting done. If X failed, retry up to 3 times, then report failure with details."
 
