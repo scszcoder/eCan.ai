@@ -26,6 +26,7 @@ class AuthManager:
         self.current_user = None
         self.user_profile = {}  # Store user profile info (name, picture, etc.)
         self.signed_in = False
+        self.last_login_error = None  # Store last login error for IPC handler to retrieve
         self.machine_role = "Platoon"  # Default role
         self.ecb_data_homepath = getECBotDataHome()
         self.acct_file = self.ecb_data_homepath + "/uli.json"
@@ -214,6 +215,7 @@ class AuthManager:
         """Orchestrates the entire Google login flow using a local callback server with PKCE and persists refresh token."""
         try:
             self.machine_role = role
+            self.last_login_error = None
 
             # Step 1: Start a temporary local HTTP server to listen for the callback.
             callback_url = AuthConfig.GOOGLE.CALLBACK_URL
@@ -280,6 +282,7 @@ class AuthManager:
         except Exception as e:
             logger.error(f"AuthManager: An unexpected error occurred during Google login: {e}")
             logger.error(traceback.format_exc())
+            self.last_login_error = str(e)
             return {'success': False, 'error': str(e)}
 
 
@@ -998,6 +1001,73 @@ class AuthManager:
             logger.error(f"Failed to read saved machine role: {e}")
             # Return default role on error
             return "Commander"
+
+    def clear_auth_cache(self) -> dict:
+        """Clear all cached authentication data (saved username, credentials, refresh tokens, uli.json user field).
+        
+        This is useful when switching login methods (e.g. from password to Google)
+        and stale cached data causes issues.
+        """
+        cleared = []
+        errors = []
+
+        # 0. Capture saved username BEFORE clearing anything (needed for keyring cleanup)
+        saved_user = self.current_user or self._get_saved_username()
+
+        # 1. Clear in-memory state
+        self.tokens = None
+        self.current_user = None
+        self.user_profile = {}
+        self.signed_in = False
+        self.stop_refresh_task()
+        cleared.append("in_memory_state")
+
+        # 2. Clear saved username from uli.json (but preserve language/theme)
+        try:
+            if exists(self.acct_file):
+                with open(self.acct_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                old_user = data.get("user")
+                data.pop("user", None)
+                data.pop("machine_role", None)
+                with open(self.acct_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                cleared.append(f"uli_json_user({old_user})")
+        except Exception as e:
+            errors.append(f"uli.json: {e}")
+
+        # 3. Clear keyring credentials and refresh tokens for the saved user
+        if saved_user:
+            try:
+                keyring.delete_password("ecan_auth", saved_user)
+                cleared.append(f"keyring_credentials({saved_user})")
+            except Exception:
+                try:
+                    keyring.set_password("ecan_auth", saved_user, "")
+                    cleared.append(f"keyring_credentials_zeroed({saved_user})")
+                except Exception as ke:
+                    errors.append(f"keyring_credentials: {ke}")
+
+            try:
+                self._delete_refresh_token(saved_user)
+                cleared.append(f"refresh_token({saved_user})")
+            except Exception as re_err:
+                errors.append(f"refresh_token: {re_err}")
+
+        # 4. Clear IPC registry cache
+        try:
+            from gui.ipc.registry import IPCHandlerRegistry
+            IPCHandlerRegistry.clear_system_ready_cache()
+            cleared.append("ipc_registry_cache")
+        except Exception as e:
+            errors.append(f"ipc_registry: {e}")
+
+        logger.info(f"AuthManager.clear_auth_cache: cleared={cleared}, errors={errors}")
+        return {
+            'success': len(errors) == 0,
+            'cleared': cleared,
+            'errors': errors
+        }
 
     def try_restore_session(self) -> bool:
         """Attempt to restore session from stored refresh token silently at startup."""
