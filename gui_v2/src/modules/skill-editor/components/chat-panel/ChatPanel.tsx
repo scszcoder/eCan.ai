@@ -547,36 +547,9 @@ const formatSessionDate = (date: Date, t: (key: string, options?: any) => string
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // DEBUG: trace clarification data on each message render
-  if (msg.clarification || msg.clarificationAnswers) {
-    console.log('[renderMessageContent] msg has clarification data:', {
-      id: msg.id,
-      role: msg.role,
-      hasClarification: Array.isArray(msg.clarification) && msg.clarification.length > 0,
-      clarificationCount: Array.isArray(msg.clarification) ? msg.clarification.length : 0,
-      hasAnswers: !!msg.clarificationAnswers,
-      answerKeys: msg.clarificationAnswers ? Object.keys(msg.clarificationAnswers) : [],
-      contentPreview: raw.substring(0, 60),
-    });
-  }
-
   // Determine which read-only cards to show on this message
   const showClarification = msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers;
   const showPlan = msg.plan && msg.plan.summary && Array.isArray(msg.plan.steps) && msg.planAction;
-
-  // DEBUG: trace plan data
-  if (msg.plan || msg.planAction) {
-    console.log('[renderMessageContent] msg has plan data:', {
-      id: msg.id,
-      hasPlan: !!msg.plan,
-      hasSummary: !!msg.plan?.summary,
-      hasSteps: Array.isArray(msg.plan?.steps),
-      stepCount: Array.isArray(msg.plan?.steps) ? msg.plan.steps.length : 0,
-      planAction: msg.planAction,
-      planKeys: msg.plan ? Object.keys(msg.plan) : [],
-      willRenderPlanCard: !!showPlan,
-    });
-  }
 
   if (showClarification || showPlan) {
     return (
@@ -896,14 +869,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     const handleDone = (payload: any) => {
       try {
         if (!payload || payload.sessionId !== activeSessionId) return;
-        console.log('[ChatPanel][handleDone] stream_end received', {
-          source: payload.source,
-          hasContent: !!(payload.fullContent?.trim()),
-          hasClarification: Array.isArray(payload.clarification) && payload.clarification.length > 0,
-          hasPlan: !!payload.plan,
-          state: payload.state,
-          submittingClarification: submittingClarificationRef.current,
-        });
         setStreamingStatus('');
         // Don't clear isLoading while handleClarificationSubmit is still
         // awaiting its synchronous IPC response — doing so would re-expose
@@ -911,8 +876,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // response has a chance to set the new one.
         if (!submittingClarificationRef.current) {
           setIsLoading(false);
-        } else {
-          console.log('[ChatPanel][handleDone] Skipping setIsLoading(false) — clarification submit in-flight');
         }
 
         // Extract structured data forwarded from the subscription payload.
@@ -975,7 +938,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             ) {
               const updated = [...prev];
               updated[updated.length - 1] = { ...last, id: msgId, content, timestamp: new Date(), ...extraFields };
-              console.log('[ChatPanel][handleDone] Replaced placeholder with content+structured:', updated[updated.length - 1].id);
               return updated;
             }
             // Check if a message with this ID already exists (update it).
@@ -1003,10 +965,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               } else {
                 updated[existingIdx] = { ...existing, content, timestamp: new Date(), ...extraFields };
               }
-              console.log('[ChatPanel][handleDone] Updated existing message with content+structured:', updated[existingIdx].id,
-                'preservedInteraction:', hasCompletedInteraction(existing),
-                'hasPlan:', !!(updated[existingIdx] as any).plan,
-                'hasExtraFields:', Object.keys(extraFields));
               return updated;
             }
             // Append new assistant message with structured data included.
@@ -1017,7 +975,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               timestamp: new Date(),
               ...extraFields,
             };
-            console.log('[ChatPanel][handleDone] Appended new message with content+structured:', newMsg.id);
             return [...prev, newMsg];
           });
         } else if (Object.keys(extraFields).length > 0) {
@@ -1039,8 +996,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                   planAction: existing.planAction || (extraFields as any).planAction,
                   ...(existing.clarificationAnswers && existing.clarification ? { clarification: existing.clarification } : {}),
                 };
-                console.log('[ChatPanel][handleDone] Attached structured data to existing message (no content):', updated[i].id,
-                  'hasPlan:', !!(updated[i] as any).plan, 'hadAnswers:', !!existing.clarificationAnswers);
                 return updated;
               }
             }
@@ -1049,7 +1004,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
 
         if (Array.isArray(clarification) && clarification.length > 0) {
-          console.log('[ChatPanel][handleDone] Setting pendingClarification from stream_end:', clarification.length, 'questions');
           setPendingClarification(clarification);
           if (a2uiData?.messages && a2uiData?.surfaceId) {
             setPendingA2UI({ surfaceId: a2uiData.surfaceId, messages: a2uiData.messages });
@@ -1081,9 +1035,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
         // Don't clear pending states here for bare stream_end (no structured
         // data) — the synchronous response handler may still set them.
-        if (!Array.isArray(clarification) && !plan) {
-          console.log('[ChatPanel][handleDone] Bare stream_end (no clarification/plan) — leaving pending states untouched');
-        }
       } catch {
         return;
       }
@@ -1318,7 +1269,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     approvingPlanRef.current = true;
     planApprovedRef.current = true;
 
-    console.log('[ChatPanel] Approving plan');
     setIsLoading(true);
 
     const currentPlan = pendingPlan;
@@ -1329,18 +1279,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       let found = false;
       for (let i = next.length - 1; i >= 0; i--) {
         if (next[i].role === 'assistant' && next[i].plan) {
-          console.log('[ChatPanel][handlePlanApprove] Found plan message at index', i, 'id:', next[i].id, 'planKeys:', Object.keys(next[i].plan!));
           next[i] = { ...next[i], planAction: 'approved', plan: currentPlan || next[i].plan };
           found = true;
           break;
         }
       }
       if (!found) {
-        console.warn('[ChatPanel][handlePlanApprove] NO message with plan found! Messages:', next.map(m => ({ id: m.id, role: m.role, hasPlan: !!m.plan, planAction: m.planAction })));
         // Fallback: attach planAction to last assistant message anyway
         for (let i = next.length - 1; i >= 0; i--) {
           if (next[i].role === 'assistant') {
-            console.log('[ChatPanel][handlePlanApprove] Fallback: attaching plan+planAction to last assistant msg:', next[i].id);
             next[i] = { ...next[i], planAction: 'approved', plan: currentPlan! };
             break;
           }
@@ -1904,7 +1851,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const handleClarificationSubmit = useCallback(async (answers: Record<string, string[]>) => {
     if (!activeSessionId || isLoading) return;
 
-    console.log('[ChatPanel][clarificationSubmit] START — submitting answers:', Object.keys(answers));
     setIsLoading(true);
     submittingClarificationRef.current = true;
 
@@ -1941,11 +1887,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     setMessages(prev => {
       const targetIdx = findTargetMsg(prev);
       if (targetIdx >= 0) {
-        console.log('[ChatPanel][clarificationSubmit] Storing answers on message:', {
-          msgId: prev[targetIdx].id,
-          hadClarification: !!prev[targetIdx].clarification,
-          answerKeys: Object.keys(answers),
-        });
         const updated = [...prev];
         updated[targetIdx] = {
           ...updated[targetIdx],
@@ -1974,7 +1915,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
     // Clear the old form BEFORE the await so it disappears immediately.
     // If the request fails we restore it in the catch block.
-    console.log('[ChatPanel][clarificationSubmit] Clearing old pendingClarification before await');
     setPendingClarification(null);
     setPendingA2UI(null);
 
@@ -2003,14 +1943,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       );
 
       if (response) {
-        console.log('[ChatPanel][clarificationSubmit] Sync response received:', {
-          state: response.state,
-          hasClarification: !!response.clarification?.length,
-          clarificationCount: response.clarification?.length ?? 0,
-          hasPlan: !!response.plan,
-          messageContent: response.message.content?.substring(0, 80),
-        });
-
         const assistantMessage: ChatMessage = {
           id: buildMessageId(response.message.id, 'assistant', response.message.content, response.message.timestamp),
           role: 'assistant',
@@ -2048,10 +1980,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             const merged = hasCompleted
               ? { ...existing, ...definedFields, clarification: existing.clarification, clarificationAnswers: existing.clarificationAnswers, plan: existing.plan, planAction: existing.planAction }
               : { ...existing, ...definedFields };
-            console.log('[ChatPanel][clarificationSubmit] Dedup merge:', {
-              existingId: existing.id, hadAnswers: !!existing.clarificationAnswers,
-              hadClarification: !!existing.clarification, mergedHasAnswers: !!(merged as any).clarificationAnswers,
-            });
             const updated = [...prev];
             updated[existingIdx] = merged as ChatMessage;
             return updated;
@@ -2082,13 +2010,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const hasStructured = (response.clarification && response.clarification.length > 0) || !!response.plan;
         if (hasStructured) {
           if (response.clarification && response.clarification.length > 0) {
-            console.log('[ChatPanel][clarificationSubmit] Setting new clarification from sync response:', response.clarification.length);
             setPendingClarification(response.clarification);
             if (response.a2ui?.messages && response.a2ui?.surfaceId) {
               setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
             }
           } else if (response.plan) {
-            console.log('[ChatPanel][clarificationSubmit] Setting pendingPlan from sync response');
             setPendingPlan(response.plan);
           }
         } else if (response.state === 'processing') {
@@ -2128,7 +2054,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setMessages(prev => [...prev, assistantMessage]);
       setPipelineState(prev => prev || 'awaiting_clarification');
     } finally {
-      console.log('[ChatPanel][clarificationSubmit] FINALLY — releasing ref and isLoading');
       submittingClarificationRef.current = false;
       setIsLoading(false);
     }
