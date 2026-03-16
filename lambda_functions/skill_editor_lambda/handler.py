@@ -213,16 +213,17 @@ def _owner_from_event(event: Dict[str, Any]) -> str:
     """
     Extract owner (user identifier) from event.
     Priority:
-    1. Explicit userId in arguments (direct or in input wrapper)
+    1. Explicit userId in arguments (direct or in input wrapper) — skip if placeholder
     2. Email from Cognito claims (preferred for consistent S3 paths)
     3. Cognito username (fallback)
     """
+    _PLACEHOLDER_IDS = {"unknown@local", "unknown", ""}
     args = (event.get("arguments") or {})
     
     # Check for userId in input wrapper (mutation pattern - single object)
     if isinstance(args.get("input"), dict):
         user_id = args["input"].get("userId")
-        if isinstance(user_id, str) and user_id.strip():
+        if isinstance(user_id, str) and user_id.strip() and user_id.strip() not in _PLACEHOLDER_IDS:
             return user_id.strip()
     
     # Check for userId in input wrapper (mutation pattern - array of objects)
@@ -230,12 +231,12 @@ def _owner_from_event(event: Dict[str, Any]) -> str:
         first_item = args["input"][0]
         if isinstance(first_item, dict):
             user_id = first_item.get("userId")
-            if isinstance(user_id, str) and user_id.strip():
+            if isinstance(user_id, str) and user_id.strip() and user_id.strip() not in _PLACEHOLDER_IDS:
                 return user_id.strip()
     
     # Check for direct userId in arguments (query pattern)
     user_id = args.get("userId")
-    if isinstance(user_id, str) and user_id.strip():
+    if isinstance(user_id, str) and user_id.strip() and user_id.strip() not in _PLACEHOLDER_IDS:
         return user_id.strip()
 
     ident = event.get("identity") or {}
