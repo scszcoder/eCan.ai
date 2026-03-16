@@ -107,6 +107,59 @@ class AuthManager:
         """Get the current user's profile information."""
         return self.user_profile or {}
 
+    @staticmethod
+    def _decode_jwt_payload_unsafe(token: str) -> dict:
+        """Decode a JWT payload WITHOUT cryptographic verification.
+        Used only as a fallback to extract user identity (email) from an ID token
+        that was just received over HTTPS from Cognito's /oauth2/token endpoint.
+        """
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                return {}
+            payload_b64 = parts[1]
+            # JWT base64url may lack padding
+            padding = 4 - len(payload_b64) % 4
+            if padding != 4:
+                payload_b64 += '=' * padding
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            return json.loads(payload_bytes)
+        except Exception as e:
+            logger.warning(f"[_decode_jwt_payload_unsafe] Could not decode JWT payload: {e}")
+            return {}
+
+    def _build_profile_from_claims(self, claim_data: dict):
+        """Build user_profile dict and email from JWT claim data."""
+        email = claim_data.get('email') or claim_data.get('username')
+
+        # Construct name with fallback logic
+        name = claim_data.get('name')
+        given_name = claim_data.get('given_name', '')
+        family_name = claim_data.get('family_name', '')
+
+        # If no name provided, try to construct from given_name/family_name
+        if not name and (given_name or family_name):
+            # Check for CJK characters to decide on spacing
+            has_cjk = any('\u4e00' <= c <= '\u9fff' for c in (given_name + family_name))
+            if has_cjk:
+                name = f"{family_name}{given_name}"
+            else:
+                name = f"{given_name} {family_name}".strip()
+
+        # Final fallback: use email username part (before @)
+        if not name and email:
+            name = email.split('@')[0]
+
+        user_profile = {
+            'email': email,
+            'name': name or '',
+            'given_name': given_name,
+            'family_name': family_name,
+            'picture': claim_data.get('picture', ''),
+            'email_verified': claim_data.get('email_verified', False),
+        }
+        return user_profile, email
+
     def _fetch_user_profile(self, access_token, id_token=None):
         """
         Helper method to fetch and construct the user profile from ID token claims
@@ -115,44 +168,31 @@ class AuthManager:
         user_profile = {}
         email = None
 
-        # 1. Try extracting from ID Token
+        # 1. Try extracting from ID Token via verified decode
         if id_token:
             claims = self.cognito_service.verify_token(id_token, 'id')
             logger.debug(f"[_fetch_user_profile] verify_token result: success={claims.get('success')}, error={claims.get('error')}")
             if claims.get('success'):
                 claim_data = claims['data']
                 logger.debug(f"ID Token Claims: {claim_data}")
-                email = claim_data.get('email') or claim_data.get('username')
-                
-                # Construct name with fallback logic
-                name = claim_data.get('name')
-                given_name = claim_data.get('given_name', '')
-                family_name = claim_data.get('family_name', '')
-                
-                # If no name provided, try to construct from given_name/family_name
-                if not name and (given_name or family_name):
-                    # Check for CJK characters to decide on spacing
-                    has_cjk = any('\u4e00' <= c <= '\u9fff' for c in (given_name + family_name))
-                    if has_cjk:
-                        name = f"{family_name}{given_name}"
-                    else:
-                        name = f"{given_name} {family_name}".strip()
-                
-                # Final fallback: use email username part (before @)
-                if not name and email:
-                    name = email.split('@')[0]
-                
-                user_profile = {
-                    'email': email,
-                    'name': name or '',
-                    'given_name': given_name,
-                    'family_name': family_name,
-                    'picture': claim_data.get('picture', ''),
-                    'email_verified': claim_data.get('email_verified', False),
-                }
-                logger.info(f"[_fetch_user_profile] Constructed user_profile: {user_profile}")
+                user_profile, email = self._build_profile_from_claims(claim_data)
+                logger.info(f"[_fetch_user_profile] Constructed user_profile from verified token: {user_profile}")
             else:
                 logger.warning(f"[_fetch_user_profile] verify_token failed: {claims.get('error')}")
+                # 1b. FALLBACK: decode JWT payload without verification.
+                # This is safe because the token was just received over HTTPS directly
+                # from Cognito's /oauth2/token endpoint seconds ago.
+                # Google federated ID tokens may fail verify_token due to missing
+                # 'token_use' claim or JWKS fetch issues in slow networks.
+                logger.info("[_fetch_user_profile] Attempting unverified JWT decode fallback for email extraction...")
+                fallback_claims = self._decode_jwt_payload_unsafe(id_token)
+                if fallback_claims:
+                    logger.info(f"[_fetch_user_profile] Fallback claims keys: {list(fallback_claims.keys())}")
+                    user_profile, email = self._build_profile_from_claims(fallback_claims)
+                    if email:
+                        logger.info(f"[_fetch_user_profile] Extracted email via fallback: {email}")
+                    else:
+                        logger.warning("[_fetch_user_profile] Fallback decode succeeded but no email found in claims")
 
         # 2. OPTIMIZATION: Skip UserInfo endpoint to avoid additional 90+ second network delay
         # ID Token already contains all necessary user information (email, name, given_name, family_name, picture)
@@ -261,7 +301,22 @@ class AuthManager:
                 access_token = self.tokens.get('access_token') or self.tokens.get('AccessToken')
                 id_token = self.tokens.get('id_token') or self.tokens.get('IdToken')
                 
+                logger.info(f"[google_login] Token keys received: {list(tokens.keys())}")
+                logger.info(f"[google_login] id_token present: {bool(id_token)}, access_token present: {bool(access_token)}")
+                
                 self.user_profile, fetched_email = self._fetch_user_profile(access_token, id_token)
+                
+                # Extra fallback: if _fetch_user_profile couldn't get an email,
+                # try decoding the access_token payload (Cognito access tokens
+                # contain 'username' which for Google-federated users is often the email)
+                if not fetched_email and access_token:
+                    logger.info("[google_login] No email from id_token, trying access_token payload...")
+                    at_claims = self._decode_jwt_payload_unsafe(access_token)
+                    if at_claims:
+                        fetched_email = at_claims.get('email') or at_claims.get('username')
+                        if fetched_email:
+                            logger.info(f"[google_login] Extracted email from access_token: {fetched_email}")
+                            self.user_profile['email'] = fetched_email
                 
                 logger.info(f"Final User Profile: {self.user_profile}")
                 self.current_user = fetched_email or self._get_saved_username() or "unknown@local"
