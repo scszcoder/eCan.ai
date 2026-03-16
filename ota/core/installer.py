@@ -265,14 +265,15 @@ class InstallationManager:
         if sys.platform != 'win32':
             raise RuntimeError("Windows-only helper")
 
-        exe_path = cmd[0]
-        raw_args = cmd[1:] if len(cmd) > 1 else []
+        exe_path = str(cmd[0])
+        raw_args = [str(arg) for arg in cmd[1:]] if len(cmd) > 1 else []
 
         def _escape_batch_token(token: str) -> str:
             return str(token).replace('%', '%%')
 
-        exe_path_quoted = f'"{_escape_batch_token(exe_path)}"'
-        args_str = ' '.join(_escape_batch_token(arg) for arg in raw_args)
+        def _build_windows_command_line(executable: str, args: list[str]) -> str:
+            command_line = subprocess.list2cmdline([executable, *args])
+            return _escape_batch_token(command_line)
 
         # Use fixed user directory instead of temporary directory
         from config.app_info import app_info
@@ -284,8 +285,8 @@ class InstallationManager:
         if not template_path.exists():
             raise FileNotFoundError(f"OTA launcher BAT template not found: {template_path}")
         
-        bat_path = str(scripts_dir / "ecan_ota_launcher.bat")
-        installer_command = f"{exe_path_quoted}{(' ' + args_str) if args_str else ''}"
+        bat_path = scripts_dir / "ecan_ota_launcher.bat"
+        installer_command = _build_windows_command_line(exe_path, raw_args)
         bat_template = template_path.read_text(encoding='utf-8')
         bat_content = (
             bat_template
@@ -293,7 +294,7 @@ class InstallationManager:
             .replace("__INSTALLER_COMMAND__", installer_command)
         )
 
-        with open(bat_path, 'w', encoding='utf-8') as f:
+        with open(bat_path, 'w', encoding='utf-8-sig', newline='\r\n') as f:
             f.write(bat_content)
 
         creation_flags = (
@@ -307,13 +308,13 @@ class InstallationManager:
         logger.info(f"[OTA Installer] BAT launcher template used: {template_path}")
         logger.info(f"Installer executable: {exe_path}")
         logger.info(f"[OTA Installer] Raw installer argument list: {raw_args}")
-        logger.info(f"Installer arguments: {args_str}")
+        logger.info(f"Installer command line: {installer_command}")
         logger.info(f"Installer command for cmd.exe: start \"\" {installer_command}")
         logger.info(f"BAT launcher content: {bat_content!r}")
         logger.info(f"Delay before launch: {delay_seconds}s")
 
         p = subprocess.Popen(
-            ['cmd', '/c', bat_path],
+            ['cmd', '/c', str(bat_path)],
             creationflags=creation_flags,
             close_fds=True,
             stdin=subprocess.DEVNULL,
@@ -553,25 +554,31 @@ rm -f "$0"
                     
                     # Use Inno Setup silent installation parameters with progress
                     # /SILENT = Silent with progress bar (not /VERYSILENT)
-                    # /SUPPRESSMSGBOXES = Suppress message boxes
+                    # /SUPPRESSMSGBOXES intentionally NOT used here
+                    # If the installer aborts early, suppressing dialogs makes it
+                    # look like Setup.exe flashes and immediately exits with no clue.
+                    # Keeping message boxes enabled surfaces the actual Inno Setup
+                    # error to the user during OTA debugging and production failures.
                     # /NORESTART = Don't restart computer
                     # /SP- = Skip the "This will install..." message box
-                    # /DIR= = Installation directory (must use quotes if path has spaces)
+                    # /DIR= intentionally omitted for diagnostics in scheme B.
+                    # We want Inno Setup to use its own remembered/default install directory
+                    # so we can isolate whether the explicit /DIR argument is what causes the
+                    # installer to start and then immediately exit.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
-                        '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
                         '/CLOSEAPPLICATIONS',
-                        f'/DIR="{str(install_dir)}"'
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS")
+                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /NORESTART /CLOSEAPPLICATIONS")
+                    logger.info("[OTA Installer] Diagnostic mode B active: /DIR parameter omitted")
                     logger.info(f"[OTA Installer] Final Inno Setup command length: {len(cmd)} args")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
@@ -654,17 +661,16 @@ rm -f "$0"
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
-                        '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
                         '/CLOSEAPPLICATIONS',    # Force close running instances
-                        f'/DIR="{str(install_dir)}"'  # Preserve installation directory
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Development OTA command: {repr(cmd)}")
                     logger.info(f"[OTA Installer] Development command length: {len(cmd)} args")
+                    logger.info("[OTA Installer] Diagnostic mode B active in dev path: /DIR parameter omitted")
 
                     if sys.platform == 'win32':
                         creation_flags = (
