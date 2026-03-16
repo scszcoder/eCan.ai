@@ -4925,6 +4925,15 @@ async function processEvent(event, context, callback, test_stub) {
               const created = [];
               for (const skill of skillsInput) {
                 try {
+                  // Publish gate: non-free public skills must use cloud/hybrid execution
+                  if (skill.public && skill.price > 0) {
+                    const cfg = skill.config || {};
+                    if (typeof cfg === "string") { try { skill.config = JSON.parse(cfg); } catch (_) { skill.config = {}; } }
+                    if (!skill.config.run_in_cloud && !skill.config.hybrid_cloud_mode) {
+                      skill.config = { ...skill.config, run_in_cloud: true, hybrid_cloud_mode: true };
+                      console.log(`[agentScheduler] addAgentSkills: Forcing cloud mode for non-free public skill '${skill.name}'`);
+                    }
+                  }
                   const { skill: preparedSkill, warning, error } = await hydrateSkillAssets(skill, owner);
                   if (error) {
                     created.push({ success: false, error: error.message || String(error) });
@@ -4932,7 +4941,8 @@ async function processEvent(event, context, callback, test_stub) {
                   }
                   const uploadTargets = await prepareSkillUploadTargets({ skill: preparedSkill, ownerEmail: owner });
                   preparedSkill.path = uploadTargets.pathForDb || preparedSkill.path;
-                  const res = await skillService.addSkill({ ...preparedSkill, owner });
+                  // Set skill_owner to the publishing user (immutable original author)
+                  const res = await skillService.addSkill({ ...preparedSkill, owner, skill_owner: preparedSkill.skill_owner || owner });
                   created.push({
                     id: res.id,
                     success: res.success !== false,
@@ -4982,6 +4992,17 @@ async function processEvent(event, context, callback, test_stub) {
                   if (error) {
                     updated.push({ id: sid, success: false, error: error.message || String(error) });
                     continue;
+                  }
+                  // Publish gate: non-free public skills must use cloud/hybrid execution
+                  const mergedPublic = preparedFields.public !== undefined ? preparedFields.public : (existingSkill && existingSkill.public);
+                  const mergedPrice = preparedFields.price !== undefined ? preparedFields.price : (existingSkill && existingSkill.price);
+                  if (mergedPublic && mergedPrice > 0) {
+                    let cfg = preparedFields.config || (existingSkill && existingSkill.config) || {};
+                    if (typeof cfg === "string") { try { cfg = JSON.parse(cfg); } catch (_) { cfg = {}; } }
+                    if (!cfg.run_in_cloud && !cfg.hybrid_cloud_mode) {
+                      preparedFields.config = { ...cfg, run_in_cloud: true, hybrid_cloud_mode: true };
+                      console.log(`[agentScheduler] updateAgentSkills: Forcing cloud mode for non-free public skill id='${sid}'`);
+                    }
                   }
                   const skillForUploads = { ...existingSkill, ...preparedFields, id: sid };
                   const uploadTargets = await prepareSkillUploadTargets({ skill: skillForUploads, ownerEmail: owner });
@@ -7188,6 +7209,23 @@ async function processEvent(event, context, callback, test_stub) {
                   const existingIds = new Set(prompts.map(p => p.id));
                   for (const ep of extraPrompts) {
                     if (!existingIds.has(ep.id)) prompts.push(ep);
+                  }
+                }
+                // Cross-owner prompt access: when qArg.owner is specified and differs
+                // from the caller, fetch prompts from that owner (for rented/subscribed skills)
+                const requestedOwner = qArg.owner;
+                if (requestedOwner && requestedOwner !== effectivePromptOwner && requestedOwner !== owner) {
+                  console.log(`[agentScheduler] queryPrompts: cross-owner query for '${requestedOwner}' by caller '${effectivePromptOwner}'`);
+                  const crossResult = await promptService.queryPrompts({
+                    id: qArg.id,
+                    owner: requestedOwner,
+                    version: qArg.version,
+                    search: qArg.search
+                  });
+                  const crossPrompts = Array.isArray(crossResult) ? crossResult : [];
+                  const existingIds = new Set(prompts.map(p => p.id));
+                  for (const cp of crossPrompts) {
+                    if (!existingIds.has(cp.id)) prompts.push(cp);
                   }
                 }
                 // If the caller is the super user, also include prompts owned by "system"
