@@ -547,30 +547,53 @@ const formatSessionDate = (date: Date, t: (key: string, options?: any) => string
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // If message has clarification with submitted answers, render read-only A2UIFormCard
-  // Only render if clarification data is valid
-  if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
-    return (
-      <>
-        {renderTextContent(raw)}
-        <ClarificationCard
-          questions={msg.clarification}
-          submittedAnswers={msg.clarificationAnswers}
-        />
-      </>
-    );
+  // DEBUG: trace clarification data on each message render
+  if (msg.clarification || msg.clarificationAnswers) {
+    console.log('[renderMessageContent] msg has clarification data:', {
+      id: msg.id,
+      role: msg.role,
+      hasClarification: Array.isArray(msg.clarification) && msg.clarification.length > 0,
+      clarificationCount: Array.isArray(msg.clarification) ? msg.clarification.length : 0,
+      hasAnswers: !!msg.clarificationAnswers,
+      answerKeys: msg.clarificationAnswers ? Object.keys(msg.clarificationAnswers) : [],
+      contentPreview: raw.substring(0, 60),
+    });
   }
 
-  // If message has plan with action taken, render read-only PlanCard
-  // Only render if plan data is valid
-  if (msg.plan && msg.plan.summary && Array.isArray(msg.plan.steps) && msg.planAction) {
+  // Determine which read-only cards to show on this message
+  const showClarification = msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers;
+  const showPlan = msg.plan && msg.plan.summary && Array.isArray(msg.plan.steps) && msg.planAction;
+
+  // DEBUG: trace plan data
+  if (msg.plan || msg.planAction) {
+    console.log('[renderMessageContent] msg has plan data:', {
+      id: msg.id,
+      hasPlan: !!msg.plan,
+      hasSummary: !!msg.plan?.summary,
+      hasSteps: Array.isArray(msg.plan?.steps),
+      stepCount: Array.isArray(msg.plan?.steps) ? msg.plan.steps.length : 0,
+      planAction: msg.planAction,
+      planKeys: msg.plan ? Object.keys(msg.plan) : [],
+      willRenderPlanCard: !!showPlan,
+    });
+  }
+
+  if (showClarification || showPlan) {
     return (
       <>
         {renderTextContent(raw)}
-        <PlanCard
-          plan={msg.plan}
-          submittedAction={msg.planAction}
-        />
+        {showClarification && (
+          <ClarificationCard
+            questions={msg.clarification!}
+            submittedAnswers={msg.clarificationAnswers!}
+          />
+        )}
+        {showPlan && (
+          <PlanCard
+            plan={msg.plan!}
+            submittedAction={msg.planAction!}
+          />
+        )}
       </>
     );
   }
@@ -643,6 +666,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
   const approvingPlanRef = useRef(false);  // prevent double-click on approve button
   const planApprovedRef = useRef(false);   // once a plan is approved, block subscription from re-showing it
+  const submittingClarificationRef = useRef(false);  // prevent handleDone from clearing isLoading during clarification submit
+  const sendingRef = useRef(false);  // synchronous guard against double-click on Send
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -871,55 +896,30 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     const handleDone = (payload: any) => {
       try {
         if (!payload || payload.sessionId !== activeSessionId) return;
+        console.log('[ChatPanel][handleDone] stream_end received', {
+          source: payload.source,
+          hasContent: !!(payload.fullContent?.trim()),
+          hasClarification: Array.isArray(payload.clarification) && payload.clarification.length > 0,
+          hasPlan: !!payload.plan,
+          state: payload.state,
+          submittingClarification: submittingClarificationRef.current,
+        });
         setStreamingStatus('');
-        setIsLoading(false);
-
-        // If the stream_end carries actual content, render it as (or update)
-        // the assistant message.  This is the primary delivery path when the
-        // AppSync subscription relay is active — the synchronous IPC response
-        // may only contain a placeholder "processing" message.
-        const content = payload.fullContent;
-        if (typeof content === 'string' && content.trim()) {
-          const msgId = payload.messageId || `msg-stream-${Date.now()}`;
-          setMessages(prev => {
-            // If the last assistant message is the synthetic "processing"
-            // placeholder, replace its content with the real response.
-            const last = prev.length > 0 ? prev[prev.length - 1] : null;
-            if (
-              last &&
-              last.role === 'assistant' &&
-              ((last as any).metadata?.placeholder === true || last.content === '⏳')
-            ) {
-              const updated = [...prev];
-              updated[updated.length - 1] = { ...last, id: msgId, content, timestamp: new Date() };
-              return updated;
-            }
-            // Check if a message with this ID already exists (update it)
-            const existingIdx = prev.findIndex(m => m.id === msgId);
-            if (existingIdx >= 0) {
-              const updated = [...prev];
-              updated[existingIdx] = { ...updated[existingIdx], content, timestamp: new Date() };
-              return updated;
-            }
-            // Don't blindly append — the synchronous handleSend response
-            // is the authoritative message source.  Only append if there's
-            // no pending synchronous response (i.e. isLoading is still
-            // true, meaning handleSend hasn't resolved yet — but we can't
-            // check that here).  Instead, mark a flag so handleSend can
-            // deduplicate via content matching.
-            return [...prev, {
-              id: msgId,
-              role: 'assistant' as const,
-              content,
-              timestamp: new Date(),
-            }];
-          });
+        // Don't clear isLoading while handleClarificationSubmit is still
+        // awaiting its synchronous IPC response — doing so would re-expose
+        // the stale pendingClarification (old answered form) before the sync
+        // response has a chance to set the new one.
+        if (!submittingClarificationRef.current) {
+          setIsLoading(false);
+        } else {
+          console.log('[ChatPanel][handleDone] Skipping setIsLoading(false) — clarification submit in-flight');
         }
 
         // Extract structured data forwarded from the subscription payload.
         // For Lambda-timeout responses the synchronous IPC result is a bare
         // "processing" placeholder — the real clarification / a2ui / plan
         // arrives here via the subscription relay's stream_end event.
+        const content = payload.fullContent;
         const clarification = payload.clarification;
         const plan = payload.plan;
         const a2uiData = payload.a2ui;
@@ -935,12 +935,139 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           }
         }
 
+        // Build extra fields to attach to the assistant message when
+        // clarification or plan data is present in this stream_end.
+        const extraFields: Partial<ChatMessage> = {};
         if (Array.isArray(clarification) && clarification.length > 0) {
+          extraFields.clarification = clarification;
+        }
+        if (plan) {
+          extraFields.plan = plan;
+        }
+        if (state) {
+          extraFields.state = state;
+        }
+
+        // If the stream_end carries actual content, render it as (or update)
+        // the assistant message.  This is the primary delivery path when the
+        // AppSync subscription relay is active — the synchronous IPC response
+        // may only contain a placeholder "processing" message.
+        //
+        // IMPORTANT: We attach clarification/state in the SAME setMessages
+        // call so that React batching doesn't lose the structured data.
+        if (typeof content === 'string' && content.trim()) {
+          const msgId = payload.messageId || `msg-stream-${Date.now()}`;
+          setMessages(prev => {
+            // If the last assistant message is the synthetic "processing"
+            // placeholder, replace its content with the real response.
+            // IMPORTANT: Skip messages that already have completed interactions
+            // (clarificationAnswers or planAction) — they must be preserved as-is.
+            // Also use planApprovedRef to catch the case where React hasn't flushed
+            // the planAction state update yet (ref is set synchronously).
+            const hasCompletedInteraction = (m: ChatMessage) =>
+              m.clarificationAnswers || m.planAction || (m.plan && planApprovedRef.current);
+            const last = prev.length > 0 ? prev[prev.length - 1] : null;
+            if (
+              last &&
+              last.role === 'assistant' &&
+              !hasCompletedInteraction(last) &&
+              ((last as any).metadata?.placeholder === true || last.content === '⏳')
+            ) {
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...last, id: msgId, content, timestamp: new Date(), ...extraFields };
+              console.log('[ChatPanel][handleDone] Replaced placeholder with content+structured:', updated[updated.length - 1].id);
+              return updated;
+            }
+            // Check if a message with this ID already exists (update it).
+            // Preserve clarification/clarificationAnswers if already answered.
+            const existingIdx = prev.findIndex(m => m.id === msgId);
+            if (existingIdx >= 0) {
+              const existing = prev[existingIdx];
+              const updated = [...prev];
+              if (hasCompletedInteraction(existing)) {
+                // Preserve completed interaction fields, but still allow NEW
+                // structured data (e.g. plan arriving after clarification answers)
+                // to be attached.  We only protect the fields that were already set.
+                updated[existingIdx] = {
+                  ...existing,
+                  content,
+                  timestamp: new Date(),
+                  ...extraFields,
+                  // Re-apply the existing completed-interaction fields so
+                  // extraFields can never overwrite them.
+                  clarificationAnswers: existing.clarificationAnswers || (extraFields as any).clarificationAnswers,
+                  planAction: existing.planAction || (extraFields as any).planAction,
+                  // Keep existing clarification if it was already answered
+                  ...(existing.clarificationAnswers && existing.clarification ? { clarification: existing.clarification } : {}),
+                };
+              } else {
+                updated[existingIdx] = { ...existing, content, timestamp: new Date(), ...extraFields };
+              }
+              console.log('[ChatPanel][handleDone] Updated existing message with content+structured:', updated[existingIdx].id,
+                'preservedInteraction:', hasCompletedInteraction(existing),
+                'hasPlan:', !!(updated[existingIdx] as any).plan,
+                'hasExtraFields:', Object.keys(extraFields));
+              return updated;
+            }
+            // Append new assistant message with structured data included.
+            const newMsg = {
+              id: msgId,
+              role: 'assistant' as const,
+              content,
+              timestamp: new Date(),
+              ...extraFields,
+            };
+            console.log('[ChatPanel][handleDone] Appended new message with content+structured:', newMsg.id);
+            return [...prev, newMsg];
+          });
+        } else if (Object.keys(extraFields).length > 0) {
+          // No content in this stream_end, but we have structured data
+          // (clarification/plan/state) — attach to the last assistant msg.
+          // Even if the message has completed interactions, we still attach
+          // NEW fields (e.g. plan arriving after clarification answers) while
+          // preserving the existing completed fields.
+          setMessages(prev => {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'assistant') {
+                const existing = prev[i];
+                const updated = [...prev];
+                updated[i] = {
+                  ...existing,
+                  ...extraFields,
+                  // Re-apply existing completed-interaction fields
+                  clarificationAnswers: existing.clarificationAnswers || (extraFields as any).clarificationAnswers,
+                  planAction: existing.planAction || (extraFields as any).planAction,
+                  ...(existing.clarificationAnswers && existing.clarification ? { clarification: existing.clarification } : {}),
+                };
+                console.log('[ChatPanel][handleDone] Attached structured data to existing message (no content):', updated[i].id,
+                  'hasPlan:', !!(updated[i] as any).plan, 'hadAnswers:', !!existing.clarificationAnswers);
+                return updated;
+              }
+            }
+            return prev;
+          });
+        }
+
+        if (Array.isArray(clarification) && clarification.length > 0) {
+          console.log('[ChatPanel][handleDone] Setting pendingClarification from stream_end:', clarification.length, 'questions');
           setPendingClarification(clarification);
           if (a2uiData?.messages && a2uiData?.surfaceId) {
             setPendingA2UI({ surfaceId: a2uiData.surfaceId, messages: a2uiData.messages });
           }
           setPendingPlan(null);
+
+          // Sync clarification to sessions so it survives session re-renders
+          setSessions(prev => prev.map(s => {
+            if (s.id !== activeSessionId) return s;
+            const msgs = [...s.messages];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'assistant' && !msgs[i].clarificationAnswers && !msgs[i].planAction) {
+                msgs[i] = { ...msgs[i], clarification, state: state || msgs[i].state };
+                break;
+              }
+            }
+            return { ...s, messages: msgs };
+          }));
         } else if (plan) {
           // Only set pendingPlan if the user hasn't already acted on it.
           // The subscription stream_end may arrive AFTER the user clicked
@@ -954,6 +1081,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
         // Don't clear pending states here for bare stream_end (no structured
         // data) — the synchronous response handler may still set them.
+        if (!Array.isArray(clarification) && !plan) {
+          console.log('[ChatPanel][handleDone] Bare stream_end (no clarification/plan) — leaving pending states untouched');
+        }
       } catch {
         return;
       }
@@ -1196,14 +1326,41 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
     setMessages(prev => {
       const next = [...prev];
+      let found = false;
       for (let i = next.length - 1; i >= 0; i--) {
         if (next[i].role === 'assistant' && next[i].plan) {
-          next[i] = { ...next[i], planAction: 'approved', plan: currentPlan };
+          console.log('[ChatPanel][handlePlanApprove] Found plan message at index', i, 'id:', next[i].id, 'planKeys:', Object.keys(next[i].plan!));
+          next[i] = { ...next[i], planAction: 'approved', plan: currentPlan || next[i].plan };
+          found = true;
           break;
+        }
+      }
+      if (!found) {
+        console.warn('[ChatPanel][handlePlanApprove] NO message with plan found! Messages:', next.map(m => ({ id: m.id, role: m.role, hasPlan: !!m.plan, planAction: m.planAction })));
+        // Fallback: attach planAction to last assistant message anyway
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (next[i].role === 'assistant') {
+            console.log('[ChatPanel][handlePlanApprove] Fallback: attaching plan+planAction to last assistant msg:', next[i].id);
+            next[i] = { ...next[i], planAction: 'approved', plan: currentPlan! };
+            break;
+          }
         }
       }
       return next;
     });
+
+    // Sync planAction to sessions so it survives session re-renders
+    setSessions(prev => prev.map(s => {
+      if (s.id !== activeSessionId) return s;
+      const msgs = [...s.messages];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'assistant' && (msgs[i].plan || msgs[i].planAction)) {
+          msgs[i] = { ...msgs[i], planAction: 'approved', plan: currentPlan || msgs[i].plan };
+          break;
+        }
+      }
+      return { ...s, messages: msgs };
+    }));
 
     try {
       const canvasState = canvasController.getCanvasState();
@@ -1248,7 +1405,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           plan: response.plan,
           state: response.state,
         };
-        setMessages(prev => [...prev, assistantMessage]);
+        // Dedup: handleDone (subscription) may have already added this message.
+        // Preserve plan/planAction on any existing messages.
+        setMessages(prev => {
+          const definedFields: Record<string, any> = {};
+          for (const [k, v] of Object.entries(assistantMessage)) {
+            if (v !== undefined && v !== null) definedFields[k] = v;
+          }
+          let existingIdx = prev.findIndex(m => m.id === assistantMessage.id);
+          if (existingIdx < 0) {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'assistant' && prev[i].content === assistantMessage.content) {
+                existingIdx = i;
+                break;
+              }
+            }
+          }
+          if (existingIdx >= 0) {
+            const existing = prev[existingIdx];
+            const hasCompleted = existing.clarificationAnswers || existing.planAction || (existing.plan && planApprovedRef.current);
+            const updated = [...prev];
+            if (hasCompleted) {
+              updated[existingIdx] = { ...existing, id: assistantMessage.id, content: assistantMessage.content, timestamp: assistantMessage.timestamp, state: assistantMessage.state };
+            } else {
+              updated[existingIdx] = { ...existing, ...definedFields };
+            }
+            return updated;
+          }
+          return [...prev, assistantMessage];
+        });
         setPipelineState(response.state || 'complete');
 
         if (response.clarification && response.clarification.length > 0) {
@@ -1325,6 +1510,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       return next;
     });
 
+    // Sync planAction to sessions so it survives session re-renders
+    setSessions(prev => prev.map(s => {
+      if (s.id !== activeSessionId) return s;
+      const msgs = [...s.messages];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'assistant' && msgs[i].plan) {
+          msgs[i] = { ...msgs[i], planAction: 'revised', plan: currentPlan };
+          break;
+        }
+      }
+      return { ...s, messages: msgs };
+    }));
+
     try {
       const canvasState = canvasController.getCanvasState();
       const canvasContext = {
@@ -1366,7 +1564,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           plan: response.plan,
           state: response.state,
         };
-        setMessages(prev => [...prev, assistantMessage]);
+        // Dedup: handleDone (subscription) may have already added this message.
+        // Preserve plan/planAction on any existing messages.
+        setMessages(prev => {
+          const definedFields: Record<string, any> = {};
+          for (const [k, v] of Object.entries(assistantMessage)) {
+            if (v !== undefined && v !== null) definedFields[k] = v;
+          }
+          let existingIdx = prev.findIndex(m => m.id === assistantMessage.id);
+          if (existingIdx < 0) {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'assistant' && prev[i].content === assistantMessage.content) {
+                existingIdx = i;
+                break;
+              }
+            }
+          }
+          if (existingIdx >= 0) {
+            const existing = prev[existingIdx];
+            const hasCompleted = existing.clarificationAnswers || existing.planAction || (existing.plan && planApprovedRef.current);
+            const updated = [...prev];
+            if (hasCompleted) {
+              updated[existingIdx] = { ...existing, id: assistantMessage.id, content: assistantMessage.content, timestamp: assistantMessage.timestamp, state: assistantMessage.state };
+            } else {
+              updated[existingIdx] = { ...existing, ...definedFields };
+            }
+            return updated;
+          }
+          return [...prev, assistantMessage];
+        });
         setPipelineState(response.state || 'complete');
 
         if (response.clarification && response.clarification.length > 0) {
@@ -1393,7 +1619,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   }, [activeSessionId, isLoading, pendingPlan]);
 
   const handleSend = useCallback(async () => {
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() || isLoading || sendingRef.current) return;
+    sendingRef.current = true;  // synchronous guard — prevents double-click before React flushes
 
     // Reset plan-approval guard so the next plan can be displayed.
     planApprovedRef.current = false;
@@ -1547,9 +1774,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             }
           }
           if (existingIdx >= 0) {
-            // Update existing with richer metadata from synchronous response
+            // Update existing with richer metadata from synchronous response.
+            // Preserve clarification/clarificationAnswers if already answered.
+            const existing = prev[existingIdx];
             const updated = [...prev];
-            updated[existingIdx] = { ...updated[existingIdx], ...assistantMessage };
+            const hasCompleted = existing.clarificationAnswers || existing.planAction || (existing.plan && planApprovedRef.current);
+            if (hasCompleted) {
+              updated[existingIdx] = { ...existing, id: assistantMessage.id, content: assistantMessage.content, timestamp: assistantMessage.timestamp, state: assistantMessage.state };
+            } else {
+              // Strip undefined values to avoid overwriting structured data with undefined
+              const defined: Record<string, any> = {};
+              for (const [k, v] of Object.entries(assistantMessage)) {
+                if (v !== undefined && v !== null) defined[k] = v;
+              }
+              updated[existingIdx] = { ...existing, ...defined };
+            }
             return updated;
           }
           return [...prev, assistantMessage];
@@ -1559,36 +1798,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         setPipelineState(response.state || 'complete');
         setStreamingStatus('');
         
-        // Handle clarification questions / plan / a2ui from the synchronous
-        // response.  Skip this entirely for state=processing (Lambda timeout)
-        // because the synchronous result is a synthetic placeholder — the real
-        // structured data will arrive via the subscription relay's stream_end.
-        if (response.state !== 'processing') {
+        // Apply structured data from the synchronous response.  Even when
+        // state === 'processing' the response may carry real structured data
+        // (local backend completes within the timeout but still reports
+        // 'processing' as pipeline state).  Only fall back to "wait for
+        // subscription" when there is truly no structured data.
+        const hasStructuredData = (response.clarification && response.clarification.length > 0) || !!response.plan;
+        if (hasStructuredData) {
           if (response.clarification && response.clarification.length > 0) {
             console.log('[ChatPanel] Received clarification questions:', response.clarification.length);
             setPendingClarification(response.clarification);
-            // Capture A2UI data if provided by LLM
             if (response.a2ui?.messages && response.a2ui?.surfaceId) {
               setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
             } else {
               setPendingA2UI(null);
             }
             setPendingPlan(null);
-          }
-          // Handle implementation plan
-          else if (response.plan) {
+          } else if (response.plan) {
             console.log('[ChatPanel] Received implementation plan');
             setPendingPlan(response.plan);
             setPendingClarification(null);
             setPendingA2UI(null);
           }
-          // Clear pending states on completion
-          else {
-            setPendingClarification(null);
-            setPendingA2UI(null);
-            setPendingPlan(null);
-          }
+        } else if (response.state !== 'processing') {
+          // No structured data and not processing — clear pending states
+          setPendingClarification(null);
+          setPendingA2UI(null);
+          setPendingPlan(null);
         }
+        // else: state=processing with no structured data — wait for subscription
         
         // Load flowgram into canvas if present in response
         if (response.flowgram) {
@@ -1649,6 +1887,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         setMessages(prev => [...prev, errorMessage]);
       }
     } finally {
+      sendingRef.current = false;
       setIsLoading(false);
       setPendingAttachments([]);
     }
@@ -1665,19 +1904,79 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const handleClarificationSubmit = useCallback(async (answers: Record<string, string[]>) => {
     if (!activeSessionId || isLoading) return;
 
-    console.log('[ChatPanel] Submitting clarification answers:', answers);
+    console.log('[ChatPanel][clarificationSubmit] START — submitting answers:', Object.keys(answers));
     setIsLoading(true);
+    submittingClarificationRef.current = true;
 
     const currentClarification = pendingClarification;
 
-    // Store the answers in the message that had the clarification questions (before clearing pending)
-    setMessages(prev => prev.map(msg => {
-      if (msg.clarification && msg.clarification.length > 0 &&
-          currentClarification && msg.clarification[0]?.id === currentClarification[0]?.id) {
-        return { ...msg, clarificationAnswers: answers };
+    // Store the answers in the message that had the clarification questions.
+    // All tiers skip messages that already have clarificationAnswers (previous
+    // rounds' completed Q&A) so we never overwrite earlier rounds.
+    const findTargetMsg = (msgs: ChatMessage[]): number => {
+      // Primary: exact clarification[0].id match (no prior answers)
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (!msgs[i].clarificationAnswers &&
+            msgs[i].clarification && msgs[i].clarification!.length > 0 &&
+            currentClarification && msgs[i].clarification![0]?.id === currentClarification[0]?.id) {
+          return i;
+        }
       }
-      return msg;
+      // Fallback: last assistant with clarification but no answers yet
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (!msgs[i].clarificationAnswers &&
+            msgs[i].role === 'assistant' && msgs[i].clarification && msgs[i].clarification!.length > 0) {
+          return i;
+        }
+      }
+      // Last resort: last assistant without completed interactions
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (!msgs[i].clarificationAnswers && !msgs[i].planAction && msgs[i].role === 'assistant') {
+          return i;
+        }
+      }
+      return -1;
+    };
+
+    setMessages(prev => {
+      const targetIdx = findTargetMsg(prev);
+      if (targetIdx >= 0) {
+        console.log('[ChatPanel][clarificationSubmit] Storing answers on message:', {
+          msgId: prev[targetIdx].id,
+          hadClarification: !!prev[targetIdx].clarification,
+          answerKeys: Object.keys(answers),
+        });
+        const updated = [...prev];
+        updated[targetIdx] = {
+          ...updated[targetIdx],
+          clarification: updated[targetIdx].clarification || currentClarification || undefined,
+          clarificationAnswers: answers,
+        };
+        return updated;
+      }
+      console.warn('[ChatPanel][clarificationSubmit] No unanswered assistant message found to store answers!');
+      return prev;
+    });
+
+    // Also sync the answers into sessions so they survive session-level re-renders
+    setSessions(prev => prev.map(s => {
+      if (s.id !== activeSessionId) return s;
+      const targetIdx = findTargetMsg(s.messages);
+      if (targetIdx < 0) return s;
+      const msgs = [...s.messages];
+      msgs[targetIdx] = {
+        ...msgs[targetIdx],
+        clarification: msgs[targetIdx].clarification || currentClarification || undefined,
+        clarificationAnswers: answers,
+      };
+      return { ...s, messages: msgs };
     }));
+
+    // Clear the old form BEFORE the await so it disappears immediately.
+    // If the request fails we restore it in the catch block.
+    console.log('[ChatPanel][clarificationSubmit] Clearing old pendingClarification before await');
+    setPendingClarification(null);
+    setPendingA2UI(null);
 
     try {
       const canvasState = canvasController.getCanvasState();
@@ -1704,10 +2003,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       );
 
       if (response) {
-        console.log('[ChatPanel] Clarification response received:', {
+        console.log('[ChatPanel][clarificationSubmit] Sync response received:', {
           state: response.state,
           hasClarification: !!response.clarification?.length,
+          clarificationCount: response.clarification?.length ?? 0,
           hasPlan: !!response.plan,
+          messageContent: response.message.content?.substring(0, 80),
         });
 
         const assistantMessage: ChatMessage = {
@@ -1720,20 +2021,80 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           state: response.state,
         };
 
-        setMessages(prev => [...prev, assistantMessage]);
+        // Deduplicate: handleDone (subscription/local-ws push) may have
+        // already appended a message with the same content but different ID.
+        // IMPORTANT: When merging, strip undefined values from assistantMessage
+        // so we never overwrite existing clarification/clarificationAnswers
+        // with undefined (which destroys the read-only Q&A card).
+        const definedFields: Record<string, any> = {};
+        for (const [k, v] of Object.entries(assistantMessage)) {
+          if (v !== undefined && v !== null) definedFields[k] = v;
+        }
+        setMessages(prev => {
+          let existingIdx = prev.findIndex(m => m.id === assistantMessage.id);
+          if (existingIdx < 0) {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'assistant' && prev[i].content === assistantMessage.content) {
+                existingIdx = i;
+                break;
+              }
+            }
+          }
+          if (existingIdx >= 0) {
+            const existing = prev[existingIdx];
+            // If the existing message already has completed interactions,
+            // don't let this merge touch them — just update non-interaction fields.
+            const hasCompleted = existing.clarificationAnswers || existing.planAction || (existing.plan && planApprovedRef.current);
+            const merged = hasCompleted
+              ? { ...existing, ...definedFields, clarification: existing.clarification, clarificationAnswers: existing.clarificationAnswers, plan: existing.plan, planAction: existing.planAction }
+              : { ...existing, ...definedFields };
+            console.log('[ChatPanel][clarificationSubmit] Dedup merge:', {
+              existingId: existing.id, hadAnswers: !!existing.clarificationAnswers,
+              hadClarification: !!existing.clarification, mergedHasAnswers: !!(merged as any).clarificationAnswers,
+            });
+            const updated = [...prev];
+            updated[existingIdx] = merged as ChatMessage;
+            return updated;
+          }
+          return [...prev, assistantMessage];
+        });
+
+        // Persist the assistant message into the sessions list so that
+        // re-renders reading from activeSession.messages stay in sync.
+        setSessions(prev => prev.map(s => {
+          if (s.id === activeSessionId) {
+            return {
+              ...s,
+              messages: [...s.messages, assistantMessage],
+              updatedAt: new Date(),
+            };
+          }
+          return s;
+        }));
+
         setPipelineState(response.state || 'complete');
 
-        // Only clear pending after successful response
-        setPendingClarification(null);
-        setPendingA2UI(null);
-
-        if (response.clarification && response.clarification.length > 0) {
-          setPendingClarification(response.clarification);
-          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
-            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+        // Apply structured data from the sync response.  Even when
+        // state === 'processing' the response may carry real structured
+        // data (local backend completes within the timeout but still
+        // reports 'processing' as pipeline state).  Only fall back to
+        // the "wait for subscription" path when there is truly no data.
+        const hasStructured = (response.clarification && response.clarification.length > 0) || !!response.plan;
+        if (hasStructured) {
+          if (response.clarification && response.clarification.length > 0) {
+            console.log('[ChatPanel][clarificationSubmit] Setting new clarification from sync response:', response.clarification.length);
+            setPendingClarification(response.clarification);
+            if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+              setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+            }
+          } else if (response.plan) {
+            console.log('[ChatPanel][clarificationSubmit] Setting pendingPlan from sync response');
+            setPendingPlan(response.plan);
           }
-        } else if (response.plan) {
-          setPendingPlan(response.plan);
+        } else if (response.state === 'processing') {
+          // Truly bare "processing" placeholder — the real structured data
+          // will arrive via the subscription relay's stream_end event.
+          setStreamingStatus(t('chatPanel.cloudProcessing'));
         }
       } else {
         console.warn('[ChatPanel] No response received from clarification submission');
@@ -1767,6 +2128,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setMessages(prev => [...prev, assistantMessage]);
       setPipelineState(prev => prev || 'awaiting_clarification');
     } finally {
+      console.log('[ChatPanel][clarificationSubmit] FINALLY — releasing ref and isLoading');
+      submittingClarificationRef.current = false;
       setIsLoading(false);
     }
   }, [activeSessionId, canvasController, inputValue, isLoading, streamingStatus, pendingClarification, pipelineState, setMessages, setPendingPlan]);
