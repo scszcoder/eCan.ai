@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from 'antd/es/layout/layout';
 import { Button, Badge, Dropdown, Space, MenuProps, Modal } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, SettingOutlined, GlobalOutlined, SkinOutlined, LogoutOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, SettingOutlined, GlobalOutlined, SkinOutlined, LogoutOutlined, ClearOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '../../stores/userStore';
@@ -232,6 +232,32 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
             case 'settings':
                 navigate('/settings');
                 break;
+            case 'clear_cache':
+                modal.confirm({
+                    title: t('common.clear_cache_confirm_title') || 'Clear Auth Cache',
+                    content: t('common.clear_cache_confirm_message') || 'This will clear all saved login credentials and cached authentication data. You will need to log in again. Continue?',
+                    okText: t('common.confirm') || 'Confirm',
+                    cancelText: t('common.cancel') || 'Cancel',
+                    onOk: async () => {
+                        try {
+                            const api = get_ipc_api();
+                            if (!api) throw new Error('API not available');
+                            const response = await api.clearAuthCache();
+                            if (response.success) {
+                                message.success(t('common.clear_cache_success') || 'Auth cache cleared. Please log in again.');
+                                setTimeout(() => onLogout(), 1500);
+                            } else {
+                                message.error(response.error?.message || t('common.clear_cache_failed') || 'Failed to clear cache');
+                            }
+                        } catch (err) {
+                            console.error('Clear cache error:', err);
+                            message.error(t('common.clear_cache_failed') || 'Failed to clear cache');
+                        }
+                    },
+                    centered: true,
+                    zIndex: 1000,
+                });
+                break;
             case 'logout':
                 // Show confirmation modal before logout
                 modal.confirm({
@@ -323,6 +349,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
             ],
         },
         { type: 'divider' },
+        {
+            key: 'clear_cache',
+            icon: <ClearOutlined />,
+            label: t('common.clear_cache') || 'Clear Auth Cache',
+            onClick: () => handleMenuClick('clear_cache'),
+        },
         {
             key: 'logout',
             icon: <LogoutOutlined />,
