@@ -162,14 +162,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const { message } = App.useApp();  // Use App context for message
     const showDeleteConfirm = useDeleteConfirm();
     const username = useUserStore((s) => s.username) || '';
+    const skillItems = useSkillStore((s) => s.items);
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);
-
-    const isResourceMySkillsPath = (p?: string | null) => {
-        if (!p) return false;
-        const norm = String(p).replace(/\\/g, '/');
-        return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
-    };
 
     const isUserMySkillsPath = (p?: string | null) => {
         if (!p) return false;
@@ -177,8 +172,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         return norm.includes('/my_skills/') || norm.startsWith('my_skills/');
     };
 
-    // Only bundled resource/my_skills code skills are read-only.
-    // User-owned my_skills code skills must remain editable/deletable.
+    const isResourceMySkillsPath = (p?: string | null) => {
+        if (!p) return false;
+        const norm = String(p).replace(/\\/g, '/');
+        return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
+    };
+
     const isCodeSkill = skill?.source === 'code';
     const isReadOnlyCodeSkill = isCodeSkill && isResourceMySkillsPath((skill as any)?.path);
 
@@ -201,23 +200,52 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const isThirdPartySkill = !!skill && !isNew && !isOwnedByUser;
     const canPublish = isOwnedByUser && !isReadOnlyCodeSkill;
     const isPublished = !!skill && !isNew && !!(skill as any)?.public;
-    const isSubscribed = !!skill && !!subscribedSkillIds?.includes(String(skill.id));
+    const persistedSkillMatch = React.useMemo(() => {
+        if (!skill) return null;
+        const rawPath = String((skill as any)?.path || '').trim();
+        const rawName = String((skill as any)?.name || '').trim().toLowerCase();
+        const matchedItems = skillItems.filter((item: any) => {
+            const itemPath = String(item?.path || '').trim();
+            const itemName = String(item?.name || '').trim().toLowerCase();
+            if (rawPath && itemPath && rawPath === itemPath) return true;
+            if (rawName && itemName && rawName === itemName) return true;
+            return false;
+        });
+        const persistedMatch = matchedItems.find((item: any) => {
+            const candidateId = String(item?.skillId || item?.id || '').trim();
+            return !!candidateId && !candidateId.startsWith('code-skill-');
+        });
+        return persistedMatch || matchedItems[0] || null;
+    }, [skill, skillItems]);
+    const resolvedSkillId = String(
+        (persistedSkillMatch as any)?.skillId
+        || (persistedSkillMatch as any)?.id
+        || (skill as any)?.skillId
+        || (skill as any)?.id
+        || ''
+    ).trim();
+    const hasPersistedResolvedSkillId = !!resolvedSkillId && !resolvedSkillId.startsWith('code-skill-');
+    const isSubscribed = !!resolvedSkillId && !!subscribedSkillIds?.includes(resolvedSkillId);
 
     const handleTogglePublish = async () => {
-        if (!skill || !username || !canPublish) return;
+        if (!skill || !username || !canPublish || !resolvedSkillId) return;
+        if (!hasPersistedResolvedSkillId) {
+            message.error(t('pages.skills.failedToUpdatePublishStatus'));
+            return;
+        }
         setPublishLoading(true);
         try {
             const newPublicValue = !isPublished;
             const api = get_ipc_api();
             const resp = newPublicValue
-                ? await api.publishSkillToStore(username, String(skill.id))
-                : await api.unpublishSkillFromStore(username, String(skill.id));
+                ? await api.publishSkillToStore(username, resolvedSkillId)
+                : await api.unpublishSkillFromStore(username, resolvedSkillId);
             if (!resp.success) {
                 message.error(resp.error?.message || t('pages.skills.failedToUpdatePublishStatus'));
                 return;
             }
 
-            updateItem(String(skill.id), { ...skill, public: newPublicValue, rentable: newPublicValue } as any);
+            updateItem(resolvedSkillId, { ...skill, id: resolvedSkillId, skillId: resolvedSkillId, public: newPublicValue, rentable: newPublicValue } as any);
             message.success(newPublicValue ? t('pages.skills.publishedToStore') : t('pages.skills.removedFromStore'));
             if (onSave) onSave();
             else onRefresh();
@@ -229,10 +257,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     };
 
     const handleToggleSubscribe = async () => {
-        if (!skill || !username) return;
+        if (!skill || !username || !resolvedSkillId) return;
         setSubscribeLoading(true);
         try {
-            const skillId = String(skill.id);
+            const skillId = resolvedSkillId;
             if (isSubscribed) {
                 await onUnsubscribe?.(skillId);
                 message.success(t('pages.skills.unsubscribed'));
@@ -424,17 +452,22 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 ? await api.newAgentSkill(username, payload as any)
                 : await api.saveAgentSkill(username, payload as any);
             if (resp.success) {
-                // Merge returned id/data for immediate UI update
                 const returned = (resp.data as any) || {};
-                const newId = returned.skill_id || returned.id || payload.id;
-                const merged: any = { ...payload };
-                if (newId) merged.id = newId;
+                const returnedData = (returned.data && typeof returned.data === 'object') ? returned.data : {};
+                const newId = returned.skill_id || returned.id || returnedData.id || payload.id;
+                const merged: any = {
+                    ...skill,
+                    ...payload,
+                    ...returnedData,
+                };
+                if (newId) {
+                    merged.id = newId;
+                    merged.skillId = newId;
+                }
 
                 try {
                     if (isNew) {
-                        // Add to local store for immediate feedback
                         addItem(merged as any);
-                        // reflect id in form
                         form.setFieldValue('id', merged.id);
                     } else if (merged.id) {
                         updateItem(String(merged.id), merged as any);

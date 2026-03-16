@@ -1073,60 +1073,18 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
 
         new_skill_file = str(new_path / "diagram_dir" / f"{new_name}_skill.json")
 
-        # Update local DB and in-memory skill list immediately so rename works locally
+        # Update local DB and in-memory skill list via the unified skill sync path
         try:
-            if ctx:
-                ec_db_mgr = ctx.get_ec_db_mgr()
-                db_updated = False
-                target_skill_id = None
-                if ec_db_mgr:
-                    skill_service = ec_db_mgr.get_skill_service()
-                    if skill_service:
-                        all_skills = skill_service.search_skills()
-                        for skill in all_skills:
-                            skill_name_db = skill.get('name', '')
-                            skill_path = skill.get('path', '')
-                            name_match = skill_name_db == old_name or skill_name_db == old_skill_full_name
-                            path_match = bool(current_file_path) and skill_path == current_file_path
-                            if name_match or path_match:
-                                target_skill_id = skill.get('id')
-                                update_result = skill_service.update_skill(target_skill_id, {
-                                    'name': new_skill_full_name,
-                                    'path': new_skill_file,
-                                })
-                                if update_result.get('success'):
-                                    logger.info(f"[SKILL_RENAME] ✅ Updated local DB (ID: {target_skill_id})")
-                                    db_updated = True
-                                else:
-                                    logger.warning(f"[SKILL_RENAME] ⚠️ Failed to update local DB: {update_result.get('error')}")
-                                break
-                if hasattr(ctx, 'agent_skills'):
-                    mem_updated = False
-                    for mem_skill in (ctx.get_agent_skills() or []):
-                        if not hasattr(mem_skill, 'name'):
-                            continue
-                        skill_name = getattr(mem_skill, 'name', '')
-                        skill_path = getattr(mem_skill, 'path', '')
-                        name_match = skill_name == old_name or skill_name == old_skill_full_name
-                        path_match = bool(current_file_path) and skill_path == current_file_path
-                        if name_match or path_match:
-                            if skill_name.endswith('_skill'):
-                                mem_skill.name = new_skill_full_name
-                            else:
-                                mem_skill.name = new_name
-                            if hasattr(mem_skill, 'path'):
-                                mem_skill.path = new_skill_file
-                            logger.info(f"[SKILL_RENAME] ✅ Updated in-memory skill: {skill_name} -> {mem_skill.name}")
-                            mem_updated = True
-                            break
-                    if not mem_updated:
-                        logger.info(f"[SKILL_RENAME] No matching in-memory skill found for rename: {old_name}")
-                if not db_updated:
-                    logger.info(f"[SKILL_RENAME] Local DB update did not find a matching skill for: {old_name}")
+            from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+            sync_result = sync_skill_from_file(new_skill_file, request=request, params=params)
+            if sync_result.get('success'):
+                logger.info(f"[SKILL_RENAME] ✅ Unified sync updated renamed skill (ID: {sync_result.get('skill_id')})")
+            else:
+                logger.warning(f"[SKILL_RENAME] ⚠️ Unified sync failed after rename: {sync_result.get('error')}")
         except Exception as sync_err:
-            logger.warning(f"[SKILL_RENAME] Failed to update local DB/memory after rename: {sync_err}")
+            logger.warning(f"[SKILL_RENAME] Failed to sync renamed skill: {sync_err}")
 
-        logger.info(f"[SKILL_RENAME] ✅ File system rename complete. Local DB/memory updated immediately.")
+        logger.info(f"[SKILL_RENAME] ✅ File system rename complete. Unified sync attempted.")
         
         # Update backend recent files to ensure correct path is loaded after refresh
         try:
@@ -1230,9 +1188,11 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         if new_diagram_dir.exists():
             # Write updated skill JSON if provided
             if skill_json:
-                # Update skillName in the JSON
                 if isinstance(skill_json, dict):
                     skill_json['skillName'] = new_name
+                    skill_json['name'] = new_name
+                    for stale_key in ('id', 'askid', 'skillId'):
+                        skill_json.pop(stale_key, None)
                 with new_skill_json.open('w', encoding='utf-8') as f:
                     json.dump(skill_json, f, indent=2, ensure_ascii=False)
                 logger.info(f"[SKILL_COPY] Updated skill JSON with new name: {new_name}")
@@ -1245,70 +1205,24 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         diagram_path = str(new_diagram_dir / f"{new_name}_skill.json")
         
-        # SaveAs: update database and memory to new location, then delete old directory
+        # SaveAs/Copy: create a brand-new local skill entry for the copied skill.
+        # Never mutate the original DB record or preserve stale cloud identifiers.
         skill_id = None
-        new_skill_full_name = f"{new_name}_skill"
+        persisted_skill = None
         try:
-            from app_context import AppContext
             from gui.ipc.context_bridge import get_handler_context
             ctx = get_handler_context(request, params)
             if ctx:
-                # Update database: find existing skill and update its path
                 ec_db_mgr = ctx.get_ec_db_mgr()
                 if ec_db_mgr:
-                    skill_service = ec_db_mgr.get_skill_service()
-                    if skill_service:
-                        old_skill_name = old_skill_root.name  # e.g., "ff_skill"
-                        all_skills = skill_service.search_skills()
-                        for skill in all_skills:
-                            skill_path = skill.get('path', '')
-                            if skill_path and old_skill_name in skill_path:
-                                skill_id = skill.get('id')
-                                update_data = {
-                                    'name': new_skill_full_name,
-                                    'path': diagram_path,
-                                }
-                                if skill_json:
-                                    update_data['description'] = skill_json.get('description', '')
-                                    update_data['config'] = skill_json.get('config', {})
-                                
-                                update_result = skill_service.update_skill(skill_id, update_data)
-                                if update_result.get('success'):
-                                    logger.info(f"[SKILL_COPY] ✅ Skill updated in database (ID: {skill_id}, new path: {diagram_path})")
-                                else:
-                                    logger.warning(f"[SKILL_COPY] ⚠️ Failed to update skill in database: {update_result.get('error')}")
-                                break
-                        
-                        # If no existing skill found, create new one
-                        if not skill_id:
-                            from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-                            sync_result = sync_skill_from_file(diagram_path)
-                            if sync_result.get('success'):
-                                skill_id = sync_result.get('skill_id')
-                                logger.info(f"[SKILL_COPY] ✅ New skill created in database (ID: {skill_id})")
-                
-                # Update in-memory skill list
-                if hasattr(ctx, 'agent_skills'):
-                    old_dir_name = old_skill_root.name
-                    old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
-                    
-                    for mem_skill in (ctx.get_agent_skills() or []):
-                        if hasattr(mem_skill, 'name'):
-                            skill_name = mem_skill.name
-                            if skill_name == old_dir_name or skill_name == old_base_name:
-                                if skill_name.endswith('_skill'):
-                                    mem_skill.name = new_skill_full_name
-                                else:
-                                    mem_skill.name = new_name
-                                if hasattr(mem_skill, 'path'):
-                                    mem_skill.path = diagram_path
-                                logger.info(f"[SKILL_COPY] ✅ In-memory skill updated: {skill_name} -> {mem_skill.name}")
-                                break
-                
-                # Delete old skill directory
-                if old_skill_root.exists() and old_skill_root != new_skill_root:
-                    shutil.rmtree(str(old_skill_root))
-                    logger.info(f"[SKILL_COPY] ✅ Deleted old skill directory: {old_skill_root}")
+                    from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+                    sync_result = sync_skill_from_file(diagram_path, request=request, params=params)
+                    if sync_result.get('success'):
+                        skill_id = sync_result.get('skill_id')
+                        persisted_skill = sync_result.get('data')
+                        logger.info(f"[SKILL_COPY] ✅ Copied skill created in database (ID: {skill_id})")
+                    else:
+                        logger.warning(f"[SKILL_COPY] ⚠️ Failed to create copied skill in database: {sync_result.get('error')}")
         except Exception as sync_err:
             logger.warning(f"[SKILL_COPY] ⚠️ Error updating skill in database/memory: {sync_err}")
         
@@ -1316,7 +1230,8 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
             'skillRoot': str(new_skill_root),
             'diagramPath': diagram_path,
             'name': new_name,
-            'skillId': skill_id
+            'skillId': skill_id,
+            'data': persisted_skill,
         })
         
     except Exception as e:

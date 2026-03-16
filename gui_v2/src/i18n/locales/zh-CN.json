@@ -1373,6 +1373,12 @@
       "title": "技能列表",
       "newSkill": "新建技能",
       "fetchError": "获取技能失败",
+      "actions": {
+        "copy": "复制",
+        "download": "下载",
+        "copySkill": "复制技能",
+        "downloadJson": "下载 JSON"
+      },
       "addSkill": "添加技能",
       "category": "分类",
       "deleteSkill": "删除技能",

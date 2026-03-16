@@ -73,10 +73,34 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # ── Step 1: Get local skills from memory ──────────────────────
         skills_dicts = []
+        owned_db_skills = []
         try:
             ctx = get_handler_context(request, params)
             memory_skills = ctx.get_agent_skills() or []
             logger.info(f"Found {len(memory_skills)} skills in memory (mainwin.agent_skills)")
+
+            try:
+                skill_service = _get_skill_service(request, params)
+                if skill_service:
+                    owned_skills_result = skill_service.get_skills_by_owner(username)
+                    if owned_skills_result.get('success'):
+                        owned_db_skills = owned_skills_result.get('data') or []
+                        logger.info(f"[skill_handler] Loaded {len(owned_db_skills)} owned skills from local DB for merge")
+            except Exception as db_merge_e:
+                logger.warning(f"[skill_handler] Failed to preload owned DB skills for merge: {db_merge_e}")
+
+            db_skills_by_path = {}
+            db_skills_by_name = {}
+            for db_skill in owned_db_skills:
+                try:
+                    db_path = str(db_skill.get('path') or '').strip()
+                    db_name = str(db_skill.get('name') or '').strip().lower()
+                    if db_path:
+                        db_skills_by_path[db_path] = db_skill
+                    if db_name:
+                        db_skills_by_name[db_name] = db_skill
+                except Exception:
+                    continue
 
             for i, sk in enumerate(memory_skills):
                 try:
@@ -98,6 +122,30 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                         config_clean = {k: v for k, v in sk_dict['config'].items() 
                                        if k not in ['graph', 'mcp_client', 'store', 'checkpointer', 'runtime']}
                         sk_dict['config'] = config_clean
+
+                    mem_path = str(sk_dict.get('path') or '').strip()
+                    mem_name = str(sk_dict.get('name') or '').strip().lower()
+                    matched_db_skill = None
+                    if mem_path and mem_path in db_skills_by_path:
+                        matched_db_skill = db_skills_by_path[mem_path]
+                    elif mem_name and mem_name in db_skills_by_name:
+                        matched_db_skill = db_skills_by_name[mem_name]
+
+                    if matched_db_skill:
+                        merged_skill = dict(sk_dict)
+                        for key in (
+                            'id', 'askid', 'owner', 'path', 'public', 'rentable',
+                            'version', 'level', 'description', 'source', 'status',
+                            'price', 'price_model', 'tags', 'examples', 'inputModes',
+                            'outputModes', 'apps', 'limitations'
+                        ):
+                            if key in matched_db_skill and matched_db_skill.get(key) is not None:
+                                merged_skill[key] = matched_db_skill.get(key)
+                        sk_dict = merged_skill
+                        logger.info(
+                            f"[skill_handler] Merged memory skill with local DB record: "
+                            f"name={sk_dict.get('name')}, memory_id={getattr(sk, 'id', '')}, db_id={sk_dict.get('id')}, path={sk_dict.get('path')}"
+                        )
 
                     skills_dicts.append(sk_dict)
                     logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')} (id: {sk_dict.get('id', 'NO ID')})")
@@ -574,178 +622,51 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
     """
     try:
         logger.debug(f"Save agent skill handler called with request: {request}")
-
-        # Resolve username from params (supports username, owner, userId)
         username = resolve_username(request, params)
         if not username:
-            logger.warning(f"Invalid parameters for save agent skill: Missing username")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
-
-        # Validate skill_info parameter
         if not params or not params.get('skill_info'):
-            logger.warning(f"Invalid parameters for save agent skill: Missing skill_info")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_info')
 
         skill_info = params['skill_info']
-        skill_id = skill_info.get('id')
+        if not isinstance(skill_info, dict):
+            return create_error_response(request, 'INVALID_PARAMS', 'skill_info must be an object')
 
-        if not skill_id:
-            return create_error_response(request, 'INVALID_PARAMS', 'Skill ID is required for save operation')
-
-        # Local code-generated skills are read-only and must not sync to cloud.
-        source = skill_info.get('source', 'ui')
-        path = skill_info.get('path', '')
-        if source == 'code':
-            logger.warning(f"Attempted to save code-based skill: {skill_info.get('name')} (source={source})")
-            return create_error_response(
-                request, 
-                'SKILL_READ_ONLY', 
-                'Code-based skills cannot be edited. Please modify the source files directly.'
-            )
-
-        # ── Publish gate: non-free skills must use cloud/hybrid execution ──
-        # If price > 0 and the skill is not already marked for cloud execution,
-        # forcefully enable hybrid_cloud_mode to protect prompt IP.
-        _price = 0
-        try:
-            _price = int(skill_info.get('price', 0) or 0)
-        except (TypeError, ValueError):
-            pass
-        _config = skill_info.get('config') or {}
-        _ric = bool(skill_info.get('run_in_cloud', _config.get('run_in_cloud', False)))
-        _hcm = bool(skill_info.get('hybrid_cloud_mode', _config.get('hybrid_cloud_mode', False)))
-        if _price > 0 and not _ric and not _hcm:
-            logger.warning(
-                f"[skill_handler] Non-free skill '{skill_info.get('name')}' (price={_price}) "
-                "saved as local — forcing hybrid_cloud_mode=true to protect prompt IP"
-            )
-            skill_info['hybrid_cloud_mode'] = True
-            skill_info['run_in_cloud'] = True
-            if isinstance(_config, dict):
-                _config['hybrid_cloud_mode'] = True
-                _config['run_in_cloud'] = True
-                skill_info['config'] = _config
-
-        logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
-
-        # Get database service
-        skill_service = _get_skill_service(request, params)
-        if not skill_service:
-            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
-
-        # Check if skill exists
-        existing_skill = skill_service.get_skill_by_id(skill_id)
-
-        try:
-            existing_owner = ''
-            existing_path = ''
-            if existing_skill.get('success') and existing_skill.get('data'):
-                existing_owner = str(existing_skill['data'].get('owner', '') or '').strip()
-                existing_path = str(existing_skill['data'].get('path', '') or '').strip()
-            incoming_owner = str(skill_info.get('owner', '') or '').strip()
-            owner_for_check = existing_owner or incoming_owner
-            if owner_for_check and owner_for_check.lower() != username.lower():
-                return create_error_response(
-                    request,
-                    'SKILL_READ_ONLY',
-                    'Subscribed public skills cannot be edited.'
-                )
-            if not owner_for_check and existing_path and not is_user_skill(existing_path):
-                return create_error_response(
-                    request,
-                    'SKILL_READ_ONLY',
-                    'Subscribed public skills cannot be edited.'
-                )
-        except Exception as owner_check_e:
-            logger.warning(f"[skill_handler] Failed to verify skill ownership before save: {owner_check_e}")
-
-        logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
-
-        if existing_skill.get('success') and existing_skill.get('data'):
-            # Update existing skill — merge incoming fields onto existing DB record
-            # so partial updates (e.g. toggling public/rentable) don't wipe other fields
-            existing_data = existing_skill['data']
-            skill_data = _prepare_skill_data(existing_data, username, skill_id)
-            # Overlay only the fields the caller actually sent
-            for key in skill_info:
-                if key in skill_data:
-                    skill_data[key] = skill_info[key]
-            logger.info(f"Updating existing skill: {skill_id}")
-            result = skill_service.update_skill(skill_id, skill_data)
-        else:
-            # Create new skill
-            skill_data = _prepare_skill_data(skill_info, username, skill_id)
-            logger.info(f"Creating new skill: {skill_id}")
-            result = skill_service.add_skill(skill_data)
-
-        if result.get('success'):
-            # Get the actual skill_id from database response (in case it was generated)
-            actual_skill_id = result.get('id', skill_id)
-            logger.info(f"Skill saved successfully: {skill_data['name']} (ID: {actual_skill_id})")
-
-            # Step 2: Update memory after database update succeeds
-            _update_skill_in_memory(actual_skill_id, skill_data, request, params)
-            try:
-                ctx = get_handler_context(request, params)
-                current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(actual_skill_id)), None) if ctx else None
-                _sync_runtime_tasks_for_skill(current, request, params)
-            except Exception:
-                pass
-
-            # Step 3: Clean up offline sync queue for this skill (remove pending add/update operations)
-            try:
-                from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
-                sync_queue = get_offline_sync_queue()
-                # Remove any pending add operations (they're now redundant since we're updating)
-                removed_add = sync_queue.remove_tasks_by_resource('skill', actual_skill_id, operation='add')
-                # Remove any pending update operations (they're now redundant since we have a new update)
-                removed_update = sync_queue.remove_tasks_by_resource('skill', actual_skill_id, operation='update')
-                if removed_add + removed_update > 0:
-                    logger.info(f"[skill_handler] Removed {removed_add + removed_update} pending sync tasks for skill: {actual_skill_id}")
-            except Exception as e:
-                logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
-
-            # Step 4: Sync to cloud after memory update succeeds (async, fire and forget)
-            skill_data_with_id = skill_data.copy()
-            skill_data_with_id['id'] = actual_skill_id
-            
-            # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
-            
-            # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
-            # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
-            # auto-generated relation row 'id' which the local client doesn't have.
-            tool_ids = skill_info.get('tool_ids', skill_info.get('tools', []))
-            if tool_ids:
-                _sync_skill_tool_relations(actual_skill_id, tool_ids, Operation.ADD)
-            
-            # Sync Skill-Knowledge relationships
-            knowledge_ids = skill_info.get('knowledge_ids', skill_info.get('knowledges', []))
-            if knowledge_ids:
-                _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
-
-            # Step 5: Sync skill source files to S3 (async, fire and forget)
-            if _SKILL_FILE_SYNC_AVAILABLE:
-                try:
-                    upload_skill_files_to_cloud(skill_data_with_id)
-                except Exception as fs_exc:
-                    logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
-
-            # Create clean response
-            clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
-
-            return create_success_response(request, {
-                'message': 'Save agent skill successful',
-                'skill_id': actual_skill_id,
-                'data': clean_skill_data
-            })
-        else:
-            logger.error(f"Failed to save agent skill: {result.get('error')}")
+        persist_result = _persist_skill_record(
+            request,
+            params,
+            username,
+            skill_info,
+            requested_skill_id=skill_info.get('id'),
+            allow_create_without_id=False,
+        )
+        if not persist_result.get('success'):
             return create_error_response(
                 request,
-                'SAVE_AGENT_SKILL_ERROR',
-                f"Failed to save agent skill: {result.get('error')}"
+                persist_result.get('error_code', 'SAVE_AGENT_SKILL_ERROR'),
+                persist_result.get('error') or 'Failed to save agent skill'
             )
+
+        actual_skill_id = str(persist_result.get('skill_id') or '')
+        skill_data = persist_result.get('skill_data') or {}
+        operation = persist_result.get('operation', 'update')
+        logger.info(f"Skill saved successfully: {skill_data.get('name')} (ID: {actual_skill_id}, operation={operation})")
+
+        finalized_skill = _finalize_skill_persistence(
+            request,
+            params,
+            skill_data,
+            actual_skill_id,
+            operation,
+            relation_source=_normalize_skill_info(skill_info),
+            upload_files=True,
+        )
+        clean_skill_data = _create_clean_skill_response(actual_skill_id, finalized_skill)
+        return create_success_response(request, {
+            'message': 'Save agent skill successful',
+            'skill_id': actual_skill_id,
+            'data': clean_skill_data
+        })
 
     except Exception as e:
         logger.error(f"Error in save agent skill handler: {e} {traceback.format_exc()}")
@@ -768,93 +689,51 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
     """
     try:
         logger.debug(f"Create new agent skill handler called with request: {request}")
-
-        # Resolve username from params (supports username, owner, userId)
         username = resolve_username(request, params)
         if not username:
-            logger.warning(f"Invalid parameters for create agent skill: Missing username")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
-
-        # Validate skill_info parameter
         if not params or not params.get('skill_info'):
-            logger.warning(f"Invalid parameters for create agent skill: Missing skill_info")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_info')
 
         skill_info = params['skill_info']
+        if not isinstance(skill_info, dict):
+            return create_error_response(request, 'INVALID_PARAMS', 'skill_info must be an object')
 
-        logger.info(f"Creating new agent skill for user: {username}")
-
-        # Get database service
-        skill_service = _get_skill_service(request, params)
-        if not skill_service:
-            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
-
-        # Prepare skill data (without ID - let database generate it)
-        skill_data = _prepare_skill_data(skill_info, username, skill_id=None)
-
-        # Create new skill in database
-        logger.info(f"Creating new skill: {skill_data['name']}")
-        result = skill_service.add_skill(skill_data)
-
-        if result.get('success'):
-            # Get the database-generated skill ID
-            skill_id = result.get('id')
-            if not skill_id:
-                logger.error("Database did not return skill ID after creation")
-                return create_error_response(
-                    request,
-                    'CREATE_SKILL_ERROR',
-                    'Database did not return skill ID'
-                )
-
-            logger.info(f"Skill created successfully: {skill_data['name']} (ID: {skill_id})")
-
-            # Step 2: Update memory after database creation succeeds
-            _update_skill_in_memory(skill_id, skill_data, request, params)
-            try:
-                ctx = get_handler_context(request, params)
-                current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(skill_id)), None) if ctx else None
-                _sync_runtime_tasks_for_skill(current, request, params)
-            except Exception:
-                pass
-
-            # Step 3: Sync to cloud after memory update succeeds (async, fire and forget)
-            skill_data_with_id = skill_data.copy()
-            skill_data_with_id['id'] = skill_id
-            
-            # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
-            
-            # Sync Skill-Tool relationships
-            if 'tools' in skill_data:
-                _sync_skill_tool_relations(skill_id, skill_data.get('tools', []), Operation.ADD)
-            
-            # Sync Skill-Knowledge relationships
-            if 'knowledges' in skill_data:
-                _sync_skill_knowledge_relations(skill_id, skill_data.get('knowledges', []), Operation.ADD)
-
-            # Step 4: Sync skill source files to S3 (async, fire and forget)
-            if _SKILL_FILE_SYNC_AVAILABLE:
-                try:
-                    upload_skill_files_to_cloud(skill_data_with_id)
-                except Exception as fs_exc:
-                    logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
-
-            # Create clean response
-            clean_skill_data = _create_clean_skill_response(skill_id, skill_data)
-
-            return create_success_response(request, {
-                'message': 'Create agent skill successful',
-                'skill_id': skill_id,
-                'data': clean_skill_data
-            })
-        else:
-            logger.error(f"Failed to create agent skill: {result.get('error')}")
+        persist_result = _persist_skill_record(
+            request,
+            params,
+            username,
+            skill_info,
+            requested_skill_id=None,
+            allow_create_without_id=True,
+        )
+        if not persist_result.get('success'):
             return create_error_response(
                 request,
-                'CREATE_AGENT_SKILL_ERROR',
-                f"Failed to create agent skill: {result.get('error')}"
+                persist_result.get('error_code', 'CREATE_AGENT_SKILL_ERROR'),
+                persist_result.get('error') or 'Failed to create agent skill'
             )
+
+        skill_id = str(persist_result.get('skill_id') or '')
+        skill_data = persist_result.get('skill_data') or {}
+        operation = persist_result.get('operation', 'create')
+        logger.info(f"Skill created successfully: {skill_data.get('name')} (ID: {skill_id}, operation={operation})")
+
+        finalized_skill = _finalize_skill_persistence(
+            request,
+            params,
+            skill_data,
+            skill_id,
+            operation,
+            relation_source=_normalize_skill_info(skill_info),
+            upload_files=True,
+        )
+        clean_skill_data = _create_clean_skill_response(skill_id, finalized_skill)
+        return create_success_response(request, {
+            'message': 'Create agent skill successful',
+            'skill_id': skill_id,
+            'data': clean_skill_data
+        })
 
     except Exception as e:
         logger.error(f"Error in create agent skill handler: {e} {traceback.format_exc()}")
@@ -878,16 +757,10 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
     """
     try:
         logger.debug(f"Delete skill handler called with request: {request}")
-
-        # Resolve username from params (supports username, owner, userId)
         username = resolve_username(request, params)
         if not username:
-            logger.warning(f"Invalid parameters for delete skill: Missing username")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
-
-        # Validate skill_id parameter
         if not params or not params.get('skill_id'):
-            logger.warning(f"Invalid parameters for delete skill: Missing skill_id")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_id')
 
         requested_skill_id = str(params['skill_id']).strip()
@@ -902,41 +775,10 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Resolve requested identifier against local DB records.
-        # Frontend may pass cloud id while local DB primary key is stored separately.
-        try:
-            owned_skills_result = skill_service.get_skills_by_owner(username)
-            owned_skills = owned_skills_result.get('data') if owned_skills_result.get('success') else []
-            for sk in (owned_skills or []):
-                db_id = str(sk.get('id') or '').strip()
-                askid = str(sk.get('askid') or '').strip()
-                if requested_skill_id and requested_skill_id in {db_id, askid}:
-                    resolved_skill_record = sk
-                    local_db_skill_id = db_id or requested_skill_id
-                    cloud_skill_id = askid or requested_skill_id
-                    skill_id = cloud_skill_id or local_db_skill_id
-                    break
-        except Exception as resolve_e:
-            logger.warning(f"[skill_handler] Failed to resolve requested skill identifier: {resolve_e}")
-
-        if not resolved_skill_record:
-            try:
-                cloud_skills = _fetch_cloud_skills(request, params)
-                username_norm = str(username or '').strip().lower()
-                for sk in (cloud_skills or []):
-                    cloud_id = str(sk.get('id') or '').strip()
-                    cloud_askid = str(sk.get('askid') or '').strip()
-                    cloud_owner = str(sk.get('owner') or '').strip().lower()
-                    if username_norm and cloud_owner and cloud_owner != username_norm:
-                        continue
-                    if requested_skill_id and requested_skill_id in {cloud_id, cloud_askid}:
-                        resolved_skill_record = sk
-                        resolved_from_cloud = True
-                        cloud_skill_id = cloud_id or cloud_askid or requested_skill_id
-                        skill_id = cloud_skill_id
-                        break
-            except Exception as cloud_resolve_e:
-                logger.warning(f"[skill_handler] Failed to resolve requested skill from cloud: {cloud_resolve_e}")
+        resolved_skill_record, local_db_skill_id, cloud_skill_id, resolved_from_cloud = _resolve_owned_skill_record(
+            request, params, username, requested_skill_id
+        )
+        skill_id = cloud_skill_id or local_db_skill_id or requested_skill_id
 
         # Track deletion identifiers to prevent cloud re-sync from re-adding it
         for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
@@ -966,7 +808,7 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                     if requested_skill_id in {sid, askid} or local_db_skill_id in {sid, askid} or cloud_skill_id in {sid, askid}:
                         source = getattr(skill, 'source', 'ui')
                         path = getattr(skill, 'path', '') or ''
-                        if source == 'code':
+                        if is_read_only_code_skill(source, path):
                             for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
                                 if delete_id:
                                     _DELETED_SKILL_IDS.discard(delete_id)
@@ -1267,6 +1109,275 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     return skill_data
 
 
+def _parse_skill_json_fields(skill_info: Dict[str, Any], log_context: str = 'skill_handler') -> Dict[str, Any]:
+    if not isinstance(skill_info, dict):
+        return skill_info
+
+    aws_json_fields = {
+        'config': dict,
+        'diagram': dict,
+        'tags': list,
+        'examples': list,
+        'inputModes': list,
+        'outputModes': list,
+        'apps': list,
+        'limitations': list,
+    }
+    parsed = dict(skill_info)
+    for field, expected_type in aws_json_fields.items():
+        raw_value = parsed.get(field)
+        if not isinstance(raw_value, str):
+            continue
+        raw_value = raw_value.strip()
+        if not raw_value:
+            continue
+        try:
+            parsed_value = json.loads(raw_value)
+        except Exception:
+            logger.warning(f"[{log_context}] Failed to parse JSON string field '{field}'")
+            continue
+        if isinstance(parsed_value, expected_type):
+            parsed[field] = parsed_value
+    return parsed
+
+
+def _normalize_skill_info(skill_info: Dict[str, Any], fallback_path: Optional[str] = None, fallback_source: Optional[str] = None) -> Dict[str, Any]:
+    normalized = _parse_skill_json_fields(skill_info)
+    if not isinstance(normalized, dict):
+        return {}
+
+    name = normalized.get('name') or normalized.get('skillName') or 'Unnamed Skill'
+    diagram = normalized.get('diagram')
+    if not diagram and normalized.get('workFlow'):
+        diagram = normalized.get('workFlow')
+
+    normalized['name'] = name
+    normalized['skillName'] = name
+    normalized['diagram'] = diagram or {}
+    if fallback_path and not normalized.get('path'):
+        normalized['path'] = fallback_path
+    if fallback_source and not normalized.get('source'):
+        normalized['source'] = fallback_source
+    if not normalized.get('source'):
+        normalized['source'] = 'ui'
+    return normalized
+
+
+def _resolve_existing_local_skill(
+    skill_service: Any,
+    username: str,
+    skill_info: Dict[str, Any],
+    requested_skill_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    if not skill_service:
+        return None
+
+    requested_skill_id = str(requested_skill_id or skill_info.get('id') or skill_info.get('skillId') or '').strip()
+    skill_path = str(skill_info.get('path') or '').strip()
+    skill_name = str(skill_info.get('name') or skill_info.get('skillName') or '').strip()
+
+    if requested_skill_id:
+        try:
+            direct = skill_service.get_skill_by_id(requested_skill_id)
+            if direct.get('success') and direct.get('data'):
+                return direct.get('data')
+        except Exception as resolve_err:
+            logger.warning(f"[skill_handler] Failed to resolve skill by id '{requested_skill_id}': {resolve_err}")
+
+    if skill_path:
+        try:
+            by_path = skill_service.get_skill_by_path(skill_path)
+            if by_path.get('success') and by_path.get('data'):
+                return by_path.get('data')
+        except Exception as resolve_err:
+            logger.warning(f"[skill_handler] Failed to resolve skill by path '{skill_path}': {resolve_err}")
+
+    if skill_name:
+        try:
+            name_search = skill_service.query_skills(name=skill_name)
+            if name_search.get('success') and name_search.get('data'):
+                candidates = name_search.get('data', [])
+                for candidate in candidates:
+                    owner = str(candidate.get('owner', '') or '').strip().lower()
+                    if owner and owner != str(username or '').strip().lower():
+                        continue
+                    return candidate
+        except Exception as resolve_err:
+            logger.warning(f"[skill_handler] Failed to resolve skill by name '{skill_name}': {resolve_err}")
+
+    return None
+
+
+def _apply_save_policy(skill_info: Dict[str, Any]) -> Dict[str, Any]:
+    adjusted = dict(skill_info)
+    price_value = 0
+    try:
+        price_value = int(adjusted.get('price', 0) or 0)
+    except (TypeError, ValueError):
+        price_value = 0
+
+    config = adjusted.get('config') or {}
+    if not isinstance(config, dict):
+        config = {}
+    run_in_cloud = bool(adjusted.get('run_in_cloud', config.get('run_in_cloud', False)))
+    hybrid_cloud_mode = bool(adjusted.get('hybrid_cloud_mode', config.get('hybrid_cloud_mode', False)))
+
+    if price_value > 0 and not run_in_cloud and not hybrid_cloud_mode:
+        logger.warning(
+            f"[skill_handler] Non-free skill '{adjusted.get('name')}' (price={price_value}) "
+            "saved as local — forcing hybrid_cloud_mode=true to protect prompt IP"
+        )
+        adjusted['hybrid_cloud_mode'] = True
+        adjusted['run_in_cloud'] = True
+        config['hybrid_cloud_mode'] = True
+        config['run_in_cloud'] = True
+
+    adjusted['config'] = config
+    return adjusted
+
+
+def _persist_skill_record(
+    request: IPCRequest,
+    params: Optional[Dict[str, Any]],
+    username: str,
+    skill_info: Dict[str, Any],
+    requested_skill_id: Optional[str] = None,
+    allow_create_without_id: bool = False
+) -> Dict[str, Any]:
+    normalized_skill_info = _normalize_skill_info(skill_info)
+    if not normalized_skill_info:
+        return {'success': False, 'error': 'Invalid skill_info'}
+
+    source = normalized_skill_info.get('source', 'ui')
+    path = normalized_skill_info.get('path', '')
+    if is_read_only_code_skill(source, path):
+        return {
+            'success': False,
+            'error_code': 'SKILL_READ_ONLY',
+            'error': 'Code-based skills cannot be edited. Please modify the source files directly.'
+        }
+
+    skill_service = _get_skill_service(request, params)
+    if not skill_service:
+        return {'success': False, 'error_code': 'SERVICE_ERROR', 'error': 'Database service not available'}
+
+    requested_id = str(requested_skill_id or normalized_skill_info.get('id') or normalized_skill_info.get('skillId') or '').strip()
+    existing_skill = _resolve_existing_local_skill(skill_service, username, normalized_skill_info, requested_id)
+
+    try:
+        existing_owner = str((existing_skill or {}).get('owner', '') or '').strip()
+        existing_path = str((existing_skill or {}).get('path', '') or '').strip()
+        incoming_owner = str(normalized_skill_info.get('owner', '') or '').strip()
+        owner_for_check = existing_owner or incoming_owner
+        if owner_for_check and owner_for_check.lower() != username.lower():
+            return {
+                'success': False,
+                'error_code': 'SKILL_READ_ONLY',
+                'error': 'Subscribed public skills cannot be edited.'
+            }
+        if not owner_for_check and existing_path and not is_user_skill(existing_path):
+            return {
+                'success': False,
+                'error_code': 'SKILL_READ_ONLY',
+                'error': 'Subscribed public skills cannot be edited.'
+            }
+    except Exception as owner_check_e:
+        logger.warning(f"[skill_handler] Failed to verify skill ownership before save: {owner_check_e}")
+
+    governed_skill_info = _apply_save_policy(normalized_skill_info)
+
+    if existing_skill:
+        actual_skill_id = str(existing_skill.get('id') or requested_id or '').strip()
+        skill_data = _prepare_skill_data(existing_skill, username, actual_skill_id)
+        for key in governed_skill_info:
+            if key in skill_data:
+                skill_data[key] = governed_skill_info[key]
+        result = skill_service.update_skill(actual_skill_id, skill_data)
+        operation = 'update'
+    else:
+        actual_skill_id = requested_id or None
+        if requested_id or allow_create_without_id:
+            skill_data = _prepare_skill_data(governed_skill_info, username, actual_skill_id)
+            result = skill_service.add_skill(skill_data)
+            actual_skill_id = result.get('id', actual_skill_id)
+            operation = 'create'
+        else:
+            return {
+                'success': False,
+                'error_code': 'INVALID_PARAMS',
+                'error': 'Skill ID is required for save operation'
+            }
+
+    if not result.get('success'):
+        return {
+            'success': False,
+            'error_code': 'SAVE_AGENT_SKILL_ERROR',
+            'error': result.get('error') or 'Failed to persist skill',
+            'operation': operation,
+            'skill_data': skill_data,
+            'skill_id': actual_skill_id,
+        }
+
+    actual_skill_id = result.get('id', actual_skill_id)
+    skill_data['id'] = actual_skill_id
+    return {
+        'success': True,
+        'skill_id': actual_skill_id,
+        'operation': operation,
+        'skill_data': skill_data,
+        'existing_skill': existing_skill,
+    }
+
+
+def _finalize_skill_persistence(
+    request: IPCRequest,
+    params: Optional[Dict[str, Any]],
+    skill_data: Dict[str, Any],
+    skill_id: str,
+    operation: str,
+    relation_source: Optional[Dict[str, Any]] = None,
+    upload_files: bool = False
+) -> Dict[str, Any]:
+    _update_skill_in_memory(skill_id, skill_data, request, params)
+    try:
+        ctx = get_handler_context(request, params)
+        current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(skill_id)), None) if ctx else None
+        _sync_runtime_tasks_for_skill(current, request, params)
+    except Exception:
+        pass
+
+    try:
+        from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+        sync_queue = get_offline_sync_queue()
+        removed_add = sync_queue.remove_tasks_by_resource('skill', skill_id, operation='add')
+        removed_update = sync_queue.remove_tasks_by_resource('skill', skill_id, operation='update')
+        if removed_add + removed_update > 0:
+            logger.info(f"[skill_handler] Removed {removed_add + removed_update} pending sync tasks for skill: {skill_id}")
+    except Exception as e:
+        logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
+
+    skill_data_with_id = skill_data.copy()
+    skill_data_with_id['id'] = skill_id
+    _trigger_cloud_sync(skill_data_with_id, Operation.ADD if operation == 'create' else Operation.UPDATE)
+
+    relation_payload = relation_source or {}
+    tool_ids = relation_payload.get('tool_ids', relation_payload.get('tools', []))
+    if tool_ids:
+        _sync_skill_tool_relations(skill_id, tool_ids, Operation.ADD)
+
+    knowledge_ids = relation_payload.get('knowledge_ids', relation_payload.get('knowledges', []))
+    if knowledge_ids:
+        _sync_skill_knowledge_relations(skill_id, knowledge_ids, Operation.ADD)
+
+    if upload_files and _SKILL_FILE_SYNC_AVAILABLE:
+        try:
+            upload_skill_files_to_cloud(skill_data_with_id)
+        except Exception as fs_exc:
+            logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+
+    return skill_data_with_id
+
+
 def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=None, params=None) -> bool:
     """Update or add skill in mainwin.agent_skills memory
 
@@ -1484,6 +1595,42 @@ def _resolve_owned_skill_record(
     except Exception as resolve_e:
         logger.warning(f"[skill_handler] Failed to resolve owned skill identifier: {resolve_e}")
 
+    if not resolved_skill_record and requested_skill_id:
+        try:
+            ctx = get_handler_context(request, params)
+            requested_memory_skill = None
+            if ctx:
+                for mem_skill in (ctx.get_agent_skills() or []):
+                    mem_id = str(getattr(mem_skill, 'id', '') or '').strip()
+                    mem_askid = str(getattr(mem_skill, 'askid', '') or '').strip()
+                    if requested_skill_id in {mem_id, mem_askid}:
+                        requested_memory_skill = mem_skill
+                        break
+
+            if requested_memory_skill:
+                mem_path = str(getattr(requested_memory_skill, 'path', '') or '').strip()
+                mem_name = str(getattr(requested_memory_skill, 'name', '') or '').strip().lower()
+                for sk in (owned_skills or []):
+                    db_id = str(sk.get('id') or '').strip()
+                    askid = str(sk.get('askid') or '').strip()
+                    db_path = str(sk.get('path', '') or '').strip()
+                    db_name = str(sk.get('name', '') or '').strip().lower()
+                    if mem_path and db_path and mem_path == db_path:
+                        resolved_skill_record = sk
+                    elif mem_name and db_name and mem_name == db_name:
+                        resolved_skill_record = sk
+                    if resolved_skill_record:
+                        local_db_skill_id = db_id or requested_skill_id
+                        cloud_skill_id = askid or requested_skill_id
+                        logger.info(
+                            f"[skill_handler] Resolved temporary skill id via memory match: "
+                            f"requested={requested_skill_id}, local_db_skill_id={local_db_skill_id}, "
+                            f"path={db_path or mem_path}, name={db_name or mem_name}"
+                        )
+                        break
+        except Exception as memory_resolve_e:
+            logger.warning(f"[skill_handler] Failed to resolve temporary skill identifier via memory: {memory_resolve_e}")
+
     if not resolved_skill_record:
         try:
             cloud_skills = _fetch_cloud_skills(request, params)
@@ -1539,7 +1686,7 @@ def _handle_store_publish_toggle(
         skill_source = str(resolved_skill_record.get('source', 'ui') or 'ui').strip().lower()
         skill_path = str(resolved_skill_record.get('path', '') or '').strip()
 
-        if skill_source == 'code':
+        if is_read_only_code_skill(skill_source, skill_path):
             return create_error_response(
                 request,
                 'SKILL_READ_ONLY',
@@ -1587,10 +1734,23 @@ def _handle_store_publish_toggle(
             pass
 
         cloud_payload = merged_skill.copy()
-        cloud_payload['id'] = cloud_skill_id or local_db_skill_id
+        has_distinct_cloud_id = bool(
+            cloud_skill_id
+            and local_db_skill_id
+            and str(cloud_skill_id).strip() != str(local_db_skill_id).strip()
+        )
+        cloud_operation = Operation.UPDATE if has_distinct_cloud_id else Operation.ADD
+        cloud_payload['id'] = cloud_skill_id if has_distinct_cloud_id else local_db_skill_id
         cloud_payload['owner'] = skill_owner or username
 
-        cloud_result = _sync_skill_store_update_to_cloud(cloud_payload)
+        logger.info(
+            f"[skill_handler] Store publish cloud sync decision: action={action}, "
+            f"requested_skill_id={requested_skill_id}, local_db_skill_id={local_db_skill_id}, "
+            f"cloud_skill_id={cloud_skill_id}, resolved_from_cloud={resolved_from_cloud}, "
+            f"operation={cloud_operation.value}"
+        )
+
+        cloud_result = _sync_skill_store_update_to_cloud(cloud_payload, cloud_operation)
         if not cloud_result.get('synced'):
             error_msg = cloud_result.get('error') or f"Failed to {action} skill in cloud"
             return create_error_response(request, 'STORE_SKILL_CLOUD_ERROR', error_msg)
@@ -1627,6 +1787,79 @@ def is_user_skill(file_path: str) -> bool:
     return '/my_skills/' in path_str and '/resource/my_skills/' not in path_str
 
 
+def is_read_only_code_skill(source: Any, file_path: str) -> bool:
+    return str(source or '').strip().lower() == 'code' and is_code_skill(file_path or '')
+
+
+def _sync_skill_store_update_to_cloud(
+    skill_data: Dict[str, Any],
+    operation: 'Operation' = Operation.UPDATE
+) -> Dict[str, Any]:
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType, Operation as CloudOperation
+
+    cloud_data = skill_data.copy()
+    askid_value = cloud_data.get('askid')
+    if askid_value in (None, '', 0, '0'):
+        cloud_data.pop('askid', None)
+    raw_path = cloud_data.get('path', '')
+    if raw_path:
+        try:
+            p = Path(raw_path)
+            parts = p.parts
+            for i, part in enumerate(parts):
+                if part == 'my_skills':
+                    cloud_data['path'] = '/'.join(parts[i:])
+                    break
+            else:
+                cloud_data['path'] = p.name
+        except Exception:
+            pass
+
+    logger.info(
+        f"[skill_handler] Syncing skill store update to cloud: operation={getattr(operation, 'value', operation)}, "
+        f"id={cloud_data.get('id')}, "
+        f"owner={cloud_data.get('owner')}, public={cloud_data.get('public')}, "
+        f"rentable={cloud_data.get('rentable')}, path={cloud_data.get('path', '')}"
+    )
+
+    manager = get_sync_manager()
+    result = manager.sync_to_cloud(DataType.SKILL, cloud_data, operation)
+
+    errors = result.get('errors') if isinstance(result.get('errors'), list) else []
+    if (
+        operation == CloudOperation.ADD
+        and errors
+        and any('id_taken' in str(err).lower() or 'already exists' in str(err).lower() for err in errors)
+    ):
+        logger.info(
+            f"[skill_handler] Store sync ADD hit existing cloud id, retrying UPDATE: "
+            f"id={cloud_data.get('id')}, owner={cloud_data.get('owner')}"
+        )
+        result = manager.sync_to_cloud(DataType.SKILL, cloud_data, CloudOperation.UPDATE)
+
+    error_msg = result.get('error')
+    if not error_msg:
+        errors = result.get('errors')
+        if isinstance(errors, list) and errors:
+            error_msg = '; '.join([str(e) for e in errors if e])
+
+    logger.info(
+        f"[skill_handler] Skill store cloud sync result: "
+        f"success={result.get('success')}, synced={result.get('synced')}, "
+        f"cached={result.get('cached')}, error={error_msg or ''}"
+    )
+
+    return {
+        'success': bool(result.get('success')),
+        'synced': bool(result.get('synced')),
+        'cached': bool(result.get('cached')),
+        'task_id': result.get('task_id'),
+        'error': error_msg,
+        'response': result.get('response'),
+    }
+
+
 def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> None:
     """Trigger cloud synchronization (async, non-blocking)
     
@@ -1641,7 +1874,7 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     from agent.cloud_api.constants import DataType, Operation as Op
 
     source = str(skill_data.get('source', 'ui') or 'ui').strip().lower()
-    if source == 'code':
+    if is_read_only_code_skill(source, str(skill_data.get('path', '') or '')):
         logger.info(f"[skill_handler] ⏭️ Skip cloud sync for local code-based skill: {skill_data.get('name')}")
         return
     
@@ -1872,145 +2105,58 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
     
     try:
         import os
-        # Normalize file path to handle Chinese characters correctly
-        # This ensures consistent path format in database for proper querying
         file_path = os.path.abspath(os.path.normpath(file_path))
-        
-        # Check if this is a code-based skill from resource/my_skills
-        code_skill = is_code_skill(file_path)
-        
-        # Read skill JSON file
-        with open(file_path, 'r', encoding='utf-8') as f:
-            skill_data = json.load(f)
-        
-        # Get username from AppContext
-        ctx = get_handler_context(request, params)
-        if not ctx or not True:
-            raise ValueError("Cannot get username: ctx or ctx.get_username() not available")
-        
-        username = ctx.get_username()
-        
-        # Get skill service
-        skill_service = _get_skill_service(request, params)
-        if not skill_service:
-            return {'success': False, 'error': 'Database service not available'}
-        
-        # Prepare skill data - only use fields that have values
-        skill_name = skill_data.get('name') or skill_data.get('skillName', 'Unnamed Skill')
-        
-        logger.info(f"[skill_handler] Syncing skill: {skill_name}, path: {file_path}")
-        
-        # Standard upsert logic: find existing skill by path first, then by name
-        existing_skill = skill_service.get_skill_by_path(file_path)
-        
-        if not (existing_skill.get('success') and existing_skill.get('data')):
-            # Not found by path, try by name (handles rename scenarios)
-            logger.debug(f"[skill_handler] Skill not found by path, trying by name: {skill_name}")
-            name_search = skill_service.query_skills(name=skill_name)
-            if name_search.get('success') and name_search.get('data'):
-                candidates = name_search.get('data', [])
-                # Filter to user's skills only to avoid updating other users' skills
-                user_candidates = [s for s in candidates if s.get('owner') == username]
-                if user_candidates:
-                    existing_skill = {'success': True, 'data': user_candidates[0]}
-                    logger.info(f"[skill_handler] Found existing skill by name: {skill_name} (ID: {user_candidates[0].get('id')})")
-        
-        # At this point: existing_skill has data → UPDATE, no data → INSERT
-        
-        # Build minimal skill_info - only include fields with actual values
-        skill_info = {
-            'name': skill_name,
-            'path': file_path,
-        }
-        
-        # Add diagram field - check both 'diagram' and 'workFlow' for compatibility
-        diagram_data = None
-        if 'diagram' in skill_data and skill_data['diagram']:
-            diagram_data = skill_data['diagram']
-        elif 'workFlow' in skill_data and skill_data['workFlow']:
-            diagram_data = skill_data['workFlow']
-        
-        if diagram_data:
-            skill_info['diagram'] = diagram_data
-        
-        # Add other fields only if they have non-empty values
-        optional_fields = ['description', 'version', 'level', 'config', 'tags', 
-                          'examples', 'inputModes', 'outputModes', 'apps', 
-                          'limitations', 'price', 'price_model', 'public', 'rentable',
-                          'run_in_cloud', 'hybrid_cloud_mode', 'local_helper_skill_id', 'local_helper_machine']
-        for field in optional_fields:
-            if field in skill_data and skill_data[field] is not None:
-                skill_info[field] = skill_data[field]
-        
-        logger.debug(f"[skill_handler] Prepared skill_info with {len(skill_info)} fields")
-        
-        # For code skills, skip database operations (only update memory)
-        if code_skill:
-            logger.info(f"[skill_handler] ⚠️ Code skill detected, skipping database sync: {skill_name}")
+        if is_code_skill(file_path):
+            logger.info(f"[skill_handler] ⚠️ Code skill detected, skipping database sync: {file_path}")
             return {
                 'success': True,
                 'skipped': True,
                 'reason': 'code_skill',
                 'message': 'Code skills are not saved to database'
             }
-        
-        # For UI skills, perform normal database operations
-        if existing_skill.get('success') and existing_skill.get('data'):
-            # Update existing skill
-            skill_id = existing_skill['data']['id']
-            logger.info(f"[skill_handler] Updating existing skill: {skill_name} (ID: {skill_id})")
-            
-            prepared_data = _prepare_skill_data(skill_info, username, skill_id)
-            logger.debug(f"[skill_handler] Prepared data for update: path={prepared_data.get('path')}")
-            result = skill_service.update_skill(skill_id, prepared_data)
-            
-            if result.get('success'):
-                # Update memory
-                _update_skill_in_memory(skill_id, prepared_data, request, params)
-                
-                # Sync to cloud
-                skill_data_with_id = prepared_data.copy()
-                skill_data_with_id['id'] = skill_id
-                _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
-                
-                # NOTE: S3 file upload is NOT done here.
-                # sync_skill_from_file is a secondary path (triggered by file_handler
-                # detecting a _skill.json write). The primary save handlers
-                # (handle_save_agent_skill / handle_new_agent_skill) already handle
-                # S3 upload, so doing it here would cause duplicate requests.
-                
-                logger.info(f"[skill_handler] ✅ Skill updated successfully: {skill_name}")
-                return {'success': True, 'skill_id': skill_id, 'operation': 'update'}
-            else:
-                logger.error(f"[skill_handler] ❌ Failed to update skill: {result.get('error')}")
-                return {'success': False, 'error': result.get('error')}
-        else:
-            # Create new skill
-            logger.info(f"[skill_handler] Creating new skill: {skill_name}")
-            
-            prepared_data = _prepare_skill_data(skill_info, username, skill_id=None)
-            logger.debug(f"[skill_handler] Prepared data for create: path={prepared_data.get('path')}")
-            result = skill_service.add_skill(prepared_data)
-            
-            if result.get('success'):
-                skill_id = result.get('id')
-                
-                # Update memory
-                _update_skill_in_memory(skill_id, prepared_data, request, params)
-                
-                # Sync to cloud
-                skill_data_with_id = prepared_data.copy()
-                skill_data_with_id['id'] = skill_id
-                _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
-                
-                # NOTE: S3 file upload is NOT done here (see comment in update branch above).
-                
-                logger.info(f"[skill_handler] ✅ Skill created successfully: {skill_name} (ID: {skill_id})")
-                return {'success': True, 'skill_id': skill_id, 'operation': 'create'}
-            else:
-                logger.error(f"[skill_handler] ❌ Failed to create skill: {result.get('error')}")
-                return {'success': False, 'error': result.get('error')}
-                
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            raw_skill_data = json.load(f)
+
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            raise ValueError("Cannot get username: handler context not available")
+        username = ctx.get_username()
+
+        normalized_skill_info = _normalize_skill_info(raw_skill_data, fallback_path=file_path, fallback_source='ui')
+        logger.info(f"[skill_handler] Syncing skill from file: {normalized_skill_info.get('name')}, path: {file_path}")
+
+        persist_result = _persist_skill_record(
+            request,
+            params,
+            username,
+            normalized_skill_info,
+            requested_skill_id=None,
+            allow_create_without_id=True,
+        )
+        if not persist_result.get('success'):
+            logger.error(f"[skill_handler] ❌ Failed to persist skill from file: {persist_result.get('error')}")
+            return {'success': False, 'error': persist_result.get('error')}
+
+        skill_id = str(persist_result.get('skill_id') or '')
+        operation = persist_result.get('operation', 'update')
+        skill_data = persist_result.get('skill_data') or {}
+        finalized_skill = _finalize_skill_persistence(
+            request,
+            params,
+            skill_data,
+            skill_id,
+            operation,
+            relation_source=normalized_skill_info,
+            upload_files=False,
+        )
+        logger.info(f"[skill_handler] ✅ Skill {operation}d successfully from file: {normalized_skill_info.get('name')} (ID: {skill_id})")
+        return {
+            'success': True,
+            'skill_id': skill_id,
+            'operation': operation,
+            'data': finalized_skill,
+        }
     except Exception as e:
         logger.error(f"[skill_handler] ❌ Error syncing skill from file: {e}")
         return {'success': False, 'error': str(e)}

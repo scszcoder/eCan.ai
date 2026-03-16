@@ -646,7 +646,7 @@ const SkillList: React.FC<SkillListProps> = ({
 
     const renderSkillCard = (skill: Skill, opts: { grid: boolean }) => {
         const statusConfig = getStatusConfig(skill.status);
-        const skillIdStr = String(skill.id);
+        const skillIdStr = String((skill as any).skillId || skill.id || '');
         const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
         const paid = isPaidSkill(skill);
         const isSubscribedSkill = subscribedSkillIds?.includes(skillIdStr);
@@ -746,16 +746,16 @@ const SkillList: React.FC<SkillListProps> = ({
                     return (
                         <SkillActionBar onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                             <ActionBtn
-                                title="Copy Skill"
+                                title={t('pages.skills.actions.copySkill', 'Copy Skill')}
                                 onClick={(e: React.MouseEvent) => {
                                     e.stopPropagation();
                                     window.dispatchEvent(new CustomEvent('ecan:copy-skill', { detail: { skill } }));
                                 }}
                             >
-                                <CopyOutlined /> Copy
+                                <CopyOutlined /> {t('pages.skills.actions.copy', 'Copy')}
                             </ActionBtn>
                             <ActionBtn
-                                title="Download JSON"
+                                title={t('pages.skills.actions.downloadJson', 'Download JSON')}
                                 onClick={(e: React.MouseEvent) => {
                                     e.stopPropagation();
                                     const blob = new Blob([JSON.stringify(skill, null, 2)], { type: 'application/json' });
@@ -767,7 +767,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                     URL.revokeObjectURL(url);
                                 }}
                             >
-                                <DownloadOutlined /> Download
+                                <DownloadOutlined /> {t('pages.skills.actions.download', 'Download')}
                             </ActionBtn>
                         </SkillActionBar>
                     );

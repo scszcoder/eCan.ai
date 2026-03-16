@@ -1382,7 +1382,13 @@
       "title": "Skills List",
       "newSkill": "New Skill",
       "fetchError": "Failed to fetch skills",
-      "addSkill": "Add Skill",
+      "actions": {
+        "copy": "Copy",
+        "download": "Download",
+        "copySkill": "Copy Skill",
+        "downloadJson": "Download JSON"
+      },
+      "searchPlaceholder": "Search skills",
       "category": "Category",
       "deleteSkill": "Delete Skill",
       "details": "Details",

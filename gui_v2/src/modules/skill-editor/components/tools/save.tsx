@@ -411,7 +411,10 @@ export async function saveFile(
             };
           }
           console.error('[SKILL_IO][FRONTEND][MAIN_SAVE_ERROR]', writeResponse.error);
-          throw new Error(writeResponse.error || 'Failed to write file');
+          const errorMessage = typeof writeResponse.error === 'string'
+            ? writeResponse.error
+            : writeResponse.error?.message || 'Failed to write file';
+          throw new Error(errorMessage);
         }
       } catch (err) {
         console.warn('[SKILL_IO][FRONTEND][IPC_SAVE_ERROR]', err);
@@ -523,7 +526,7 @@ async function syncSkillToDBAndStore(
     // The backend will create the DB entry on the next sync_skill_from_file call.
     if (!skillPayload.id) {
       console.log('[SKILL_IO][DB_SYNC] No skill ID — skipping save_agent_skill for new skill');
-      return;
+      return null;
     }
 
     const resp = await api.saveAgentSkill(owner, skillPayload);
@@ -531,38 +534,52 @@ async function syncSkillToDBAndStore(
     if (resp && resp.success) {
       console.log('[SKILL_IO][DB_SYNC] Skill saved to DB + cloud sync triggered');
 
-      // Update the Skills page store so the list reflects changes immediately
       const store = useSkillStore.getState();
-      const skillId = String((resp as any).data?.skill_id || skillPayload.id);
+      const responseData = (resp as any).data || {};
+      const persistedData = (responseData?.data && typeof responseData.data === 'object') ? responseData.data : {};
+      const skillId = String(responseData?.skill_id || persistedData?.id || skillPayload.id);
       const storeItem = {
+        ...skillInfo,
+        ...persistedData,
         id: skillId,
-        name: skillPayload.name,
-        owner,
-        description: skillPayload.description,
-        version: skillPayload.version,
-        path: skillPayload.path,
-        level: skillPayload.level,
-        config: skillPayload.config,
-        diagram: skillPayload.diagram,
-        tags: skillPayload.tags,
+        skillId: skillId,
+        name: persistedData?.name || skillPayload.name,
+        owner: persistedData?.owner || owner,
+        description: persistedData?.description ?? skillPayload.description,
+        version: persistedData?.version || skillPayload.version,
+        path: persistedData?.path || skillPayload.path,
+        level: persistedData?.level || skillPayload.level,
+        config: persistedData?.config || skillPayload.config,
+        diagram: persistedData?.diagram || skillPayload.diagram,
+        tags: persistedData?.tags || skillPayload.tags,
         source: 'ui' as const,
-        status: 'active',
+        status: persistedData?.status || 'active',
       };
 
+      const previousSkillId = String(skillPayload.id || '');
       const existing = store.items.find((s) => String(s.id) === skillId);
+      const previousExisting = previousSkillId && previousSkillId !== skillId
+        ? store.items.find((s) => String(s.id) === previousSkillId)
+        : null;
       if (existing) {
         store.updateItem(skillId, storeItem);
         console.log('[SKILL_IO][DB_SYNC] Updated existing skill in store:', skillId);
+      } else if (previousExisting) {
+        store.updateItem(previousSkillId, { ...storeItem, id: skillId } as any);
+        console.log('[SKILL_IO][DB_SYNC] Rebound temporary skill id to persisted id:', previousSkillId, '->', skillId);
       } else {
         store.addItem(storeItem as any);
         console.log('[SKILL_IO][DB_SYNC] Added new skill to store:', skillId);
       }
+      return storeItem;
     } else {
       console.warn('[SKILL_IO][DB_SYNC] saveAgentSkill failed:', resp?.error);
+      return null;
     }
   } catch (e) {
     // Non-fatal: disk save already succeeded
     console.warn('[SKILL_IO][DB_SYNC] Error syncing skill to DB (non-fatal):', e);
+    return null;
   }
 }
 
@@ -718,7 +735,16 @@ export const Save = ({ disabled }: SaveProps) => {
         try { Toast.success({ content: t('save.saved') }); } catch {}
 
         // Sync to local DB + cloud DB and update Skills page store
-        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
+        const persistedSkill = await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
+        if (persistedSkill) {
+          setSkillInfo({
+            ...finalSkillInfo,
+            ...persistedSkill,
+            id: (persistedSkill as any).id,
+            skillId: (persistedSkill as any).skillId || (persistedSkill as any).id,
+            path: (persistedSkill as any).path || finalPath,
+          });
+        }
 
         // 6. Save bundle (web mode batch already handled)
         if (detectPlatform() !== 'web') {
@@ -948,6 +974,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         throw new Error('Save As path is missing');
       }
 
+      let copiedPersistedSkill: any = null;
+
       if (detectPlatform() === 'web') {
         finalDiagramPath = selectedPath;
         const mappingPath = dataMappingForSave ? deriveDataMappingPath(finalDiagramPath, newSkillName) : null;
@@ -975,7 +1003,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           );
 
           if (copyResult.success && copyResult.data) {
-            finalDiagramPath = (copyResult.data as any).diagramPath;
+            const copyData = (copyResult.data as any) || {};
+            finalDiagramPath = copyData.diagramPath;
+            copiedPersistedSkill = (copyData.data && typeof copyData.data === 'object') ? copyData.data : null;
             if (dataMappingForSave) {
               const mappingPath = deriveDataMappingPath(finalDiagramPath, newSkillName);
               try {
@@ -1030,7 +1060,44 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       Toast.success({ content: t('saveAs.savedAs', { name: newSkillName }) });
 
       // Sync to local DB + cloud DB and update Skills page store
-      await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
+      let persistedSkill = copiedPersistedSkill;
+      if (persistedSkill) {
+        try {
+          const skillId = String((persistedSkill as any).id || (persistedSkill as any).skillId || '').trim();
+          if (skillId) {
+            const store = useSkillStore.getState();
+            const normalizedPersistedSkill = {
+              ...finalSkillInfo,
+              ...persistedSkill,
+              id: skillId,
+              skillId: skillId,
+              path: (persistedSkill as any).path || finalDiagramPath,
+            };
+            const existing = store.items.find((s) => String((s as any).skillId || s.id || '') === skillId);
+            if (existing) {
+              store.updateItem(String(existing.id), normalizedPersistedSkill as any);
+            } else {
+              store.addItem(normalizedPersistedSkill as any);
+            }
+            persistedSkill = normalizedPersistedSkill;
+          }
+        } catch (e) {
+          console.warn('[SAVEAS] Failed to apply persisted copy result to store, falling back to DB sync:', e);
+          persistedSkill = null;
+        }
+      }
+      if (!persistedSkill) {
+        persistedSkill = await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
+      }
+      if (persistedSkill) {
+        setSkillInfo({
+          ...finalSkillInfo,
+          ...persistedSkill,
+          id: (persistedSkill as any).id,
+          skillId: (persistedSkill as any).skillId || (persistedSkill as any).id,
+          path: (persistedSkill as any).path || finalDiagramPath,
+        });
+      }
       
     } catch (error) {
       console.error('Failed to save as:', error);

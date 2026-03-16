@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, message, Tooltip, Space } from 'antd';
 import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
@@ -24,8 +24,7 @@ const Skills: React.FC = () => {
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
 
-    // Directly manage selected status
-    const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+    const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
     const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
     const [subscribedSkillIds, setSubscribedSkillIds] = useState<string[]>([]);
 
@@ -39,8 +38,18 @@ const Skills: React.FC = () => {
     });
 
     const selectItem = useCallback((skill: Skill) => {
-        setSelectedSkill(skill);
+        const resolvedId = String((skill as any).skillId || skill.id || '').trim();
+        setSelectedSkillId(resolvedId || null);
     }, []);
+
+    const selectedSkill = useMemo(() => {
+        if (!selectedSkillId) return null;
+        const allSkills = [...(skills || []), ...(publicSkills || [])];
+        return allSkills.find((skill) => {
+            const skillId = String((skill as any).skillId || skill.id || '').trim();
+            return skillId === selectedSkillId;
+        }) || null;
+    }, [selectedSkillId, skills, publicSkills]);
 
     const fetchSkills = useCallback(async () => {
         if (!username) return;
@@ -191,14 +200,14 @@ const Skills: React.FC = () => {
         // - If in edit mode, no extra processing needed (SkillDetails handles internally)
         if (isAddingNew) {
             setIsAddingNew(false);
-            setSelectedSkill(null);
+            setSelectedSkillId(null);
         }
         // In edit mode, SkillDetails will automatically restore data and exit edit mode, no need to close panel
     };
 
     const handleSkillDelete = () => {
         // After delete, clear selected status and close details page
-        setSelectedSkill(null);
+        setSelectedSkillId(null);
     };
 
     const handleSubscribe = async (skillId: string) => {
@@ -209,7 +218,7 @@ const Skills: React.FC = () => {
         // Also check the mutation result's success field
         const result = resp.data as any;
         if (result && result.success === false) throw new Error(result.error || 'Subscribe failed');
-        setSubscribedSkillIds(prev => [...prev, skillId]);
+        setSubscribedSkillIds(prev => prev.includes(skillId) ? prev : [...prev, skillId]);
     };
 
     const handleUnsubscribe = async (skillId: string) => {
@@ -238,7 +247,7 @@ const Skills: React.FC = () => {
                     publicSkills={publicSkills}
                     loading={isLoading}
                     onSelectSkill={selectItem}
-                    selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
+                    selectedSkillId={selectedSkillId || undefined}
                     viewMode={viewMode}
                     username={username || ''}
                     subscribedSkillIds={subscribedSkillIds}

@@ -796,7 +796,7 @@ export const GRAPHQL_MUTATIONS = {
 
   COPY_SKILL_TO: `
     mutation CopySkillTo($input: SkillCopyInput!) {
-      copySkillTo(input: $input) { skillRoot name diagramPath }
+      copySkillTo(input: $input) { skillRoot name diagramPath skillId }
     }
   `,
 
