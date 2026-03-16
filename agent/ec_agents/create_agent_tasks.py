@@ -423,7 +423,6 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
         # Fallback: if no task-skill relationship in DB, try matching task name to a skill name
         # Strip trailing digits from skill name for fuzzy matching (e.g. passive0 → passive)
         if not resolved_skill and not skill_name and compiled_skills:
-            import re
             task_name = db_agent_task_dict.get('name', '')
             task_name_lower = task_name.lower().strip().replace('_', '').replace('-', '').replace(' ', '')
             for sk in compiled_skills:

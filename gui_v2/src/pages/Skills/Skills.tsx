@@ -15,6 +15,16 @@ import './Skills.css';
 const Skills: React.FC = () => {
     const { t } = useTranslation();
 
+    const normalizeSubscribedIds = useCallback((rawIds: any[]): string[] => {
+        const next = new Set<string>();
+        for (const raw of rawIds || []) {
+            const value = String(raw ?? '').trim();
+            if (!value || value === '0') continue;
+            next.add(value);
+        }
+        return Array.from(next);
+    }, []);
+
     // Use new skillStore
     const skills = useSkillStore((state) => state.items);
     const isLoading = useSkillStore((state) => state.loading);
@@ -47,6 +57,15 @@ const Skills: React.FC = () => {
 
         try {
             await fetchItems(username);
+            const fetchedSkills = useSkillStore.getState().items || [];
+            logger.info(
+                '[Skills][diag] store items after fetch:',
+                fetchedSkills.map((skill) => `${skill.name}#${skill.id}`)
+            );
+            logger.info(
+                '[Skills][diag] basic_chatter_xxx in store after fetch:',
+                fetchedSkills.some((skill) => skill.name === 'basic_chatter_xxx')
+            );
             const api = get_ipc_api();
 
             const [publicResp, subscribedResp] = await Promise.all([
@@ -65,7 +84,7 @@ const Skills: React.FC = () => {
             if (subscribedResp.success) {
                 const subscribedData = subscribedResp.data as any;
                 const ids = Array.isArray(subscribedData) ? subscribedData : [];
-                setSubscribedSkillIds(ids.map((id: any) => String(id)));
+                setSubscribedSkillIds(normalizeSubscribedIds(ids));
             } else {
                 setSubscribedSkillIds([]);
             }
@@ -73,13 +92,24 @@ const Skills: React.FC = () => {
             logger.error('[Skills] Error fetching skills:', error);
             message.error(t('pages.skills.fetchError', { defaultValue: 'Failed to fetch skills' }));
         }
-    }, [username, fetchItems, t]);
+    }, [username, fetchItems, t, normalizeSubscribedIds]);
 
     useEffect(() => {
         if (username) {
             fetchSkills();
         }
     }, [username, fetchSkills]);
+
+    useEffect(() => {
+        logger.debug(
+            '[Skills][diag] render skills:',
+            (skills || []).map((skill) => `${skill.name}#${skill.id}`)
+        );
+        logger.debug(
+            '[Skills][diag] basic_chatter_xxx in render skills:',
+            (skills || []).some((skill) => skill.name === 'basic_chatter_xxx')
+        );
+    }, [skills]);
 
     const handleRefresh = useCallback(async () => {
         if (!username) return;
@@ -104,7 +134,7 @@ const Skills: React.FC = () => {
             if (subscribedResp.success) {
                 const subscribedData = subscribedResp.data as any;
                 const ids = Array.isArray(subscribedData) ? subscribedData : [];
-                setSubscribedSkillIds(ids.map((id: any) => String(id)));
+                setSubscribedSkillIds(normalizeSubscribedIds(ids));
             } else {
                 setSubscribedSkillIds([]);
             }
@@ -112,7 +142,7 @@ const Skills: React.FC = () => {
             logger.error('[Skills] Error refreshing skills:', error);
             message.error(t('pages.skills.fetchError', { defaultValue: 'Failed to refresh skills' }));
         }
-    }, [username, forceRefresh, t]);
+    }, [username, forceRefresh, t, normalizeSubscribedIds]);
 
     const listTitle = (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
@@ -201,26 +231,46 @@ const Skills: React.FC = () => {
         setSelectedSkill(null);
     };
 
+    const handleSelectedSkillChange = useCallback((updatedSkill: Skill) => {
+        setSelectedSkill(updatedSkill);
+    }, []);
+
     const handleSubscribe = async (skillId: string) => {
         if (!username) return;
         const api = get_ipc_api();
         const resp = await api.subscribeToSkill(username, skillId);
-        if (!resp.success) throw new Error((resp.error as any)?.message || 'Subscribe failed');
+        if (!resp.success) throw new Error((resp.error as any)?.message || t('pages.skills.subscribeFailed', 'Subscribe failed'));
         // Also check the mutation result's success field
         const result = resp.data as any;
-        if (result && result.success === false) throw new Error(result.error || 'Subscribe failed');
-        setSubscribedSkillIds(prev => [...prev, skillId]);
+        if (result && result.success === false) throw new Error(result.error || t('pages.skills.subscribeFailed', 'Subscribe failed'));
+        setSubscribedSkillIds(prev => {
+            const next = new Set((prev || []).map((id) => String(id)));
+            if (skillId) next.add(String(skillId));
+            if (result?.id) next.add(String(result.id));
+            if (result?.askid !== undefined && result?.askid !== null && String(result.askid).trim() && String(result.askid).trim() !== '0') {
+                next.add(String(result.askid));
+            }
+            return normalizeSubscribedIds(Array.from(next));
+        });
     };
 
     const handleUnsubscribe = async (skillId: string) => {
         if (!username) return;
         const api = get_ipc_api();
         const resp = await api.unsubscribeFromSkill(username, skillId);
-        if (!resp.success) throw new Error((resp.error as any)?.message || 'Unsubscribe failed');
+        if (!resp.success) throw new Error((resp.error as any)?.message || t('pages.skills.unsubscribeFailed', 'Unsubscribe failed'));
         // Also check the mutation result's success field
         const result = resp.data as any;
-        if (result && result.success === false) throw new Error(result.error || 'Unsubscribe failed');
-        setSubscribedSkillIds(prev => prev.filter(id => id !== skillId));
+        if (result && result.success === false) throw new Error(result.error || t('pages.skills.unsubscribeFailed', 'Unsubscribe failed'));
+        setSubscribedSkillIds(prev => {
+            const removeIds = new Set<string>();
+            if (skillId) removeIds.add(String(skillId));
+            if (result?.id) removeIds.add(String(result.id));
+            if (result?.askid !== undefined && result?.askid !== null && String(result.askid).trim() && String(result.askid).trim() !== '0') {
+                removeIds.add(String(result.askid));
+            }
+            return normalizeSubscribedIds((prev || []).filter((id) => !removeIds.has(String(id))));
+        });
     };
 
     return (
@@ -251,6 +301,7 @@ const Skills: React.FC = () => {
                         isNew={isAddingNew}
                         onRefresh={handleRefresh}
                         onSave={handleSkillSave}
+                        onSkillChange={handleSelectedSkillChange}
                         onCancel={handleSkillCancel}
                         onDelete={handleSkillDelete}
                         subscribedSkillIds={subscribedSkillIds}
