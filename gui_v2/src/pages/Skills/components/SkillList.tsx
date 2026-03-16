@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { List, Tag, Typography, Space, Empty, Collapse } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import {
@@ -29,6 +29,7 @@ import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import type { Skill } from '@/types/domain/skill';
 import { SkillFilters, SkillFilterOptions } from './SkillFilters';
+import { logger } from '@/utils/logger';
 
 const { Text } = Typography;
 
@@ -449,6 +450,16 @@ const inferCategory = (skill: Skill): string => {
     return 'general';
 };
 
+const normalizeValue = (value: unknown): string => String(value ?? '').trim();
+
+const isResourceMySkillsPath = (path?: string | null): boolean => {
+    if (!path) return false;
+    const norm = String(path).replace(/\\/g, '/');
+    return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
+};
+
+const isCodeSkill = (skill: Skill): boolean => normalizeValue((skill as any)?.source).toLowerCase() === 'code';
+
 // Get AI skill icon based on inferred category
 const getCategoryIcon = (skill: Skill, status?: Skill['status']) => {
     const isLearning = status === 'learning';
@@ -611,8 +622,83 @@ const SkillList: React.FC<SkillListProps> = ({
         return result;
     };
 
-    const mySkills = useMemo(() => applyFiltersAndSort(skills || []), [skills, filters]);
-    const storeSkills = useMemo(() => applyFiltersAndSort((publicSkills || []).filter(s => (s?.owner || '') !== (username || ''))), [publicSkills, filters, username]);
+    const mySkills = useMemo(() => {
+        const me = normalizeValue(username).toLowerCase();
+        const candidates = (skills || []).filter((skill) => {
+            const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+            const path = normalizeValue((skill as any)?.path);
+            const source = normalizeValue((skill as any)?.source).toLowerCase();
+            const skillId = normalizeValue((skill as any)?.id).toLowerCase();
+            const isOwnedByOwner = !!owner && !!me && owner === me;
+            const isOwnedByPath = isResourceMySkillsPath(path);
+            const isLocalCodeSkill = source === 'code' || skillId.startsWith('code-skill-');
+            return isOwnedByOwner || isOwnedByPath || isLocalCodeSkill;
+        });
+
+        const localPreferredNames = new Set(
+            candidates
+                .filter((skill) => {
+                    const path = normalizeValue((skill as any)?.path);
+                    const source = normalizeValue((skill as any)?.source).toLowerCase();
+                    const skillId = normalizeValue((skill as any)?.id).toLowerCase();
+                    return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
+                })
+                .map((skill) => normalizeValue(skill.name).toLowerCase())
+                .filter(Boolean)
+        );
+
+        const rows = candidates.filter((skill) => {
+            const skillName = normalizeValue(skill.name).toLowerCase();
+            if (!skillName || !localPreferredNames.has(skillName)) {
+                return true;
+            }
+
+            const path = normalizeValue((skill as any)?.path);
+            const source = normalizeValue((skill as any)?.source).toLowerCase();
+            const skillId = normalizeValue((skill as any)?.id).toLowerCase();
+            return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
+        });
+
+        return applyFiltersAndSort(rows);
+    }, [skills, filters, username]);
+    const storeSkills = useMemo(() => applyFiltersAndSort(publicSkills || []), [publicSkills, filters]);
+
+    useEffect(() => {
+        logger.debug(
+            '[SkillList][diag] incoming skills:',
+            (skills || []).map((skill) => `${skill.name}#${skill.id}`)
+        );
+        logger.debug(
+            '[SkillList][diag] filtered mySkills:',
+            mySkills.map((skill) => `${skill.name}#${skill.id}`)
+        );
+        logger.debug(
+            '[SkillList][diag] incoming publicSkills:',
+            (publicSkills || []).map((skill) => `${skill.name}#${skill.id}`)
+        );
+        logger.debug(
+            '[SkillList][diag] filtered storeSkills:',
+            storeSkills.map((skill) => `${skill.name}#${skill.id}`)
+        );
+        logger.debug(
+            '[SkillList][diag] basic_chatter_xxx incoming/filtered:',
+            {
+                incoming: (skills || []).some((skill) => skill.name === 'basic_chatter_xxx'),
+                filtered: mySkills.some((skill) => skill.name === 'basic_chatter_xxx'),
+                filters,
+            }
+        );
+    }, [skills, mySkills, publicSkills, storeSkills, filters]);
+
+    const isSkillSubscribed = (skill: Skill) => {
+        const subscribedSet = new Set((subscribedSkillIds || []).map((id) => String(id)));
+        const skillId = String((skill as any)?.id ?? '').trim();
+        const skillAskid = String((skill as any)?.askid ?? '').trim();
+        return !!(
+            (skillId && subscribedSet.has(skillId))
+            || (skillAskid && skillAskid !== '0' && subscribedSet.has(skillAskid))
+        );
+    };
 
     const isPaidSkill = (skill: Skill): boolean => {
         const price = (skill as any)?.price;
@@ -649,7 +735,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const skillIdStr = String(skill.id);
         const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
         const paid = isPaidSkill(skill);
-        const isSubscribedSkill = subscribedSkillIds?.includes(skillIdStr);
+        const isSubscribedSkill = isSkillSubscribed(skill);
 
         const CardComp: any = opts.grid ? GridSkillItem : SkillItem;
 
@@ -662,7 +748,7 @@ const SkillList: React.FC<SkillListProps> = ({
                 <SkillHeader>
                     <Space align="start" style={{ flex: 1 }}>
                         <SkillIcon status={skill.status}>
-                            <ExecBadge title={`${getExecMode(skill)} execution`}>
+                            <ExecBadge title={t(`pages.skills.execMode.${getExecMode(skill)}`, `${getExecMode(skill)} execution`)}>
                                 {getExecMode(skill) === 'cloud' ? (
                                     <CloudFilled style={{ color: '#1890ff' }} />
                                 ) : getExecMode(skill) === 'hybrid' ? (
@@ -686,11 +772,31 @@ const SkillList: React.FC<SkillListProps> = ({
                                 <Tag color={statusConfig.color} icon={statusConfig.icon}>
                                     {t(`pages.skills.status.${skill.status || 'unknown'}`)}
                                 </Tag>
+                                {isCodeSkill(skill) && (
+                                    <Tag color="geekblue">
+                                        {t('pages.skills.codeSkill', 'Code')}
+                                    </Tag>
+                                )}
+                                {!isCodeSkill(skill) && !isResourceMySkillsPath(String((skill as any)?.path || '')) && (() => {
+                                    const skillOwner = normalizeValue((skill as any)?.owner).toLowerCase();
+                                    const me = normalizeValue(username).toLowerCase();
+                                    if (!skillOwner || skillOwner === me) return null;
+                                    return (
+                                        <Tag color="purple">
+                                            {t('pages.skills.storeSkill', 'Store')}
+                                        </Tag>
+                                    );
+                                })()}
                                 {(() => {
                                     const displayCategory = skill.category || inferCategory(skill);
                                     return (
                                         <Tag color="blue">{t(`pages.skills.categories.${displayCategory}`, displayCategory)}</Tag>
                                     );
+                                })()}
+                                {(() => {
+                                    const owner = normalizeValue((skill as any)?.owner);
+                                    if (!owner) return null;
+                                    return <Tag>{owner}</Tag>;
                                 })()}
                                 {isSubscribedSkill && (
                                     <Tag color="green">{t('pages.skills.subscribed')}</Tag>
@@ -746,16 +852,16 @@ const SkillList: React.FC<SkillListProps> = ({
                     return (
                         <SkillActionBar onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                             <ActionBtn
-                                title="Copy Skill"
+                                title={t('pages.skills.copySkill', 'Copy Skill')}
                                 onClick={(e: React.MouseEvent) => {
                                     e.stopPropagation();
                                     window.dispatchEvent(new CustomEvent('ecan:copy-skill', { detail: { skill } }));
                                 }}
                             >
-                                <CopyOutlined /> Copy
+                                <CopyOutlined /> {t('common.copy', 'Copy')}
                             </ActionBtn>
                             <ActionBtn
-                                title="Download JSON"
+                                title={t('pages.skills.downloadJson', 'Download JSON')}
                                 onClick={(e: React.MouseEvent) => {
                                     e.stopPropagation();
                                     const blob = new Blob([JSON.stringify(skill, null, 2)], { type: 'application/json' });
@@ -767,7 +873,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                     URL.revokeObjectURL(url);
                                 }}
                             >
-                                <DownloadOutlined /> Download
+                                <DownloadOutlined /> {t('pages.skills.download', 'Download')}
                             </ActionBtn>
                         </SkillActionBar>
                     );

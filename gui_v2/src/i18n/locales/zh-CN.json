@@ -21,6 +21,7 @@
     "confirm": "确认",
     "delete": "删除",
     "duplicate": "复制",
+    "copy": "复制",
     "loading": "加载中...",
     "success": "成功",
     "error": "错误",
@@ -1522,7 +1523,17 @@
       "unsubscribe": "取消订阅",
       "subscribed": "已订阅",
       "unsubscribed": "已取消订阅",
-      "readOnlyPublic": "这是一个公开技能，您可以订阅但无法编辑。"
+      "readOnlyPublic": "这是一个公开技能，您可以订阅但无法编辑。",
+      "copySkill": "复制技能",
+      "downloadJson": "下载 JSON",
+      "download": "下载",
+      "subscribeFailed": "订阅失败",
+      "unsubscribeFailed": "取消订阅失败",
+      "execMode": {
+        "local": "本地执行",
+        "cloud": "云端执行",
+        "hybrid": "混合执行"
+      }
     },
     "tasks": {
       "readOnlyCodeGenerated": "只读",
