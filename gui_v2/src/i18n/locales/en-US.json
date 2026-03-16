@@ -21,6 +21,7 @@
     "confirm": "Confirm",
     "delete": "Delete",
     "duplicate": "Duplicate",
+    "copy": "Copy",
     "loading": "Loading...",
     "success": "Success",
     "error": "Error",
@@ -1531,7 +1532,17 @@
       "unsubscribe": "Unsubscribe",
       "subscribed": "Subscribed",
       "unsubscribed": "Unsubscribed",
-      "readOnlyPublic": "This is a public skill. You can subscribe but not edit."
+      "readOnlyPublic": "This is a public skill. You can subscribe but not edit.",
+      "copySkill": "Copy Skill",
+      "downloadJson": "Download JSON",
+      "download": "Download",
+      "subscribeFailed": "Subscribe failed",
+      "unsubscribeFailed": "Unsubscribe failed",
+      "execMode": {
+        "local": "Local execution",
+        "cloud": "Cloud execution",
+        "hybrid": "Hybrid execution"
+      }
     },
     "tasks": {
       "readOnlyCodeGenerated": "Read-only",

@@ -51,6 +51,7 @@ interface SkillDetailsProps {
     isNew?: boolean;
     onRefresh: () => void;
     onSave?: () => void;
+    onSkillChange?: (skill: Skill) => void;
     onCancel?: () => void;
     onDelete?: () => void;
     subscribedSkillIds?: string[];
@@ -156,7 +157,7 @@ const fromJsonString = (value: string): any => {
     }
 };
 
-const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onCancel, onDelete, subscribedSkillIds, onSubscribe, onUnsubscribe }) => {
+const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onSkillChange, onCancel, onDelete, subscribedSkillIds, onSubscribe, onUnsubscribe }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { message } = App.useApp();  // Use App context for message
@@ -185,14 +186,26 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const ownerValue = String(((skill as any)?.owner ?? '')).trim();
     const usernameValue = String((username ?? '')).trim();
+    const skillSource = String(((skill as any)?.source ?? '')).trim().toLowerCase();
+    const skillPathValue = String(((skill as any)?.path ?? '')).trim();
+    const isUiSkill = skillSource === 'ui';
     const isOwnedByOwner = !!ownerValue && !!usernameValue && ownerValue.toLowerCase() === usernameValue.toLowerCase();
-    const isOwnedByPath = !ownerValue && isResourceMySkillsPath((skill as any)?.path);
-    const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath);
+    const isOwnedByPath = isResourceMySkillsPath(skillPathValue);
+    const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath || (isUiSkill && isOwnedByPath));
     // Skill owned by another user — editor cannot open (no writable local files)
     const isThirdPartySkill = !!skill && !isNew && !isOwnedByUser;
     const canPublish = isOwnedByUser && !isCodeSkill;
+    const canEdit = isOwnedByUser && !isCodeSkill;
     const isPublished = !!skill && !isNew && !!(skill as any)?.public;
-    const isSubscribed = !!skill && !!subscribedSkillIds?.includes(String(skill.id));
+    const isSubscribed = !!skill && (() => {
+        const subscribedSet = new Set((subscribedSkillIds || []).map((id) => String(id)));
+        const skillId = String((skill as any)?.id ?? '').trim();
+        const skillAskid = String((skill as any)?.askid ?? '').trim();
+        return !!(
+            (skillId && subscribedSet.has(skillId))
+            || (skillAskid && skillAskid !== '0' && subscribedSet.has(skillAskid))
+        );
+    })();
 
     const handleTogglePublish = async () => {
         if (!skill || !username || !canPublish) return;
@@ -208,12 +221,18 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             const api = get_ipc_api();
             const resp = await api.saveAgentSkill(username, payload as any);
             if (!resp.success) {
-                message.error(resp.error?.message || 'Failed to update publish status');
+                message.error(resp.error?.message || t('pages.skills.failedToUpdatePublishStatus', 'Failed to update publish status'));
                 return;
             }
 
-            updateItem(String(skill.id), { ...skill, public: newPublicValue, rentable: newPublicValue } as any);
-            message.success(newPublicValue ? 'Published to Store' : 'Removed from Store');
+            const updatedSkill = { ...skill, public: newPublicValue, rentable: newPublicValue } as any;
+            updateItem(String(skill.id), updatedSkill);
+            onSkillChange?.(updatedSkill);
+            message.success(
+                newPublicValue
+                    ? t('pages.skills.publishedToStore', 'Published to Store')
+                    : t('pages.skills.removedFromStore', 'Removed from Store')
+            );
             if (onSave) onSave();
             else onRefresh();
         } catch (e) {
@@ -227,13 +246,13 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         if (!skill || !username) return;
         setSubscribeLoading(true);
         try {
-            const skillId = String(skill.id);
+            const skillId = String((skill as any)?.id ?? '');
             if (isSubscribed) {
                 await onUnsubscribe?.(skillId);
-                message.success('Unsubscribed');
+                message.success(t('pages.skills.unsubscribed', 'Unsubscribed'));
             } else {
                 await onSubscribe?.(skillId);
-                message.success('Subscribed');
+                message.success(t('pages.skills.subscribed', 'Subscribed'));
             }
         } catch (e) {
             if (e instanceof Error) message.error(e.message);
@@ -1070,7 +1089,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     {t('pages.skills.readOnly', 'Read-only')}
                                 </Button>
                             </Tooltip>
-                        ) : isOwnedByUser ? (
+                        ) : canEdit ? (
                             <>
                                 {canPublish && (
                                     <Button
