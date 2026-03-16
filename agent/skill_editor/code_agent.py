@@ -172,13 +172,15 @@ def _get_my_prompts_dir() -> Path:
 CODE_NODE_DEFAULT_TEMPLATE = """# Here, you can retrieve input variables from the node using 'state'
 import time
 
-def main(node_state, *, runtime, store):
+def main(state, *, runtime, store):
     # Build the output object
-    print("in myfunc0.........", node_state)
+    print("in myfunc0.........", state)
     time.sleep(1)
     print("myfunc0 woke now, outa here.....")
+    if not isinstance(state.get("result"), dict):
+        state["result"] = {}
     state["result"]["llm_result"] = {"all_done": False}
-    state["result"]["status"]"myfunc0 succeeded!!!"
+    state["result"]["status"] = "myfunc0 succeeded!!!"
     return state
 """
 

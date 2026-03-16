@@ -202,6 +202,16 @@ class AppSyncSubscriptionClient:
         self._thread.start()
         logger.info("[AppSyncSubClient] Background thread started")
 
+    @staticmethod
+    def _is_auth_expired_payload(data: Dict[str, Any]) -> bool:
+        err = json.dumps(data, ensure_ascii=False).lower() if isinstance(data, dict) else str(data).lower()
+        return (
+            "unauthorizedexception" in err
+            or "token has expired" in err
+            or '"errorcode": 401' in err
+            or "'errorcode': 401" in err
+        )
+
     def stop(self) -> None:
         """Stop the subscription listener."""
         self._running = False
@@ -330,6 +340,14 @@ class AppSyncSubscriptionClient:
             return
 
         if msg_type in ("error", "connection_error"):
+            if self._is_auth_expired_payload(data):
+                logger.warning("[AppSyncSubClient] Auth expired; stopping subscription reconnect loop")
+                self._running = False
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+                return
             logger.error(f"[AppSyncSubClient] Error from AppSync: {data}")
             return
 

@@ -2621,12 +2621,37 @@ def send_query_agent_skill_relations_request_to_cloud(session, token, q_settings
 # Skill Entity Operations
 # ============================================================================
 
+_SKILL_UNSUPPORTED_CLOUD_FIELDS = {
+    "owner",
+    "flowgram",
+    "langgraph",
+    "status",
+    "created_at",
+    "updated_at",
+    "ext",
+}
+
+
+def _sanitize_skill_cloud_items(skills):
+    sanitized_skills = []
+    for skill in skills or []:
+        if not isinstance(skill, dict):
+            sanitized_skills.append(skill)
+            continue
+        sanitized_skills.append({
+            key: value
+            for key, value in skill.items()
+            if key not in _SKILL_UNSUPPORTED_CLOUD_FIELDS
+        })
+    return sanitized_skills
+
 @cloud_api(DataType.SKILL, Operation.ADD)
 def send_add_skills_request_to_cloud(session, skills, token, endpoint, timeout=180):
     """Add Skill entities (skill data: name, description, etc.)"""
     from agent.cloud_api.graphql_builder import build_mutation
     from agent.cloud_api.constants import Operation
     
+    skills = _sanitize_skill_cloud_items(skills)
     logger.info(f"[Skill ADD] Sending addAgentSkills mutation for {len(skills)} skill(s)")
     mutationInfo = build_mutation(DataType.SKILL, Operation.ADD, skills)
     logger.debug(f"[Skill ADD] Mutation: {mutationInfo[:500]}...")
@@ -2663,6 +2688,7 @@ def send_update_skills_request_to_cloud(session, skills, token, endpoint):
     from agent.cloud_api.graphql_builder import build_mutation
     from agent.cloud_api.constants import Operation
     
+    skills = _sanitize_skill_cloud_items(skills)
     logger.info(f"[Skill UPDATE] Sending updateAgentSkills mutation for {len(skills)} skill(s)")
     mutationInfo = build_mutation(DataType.SKILL, Operation.UPDATE, skills)
     logger.debug(f"[Skill UPDATE] Mutation: {mutationInfo[:500]}...")
@@ -3347,7 +3373,7 @@ def send_add_agent_task_relations_request_to_cloud(session, relations, token, en
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.ADD, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentTaskRels", "addAgentTaskRels")
+    return safe_parse_response(jresp, "addAgentTaskRelations", "addAgentTaskRelations")
 
 
 @cloud_api(DataType.AGENT_TASK, Operation.UPDATE)
@@ -3355,7 +3381,7 @@ def send_update_agent_task_relations_request_to_cloud(session, relations, token,
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.UPDATE, relations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "updateAgentTaskRels", "updateAgentTaskRels")
+    return safe_parse_response(jresp, "updateAgentTaskRelations", "updateAgentTaskRelations")
 
 
 @cloud_api(DataType.AGENT_TASK, Operation.DELETE)
@@ -3363,14 +3389,14 @@ def send_remove_agent_task_relations_request_to_cloud(session, removes, token, e
     from agent.cloud_api.graphql_builder import build_mutation
     mutationInfo = build_mutation(DataType.AGENT_TASK, Operation.DELETE, removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "removeAgentTaskRels", "removeAgentTaskRels")
+    return safe_parse_response(jresp, "removeAgentTaskRelations", "removeAgentTaskRelations")
 
 
 @cloud_api(DataType.AGENT_TASK, Operation.QUERY)
 def send_query_agent_task_relations_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_agent_tasks_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryAgentTaskRels", "queryAgentTaskRels")
+    return safe_parse_response(jresp, "queryAgentTaskRelations", "queryAgentTaskRelations")
 
 
 # ============================================================================
@@ -3509,26 +3535,20 @@ def send_query_agent_tool_relations_request_to_cloud(session, token, q_settings,
 
 @cloud_api(DataType.AGENT_ORG, Operation.ADD)
 def send_add_agent_org_rels_to_cloud(session, relations, token, endpoint, timeout=180):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.ADD, relations)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentOrgRels", "addAgentOrgRels")
+    logger.warning("[AGENT_ORG] Agent-Org direct relationship is not supported in current AppSync schema.")
+    return {"success": False, "error": "Agent-Org direct relationship not supported in current AppSync schema"}
 
 
 @cloud_api(DataType.AGENT_ORG, Operation.UPDATE)
 def send_update_agent_org_rels_to_cloud(session, relations, token, endpoint, timeout=180):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.UPDATE, relations)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "updateAgentOrgRels", "updateAgentOrgRels")
+    logger.warning("[AGENT_ORG] Agent-Org direct relationship is not supported in current AppSync schema.")
+    return {"success": False, "error": "Agent-Org direct relationship not supported in current AppSync schema"}
 
 
 @cloud_api(DataType.AGENT_ORG, Operation.DELETE)
 def send_remove_agent_org_rels_to_cloud(session, removes, token, endpoint, timeout=180):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.DELETE, removes)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "removeAgentOrgRels", "removeAgentOrgRels")
+    logger.warning("[AGENT_ORG] Agent-Org direct relationship is not supported in current AppSync schema.")
+    return {"success": False, "error": "Agent-Org direct relationship not supported in current AppSync schema"}
 
 
 # ============================================================================

@@ -308,8 +308,8 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
         # Ensure 'version' has a default
         if not sk.get('version'):
             sk['version'] = '1.0'
-        logger.debug(f"[_fetch_cloud_skills] Normalized skill: id={sk.get('id')}, name={sk.get('name')}, "
-                      f"owner={sk.get('owner')}, keys={list(sk.keys())}")
+        # logger.debug(f"[_fetch_cloud_skills] Normalized skill: id={sk.get('id')}, name={sk.get('name')}, "
+        #               f"owner={sk.get('owner')}, keys={list(sk.keys())}")
 
     if result:
         sample = result[0]
@@ -362,18 +362,23 @@ def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[s
             logger.warning("[skill_handler] No skill service available")
             return create_success_response(request, [])
 
-        # Get all skills for the user
-        skills_result = skill_service.get_skills_by_owner(username)
+        # Subscribed skills are third-party public skills that have been saved
+        # into the local DB. They are typically NOT owned by the current user,
+        # so filtering by owner=username loses subscription state after relogin.
+        skills_result = skill_service.query_skills()
         if not skills_result.get('success'):
             logger.warning(f"[skill_handler] Failed to get skills: {skills_result.get('error')}")
             return create_success_response(request, [])
 
         skills = skills_result.get('data', [])
 
-        # Extract skill IDs from subscribed skills
-        # For now, return all skill IDs as we don't have a separate subscription mechanism
-        # In the future, this could filter based on a subscription status field
-        skill_ids = [skill.get('id') for skill in skills if skill.get('id')]
+        username_norm = str(username).strip().lower()
+        skill_ids = [
+            skill.get('id')
+            for skill in skills
+            if skill.get('id')
+            and str(skill.get('owner') or '').strip().lower() != username_norm
+        ]
 
         logger.info(f"[skill_handler] Found {len(skill_ids)} subscribed skill IDs for user {username}")
         return create_success_response(request, skill_ids)
@@ -546,6 +551,16 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
         return create_error_response(request, 'UNSUBSCRIBE_SKILL_ERROR', f"Error during unsubscribe: {str(e)}")
 
 
+@IPCHandlerRegistry.handler('publish_skill_to_store')
+def handle_publish_skill_to_store(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    return _handle_store_publish_toggle(request, params, publish=True)
+
+
+@IPCHandlerRegistry.handler('unpublish_skill_from_store')
+def handle_unpublish_skill_from_store(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    return _handle_store_publish_toggle(request, params, publish=False)
+
+
 @IPCHandlerRegistry.handler('save_agent_skill')
 def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle saving agent skill workflow to local database
@@ -577,10 +592,9 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         if not skill_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Skill ID is required for save operation')
 
-        # Check if this is a read-only skill
-        # - 'code': code/example skills (read-only)
-        # - 'ui': dynamically created via editor (editable)
+        # Local code-generated skills are read-only and must not sync to cloud.
         source = skill_info.get('source', 'ui')
+        path = skill_info.get('path', '')
         if source == 'code':
             logger.warning(f"Attempted to save code-based skill: {skill_info.get('name')} (source={source})")
             return create_error_response(
@@ -588,6 +602,29 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
                 'SKILL_READ_ONLY', 
                 'Code-based skills cannot be edited. Please modify the source files directly.'
             )
+
+        # ── Publish gate: non-free skills must use cloud/hybrid execution ──
+        # If price > 0 and the skill is not already marked for cloud execution,
+        # forcefully enable hybrid_cloud_mode to protect prompt IP.
+        _price = 0
+        try:
+            _price = int(skill_info.get('price', 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        _config = skill_info.get('config') or {}
+        _ric = bool(skill_info.get('run_in_cloud', _config.get('run_in_cloud', False)))
+        _hcm = bool(skill_info.get('hybrid_cloud_mode', _config.get('hybrid_cloud_mode', False)))
+        if _price > 0 and not _ric and not _hcm:
+            logger.warning(
+                f"[skill_handler] Non-free skill '{skill_info.get('name')}' (price={_price}) "
+                "saved as local — forcing hybrid_cloud_mode=true to protect prompt IP"
+            )
+            skill_info['hybrid_cloud_mode'] = True
+            skill_info['run_in_cloud'] = True
+            if isinstance(_config, dict):
+                _config['hybrid_cloud_mode'] = True
+                _config['run_in_cloud'] = True
+                skill_info['config'] = _config
 
         logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
 
@@ -598,6 +635,31 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Check if skill exists
         existing_skill = skill_service.get_skill_by_id(skill_id)
+
+        try:
+            existing_owner = ''
+            existing_path = ''
+            if existing_skill.get('success') and existing_skill.get('data'):
+                existing_owner = str(existing_skill['data'].get('owner', '') or '').strip()
+                existing_path = str(existing_skill['data'].get('path', '') or '').strip()
+            incoming_owner = str(skill_info.get('owner', '') or '').strip()
+            owner_for_check = existing_owner or incoming_owner
+            if owner_for_check and owner_for_check.lower() != username.lower():
+                return create_error_response(
+                    request,
+                    'SKILL_READ_ONLY',
+                    'Subscribed public skills cannot be edited.'
+                )
+            if not owner_for_check and existing_path and not is_user_skill(existing_path):
+                return create_error_response(
+                    request,
+                    'SKILL_READ_ONLY',
+                    'Subscribed public skills cannot be edited.'
+                )
+        except Exception as owner_check_e:
+            logger.warning(f"[skill_handler] Failed to verify skill ownership before save: {owner_check_e}")
+
+        logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
 
         if existing_skill.get('success') and existing_skill.get('data'):
             # Update existing skill — merge incoming fields onto existing DB record
@@ -903,6 +965,7 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                     askid = str(getattr(skill, 'askid', '') or '').strip()
                     if requested_skill_id in {sid, askid} or local_db_skill_id in {sid, askid} or cloud_skill_id in {sid, askid}:
                         source = getattr(skill, 'source', 'ui')
+                        path = getattr(skill, 'path', '') or ''
                         if source == 'code':
                             for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
                                 if delete_id:
@@ -929,7 +992,17 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                 existing = {'success': True, 'data': resolved_skill_record}
             if existing.get('success') and existing.get('data'):
                 skill_owner = str(existing['data'].get('owner', '') or '').strip()
+                skill_path_for_ownership = str(existing['data'].get('path', '') or '').strip()
                 if skill_owner and skill_owner.lower() != username.lower():
+                    for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
+                        if delete_id:
+                            _DELETED_SKILL_IDS.discard(delete_id)
+                    return create_error_response(
+                        request,
+                        'DELETE_SUBSCRIBED_SKILL_NOT_ALLOWED',
+                        'Subscribed public skills cannot be deleted. Use unsubscribe instead.'
+                    )
+                if not skill_owner and not is_user_skill(skill_path_for_ownership):
                     for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
                         if delete_id:
                             _DELETED_SKILL_IDS.discard(delete_id)
@@ -1382,6 +1455,163 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
     return clean_data
 
 
+def _resolve_owned_skill_record(
+    request: IPCRequest,
+    params: Optional[Dict[str, Any]],
+    username: str,
+    requested_skill_id: str
+) -> Tuple[Optional[Dict[str, Any]], str, str, bool]:
+    skill_service = _get_skill_service(request, params)
+    if not skill_service:
+        return None, requested_skill_id, requested_skill_id, False
+
+    resolved_skill_record = None
+    local_db_skill_id = requested_skill_id
+    cloud_skill_id = requested_skill_id
+    resolved_from_cloud = False
+
+    try:
+        owned_skills_result = skill_service.get_skills_by_owner(username)
+        owned_skills = owned_skills_result.get('data') if owned_skills_result.get('success') else []
+        for sk in (owned_skills or []):
+            db_id = str(sk.get('id') or '').strip()
+            askid = str(sk.get('askid') or '').strip()
+            if requested_skill_id and requested_skill_id in {db_id, askid}:
+                resolved_skill_record = sk
+                local_db_skill_id = db_id or requested_skill_id
+                cloud_skill_id = askid or requested_skill_id
+                break
+    except Exception as resolve_e:
+        logger.warning(f"[skill_handler] Failed to resolve owned skill identifier: {resolve_e}")
+
+    if not resolved_skill_record:
+        try:
+            cloud_skills = _fetch_cloud_skills(request, params)
+            username_norm = str(username or '').strip().lower()
+            for sk in (cloud_skills or []):
+                cloud_id = str(sk.get('id') or '').strip()
+                cloud_askid = str(sk.get('askid') or '').strip()
+                cloud_owner = str(sk.get('owner') or '').strip().lower()
+                if username_norm and cloud_owner and cloud_owner != username_norm:
+                    continue
+                if requested_skill_id and requested_skill_id in {cloud_id, cloud_askid}:
+                    resolved_skill_record = sk
+                    resolved_from_cloud = True
+                    cloud_skill_id = cloud_id or cloud_askid or requested_skill_id
+                    break
+        except Exception as cloud_resolve_e:
+            logger.warning(f"[skill_handler] Failed to resolve owned skill from cloud: {cloud_resolve_e}")
+
+    return resolved_skill_record, local_db_skill_id, cloud_skill_id, resolved_from_cloud
+
+
+def _handle_store_publish_toggle(
+    request: IPCRequest,
+    params: Optional[Dict[str, Any]],
+    publish: bool
+) -> IPCResponse:
+    action = 'publish' if publish else 'unpublish'
+    try:
+        username = resolve_username(request, params)
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
+
+        if not params or not params.get('skill_id'):
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_id')
+
+        requested_skill_id = str(params['skill_id']).strip()
+        skill_service = _get_skill_service(request, params)
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        resolved_skill_record, local_db_skill_id, cloud_skill_id, resolved_from_cloud = _resolve_owned_skill_record(
+            request, params, username, requested_skill_id
+        )
+
+        if not resolved_skill_record:
+            return create_error_response(
+                request,
+                'SKILL_NOT_FOUND',
+                f"Skill {requested_skill_id} not found or not owned by current user"
+            )
+
+        skill_owner = str(resolved_skill_record.get('owner', '') or '').strip()
+        skill_source = str(resolved_skill_record.get('source', 'ui') or 'ui').strip().lower()
+        skill_path = str(resolved_skill_record.get('path', '') or '').strip()
+
+        if skill_source == 'code':
+            return create_error_response(
+                request,
+                'SKILL_READ_ONLY',
+                'Code-based skills cannot be published to store. Please modify the source files directly.'
+            )
+
+        if skill_owner and skill_owner.lower() != username.lower():
+            return create_error_response(
+                request,
+                'STORE_SKILL_NOT_OWNED',
+                'Only the skill owner can publish or remove this skill from the store.'
+            )
+
+        if not skill_owner and skill_path and not is_user_skill(skill_path):
+            return create_error_response(
+                request,
+                'STORE_SKILL_NOT_OWNED',
+                'Only the skill owner can publish or remove this skill from the store.'
+            )
+
+        updated_fields = {
+            'public': publish,
+            'rentable': publish,
+        }
+        db_result = skill_service.update_skill(local_db_skill_id, updated_fields)
+        if not db_result.get('success'):
+            return create_error_response(
+                request,
+                'STORE_SKILL_UPDATE_ERROR',
+                f"Failed to {action} skill in local database: {db_result.get('error')}"
+            )
+
+        merged_skill = dict(resolved_skill_record)
+        merged_skill.update(db_result.get('data') or {})
+        merged_skill.update(updated_fields)
+        merged_skill['id'] = local_db_skill_id
+        merged_skill['owner'] = skill_owner or username
+
+        _update_skill_in_memory(local_db_skill_id, merged_skill, request, params)
+        try:
+            ctx = get_handler_context(request, params)
+            current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(local_db_skill_id)), None) if ctx else None
+            _sync_runtime_tasks_for_skill(current, request, params)
+        except Exception:
+            pass
+
+        cloud_payload = merged_skill.copy()
+        cloud_payload['id'] = cloud_skill_id or local_db_skill_id
+        cloud_payload['owner'] = skill_owner or username
+
+        cloud_result = _sync_skill_store_update_to_cloud(cloud_payload)
+        if not cloud_result.get('synced'):
+            error_msg = cloud_result.get('error') or f"Failed to {action} skill in cloud"
+            return create_error_response(request, 'STORE_SKILL_CLOUD_ERROR', error_msg)
+
+        clean_skill_data = _create_clean_skill_response(local_db_skill_id, merged_skill)
+        return create_success_response(request, {
+            'message': f'{action.capitalize()} skill successful',
+            'skill_id': local_db_skill_id,
+            'cloud_skill_id': cloud_skill_id or local_db_skill_id,
+            'resolved_from_cloud': resolved_from_cloud,
+            'data': clean_skill_data
+        })
+    except Exception as e:
+        logger.error(f"Error in {action}_skill_to_store handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'STORE_SKILL_ERROR',
+            f"Error during {action} skill to store: {str(e)}"
+        )
+
+
 # ============================================================================
 # Cloud Synchronization Functions
 # ============================================================================
@@ -1390,6 +1620,11 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
 def is_code_skill(file_path: str) -> bool:
     file_path_obj = Path(file_path)
     return 'resource/my_skills' in str(file_path_obj) or 'resource\\my_skills' in str(file_path_obj)
+
+
+def is_user_skill(file_path: str) -> bool:
+    path_str = str(Path(file_path)).replace('\\', '/')
+    return '/my_skills/' in path_str and '/resource/my_skills/' not in path_str
 
 
 def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> None:
@@ -1404,6 +1639,11 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     """
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType, Operation as Op
+
+    source = str(skill_data.get('source', 'ui') or 'ui').strip().lower()
+    if source == 'code':
+        logger.info(f"[skill_handler] ⏭️ Skip cloud sync for local code-based skill: {skill_data.get('name')}")
+        return
     
     def _log_result(result: Dict[str, Any]):
         """Log sync result and retry UPDATE→ADD on NOT_FOUND"""

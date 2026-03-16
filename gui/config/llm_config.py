@@ -276,8 +276,15 @@ class LLMConfig:
         return self._providers.copy()
 
     def get_provider(self, provider_name: str) -> Optional[LLMProviderConfig]:
-        """Get a specific provider configuration"""
-        return self._providers.get(provider_name)
+        """Get a specific provider configuration (case-insensitive)"""
+        result = self._providers.get(provider_name)
+        if result is not None:
+            return result
+        pn_lower = (provider_name or "").lower()
+        for key, val in self._providers.items():
+            if key.lower() == pn_lower:
+                return val
+        return None
 
     def get_provider_by_class_name(self, class_name: str) -> Optional[LLMProviderConfig]:
         """Get provider configuration by class name"""

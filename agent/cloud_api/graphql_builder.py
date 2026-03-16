@@ -40,7 +40,7 @@ class GraphQLBuilder:
     # GraphQL mutation name mapping
     # Standard naming convention:
     # - Entity operations: addAgents, addAgentSkills, addAgentTasks, addAgentTools
-    # - Relationship operations: addAgentSkillRels, addAgentTaskRels, addAgentOrgRels, etc.
+    # - Relationship operations: addAgentSkillRels, addAgentTaskRelations, etc.
     MUTATION_NAMES = {
         # ============================================================================
         # Entity Operations
@@ -75,17 +75,13 @@ class GraphQLBuilder:
         # ============================================================================
         # First-Level Relationship Operations
         # ============================================================================
-        (DataType.AGENT_ORG, Operation.ADD): "addAgentOrgRels",
-        (DataType.AGENT_ORG, Operation.UPDATE): "updateAgentOrgRels",
-        (DataType.AGENT_ORG, Operation.DELETE): "removeAgentOrgRels",
-        
         (DataType.AGENT_SKILL, Operation.ADD): "addAgentSkillRels",
         (DataType.AGENT_SKILL, Operation.UPDATE): "updateAgentSkillRels",
         (DataType.AGENT_SKILL, Operation.DELETE): "removeAgentSkillRels",
         
-        (DataType.AGENT_TASK, Operation.ADD): "addAgentTaskRels",
-        (DataType.AGENT_TASK, Operation.UPDATE): "updateAgentTaskRels",
-        (DataType.AGENT_TASK, Operation.DELETE): "removeAgentTaskRels",
+        (DataType.AGENT_TASK, Operation.ADD): "addAgentTaskRelations",
+        (DataType.AGENT_TASK, Operation.UPDATE): "updateAgentTaskRelations",
+        (DataType.AGENT_TASK, Operation.DELETE): "removeAgentTaskRelations",
         
         # ============================================================================
         # Second-Level Relationship Operations

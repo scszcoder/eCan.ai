@@ -146,6 +146,7 @@ type AgentSkill @aws_api_key @aws_cognito_user_pools {
   price_model: String
   public: Boolean
   rentable: Boolean
+  skill_owner: String
   source: String
   tags: AWSJSON
   version: String
@@ -1832,6 +1833,7 @@ input SkillInput {
   price_model: String
   public: Boolean
   rentable: Boolean
+  skill_owner: String
   source: String
   tags: AWSJSON
   version: String
@@ -1900,6 +1902,7 @@ input SkillUpdateInput {
   price_model: String
   public: Boolean
   rentable: Boolean
+  skill_owner: String
   source: String
   tags: AWSJSON
   version: String

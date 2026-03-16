@@ -1050,8 +1050,14 @@ def load_agent_tasks_from_cloud(mainwin):
         session = requests.Session()
         jresp = send_get_agent_tasks_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
         
-        if isinstance(jresp, dict) and 'body' in jresp:
-            all_agent_tasks = json.loads(jresp['body'])
+        if isinstance(jresp, list):
+            all_agent_tasks = jresp
+        elif isinstance(jresp, dict) and 'body' in jresp:
+            body = jresp['body']
+            if isinstance(body, str):
+                all_agent_tasks = json.loads(body)
+            else:
+                all_agent_tasks = body or []
         else:
             logger.warning("No agent tasks data returned from cloud")
             all_agent_tasks = []
@@ -1091,14 +1097,21 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
     try:
         llm = mainwin.llm
         all_tasks = mainwin.agent_tasks
-        if taskjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in taskjs['skills'].split(",")]
+
+        skills_value = taskjs.get('skills', '')
+        if isinstance(skills_value, list):
+            skids = [int(v) for v in skills_value if str(v).strip()]
+        elif isinstance(skills_value, str) and skills_value.strip():
+            skids = [int(sskid.strip()) for sskid in skills_value.split(",") if sskid.strip()]
         else:
             skids = []
         agent_skills = [sk for sk in all_tasks if sk.getSkid() in skids]
 
-        if taskjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in taskjs['tasks'].split(",")]
+        tasks_value = taskjs.get('tasks', '')
+        if isinstance(tasks_value, list):
+            taskids = [int(v) for v in tasks_value if str(v).strip()]
+        elif isinstance(tasks_value, str) and tasks_value.strip():
+            taskids = [int(staskid.strip()) for staskid in tasks_value.split(",") if staskid.strip()]
         else:
             taskids = []
         agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
@@ -1138,25 +1151,31 @@ def gen_new_agent_tasks(mainwin, taskjs):
     try:
         llm = mainwin.llm
         all_tasks = mainwin.agent_tasks
-        if taskjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in taskjs['skills'].split(",")]
+
+        skills_value = taskjs.get('skills', '')
+        if isinstance(skills_value, list):
+            skids = [int(v) for v in skills_value if str(v).strip()]
+        elif isinstance(skills_value, str) and skills_value.strip():
+            skids = [int(sskid.strip()) for sskid in skills_value.split(",") if sskid.strip()]
         else:
             skids = []
         agent_skills = [sk for sk in all_tasks if sk.getSkid() in skids]
 
-        if taskjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in taskjs['tasks'].split(",")]
+        tasks_value = taskjs.get('tasks', '')
+        if isinstance(tasks_value, list):
+            taskids = [int(v) for v in tasks_value if str(v).strip()]
+        elif isinstance(tasks_value, str) and tasks_value.strip():
+            taskids = [int(staskid.strip()) for staskid in tasks_value.split(",") if staskid.strip()]
         else:
             taskids = []
         agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
 
-        # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
         agent_card = AgentCard(
-            id = taskjs['id'],
-            name=taskjs['name'],
-            description=taskjs['description'],
+            id=taskjs.get('id', ''),
+            name=taskjs.get('name', ''),
+            description=taskjs.get('description') or '',
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=SUPPORTED_CONTENT_TYPES,
@@ -1170,12 +1189,10 @@ def gen_new_agent_tasks(mainwin, taskjs):
         return new_agent_task
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
             ex_stat = "ErrorNewAgentTasks:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTasks: traceback information not available:" + str(e)
-        # log3(ex_stat)
         logger.error(ex_stat)
         return None
 

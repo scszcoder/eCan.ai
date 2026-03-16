@@ -113,6 +113,161 @@ class TestCloudAPIService:
         assert len(delete_items) == 1
         assert delete_items[0]["oid"] == "skill_456"
 
+    def test_agent_schema_excludes_avatar_from_cloud_payload(self):
+        """Agent cloud payload should not include UI-only avatar object."""
+        from agent.cloud_api.cloud_api_service import CloudAPIService
+
+        service = CloudAPIService(DataType.AGENT)
+        cloud_item = service.schema.to_cloud(
+            {
+                "id": "agent_123",
+                "name": "Test Agent",
+                "avatar_resource_id": "A003",
+                "avatar": {
+                    "id": "A003",
+                    "type": "system",
+                    "imageUrl": "http://localhost/avatar.png"
+                }
+            },
+            operation=Operation.UPDATE.value
+        )
+
+        assert "avatar" not in cloud_item
+        assert cloud_item["avatar_resource_id"] == "A003"
+
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_auth_token')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_api_endpoint')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_cloud_api_function')
+    @patch('requests.Session')
+    def test_skill_delete_not_found_treated_as_idempotent_success(
+        self, mock_session, mock_get_func, mock_endpoint, mock_get_token
+    ):
+        from agent.cloud_api.cloud_api_service import CloudAPIService
+
+        mock_get_token.return_value = "mock_token"
+        mock_endpoint.return_value = "https://mock-endpoint.com/graphql"
+
+        mock_api_func = MagicMock(return_value=[
+            {"id": "skill_456", "success": False, "error": "NOT_FOUND: Skill not found"}
+        ])
+        mock_get_func.return_value = mock_api_func
+
+        service = CloudAPIService(DataType.SKILL)
+        result = service.sync_to_cloud(
+            [{"id": "skill_456", "owner": "user@example.com"}],
+            Operation.DELETE
+        )
+
+        assert result["success"] is True
+        assert result["synced"] == 1
+        assert result["failed"] == 0
+
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_auth_token')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_api_endpoint')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_cloud_api_function')
+    @patch('requests.Session')
+    def test_non_idempotent_skill_delete_error_still_fails(
+        self, mock_session, mock_get_func, mock_endpoint, mock_get_token
+    ):
+        from agent.cloud_api.cloud_api_service import CloudAPIService
+
+        mock_get_token.return_value = "mock_token"
+        mock_endpoint.return_value = "https://mock-endpoint.com/graphql"
+
+        mock_api_func = MagicMock(return_value=[
+            {"id": "skill_456", "success": False, "error": "PERMISSION_DENIED: forbidden"}
+        ])
+        mock_get_func.return_value = mock_api_func
+
+        service = CloudAPIService(DataType.SKILL)
+        result = service.sync_to_cloud(
+            [{"id": "skill_456", "owner": "user@example.com"}],
+            Operation.DELETE
+        )
+
+        assert result["success"] is False
+        assert result["failed"] == 1
+
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_auth_token')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_api_endpoint')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_cloud_api_function')
+    @patch('requests.Session')
+    def test_skill_update_not_found_falls_back_to_add_success(
+        self, mock_session, mock_get_func, mock_endpoint, mock_get_token
+    ):
+        from agent.cloud_api.cloud_api_service import CloudAPIService
+
+        mock_get_token.return_value = "mock_token"
+        mock_endpoint.return_value = "https://mock-endpoint.com/graphql"
+
+        mock_update_func = MagicMock(return_value=[
+            {"id": "skill_456", "success": False, "error": "NOT_FOUND: Skill not found"}
+        ])
+        mock_add_func = MagicMock(return_value=[
+            {"id": "skill_456", "success": True}
+        ])
+
+        def get_func(operation):
+            op = operation.value if hasattr(operation, 'value') else str(operation)
+            if op == Operation.UPDATE.value:
+                return mock_update_func
+            if op == Operation.ADD.value:
+                return mock_add_func
+            return None
+
+        mock_get_func.side_effect = get_func
+
+        service = CloudAPIService(DataType.SKILL)
+        result = service.sync_to_cloud(
+            [{"id": "skill_456", "owner": "user@example.com", "name": "Test Skill"}],
+            Operation.UPDATE
+        )
+
+        assert result["success"] is True
+        assert result["synced"] == 1
+        assert result["failed"] == 0
+        assert mock_update_func.call_count == 1
+        assert mock_add_func.call_count == 1
+
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_auth_token')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_api_endpoint')
+    @patch('agent.cloud_api.cloud_api_service.CloudAPIService._get_cloud_api_function')
+    @patch('requests.Session')
+    def test_skill_update_not_found_falls_back_to_add_duplicate_as_success(
+        self, mock_session, mock_get_func, mock_endpoint, mock_get_token
+    ):
+        from agent.cloud_api.cloud_api_service import CloudAPIService
+
+        mock_get_token.return_value = "mock_token"
+        mock_endpoint.return_value = "https://mock-endpoint.com/graphql"
+
+        mock_update_func = MagicMock(return_value=[
+            {"id": "skill_456", "success": False, "error": "NOT_FOUND: Skill not found"}
+        ])
+        mock_add_func = MagicMock(return_value=[
+            {"id": "skill_456", "success": False, "error": "Duplicate entry"}
+        ])
+
+        def get_func(operation):
+            op = operation.value if hasattr(operation, 'value') else str(operation)
+            if op == Operation.UPDATE.value:
+                return mock_update_func
+            if op == Operation.ADD.value:
+                return mock_add_func
+            return None
+
+        mock_get_func.side_effect = get_func
+
+        service = CloudAPIService(DataType.SKILL)
+        result = service.sync_to_cloud(
+            [{"id": "skill_456", "owner": "user@example.com", "name": "Test Skill"}],
+            Operation.UPDATE
+        )
+
+        assert result["success"] is True
+        assert result["synced"] == 1
+        assert result["failed"] == 0
+
 
 class TestCloudAPIServiceFactory:
     """Test suite for CloudAPIServiceFactory"""

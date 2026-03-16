@@ -14,19 +14,24 @@
   
   "excluded_fields": [
     "agid",
-    "skid"
+    "skid",
+    "owner",
+    "flowgram",
+    "langgraph",
+    "status",
+    "created_at",
+    "updated_at",
+    "ext"
   ],
   
   "operation_specific_exclusions": {
-    "add": ["owner"],
-    "update": ["owner"]
+    "add": [],
+    "update": []
   },
   
   "json_serialize_fields": [
     "config",
     "diagram",
-    "flowgram",
-    "langgraph",
     "tags",
     "examples",
     "inputModes",
@@ -35,17 +40,15 @@
     "limitations"
   ],
   
-  "aws_datetime_fields": [
-    "created_at",
-    "updated_at"
-  ],
+  "aws_datetime_fields": [],
   
   "notes": [
     "✨ This is for AgentSkill (entity), not AgentSkillRelation (relationship)",
     "Contains complete skill data including metadata, configuration, and business fields",
     "Excluded fields:",
     "  - agid, skid: Belong in AgentSkillRelation (relationship table)",
-    "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, source, status, price, price_model, public, rentable, created_at, updated_at",
+    "Cloud SkillInput/SkillUpdateInput excludes owner, flowgram, langgraph, status, created_at, updated_at, and ext",
+    "Schema fields: askid, name, description, version, level, config, diagram, tags, examples, inputModes, outputModes, apps, limitations, path, source, price, price_model, public, rentable",
     "source field: Comma-separated list of relative file paths under the skill directory. Cloud returns presigned URLs for uploading these files."
   ]
 }

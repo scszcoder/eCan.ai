@@ -1905,7 +1905,29 @@ class TaskRunner(Generic[Context]):
         # Determine cloud execution mode
         is_hybrid = self._is_hybrid_cloud_task(task)
         is_pure_cloud = self._is_pure_cloud_task(task)
-        
+
+        # ── Paid-skill guard: non-free, non-owned skills MUST run in cloud ──
+        # This prevents local exposure of prompt IP for paid/rented skills.
+        if not is_hybrid and not is_pure_cloud and task.skill is not None:
+            _price = 0
+            try:
+                _price = int(getattr(task.skill, 'price', 0) or 0)
+            except (TypeError, ValueError):
+                pass
+            if _price > 0:
+                _skill_owner = (getattr(task.skill, 'skill_owner', '') or getattr(task.skill, 'owner', '') or '').strip().lower()
+                _current_user = ''
+                try:
+                    _current_user = (self.agent.mainwin.user or '').strip().lower()
+                except Exception:
+                    pass
+                if _skill_owner and _current_user and _skill_owner != _current_user:
+                    logger.warning(
+                        f"[SUBMIT] Paid skill '{getattr(task.skill, 'name', '?')}' (price={_price}) "
+                        f"not owned by runner — forcing hybrid cloud execution to protect prompt IP"
+                    )
+                    is_hybrid = True
+
         # Pure cloud + schedule: cloud scheduler handles it, nothing to do locally
         if is_pure_cloud and trigger_type == "schedule":
             logger.info(f"[SUBMIT] Pure cloud task '{task.name}' with schedule trigger — cloud scheduler handles, skipping local execution")
@@ -2670,13 +2692,17 @@ class TaskRunner(Generic[Context]):
                     return str(resp.get("Error") or resp.get("error") or resp.get("message") or "")
                 return str(resp or "")
             
+            task_metadata = task.metadata if isinstance(task.metadata, dict) else {}
+            if not isinstance(task.metadata, dict):
+                task.metadata = task_metadata
+
             # Determine if async execution should be used
             # Can be disabled per-task or globally via env var
-            use_async = task.metadata.get("use_async", True)
+            use_async = task_metadata.get("use_async", True)
             
             # Dev mode defaults to sync for easier debugging (can be overridden)
             if trigger_type == "dev":
-                use_async = task.metadata.get("use_async", False)
+                use_async = task_metadata.get("use_async", False)
             
             if is_initial_run:
                 # Prepare state
@@ -2685,11 +2711,11 @@ class TaskRunner(Generic[Context]):
                 else:
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, None)
 
-                task.metadata["state"] = final_state
+                task_metadata["state"] = final_state
 
-                max_retries = int(task.metadata.get("retry_max", 2) or 2)
-                retry_base_delay = float(task.metadata.get("retry_delay", 1.0) or 1.0)
-                retry_backoff = float(task.metadata.get("retry_backoff", 2.0) or 2.0)
+                max_retries = int(task_metadata.get("retry_max", 2) or 2)
+                retry_base_delay = float(task_metadata.get("retry_delay", 1.0) or 1.0)
+                retry_backoff = float(task_metadata.get("retry_backoff", 2.0) or 2.0)
 
                 response = None
                 for attempt in range(max_retries + 1):
@@ -2762,9 +2788,9 @@ class TaskRunner(Generic[Context]):
                 if resume_tag:
                     resume_context = {"skip_bp_once": [resume_tag]}
 
-                max_retries = int(task.metadata.get("retry_max", 2) or 2)
-                retry_base_delay = float(task.metadata.get("retry_delay", 1.0) or 1.0)
-                retry_backoff = float(task.metadata.get("retry_backoff", 2.0) or 2.0)
+                max_retries = int(task_metadata.get("retry_max", 2) or 2)
+                retry_base_delay = float(task_metadata.get("retry_delay", 1.0) or 1.0)
+                retry_backoff = float(task_metadata.get("retry_backoff", 2.0) or 2.0)
 
                 response = None
                 for attempt in range(max_retries + 1):

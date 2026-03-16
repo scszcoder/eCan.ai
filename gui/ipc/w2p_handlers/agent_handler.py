@@ -9,7 +9,7 @@ from app_context import AppContext
 from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
-from agent.cloud_api.constants import Operation
+from agent.cloud_api.constants import Operation, DataType
 convert_agent_dict_to_ec_agent = None  # Lazy import to avoid circulars
 
 
@@ -452,9 +452,14 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     sync_operation = Operation.ADD if is_new_agent else Operation.UPDATE
 
                     # Sync Agent entity first, then sync relations after completion to avoid FK races.
+                    sync_relations_after_entity_sync = _sync_agent_relations_after_entity_sync
+                    queue_relations_after_entity_cache = _queue_agent_relations_after_entity_cache
+
                     def _after_agent_sync(result: Dict[str, Any]):
-                        if result.get('synced') or result.get('cached'):
-                            _sync_agent_relations_after_entity_sync(updated_agent_data, agent_data)
+                        if result.get('synced'):
+                            sync_relations_after_entity_sync(updated_agent_data, agent_data)
+                        elif result.get('cached'):
+                            queue_relations_after_entity_cache(updated_agent_data, agent_data)
                         else:
                             logger.error(
                                 f"[agent_handler] Skipping relation sync due to agent sync failure: {result.get('error') or result.get('errors') or result}"
@@ -732,9 +737,14 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
 
         # Step 3: Sync to cloud after memory update succeeds (async, auto-cached if failed)
         # Sync Agent entity first, then sync relations after completion to avoid FK races.
+        sync_relations_after_entity_sync = _sync_agent_relations_after_entity_sync
+        queue_relations_after_entity_cache = _queue_agent_relations_after_entity_cache
+
         def _after_agent_sync(result: Dict[str, Any]):
-            if result.get('synced') or result.get('cached'):
-                _sync_agent_relations_after_entity_sync(created_agent, agent_data)
+            if result.get('synced'):
+                sync_relations_after_entity_sync(created_agent, agent_data)
+            elif result.get('cached'):
+                queue_relations_after_entity_cache(created_agent, agent_data)
             else:
                 logger.error(
                     f"[agent_handler] Skipping relation sync due to agent sync failure: {result.get('error') or result.get('errors') or result}"
@@ -1000,6 +1010,46 @@ def _sync_agent_relations_after_entity_sync(updated_agent_data: Dict[str, Any], 
         if not org_ids and input_agent_data.get('org_id'):
             org_ids = [input_agent_data['org_id']]
         _sync_agent_org_relations(updated_agent_data, org_ids, Operation.ADD)
+
+
+def _queue_agent_relations_locally(updated_agent_data: Dict[str, Any], input_agent_data: Dict[str, Any]) -> None:
+    from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+
+    sync_queue = get_offline_sync_queue()
+    agent_id = updated_agent_data.get('agid') or updated_agent_data.get('id')
+
+    for field_name, data_type, build_payload in _AGENT_RELATION_QUEUE_CONFIG:
+        for item_id in input_agent_data.get(field_name, []) or []:
+            sync_queue.add(
+                data_type,
+                build_payload(agent_id, item_id),
+                Operation.ADD
+            )
+
+    if 'org_id' in input_agent_data or 'org_ids' in input_agent_data:
+        org_ids = input_agent_data.get('org_ids', [])
+        if not org_ids and input_agent_data.get('org_id'):
+            org_ids = [input_agent_data['org_id']]
+        for org_id in org_ids:
+            sync_queue.add(
+                DataType.AGENT_ORG,
+                {
+                    'agent_id': agent_id,
+                    'org_id': org_id,
+                },
+                Operation.ADD
+            )
+
+
+_AGENT_RELATION_QUEUE_CONFIG = (
+    ('skills', DataType.AGENT_SKILL, lambda agent_id, item_id: {'agid': agent_id, 'skid': item_id}),
+    ('tasks', DataType.AGENT_TASK, lambda agent_id, item_id: {'agid': agent_id, 'task_id': item_id, 'status': 'assigned'}),
+    ('tools', DataType.AGENT_TOOL, lambda agent_id, item_id: {'agid': agent_id, 'tool_id': item_id, 'permission': 'use'}),
+)
+
+
+def _queue_agent_relations_after_entity_cache(updated_agent_data: Dict[str, Any], input_agent_data: Dict[str, Any]) -> None:
+    _queue_agent_relations_locally(updated_agent_data, input_agent_data)
 
 
 def _sync_agent_skill_relations(agent_data: Dict[str, Any], skill_ids: list, operation: 'Operation') -> None:

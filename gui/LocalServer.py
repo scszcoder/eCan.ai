@@ -33,7 +33,7 @@ LOG_FILTER_CONFIG = {
     ],
     # 完全匹配的消息类型会被屏蔽
     'exact': [
-        # 'some.exact.type',  # 示例：精确匹配
+        'skill_editor_log',
     ]
 }
 

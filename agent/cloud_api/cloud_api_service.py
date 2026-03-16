@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional, Callable, Union
 from utils.logger_helper import logger_helper as logger
 from agent.cloud_api.constants import DataType, Operation, get_cloud_api_function
 from agent.cloud_api.schema_registry import get_schema_registry
+from agent.cloud_api.sync_rules import validate_preflight
 
 # Import cloud_api module to trigger decorator registration
 import agent.cloud_api.cloud_api  # noqa: F401
@@ -24,6 +25,21 @@ import agent.cloud_api.cloud_api  # noqa: F401
 
 class CloudAPIService:
     """Cloud API Sync Service (auto-registered using decorators)"""
+
+    def _ensure_schema(self) -> bool:
+        """Ensure schema exists, attempting lazy/on-demand registration if needed."""
+        if self.schema is not None:
+            return True
+        try:
+            self.schema_registry = get_schema_registry()
+            self.schema = self.schema_registry.get_schema(self.data_type)
+        except Exception as e:
+            logger.warning(f"[CloudAPIService] Failed ensuring schema for {self.data_type}: {e}")
+            self.schema = None
+        if self.schema is None:
+            logger.error(f"[CloudAPIService] No schema available for {self.data_type}")
+            return False
+        return True
 
     @staticmethod
     def _is_duplicate_entry_error(error: Any) -> bool:
@@ -35,14 +51,275 @@ class CloudAPIService:
             or "sqlstate: 23000" in err
         )
 
+    @staticmethod
+    def _is_not_found_error(error: Any) -> bool:
+        """Check whether an error message indicates the record is already absent."""
+        err = str(error or "").lower()
+        return "not_found" in err or "not found" in err
+
+    @staticmethod
+    def _is_already_exists_error(error: Any) -> bool:
+        """Check whether an error indicates the resource already exists."""
+        err = str(error or "").lower()
+        return (
+            "already exists" in err
+            or "already_exist" in err
+            or "duplicate" in err
+            or "conflict" in err
+        )
+
     def _is_idempotent_error(self, operation: str, error: Any) -> bool:
-        """Only treat known duplicate insert errors as idempotent success."""
+        """Treat known duplicate add / already-missing delete cases as idempotent success."""
         return (
             operation == Operation.ADD.value
             and self.data_type == DataType.TASK_SKILL
             and self._is_duplicate_entry_error(error)
+        ) or (
+            operation == Operation.DELETE.value
+            and self.data_type == DataType.SKILL
+            and self._is_not_found_error(error)
         )
-    
+
+    def _should_fallback_update_to_add(self, operation: str, errors: List[Any]) -> bool:
+        """Allow a narrowly-scoped update->add recovery for missing cloud skills."""
+        return (
+            operation == Operation.UPDATE.value
+            and self.data_type == DataType.SKILL
+            and bool(errors)
+            and all(self._is_not_found_error(error) for error in errors)
+        )
+
+    def _sync_via_operation(
+        self,
+        local_items: List[Dict[str, Any]],
+        operation: Union[Operation, str],
+        timeout: float = None,
+    ) -> Dict[str, Any]:
+        """Execute a cloud sync for a specific operation without recursive fallback logic."""
+        token = self._get_auth_token()
+        if not token:
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': ['No auth token available']
+            }
+
+        logger.debug(f"[CloudAPIService] Sample local item BEFORE conversion: {local_items[0] if local_items else 'N/A'}")
+        operation_str = operation.value if hasattr(operation, 'value') else str(operation)
+        if not self._ensure_schema():
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [f'No schema available for {self.data_type}']
+            }
+        preflight_error = validate_preflight(self.data_type, local_items, operation_str)
+        if preflight_error:
+            logger.warning(f"[CloudAPIService] ⛔ {preflight_error}")
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [preflight_error],
+            }
+        cloud_items = [self.schema.to_cloud(item, operation=operation_str) for item in local_items]
+        if self.data_type == DataType.AGENT:
+            for cloud_item in cloud_items:
+                cloud_item.pop('avatar', None)
+                avatar_resource_id = cloud_item.get('avatar_resource_id')
+                if isinstance(avatar_resource_id, str) and avatar_resource_id.startswith('A00'):
+                    cloud_item.pop('avatar_resource_id', None)
+        logger.debug(f"[CloudAPIService] Sample cloud item AFTER conversion: {cloud_items[0] if cloud_items else 'N/A'}")
+
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        import inspect
+
+        api_func = self._get_cloud_api_function(operation)
+        if not api_func:
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [f'No cloud API function for {self.data_type}.{operation}']
+            }
+
+        session = requests.Session()
+        retry_strategy = Retry(total=0, backoff_factor=0)
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        endpoint = self._get_api_endpoint()
+        if operation_str == Operation.DELETE.value:
+            cloud_items = self._prepare_delete_items(cloud_items)
+
+        timeout_info = f" (timeout: {timeout}s)" if timeout else ""
+        logger.info(f"[CloudAPIService] 🚀 Calling cloud API: {self.data_type}.{operation} with {len(cloud_items)} item(s){timeout_info}")
+        logger.debug(f"[CloudAPIService] API endpoint: {endpoint}")
+
+        sig = inspect.signature(api_func)
+        if 'timeout' in sig.parameters and timeout is not None:
+            result = api_func(session, cloud_items, token, endpoint, timeout=timeout)
+        else:
+            result = api_func(session, cloud_items, token, endpoint)
+
+        logger.debug(f"[CloudAPIService] Cloud API response type: {type(result)}")
+        if isinstance(result, dict):
+            logger.debug(f"[CloudAPIService] Cloud API response keys: {result.keys()}")
+            logger.debug(f"[CloudAPIService] Cloud API response: {result}")
+
+        if isinstance(result, dict) and result.get('skipped'):
+            reason = result.get('reason', 'unknown reason')
+            op_name = result.get('operation', f"{self.data_type}.{operation}")
+            logger.error(
+                f"[CloudAPIService] ❌ Cloud operation not supported by server schema: {op_name} | endpoint={endpoint} | reason={reason}"
+            )
+            logger.error(
+                f"[CloudAPIService] ❌ Action required: deploy/upgrade AppSync GraphQL schema for this endpoint to include the missing mutation(s)."
+            )
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [f"{op_name} not supported by server schema: {reason}"],
+                'response': result
+            }
+
+        if isinstance(result, dict) and 'errorType' in result:
+            error_msg = result.get('message', 'Unknown error')
+            logger.error(f"[CloudAPIService] ❌ Cloud API error: {error_msg}")
+            logger.error(f"[CloudAPIService] Full error response: {result}")
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [error_msg],
+                'response': result
+            }
+
+        if isinstance(result, dict) and result.get('success') is False:
+            error_msg = result.get('error') or result.get('message') or 'Cloud API returned success=false'
+
+            if self._is_idempotent_error(operation_str, error_msg):
+                logger.info(
+                    f"[CloudAPIService] ✅ Treating cloud error as idempotent success for {self.data_type}.{operation_str}: {error_msg}"
+                )
+                return {
+                    'success': True,
+                    'synced': len(local_items),
+                    'failed': 0,
+                    'errors': [],
+                    'response': result
+                }
+
+            logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
+            logger.error(f"[CloudAPIService] Full failure response: {result}")
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [error_msg],
+                'response': result
+            }
+
+        if result is None:
+            error_msg = f"Cloud API returned null for {self.data_type}.{operation}"
+            logger.error(f"[CloudAPIService] ❌ {error_msg}")
+            return {
+                'success': False,
+                'synced': 0,
+                'failed': len(local_items),
+                'errors': [error_msg]
+            }
+
+        if isinstance(result, list):
+            logger.debug(f"[CloudAPIService] Cloud API returned list response with {len(result)} item(s)")
+            idempotent_errors = []
+            item_errors = []
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                if item.get('success') is False or item.get('errorType') or item.get('error'):
+                    item_error = item.get('error') or item.get('message') or str(item)
+                    if self._is_idempotent_error(operation_str, item_error):
+                        idempotent_errors.append(item_error)
+                    else:
+                        item_errors.append(item_error)
+
+            if idempotent_errors:
+                logger.info(
+                    f"[CloudAPIService] ℹ️ Ignoring {len(idempotent_errors)} idempotent cloud error(s) for {self.data_type}.{operation_str}"
+                )
+
+            if item_errors:
+                logger.error(
+                    f"[CloudAPIService] ❌ Cloud API returned {len(item_errors)} failed item(s) out of {len(result)}"
+                )
+                logger.error(f"[CloudAPIService] Item-level errors: {item_errors}")
+                failed_count = max(len(item_errors), len(local_items) - (len(result) - len(item_errors)))
+                return {
+                    'success': False,
+                    'synced': max(0, len(local_items) - failed_count),
+                    'failed': failed_count,
+                    'errors': item_errors,
+                    'response': result
+                }
+        elif not isinstance(result, dict):
+            logger.warning(f"[CloudAPIService] Unexpected response type: {type(result)}, treating as success")
+
+        logger.info(f"[CloudAPIService] ✅ Successfully synced {len(local_items)} {self.data_type}(s) to cloud ({operation})")
+        logger.debug(f"[CloudAPIService] Cloud API success response: {result}")
+        return {
+            'success': True,
+            'synced': len(local_items),
+            'failed': 0,
+            'errors': [],
+            'response': result
+        }
+
+    def _try_skill_update_fallback_to_add(
+        self,
+        local_items: List[Dict[str, Any]],
+        errors: List[Any],
+        timeout: float = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Safely recover skill.update NOT_FOUND by attempting a controlled add."""
+        if not self._should_fallback_update_to_add(Operation.UPDATE.value, errors):
+            return None
+
+        logger.warning(
+            f"[CloudAPIService] ⚠️ Skill update target missing in cloud; attempting controlled fallback to skill.add for {len(local_items)} item(s)"
+        )
+
+        add_result = self._sync_via_operation(local_items, Operation.ADD, timeout=timeout)
+        add_errors = add_result.get('errors', [])
+
+        if add_result.get('success'):
+            logger.info("[CloudAPIService] ✅ skill.update fallback to skill.add succeeded")
+            return add_result
+
+        if add_errors and all(
+            self._is_duplicate_entry_error(error) or self._is_already_exists_error(error)
+            for error in add_errors
+        ):
+            logger.info(
+                "[CloudAPIService] ✅ skill.update fallback add reported existing cloud record; treating as success"
+            )
+            return {
+                'success': True,
+                'synced': len(local_items),
+                'failed': 0,
+                'errors': [],
+                'response': add_result.get('response')
+            }
+
+        logger.warning(
+            f"[CloudAPIService] ❌ skill.update fallback to add failed: {add_errors or add_result}"
+        )
+        return add_result
+
     def __init__(self, data_type: Union[DataType, str]):
         """
         Initialize cloud service
@@ -119,198 +396,22 @@ class CloudAPIService:
         Returns:
             Sync result {'success': bool, 'synced': int, 'failed': int, 'errors': []}
         """
-        token = self._get_auth_token()
-        if not token:
-            return {
-                'success': False,
-                'synced': 0,
-                'failed': len(local_items),
-                'errors': ['No auth token available']
-            }
-        
-        # Use Schema to convert data format (simplified: removed Adapter layer)
-        # Pass operation type to schema for operation-specific transformations
-        logger.debug(f"[CloudAPIService] Sample local item BEFORE conversion: {local_items[0] if local_items else 'N/A'}")
         operation_str = operation.value if hasattr(operation, 'value') else str(operation)
-        cloud_items = [self.schema.to_cloud(item, operation=operation_str) for item in local_items]
-        logger.debug(f"[CloudAPIService] Sample cloud item AFTER conversion: {cloud_items[0] if cloud_items else 'N/A'}")
         
         try:
-            # Get cloud API function
-            api_func = self._get_cloud_api_function(operation)
-            if not api_func:
-                return {
-                    'success': False,
-                    'synced': 0,
-                    'failed': len(local_items),
-                    'errors': [f'No cloud API function for {self.data_type}.{operation}']
-                }
-            
-            # Create session with proper timeout configuration
-            from requests.adapters import HTTPAdapter
-            from urllib3.util.retry import Retry
-            
-            session = requests.Session()
-            
-            # Configure HTTPAdapter with proper timeout handling
-            # This ensures the session respects the timeout parameter
-            retry_strategy = Retry(
-                total=0,  # No automatic retries (we handle retries at a higher level)
-                backoff_factor=0
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("https://", adapter)
-            session.mount("http://", adapter)
-            
-            endpoint = self._get_api_endpoint()
-            
-            # Handle delete operation (requires special format)
-            if operation == 'delete':
-                cloud_items = self._prepare_delete_items(cloud_items)
-            
-            # Call cloud API
-            timeout_info = f" (timeout: {timeout}s)" if timeout else ""
-            logger.info(f"[CloudAPIService] 🚀 Calling cloud API: {self.data_type}.{operation} with {len(cloud_items)} item(s){timeout_info}")
-            logger.debug(f"[CloudAPIService] API endpoint: {endpoint}")
-            
-            # Call API function with timeout parameter
-            # Note: api_func signature may be (session, items, token, endpoint) or (session, items, token, endpoint, timeout)
-            # We need to check function signature
-            import inspect
-            sig = inspect.signature(api_func)
-            
-            if 'timeout' in sig.parameters and timeout is not None:
-                # Function supports timeout parameter
-                result = api_func(session, cloud_items, token, endpoint, timeout=timeout)
-            else:
-                # Function doesn't support timeout parameter, use default
-                result = api_func(session, cloud_items, token, endpoint)
-            
-            # Log detailed response information
-            logger.debug(f"[CloudAPIService] Cloud API response type: {type(result)}")
-            if isinstance(result, dict):
-                logger.debug(f"[CloudAPIService] Cloud API response keys: {result.keys()}")
-                logger.debug(f"[CloudAPIService] Cloud API response: {result}")
-
-            # Schema mismatch: server doesn't support this operation.
-            # Relations are required by design, so treat this as a hard failure.
-            if isinstance(result, dict) and result.get('skipped'):
-                reason = result.get('reason', 'unknown reason')
-                op_name = result.get('operation', f"{self.data_type}.{operation}")
-                logger.error(
-                    f"[CloudAPIService] ❌ Cloud operation not supported by server schema: {op_name} | endpoint={endpoint} | reason={reason}"
+            result = self._sync_via_operation(local_items, operation, timeout=timeout)
+            if (
+                not result.get('success')
+                and self._should_fallback_update_to_add(operation_str, result.get('errors', []))
+            ):
+                fallback_result = self._try_skill_update_fallback_to_add(
+                    local_items,
+                    result.get('errors', []),
+                    timeout=timeout,
                 )
-                logger.error(
-                    f"[CloudAPIService] ❌ Action required: deploy/upgrade AppSync GraphQL schema for this endpoint to include the missing mutation(s)."
-                )
-                return {
-                    'success': False,
-                    'synced': 0,
-                    'failed': len(local_items),
-                    'errors': [f"{op_name} not supported by server schema: {reason}"],
-                    'response': result
-                }
-            
-            # Check result
-            if isinstance(result, dict) and 'errorType' in result:
-                error_msg = result.get('message', 'Unknown error')
-                logger.error(f"[CloudAPIService] ❌ Cloud API error: {error_msg}")
-                logger.error(f"[CloudAPIService] Full error response: {result}")
-                return {
-                    'success': False,
-                    'synced': 0,
-                    'failed': len(local_items),
-                    'errors': [error_msg],
-                    'response': result
-                }
-
-            # Explicit failure shape from some cloud handlers
-            if isinstance(result, dict) and result.get('success') is False:
-                error_msg = result.get('error') or result.get('message') or 'Cloud API returned success=false'
-
-                # Idempotent behavior for duplicate inserts on TASK_SKILL.add
-                if self._is_idempotent_error(operation_str, error_msg):
-                    logger.info(
-                        f"[CloudAPIService] ✅ Duplicate TASK_SKILL relation already exists in cloud, treating as idempotent success ({operation_str})"
-                    )
-                    return {
-                        'success': True,
-                        'synced': len(local_items),
-                        'failed': 0,
-                        'errors': [],
-                        'response': result
-                    }
-
-                logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
-                logger.error(f"[CloudAPIService] Full failure response: {result}")
-                return {
-                    'success': False,
-                    'synced': 0,
-                    'failed': len(local_items),
-                    'errors': [error_msg],
-                    'response': result
-                }
-            
-            # Check if response is successful (may not have explicit success flag)
-            if result is None:
-                # None response means the cloud API returned null (rejected the request)
-                error_msg = f"Cloud API returned null for {self.data_type}.{operation}"
-                logger.error(f"[CloudAPIService] ❌ {error_msg}")
-                return {
-                    'success': False,
-                    'synced': 0,
-                    'failed': len(local_items),
-                    'errors': [error_msg]
-                }
-            
-            # List responses are valid for batch operations (e.g., removeAgentSkills returns list of results)
-            if isinstance(result, list):
-                logger.debug(f"[CloudAPIService] Cloud API returned list response with {len(result)} item(s)")
-                # Some APIs return per-item results like {success: false, error: ...}
-                duplicate_errors = []
-                item_errors = []
-                for item in result:
-                    if not isinstance(item, dict):
-                        continue
-                    if item.get('success') is False or item.get('errorType') or item.get('error'):
-                        item_error = item.get('error') or item.get('message') or str(item)
-                        if self._is_idempotent_error(operation_str, item_error):
-                            duplicate_errors.append(item_error)
-                        else:
-                            item_errors.append(item_error)
-
-                if duplicate_errors:
-                    logger.info(
-                        f"[CloudAPIService] ℹ️ Ignoring {len(duplicate_errors)} duplicate TASK_SKILL relation error(s) as idempotent ({operation_str})"
-                    )
-
-                if item_errors:
-                    logger.error(
-                        f"[CloudAPIService] ❌ Cloud API returned {len(item_errors)} failed item(s) out of {len(result)}"
-                    )
-                    logger.error(f"[CloudAPIService] Item-level errors: {item_errors}")
-                    failed_count = max(len(item_errors), len(local_items) - (len(result) - len(item_errors)))
-                    return {
-                        'success': False,
-                        'synced': max(0, len(local_items) - failed_count),
-                        'failed': failed_count,
-                        'errors': item_errors,
-                        'response': result
-                    }
-            elif not isinstance(result, dict):
-                # Only warn for truly unexpected types (not list or dict)
-                logger.warning(f"[CloudAPIService] Unexpected response type: {type(result)}, treating as success")
-            
-            # Success response
-            logger.info(f"[CloudAPIService] ✅ Successfully synced {len(local_items)} {self.data_type}(s) to cloud ({operation})")
-            logger.debug(f"[CloudAPIService] Cloud API success response: {result}")
-            return {
-                'success': True,
-                'synced': len(local_items),
-                'failed': 0,
-                'errors': [],
-                'response': result
-            }
+                if fallback_result is not None:
+                    return fallback_result
+            return result
             
         except Exception as e:
             error_msg = str(e)
@@ -381,6 +482,13 @@ class CloudAPIService:
             }
         
         try:
+            if not self._ensure_schema():
+                return {
+                    'success': False,
+                    'items': [],
+                    'count': 0,
+                    'error': f'No schema available for {self.data_type}'
+                }
             # Get query API function
             api_func = self._get_cloud_api_function('query')
             if not api_func:
@@ -466,12 +574,17 @@ class CloudAPIService:
             Whether reload was successful
         """
         logger.info(f"[CloudAPIService] Reloading field mapping for {self.data_type}...")
-        success = self.adapter.reload_config()
-        if success:
+        try:
+            self.schema_registry = get_schema_registry()
+            self.schema = self.schema_registry.get_schema(self.data_type)
+            if self.schema is None:
+                logger.warning(f"[CloudAPIService] ⚠️ Field mapping still missing for {self.data_type} after reload")
+                return False
             logger.info(f"[CloudAPIService] ✅ Field mapping reloaded for {self.data_type}")
-        else:
-            logger.warning(f"[CloudAPIService] ⚠️ Failed to reload field mapping for {self.data_type}")
-        return success
+            return True
+        except Exception as e:
+            logger.warning(f"[CloudAPIService] ⚠️ Failed to reload field mapping for {self.data_type}: {e}")
+            return False
 
 
 class CloudAPIServiceFactory:

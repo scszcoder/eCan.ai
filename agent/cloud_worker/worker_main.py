@@ -1134,6 +1134,9 @@ async def handle_skill_run_message(
     dev_mode = msg_data.get("dev_mode", False)
     
     username = msg_data.get("username", "")
+    # skill_owner is the original author — use for prompt resolution so
+    # rented skills load the author's prompts, not the runner's.
+    skill_owner = skill_data.get("skill_owner") or msg_data.get("skill_owner") or ""
     
     # Check for cancellation before starting
     if run_state.cancel_requested:
@@ -1163,9 +1166,13 @@ async def handle_skill_run_message(
         )
     
     # Choose execution mode
-    # Set up cloud prompt context for DynamoDB-based prompt loading
+    # Set up cloud prompt context for DynamoDB-based prompt loading.
+    # Use skill_owner (original author) so rented skills resolve prompts
+    # from the author's DynamoDB partition, not the runner's.
     from agent.cloud.cloud_prompt_loader import set_cloud_prompt_context, clear_cloud_prompt_context
-    set_cloud_prompt_context(owner_id=username, region=region)
+    prompt_owner = skill_owner or username
+    set_cloud_prompt_context(owner_id=prompt_owner, region=region)
+    logger.info(f"[cloud_worker] Prompt context: owner={prompt_owner} (skill_owner={skill_owner}, runner={username})")
     
     try:
         if dev_mode and diagram and diagram.get("nodes"):

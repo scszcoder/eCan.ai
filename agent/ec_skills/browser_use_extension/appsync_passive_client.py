@@ -347,6 +347,16 @@ class AppSyncPassiveClient:
             except Exception:
                 pass
 
+    @staticmethod
+    def _is_auth_expired_payload(data: Any) -> bool:
+        err = json.dumps(data, ensure_ascii=False).lower() if isinstance(data, (dict, list)) else str(data).lower()
+        return (
+            "unauthorizedexception" in err
+            or "token has expired" in err
+            or '"errorcode": 401' in err
+            or "'errorcode': 401" in err
+        )
+
     async def start(self) -> None:
         auth_headers = _build_auth_headers(self._config.auth_token)
         auth_type = "NONE"
@@ -417,6 +427,19 @@ class AppSyncPassiveClient:
                 return
 
             if msg_type in ("ka", "keepalive"):
+                return
+
+            if msg_type in ("error", "connection_error"):
+                if self._is_auth_expired_payload(data):
+                    logger.warning("[AppSyncPassiveClient] Auth expired; stopping passive subscription reconnect loop")
+                    with self._lock:
+                        self._stopped = True
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    return
+                logger.error(f"[AppSyncPassiveClient] Error from AppSync: {data}")
                 return
 
             if msg_type == "data" and data.get("id") == self._subscription_id:

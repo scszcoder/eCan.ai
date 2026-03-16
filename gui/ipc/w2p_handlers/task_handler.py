@@ -82,6 +82,77 @@ def _safe_parse_json(value: Any, default: Any = None):
     return default
 
 
+def _json_safe(value, depth: int = 0):
+    try:
+        if depth > 15:
+            return str(value)
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            safe_dict = {}
+            for k, v in value.items():
+                safe_dict[str(k)] = _json_safe(v, depth + 1)
+            return safe_dict
+        if isinstance(value, (list, tuple, set)):
+            return [_json_safe(v, depth + 1) for v in value]
+        if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
+            try:
+                return _json_safe(value.model_dump(mode="python"), depth + 1)
+            except Exception:
+                pass
+        if hasattr(value, '__dict__'):
+            try:
+                return _json_safe(vars(value), depth + 1)
+            except Exception:
+                pass
+        return str(value)
+    except Exception:
+        try:
+            return str(value)
+        except Exception:
+            return '<unserializable>'
+
+
+def _dump_task_safely(agent_task: Any) -> Dict[str, Any]:
+    if hasattr(agent_task, 'model_dump'):
+        try:
+            return agent_task.model_dump(
+                exclude=TASK_SERIALIZATION_EXCLUDE,
+                mode='json',
+                exclude_none=True
+            )
+        except Exception:
+            pass
+        try:
+            return _json_safe(
+                agent_task.model_dump(
+                    exclude=TASK_SERIALIZATION_EXCLUDE,
+                    mode='python',
+                    exclude_none=True
+                )
+            )
+        except Exception:
+            pass
+    if hasattr(agent_task, 'dict'):
+        try:
+            return _json_safe(
+                agent_task.dict(
+                    exclude=TASK_SERIALIZATION_EXCLUDE,
+                    exclude_none=True
+                )
+            )
+        except Exception:
+            pass
+    if hasattr(agent_task, '__dict__'):
+        raw_dict = {
+            k: v
+            for k, v in vars(agent_task).items()
+            if k not in TASK_SERIALIZATION_EXCLUDE and not k.startswith('_')
+        }
+        return _json_safe(raw_dict)
+    raise TypeError(f"Agent task is not serializable: {type(agent_task)}")
+
+
 def _clear_skill_runtime_markers(metadata: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(metadata, dict):
         return {}
@@ -778,25 +849,7 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
             agent_tasks_dicts = []
             for i, agent_task in enumerate(memory_agent_tasks):
                 try:
-                    # Use Pydantic's model_dump() for proper serialization
-                    if hasattr(agent_task, 'model_dump'):
-                        # Pydantic v2: model_dump() with exclude for non-serializable fields
-                        agent_task_dict = agent_task.model_dump(
-                            exclude=TASK_SERIALIZATION_EXCLUDE,
-                            mode='json',
-                            exclude_none=True
-                        )
-                    elif hasattr(agent_task, 'dict'):
-                        # Pydantic v1: dict() method
-                        agent_task_dict = agent_task.dict(
-                            exclude=TASK_SERIALIZATION_EXCLUDE,
-                            exclude_none=True
-                        )
-                    else:
-                        # ❌ Error: agent_task should be a Pydantic model
-                        logger.error(f"Agent task {i} is not a Pydantic model! Type: {type(agent_task)}, Name: {getattr(agent_task, 'name', 'UNKNOWN')}")
-                        logger.error(f"This indicates a serious data structure issue. Skipping this task.")
-                        continue
+                    agent_task_dict = _dump_task_safely(agent_task)
                     
                     # Manually extract skill name (handle both string and object)
                     skill_value = getattr(agent_task, 'skill', None)

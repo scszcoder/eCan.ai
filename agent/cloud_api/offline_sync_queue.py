@@ -220,6 +220,20 @@ class OfflineSyncQueue:
                     
                     self._save_queue()
                     break
+
+    def defer_task(self, task_id: str, error: Optional[str] = None):
+        with self._lock:
+            for index, task in enumerate(self.pending_queue):
+                if task['id'] == task_id:
+                    if error is not None:
+                        task['last_error'] = error
+                    task['last_retry_at'] = datetime.now().isoformat()
+                    task['status'] = 'pending'
+                    deferred_task = self.pending_queue.pop(index)
+                    self.pending_queue.append(deferred_task)
+                    self._save_queue()
+                    logger.info(f"[OfflineSyncQueue] Deferred task to queue tail: {task_id}")
+                    break
     
     def clear_pending(self):
         """Clear pending queue"""

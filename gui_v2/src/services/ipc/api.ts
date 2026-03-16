@@ -482,6 +482,24 @@ export class IPCAPI {
     );
     }
 
+    public async publishSkillToStore<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'publish_skill_to_store'
+      },
+      { skill_id: skillId, owner: username }
+    );
+    }
+
+    public async unpublishSkillFromStore<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'unpublish_skill_from_store'
+      },
+      { skill_id: skillId, owner: username }
+    );
+    }
+
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
         return apiRouter.execute(
       {

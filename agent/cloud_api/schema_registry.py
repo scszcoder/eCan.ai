@@ -201,22 +201,38 @@ class SchemaRegistry:
         """Get Schema"""
         # Lazy register default Schemas
         if not self._default_schemas_registered:
-            self._register_default_schemas()
-            self._default_schemas_registered = True
+            if self._register_default_schemas():
+                self._default_schemas_registered = True
         
         if data_type not in self._schemas:
-            return None
+            if not self._register_single_schema(data_type):
+                return None
         
         # Use specified version or current version
         version = version or self._current_versions.get(data_type)
         return self._schemas[data_type].get(version)
+
+    def _register_single_schema(self, data_type: DataType, version: str = "1.0") -> bool:
+        """Build and register one schema on demand."""
+        try:
+            import agent.cloud_api.schema_builder as builder
+
+            schema = builder.build_schema(data_type, version=version)
+            self.register_schema(data_type, version, schema)
+            logger.info(f"[SchemaRegistry] ✅ On-demand registered schema for {data_type} with {len(schema.transformers)} transformers")
+            return True
+        except Exception as e:
+            logger.error(f"[SchemaRegistry] ❌ Failed to on-demand register schema for {data_type}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
     
     def set_current_version(self, data_type: DataType, version: str):
         """Set current version"""
         if data_type in self._schemas and version in self._schemas[data_type]:
             self._current_versions[data_type] = version
     
-    def _register_default_schemas(self):
+    def _register_default_schemas(self) -> bool:
         """Register default Schemas (auto-build using SchemaBuilder)"""
         try:
             # Lazy import to avoid circular dependency
@@ -253,6 +269,11 @@ class SchemaRegistry:
             tool_schema_v1 = builder.build_schema(DataType.TOOL, version="1.0")
             self.register_schema(DataType.TOOL, "1.0", tool_schema_v1)
             logger.info(f"[SchemaRegistry] ✅ Registered Tool entity schema with {len(tool_schema_v1.transformers)} transformers")
+
+            # Organization Entity Schema v1.0 - Organization entity
+            organization_schema_v1 = builder.build_schema(DataType.ORGANIZATION, version="1.0")
+            self.register_schema(DataType.ORGANIZATION, "1.0", organization_schema_v1)
+            logger.info(f"[SchemaRegistry] ✅ Registered Organization entity schema with {len(organization_schema_v1.transformers)} transformers")
             
             # Agent-Tool Relationship Schema v1.0
             agent_tool_schema_v1 = builder.build_schema(DataType.AGENT_TOOL, version="1.0")
@@ -285,10 +306,12 @@ class SchemaRegistry:
             logger.info(f"[SchemaRegistry] ✅ Registered Task-Skill relationship schema with {len(task_skill_schema_v1.transformers)} transformers")
             
             logger.info("[SchemaRegistry] ✅ All default schemas registered successfully")
+            return True
         except Exception as e:
             logger.error(f"[SchemaRegistry] ❌ Failed to register schemas: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            return False
 
 
 # Global registry instance

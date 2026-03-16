@@ -165,14 +165,22 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const addItem = useSkillStore((s) => s.addItem);
     const updateItem = useSkillStore((s) => s.updateItem);
 
-    // Check if this is a code-based skill (read-only)
-    const isCodeSkill = skill?.source === 'code';
-
     const isResourceMySkillsPath = (p?: string | null) => {
         if (!p) return false;
         const norm = String(p).replace(/\\/g, '/');
         return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
     };
+
+    const isUserMySkillsPath = (p?: string | null) => {
+        if (!p) return false;
+        const norm = String(p).replace(/\\/g, '/');
+        return norm.includes('/my_skills/') || norm.startsWith('my_skills/');
+    };
+
+    // Only bundled resource/my_skills code skills are read-only.
+    // User-owned my_skills code skills must remain editable/deletable.
+    const isCodeSkill = skill?.source === 'code';
+    const isReadOnlyCodeSkill = isCodeSkill && isResourceMySkillsPath((skill as any)?.path);
 
     // ScrollPositionSave
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -186,11 +194,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const ownerValue = String(((skill as any)?.owner ?? '')).trim();
     const usernameValue = String((username ?? '')).trim();
     const isOwnedByOwner = !!ownerValue && !!usernameValue && ownerValue.toLowerCase() === usernameValue.toLowerCase();
-    const isOwnedByPath = !ownerValue && isResourceMySkillsPath((skill as any)?.path);
-    const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath);
+    const isOwnedByPath = isUserMySkillsPath((skill as any)?.path);
+    const hasExplicitForeignOwner = !!ownerValue && !!usernameValue && ownerValue.toLowerCase() !== usernameValue.toLowerCase();
+    const isOwnedByUser = !!skill && !isNew && !hasExplicitForeignOwner && (isOwnedByOwner || (!ownerValue && isOwnedByPath));
     // Skill owned by another user — editor cannot open (no writable local files)
     const isThirdPartySkill = !!skill && !isNew && !isOwnedByUser;
-    const canPublish = isOwnedByUser && !isCodeSkill;
+    const canPublish = isOwnedByUser && !isReadOnlyCodeSkill;
     const isPublished = !!skill && !isNew && !!(skill as any)?.public;
     const isSubscribed = !!skill && !!subscribedSkillIds?.includes(String(skill.id));
 
@@ -199,21 +208,17 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         setPublishLoading(true);
         try {
             const newPublicValue = !isPublished;
-            const payload: Partial<Skill> = {
-                id: skill.id,
-                public: newPublicValue,
-                rentable: newPublicValue,
-            } as any;
-
             const api = get_ipc_api();
-            const resp = await api.saveAgentSkill(username, payload as any);
+            const resp = newPublicValue
+                ? await api.publishSkillToStore(username, String(skill.id))
+                : await api.unpublishSkillFromStore(username, String(skill.id));
             if (!resp.success) {
-                message.error(resp.error?.message || 'Failed to update publish status');
+                message.error(resp.error?.message || t('pages.skills.failedToUpdatePublishStatus'));
                 return;
             }
 
             updateItem(String(skill.id), { ...skill, public: newPublicValue, rentable: newPublicValue } as any);
-            message.success(newPublicValue ? 'Published to Store' : 'Removed from Store');
+            message.success(newPublicValue ? t('pages.skills.publishedToStore') : t('pages.skills.removedFromStore'));
             if (onSave) onSave();
             else onRefresh();
         } catch (e) {
@@ -230,10 +235,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             const skillId = String(skill.id);
             if (isSubscribed) {
                 await onUnsubscribe?.(skillId);
-                message.success('Unsubscribed');
+                message.success(t('pages.skills.unsubscribed'));
             } else {
                 await onSubscribe?.(skillId);
-                message.success('Subscribed');
+                message.success(t('pages.skills.subscribed'));
             }
         } catch (e) {
             if (e instanceof Error) message.error(e.message);
@@ -459,7 +464,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         // Get the file path from form or skill object
         const filePath = form.getFieldValue('path') || (skill as any).path;
 
-        const previewMode = isCodeSkill && isResourceMySkillsPath(filePath);
+        const previewMode = isReadOnlyCodeSkill;
         
         if (!filePath) {
             message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
@@ -621,7 +626,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 <Form.Item name="path" noStyle>
                                     <Input id="skill-path-input" readOnly placeholder={t('pages.skills.pathPlaceholder', 'Skill file path')} />
                                 </Form.Item>
-                                <Tooltip title={isCodeSkill && isResourceMySkillsPath(form.getFieldValue('path') || (skill as any)?.path)
+                                <Tooltip title={isReadOnlyCodeSkill
                                     ? t('pages.skills.previewFile', '预览')
                                     : t('pages.skills.openEditor', 'Open in Editor')}>
                                     <Button
@@ -945,7 +950,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             <Tag color="blue" style={{ padding: '4px 12px', fontSize: 13 }}>
                                 <ThunderboltOutlined /> {String(t(`pages.skills.categories.${category || 'unknown'}`, (category as any) || t('common.unknown', '未知')))}
                             </Tag>
-                            {isCodeSkill && (
+                            {isReadOnlyCodeSkill && (
                                 <Tag color="orange" style={{ padding: '4px 12px', fontSize: 13 }}>
                                     <LockOutlined /> {t('pages.skills.codeSkillReadOnly', 'Code-based (Read-only)')}
                                 </Tag>
@@ -1059,7 +1064,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 {/* 查看模式Button */}
                 {!editMode && !isNew && (
                     <>
-                        {isCodeSkill ? (
+                        {isReadOnlyCodeSkill ? (
                             <Tooltip title={t('pages.skills.codeSkillCannotEdit', 'Code-based skills cannot be edited. Please modify the source code file instead.')}>
                                 <Button
                                     icon={<LockOutlined />}
