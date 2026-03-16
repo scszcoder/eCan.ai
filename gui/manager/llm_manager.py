@@ -390,6 +390,9 @@ class LLMManager:
                 except Exception:
                     pass  # Use default base_url if settings retrieval fails
             
+            # Pull runtime fields from raw JSON config for LLM construction
+            raw_cfg = llm_config._config_data.get("providers", {}).get(provider_name, {})
+
             provider_data = {
                 "name": provider_config.name,
                 "display_name": provider_config.display_name,
@@ -402,6 +405,12 @@ class LLMManager:
                 "default_model": provider_config.default_model,
                 "api_key_env_vars": provider_config.api_key_env_vars,
                 "supported_models": self._serialize_models(provider_config.supported_models),
+
+                # Runtime fields needed by build_node LLM construction
+                "runtime_kind": raw_cfg.get("runtime_kind", ""),
+                "param_mapping": raw_cfg.get("param_mapping", {}),
+                "default_params": raw_cfg.get("default_params", {}),
+                "special_features": raw_cfg.get("special_features", {}),
 
                 # User preferences (only for current default provider)
                 "is_preferred": is_preferred,
