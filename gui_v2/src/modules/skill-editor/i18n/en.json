@@ -365,7 +365,14 @@
     "startNewChat": "Start a new chat or select a session from history.",
     "planning": "Planning...",
     "thinking": "Thinking...",
-    "cloudProcessing": "⏳ Processing your request — the cloud agent is still working on it. The response will arrive shortly via streaming."
+    "cloudProcessing": "⏳ Processing your request — the cloud agent is still working on it. The response will arrive shortly via streaming.",
+    "planTitle": "Implementation Plan",
+    "planApproved": "✅ Plan Approved",
+    "planRevised": "📝 Plan Revised",
+    "planSteps": "Steps",
+    "planEstimatedNodes": "Estimated nodes:",
+    "planProceed": "Proceed",
+    "planRevise": "Revise"
   },
   "selectionPopover": {
     "collapse": "Collapse",

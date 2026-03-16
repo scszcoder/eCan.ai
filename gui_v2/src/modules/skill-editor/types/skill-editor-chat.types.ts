@@ -191,6 +191,7 @@ export type PipelineState =
   | 'awaiting_plan_approval'
   | 'generating'
   | 'editing'
+  | 'processing'
   | 'complete';
 
 /** Extended chat message response with planning data */
