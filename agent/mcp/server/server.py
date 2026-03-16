@@ -2723,6 +2723,124 @@ async def os_copy_file_dir(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def os_read_file(mainwin, args):
+    """Read file contents — platform-independent (Windows/macOS/Linux).
+    Supports text (returns string) and binary (returns base64) modes."""
+    try:
+        from pathlib import Path
+        import base64
+        import json
+
+        inp = args["input"]
+        file_path = Path(inp["file_path"])
+        mode = inp.get("mode", "text")
+        encoding = inp.get("encoding", "utf-8")
+
+        if not file_path.exists():
+            return [TextContent(type="text", text=f"Error: File '{file_path}' does not exist")]
+        if not file_path.is_file():
+            return [TextContent(type="text", text=f"Error: '{file_path}' is not a file")]
+
+        file_size = file_path.stat().st_size
+
+        if mode == "binary":
+            raw = file_path.read_bytes()
+            b64 = base64.b64encode(raw).decode("ascii")
+            result_json = json.dumps({
+                "file_path": str(file_path),
+                "mode": "binary",
+                "size_bytes": file_size,
+                "content_base64": b64,
+            }, indent=2)
+        else:
+            text = file_path.read_text(encoding=encoding)
+            result_json = json.dumps({
+                "file_path": str(file_path),
+                "mode": "text",
+                "encoding": encoding,
+                "size_bytes": file_size,
+                "line_count": text.count("\n") + (1 if text else 0),
+                "content": text,
+            }, indent=2)
+
+        return [TextContent(type="text", text=result_json)]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOSReadFile")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+async def os_write_file(mainwin, args):
+    """Write file contents — platform-independent (Windows/macOS/Linux).
+    Supports text and binary (base64-encoded input) modes.
+    Creates parent directories automatically.
+    Safe-write: if the target file already exists (and not in append mode),
+    the existing file is renamed to name(1), name(2), etc. before writing."""
+    try:
+        from pathlib import Path
+        import base64
+        import json
+
+        inp = args["input"]
+        file_path = Path(inp["file_path"])
+        content = inp["content"]
+        mode = inp.get("mode", "text")
+        encoding = inp.get("encoding", "utf-8")
+        append = inp.get("append", False)
+
+        # Create parent directories if they don't exist
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Safe-write: back up existing file when not appending
+        backed_up_to = None
+        if not append and file_path.exists():
+            stem = file_path.stem
+            suffix = file_path.suffix
+            parent = file_path.parent
+            counter = 1
+            while True:
+                backup_path = parent / f"{stem}({counter}){suffix}"
+                if not backup_path.exists():
+                    break
+                counter += 1
+            file_path.rename(backup_path)
+            backed_up_to = str(backup_path)
+
+        if mode == "binary":
+            raw = base64.b64decode(content)
+            if append:
+                with open(file_path, "ab") as f:
+                    f.write(raw)
+            else:
+                file_path.write_bytes(raw)
+            written_bytes = len(raw)
+        else:
+            if append:
+                with open(file_path, "a", encoding=encoding) as f:
+                    f.write(content)
+            else:
+                file_path.write_text(content, encoding=encoding)
+            written_bytes = len(content.encode(encoding))
+
+        result = {
+            "file_path": str(file_path),
+            "mode": mode,
+            "append": append,
+            "written_bytes": written_bytes,
+            "status": "success",
+        }
+        if backed_up_to:
+            result["backed_up_existing_to"] = backed_up_to
+
+        result_json = json.dumps(result, indent=2)
+
+        return [TextContent(type="text", text=result_json)]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOSWriteFile")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def os_screen_analyze(mainwin, args):
     try:
         win_title_kw = args["input"].get("win_title_kw", "")
@@ -3277,6 +3395,8 @@ tool_function_mapping = {
         "os_delete_file": os_delete_file,
         "os_move_file": os_move_file,
         "os_copy_file_dir": os_copy_file_dir,
+        "os_read_file": os_read_file,
+        "os_write_file": os_write_file,
         "os_screen_analyze": os_screen_analyze,
         "os_screen_capture": os_screen_capture,
         "os_seven_zip": os_seven_zip,

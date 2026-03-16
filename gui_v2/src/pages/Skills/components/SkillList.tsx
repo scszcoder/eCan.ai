@@ -20,7 +20,9 @@ import {
     CloudFilled,
     DollarCircleFilled,
     StarFilled,
-    TeamOutlined
+    TeamOutlined,
+    CopyOutlined,
+    DownloadOutlined,
 } from '@ant-design/icons';
 
 import styled from '@emotion/styled';
@@ -308,6 +310,34 @@ const SubsLabel = styled.span`
 const EmptyContainer = styled.div`
     padding: 60px 20px;
     text-align: center;
+`;
+
+const SkillActionBar = styled.div`
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+`;
+
+const ActionBtn = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    &:hover {
+        background: rgba(24, 144, 255, 0.15);
+        border-color: rgba(24, 144, 255, 0.4);
+        color: #1890ff;
+    }
 `;
 
 const MiniBadge = styled.div<{ $variant: 'free' | 'paid' }>`
@@ -705,6 +735,43 @@ const SkillList: React.FC<SkillListProps> = ({
                         )}
                     </SkillStats>
                 )}
+
+                {/* Copy / Download buttons -- only for non-owned FREE skills */}
+                {(() => {
+                    const skillOwner = ((skill as any).owner || '').trim().toLowerCase();
+                    const me = (username || '').trim().toLowerCase();
+                    const isNotMine = skillOwner && skillOwner !== me;
+                    if (!isNotMine) return null;
+                    if (paid) return null;
+                    return (
+                        <SkillActionBar onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                            <ActionBtn
+                                title="Copy Skill"
+                                onClick={(e: React.MouseEvent) => {
+                                    e.stopPropagation();
+                                    window.dispatchEvent(new CustomEvent('ecan:copy-skill', { detail: { skill } }));
+                                }}
+                            >
+                                <CopyOutlined /> Copy
+                            </ActionBtn>
+                            <ActionBtn
+                                title="Download JSON"
+                                onClick={(e: React.MouseEvent) => {
+                                    e.stopPropagation();
+                                    const blob = new Blob([JSON.stringify(skill, null, 2)], { type: 'application/json' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `${skill.name || 'skill'}.json`;
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                }}
+                            >
+                                <DownloadOutlined /> Download
+                            </ActionBtn>
+                        </SkillActionBar>
+                    );
+                })()}
             </CardComp>
         );
     };
