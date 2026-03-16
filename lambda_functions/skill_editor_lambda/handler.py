@@ -2026,6 +2026,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     log_analysis_context=session.get("logAnalysisContext"),
                     last_saved_skill_name=session.get("lastSavedSkillName"),
                     cached_flowgram_dict=session.get("cachedFlowgramDict"),
+                    user_lang=session.get("userLang"),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -2193,6 +2194,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         )
         session["pendingLogAnalysisInfo"] = agent.pending_log_analysis_info
         session["lastSavedSkillName"] = agent.last_saved_skill_name
+        session["userLang"] = agent.user_lang
 
         # Cache last flowgram dict so edits work across Lambda invocations.
         # Truncate to stay comfortably under DynamoDB 400KB item limit.

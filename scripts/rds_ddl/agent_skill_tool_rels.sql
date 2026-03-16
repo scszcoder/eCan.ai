@@ -1,0 +1,21 @@
+CREATE TABLE `agent_skill_tool_rels` (
+  `id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `skill_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tool_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `dependency_type` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'required',
+  `usage_frequency` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'medium',
+  `importance` int DEFAULT '1',
+  `tool_config` json DEFAULT NULL,
+  `parameters` json DEFAULT NULL,
+  `usage_count` int DEFAULT '0',
+  `success_rate` double DEFAULT '0',
+  `last_used` datetime(6) DEFAULT NULL,
+  `status` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'active',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uc_skill_tool` (`skill_id`,`tool_id`),
+  KEY `fk_ast_tool` (`tool_id`),
+  CONSTRAINT `fk_ast_skill` FOREIGN KEY (`skill_id`) REFERENCES `agent_skills` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
+  CONSTRAINT `fk_ast_tool` FOREIGN KEY (`tool_id`) REFERENCES `agent_tools` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

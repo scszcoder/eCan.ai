@@ -13,6 +13,7 @@ import { apiRouter } from '../../../services/api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../../../services/api/api-config';
 import { localWebSocketClient } from '../../../services/web/localWebSocketClient';
 import { useUserStore } from '../../../stores/userStore';
+import { userStorageManager } from '../../../services/storage/UserStorageManager';
 import {
   ChatAttachment,
   CanvasPosition,
@@ -27,6 +28,14 @@ import {
 // ============================================================
 // Helpers
 // ============================================================
+
+/** Resolve the current user's identifier from Zustand store or localStorage. */
+const resolveUserId = (): string | null => {
+  const fromStore = useUserStore.getState().username;
+  if (fromStore) return fromStore;
+  const info = userStorageManager.getUserInfo();
+  return info?.username || info?.email || null;
+};
 
 /** Parse an AWSJSON field (string → object). Returns the parsed value or the original if already parsed / null. */
 const parseAwsJson = <T>(value: unknown): T | undefined => {
@@ -274,7 +283,7 @@ class SkillEditorChatService {
       // Serialize AWSJSON fields as JSON strings for GraphQL
       const input: Record<string, any> = { sessionId, content };
       // Include userId so the backend can resolve the correct S3 user directory
-      const userId = useUserStore.getState().username;
+      const userId = resolveUserId();
       if (userId) {
         input.userId = userId;
       }
@@ -341,7 +350,7 @@ class SkillEditorChatService {
       // Serialize AWSJSON fields as JSON strings for GraphQL
       const input: Record<string, any> = { sessionId, content };
       // Include userId so the backend can resolve the correct S3 user directory
-      const userId = useUserStore.getState().username;
+      const userId = resolveUserId();
       if (userId) {
         input.userId = userId;
       }
