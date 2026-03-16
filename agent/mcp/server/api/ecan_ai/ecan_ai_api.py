@@ -194,16 +194,19 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         
         # 检查响应是否包含错误
         if "errors" in response:
+            schema_missing = False
             for err in response.get("errors", []):
                 msg = err.get("message", "")
                 if "FieldUndefined" in msg or "is undefined" in msg:
+                    schema_missing = True
                     _nodes_prompts_available = False
                     logger.warning(
                         "[getNodesPrompts] Cloud schema missing 'getNodesPrompts' — "
                         "disabling cloud prompt fetch for this session"
                     )
                     break
-            logger.debug("API returned errors:", response["errors"])
+            if not schema_missing:
+                logger.debug("API returned errors:", response["errors"])
             return []
         
         # 检查响应格式

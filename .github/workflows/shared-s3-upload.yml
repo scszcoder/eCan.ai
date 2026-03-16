@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@v6
       
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -74,7 +74,7 @@ jobs:
           pip install -r build_system/scripts/requirements.txt
       
       - name: Download all artifacts for S3 transfer
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: '*-s3-transfer'
           path: dist/
@@ -86,7 +86,7 @@ jobs:
           ls -lh dist/ || echo "No artifacts found"
       
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

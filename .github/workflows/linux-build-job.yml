@@ -94,7 +94,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: gui_v2/node_modules
         key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -489,7 +489,7 @@ jobs:
     # Step Group 11: Upload Artifacts (Same naming as Windows/macOS)
     # ------------------------------------------------------------------------
     - name: Upload Linux artifacts for S3 transfer (always, short retention)
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
         path: artifacts/
@@ -499,7 +499,7 @@ jobs:
 
     - name: Upload Linux artifacts for users (optional, long retention)
       if: github.event.inputs.upload_artifacts == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
@@ -508,7 +508,7 @@ jobs:
 
     - name: Upload build logs
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: linux-build-logs-${{ env.BUILD_ARCH }}
         path: |

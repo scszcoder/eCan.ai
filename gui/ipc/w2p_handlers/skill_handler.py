@@ -81,8 +81,12 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             for i, sk in enumerate(memory_skills):
                 try:
                     sk_dict = sk.to_dict()
-                    if not sk_dict.get('owner'):
+                    if not sk_dict.get('owner') and _should_default_owner_to_current_user(sk_dict, username):
                         sk_dict['owner'] = username
+                        try:
+                            setattr(sk, 'owner', username)
+                        except Exception:
+                            pass
                     # Propagate extra publish metadata if attached to the in-memory skill
                     if 'extra_data' not in sk_dict and hasattr(sk, 'extra_data'):
                         try:
@@ -107,6 +111,45 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         except Exception as e:
             logger.error(f"Failed to get agent skills from memory: {e}")
 
+        # ── Step 1.5: Backfill DB skills that are missing from startup memory ──
+        # mainwin.agent_skills is the primary source, but startup build can miss some DB rows
+        # (for example locally-created skills, or subscribed third-party skills).
+        # Merge any missing DB skills here so the Skills page reflects the actual local DB.
+        try:
+            skill_service = _get_skill_service(request, params)
+            if skill_service:
+                db_rows_result = skill_service.query_skills()
+                db_rows = db_rows_result.get('data', []) if db_rows_result.get('success') else []
+                username_norm = str(username or '').strip().lower()
+                existing_ids = {str(sk.get('id')) for sk in skills_dicts if isinstance(sk, dict) and sk.get('id')}
+                existing_askids = {str(sk.get('askid')) for sk in skills_dicts if isinstance(sk, dict) and sk.get('askid')}
+                db_added = 0
+                for row in db_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if not row.get('owner') and _should_default_owner_to_current_user(row, username):
+                        row['owner'] = username
+                    row_id = str(row.get('id') or '').strip()
+                    row_askid = str(row.get('askid') or '').strip()
+                    if (row_id and row_id in existing_ids) or (row_askid and row_askid in existing_askids):
+                        continue
+
+                    skills_dicts.append(row)
+                    try:
+                        _update_skill_in_memory(row_id or row_askid, row, request, params)
+                    except Exception as mem_sync_e:
+                        logger.debug(f"[skill_handler] Failed to backfill DB skill into memory: {mem_sync_e}")
+                    if row_id:
+                        existing_ids.add(row_id)
+                    if row_askid:
+                        existing_askids.add(row_askid)
+                    db_added += 1
+
+                if db_added:
+                    logger.info(f"[skill_handler] Backfilled {db_added} missing skills from local DB")
+        except Exception as e:
+            logger.warning(f"[skill_handler] Failed to backfill DB skills: {e}")
+
         # ── Step 2: Fetch cloud skills via AppSync ────────────────────
         cloud_skills_dicts = []
         try:
@@ -116,11 +159,12 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             logger.warning(f"Cloud skill fetch failed (non-fatal): {e}")
 
         # ── Step 3: Merge local + cloud, local wins on conflict ─────────
-        # Build lookup sets for dedup: by id, askid, and normalized name
+        # Build lookup sets for dedup: by id and askid only.
+        # Do NOT dedup by name: local and cloud can legitimately contain
+        # different skills with the same name.
         # Optimization: Use set comprehension for batch processing (faster than loop)
         local_ids = {str(sk['id']) for sk in skills_dicts if sk.get('id')}
         local_askids = {str(sk['askid']) for sk in skills_dicts if sk.get('askid')}
-        local_names_norm = {sk['name'].strip().lower() for sk in skills_dicts if sk.get('name')}
         
         # Combine all local identifiers for efficient lookup
         all_local_identifiers = local_ids | local_askids
@@ -129,7 +173,8 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         for cloud_sk in cloud_skills_dicts:
             cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
             c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
-            cname = cloud_sk.get('name', '').strip().lower() if cloud_sk.get('name') else None
+            if not cloud_sk.get('owner') and _should_default_owner_to_current_user(cloud_sk, username):
+                cloud_sk['owner'] = username
             cowner = str(cloud_sk.get('owner') or '').strip().lower()
             current_user = str(username or '').strip().lower()
 
@@ -142,8 +187,6 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             # Optimization: Reduced from 6 checks to 3 by combining ID lookups
             # Skip if already present locally (by any identifier)
             if (cid and cid in all_local_identifiers) or (c_askid and c_askid in all_local_identifiers):
-                continue
-            if cname and cname in local_names_norm:
                 continue
             
             if (cid and cid in _DELETED_SKILL_IDS) or (c_askid and c_askid in _DELETED_SKILL_IDS):
@@ -160,8 +203,6 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                 all_local_identifiers.add(cid)
             if c_askid:
                 all_local_identifiers.add(c_askid)
-            if cname:
-                local_names_norm.add(cname)
 
         logger.info(f"Returning {len(skills_dicts)} skills to frontend "
                      f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
@@ -308,8 +349,8 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
         # Ensure 'version' has a default
         if not sk.get('version'):
             sk['version'] = '1.0'
-        logger.debug(f"[_fetch_cloud_skills] Normalized skill: id={sk.get('id')}, name={sk.get('name')}, "
-                      f"owner={sk.get('owner')}, keys={list(sk.keys())}")
+        # logger.debug(f"[_fetch_cloud_skills] Normalized skill: id={sk.get('id')}, name={sk.get('name')}, "
+                    #   f"owner={sk.get('owner')}, keys={list(sk.keys())}")
 
     if result:
         sample = result[0]
@@ -333,6 +374,11 @@ def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[s
         List of skill IDs that the user has subscribed to
     """
     try:
+        def _skill_val(skill_obj: Any, key: str, default: Any = None) -> Any:
+            if isinstance(skill_obj, dict):
+                return skill_obj.get(key, default)
+            return getattr(skill_obj, key, default)
+
         # Resolve username from params
         username = resolve_username(request, params)
         if not username:
@@ -362,18 +408,43 @@ def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[s
             logger.warning("[skill_handler] No skill service available")
             return create_success_response(request, [])
 
-        # Get all skills for the user
-        skills_result = skill_service.get_skills_by_owner(username)
-        if not skills_result.get('success'):
-            logger.warning(f"[skill_handler] Failed to get skills: {skills_result.get('error')}")
-            return create_success_response(request, [])
+        # Subscription persistence is represented by third-party skill rows stored
+        # in the local DB. Read directly from DB here instead of going through
+        # handle_get_agent_skills(), because that merge path may backfill/normalize
+        # owner/source fields for UI list semantics and can accidentally mask the
+        # original "third-party subscribed" identity we need for persistence checks.
+        query_result = skill_service.query_skills()
+        skills = query_result.get('data', []) if query_result.get('success') else []
+        if not isinstance(skills, list):
+            skills = []
 
-        skills = skills_result.get('data', [])
+        username_norm = username.strip().lower()
+        skill_ids = []
+        seen_ids = set()
+        for skill in skills:
+            skill_id = _skill_val(skill, 'id')
+            skill_askid = _skill_val(skill, 'askid')
+            owner = str(_skill_val(skill, 'owner') or '').strip().lower()
+            source = str(_skill_val(skill, 'source') or '').strip().lower()
+            path_value = str(_skill_val(skill, 'path') or '').strip().lower()
 
-        # Extract skill IDs from subscribed skills
-        # For now, return all skill IDs as we don't have a separate subscription mechanism
-        # In the future, this could filter based on a subscription status field
-        skill_ids = [skill.get('id') for skill in skills if skill.get('id')]
+            # User-owned editable skills should not count as subscriptions.
+            # Third-party subscribed skills usually retain the original cloud owner,
+            # and may also be marked as external. Prefer explicit owner mismatch,
+            # but keep `external` as a fallback signal for legacy rows.
+            is_owned_by_user = bool(owner) and owner == username_norm
+            is_external_subscription = source == 'external'
+            is_builtin_local = ('resource/my_skills/' in path_value) or ('resource\\my_skills\\' in path_value)
+
+            if is_owned_by_user or is_builtin_local:
+                continue
+            if not owner and not is_external_subscription:
+                continue
+            for candidate in (skill_id, skill_askid):
+                candidate_str = str(candidate).strip() if candidate is not None else ''
+                if candidate_str and candidate_str not in seen_ids:
+                    seen_ids.add(candidate_str)
+                    skill_ids.append(candidate_str)
 
         logger.info(f"[skill_handler] Found {len(skill_ids)} subscribed skill IDs for user {username}")
         return create_success_response(request, skill_ids)
@@ -412,7 +483,13 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
             if owner and owner == username_norm:
                 continue
 
-            key = str(sk.get('id') or sk.get('askid') or '').strip() or f"{owner}::{str(sk.get('name') or '').strip().lower()}"
+            key = str(sk.get('id') or '').strip()
+            if not key:
+                askid = str(sk.get('askid') or '').strip()
+                if askid and askid != '0':
+                    key = askid
+            if not key:
+                key = f"{owner}::{str(sk.get('path') or '').strip()}"
             if key in seen:
                 continue
             seen.add(key)
@@ -453,15 +530,43 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Check if already subscribed (skill already in local DB)
+        # Check if already subscribed (skill already in local DB).
+        # Support both local id and legacy askid-based references.
         existing = skill_service.get_skill_by_id(skill_id)
+        if not (existing.get('success') and existing.get('data')):
+            try:
+                query_result = skill_service.query_skills()
+                rows = query_result.get('data', []) if query_result.get('success') else []
+                fallback = next(
+                    (
+                        row for row in rows
+                        if str(row.get('askid') or '').strip() == str(skill_id).strip()
+                    ),
+                    None
+                )
+                if fallback:
+                    existing = {'success': True, 'data': fallback}
+            except Exception:
+                pass
         if existing.get('success') and existing.get('data'):
+            existing_data = existing.get('data') or {}
             logger.info(f"[skill_handler] Skill {skill_id} already in local DB, subscription idempotent")
-            return create_success_response(request, {'id': skill_id, 'success': True})
+            return create_success_response(request, {
+                'id': existing_data.get('id', skill_id),
+                'askid': existing_data.get('askid'),
+                'success': True
+            })
 
         # Fetch skill details from cloud to save locally
         cloud_skills = _fetch_cloud_skills(request, params)
-        target = next((s for s in cloud_skills if str(s.get('id')) == str(skill_id)), None)
+        target = next(
+            (
+                s for s in cloud_skills
+                if str(s.get('id') or '').strip() == str(skill_id).strip()
+                or str(s.get('askid') or '').strip() == str(skill_id).strip()
+            ),
+            None
+        )
 
         if not target:
             return create_error_response(request, 'SKILL_NOT_FOUND', f'Skill {skill_id} not found in cloud')
@@ -471,16 +576,21 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
         result = skill_service.add_skill(skill_data)
 
         if result.get('success'):
+            actual_skill_id = result.get('id', skill_id)
             # Update in-memory skills list
-            _update_skill_in_memory(skill_id, skill_data, request, params)
+            _update_skill_in_memory(actual_skill_id, skill_data, request, params)
             try:
                 ctx = get_handler_context(request, params)
-                current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(skill_id)), None) if ctx else None
+                current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(actual_skill_id)), None) if ctx else None
                 _sync_runtime_tasks_for_skill(current, request, params)
             except Exception:
                 pass
-            logger.info(f"[skill_handler] Subscribed to skill {skill_id} (saved to local DB)")
-            return create_success_response(request, {'id': skill_id, 'success': True})
+            logger.info(f"[skill_handler] Subscribed to skill {skill_id} (saved to local DB as {actual_skill_id})")
+            return create_success_response(request, {
+                'id': actual_skill_id,
+                'askid': skill_data.get('askid'),
+                'success': True
+            })
         else:
             logger.error(f"[skill_handler] Failed to subscribe to skill {skill_id}: {result.get('error')}")
             return create_error_response(request, 'SUBSCRIBE_SKILL_ERROR', str(result.get('error')))
@@ -515,6 +625,21 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
 
         # Only allow unsubscribing skills not owned by current user
         existing = skill_service.get_skill_by_id(skill_id)
+        if not (existing.get('success') and existing.get('data')):
+            try:
+                query_result = skill_service.query_skills()
+                rows = query_result.get('data', []) if query_result.get('success') else []
+                fallback = next(
+                    (
+                        row for row in rows
+                        if str(row.get('askid') or '').strip() == str(skill_id).strip()
+                    ),
+                    None
+                )
+                if fallback:
+                    existing = {'success': True, 'data': fallback}
+            except Exception:
+                pass
         if existing.get('success') and existing.get('data'):
             skill_owner = existing['data'].get('owner', '')
             if skill_owner and skill_owner.lower() == username.lower():
@@ -523,20 +648,21 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
                     'Cannot unsubscribe from your own skill. Use delete instead.'
                 )
 
-        result = skill_service.delete_skill(skill_id)
+        delete_target_id = skill_id
+        if existing.get('success') and existing.get('data'):
+            delete_target_id = existing['data'].get('id', skill_id)
+        delete_target_askid = existing['data'].get('askid') if existing.get('success') and existing.get('data') else skill_id
+
+        result = skill_service.delete_skill(delete_target_id)
         if result.get('success'):
-            # Remove from in-memory skills list
-            try:
-                ctx = get_handler_context(request, params)
-                if ctx:
-                    agent_skills = ctx.get_agent_skills() or []
-                    updated = [s for s in agent_skills if not (hasattr(s, 'id') and s.id == skill_id)]
-                    agent_skills[:] = updated
-            except Exception as mem_e:
-                logger.debug(f"[skill_handler] Failed to remove skill from memory: {mem_e}")
+            _remove_skill_from_memory(delete_target_id, delete_target_askid, request, params)
 
             logger.info(f"[skill_handler] Unsubscribed from skill {skill_id}")
-            return create_success_response(request, {'id': skill_id, 'success': True})
+            return create_success_response(request, {
+                'id': delete_target_id,
+                'askid': delete_target_askid,
+                'success': True
+            })
         else:
             logger.error(f"[skill_handler] Failed to unsubscribe from skill {skill_id}: {result.get('error')}")
             return create_error_response(request, 'UNSUBSCRIBE_SKILL_ERROR', str(result.get('error')))
@@ -621,20 +747,71 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Check if skill exists
         existing_skill = skill_service.get_skill_by_id(skill_id)
+        memory_skill_data = None
+        try:
+            ctx = get_handler_context(request, params)
+            memory_skills = (ctx.get_agent_skills() or []) if ctx and hasattr(ctx, 'get_agent_skills') else []
+            memory_skill = next(
+                (
+                    s for s in memory_skills
+                    if str(getattr(s, 'id', '') or '').strip() == str(skill_id).strip()
+                    or str(getattr(s, 'askid', '') or '').strip() == str(skill_id).strip()
+                ),
+                None
+            )
+            if memory_skill is not None:
+                memory_skill_data = {
+                    'id': str(getattr(memory_skill, 'id', '') or skill_id),
+                    'askid': getattr(memory_skill, 'askid', 0),
+                    'name': getattr(memory_skill, 'name', ''),
+                    'owner': getattr(memory_skill, 'owner', username),
+                    'description': getattr(memory_skill, 'description', ''),
+                    'version': getattr(memory_skill, 'version', '1.0.0'),
+                    'path': getattr(memory_skill, 'path', ''),
+                    'level': getattr(memory_skill, 'level', 'entry'),
+                    'config': getattr(memory_skill, 'config', {}) or {},
+                    'diagram': getattr(memory_skill, 'diagram', {}) or {},
+                    'tags': getattr(memory_skill, 'tags', []) or [],
+                    'examples': getattr(memory_skill, 'examples', []) or [],
+                    'inputModes': getattr(memory_skill, 'inputModes', []) or [],
+                    'outputModes': getattr(memory_skill, 'outputModes', []) or [],
+                    'apps': getattr(memory_skill, 'apps', []) or [],
+                    'limitations': getattr(memory_skill, 'limitations', []) or [],
+                    'price': getattr(memory_skill, 'price', 0) or 0,
+                    'price_model': getattr(memory_skill, 'price_model', ''),
+                    'public': getattr(memory_skill, 'public', False),
+                    'rentable': getattr(memory_skill, 'rentable', False),
+                    'ext': getattr(memory_skill, 'ext', None),
+                    'source': getattr(memory_skill, 'source', 'ui'),
+                }
+        except Exception as mem_lookup_err:
+            logger.debug(f"[skill_handler] Failed memory lookup for save_agent_skill: {mem_lookup_err}")
 
         if existing_skill.get('success') and existing_skill.get('data'):
-            # Update existing skill — merge incoming fields onto existing DB record
-            # so partial updates (e.g. toggling public/rentable) don't wipe other fields
             existing_data = existing_skill['data']
             skill_data = _prepare_skill_data(existing_data, username, skill_id)
-            # Overlay only the fields the caller actually sent
             for key in skill_info:
                 if key in skill_data:
                     skill_data[key] = skill_info[key]
             logger.info(f"Updating existing skill: {skill_id}")
             result = skill_service.update_skill(skill_id, skill_data)
+        elif memory_skill_data is not None:
+            base_id = str(memory_skill_data.get('id') or skill_id)
+            skill_data = _prepare_skill_data(memory_skill_data, username, base_id)
+            for key in skill_info:
+                if key in skill_data:
+                    skill_data[key] = skill_info[key]
+            logger.info(f"Creating missing DB skill from memory snapshot before update: {base_id}")
+            result = skill_service.add_skill(skill_data)
         else:
-            # Create new skill
+            sparse_update_only = set(skill_info.keys()).issubset({'id', 'public', 'rentable', 'price', 'price_model'})
+            if sparse_update_only:
+                logger.error(f"[skill_handler] Refusing to create sparse skill during save_agent_skill: id={skill_id}, keys={list(skill_info.keys())}")
+                return create_error_response(
+                    request,
+                    'SKILL_NOT_FOUND',
+                    'Skill not found locally for partial update. Refresh the skill list and try again.'
+                )
             skill_data = _prepare_skill_data(skill_info, username, skill_id)
             logger.info(f"Creating new skill: {skill_id}")
             result = skill_service.add_skill(skill_data)
@@ -1161,6 +1338,51 @@ def _get_skill_service(request=None, params=None):
     return None
 
 
+def _should_default_owner_to_current_user(skill_info: Optional[Dict[str, Any]], username: str) -> bool:
+    """Determine if a skill without owner should default to current user.
+    
+    Only true local/UI skills should get owner defaulted:
+    - source='ui' skills (created via editor)
+    - skills with local file paths (resource/my_skills or absolute paths to user directories)
+    
+    Should NOT default for:
+    - source='code' skills (read-only examples)
+    - subscribed store skills (no path or relative cloud paths)
+    """
+    if not isinstance(skill_info, dict):
+        return False
+    if not str(username or '').strip():
+        return False
+    if str(skill_info.get('owner') or '').strip():
+        return False
+
+    source_value = str(skill_info.get('source') or '').strip().lower()
+    path_value = str(skill_info.get('path') or '').strip().replace('\\', '/')
+
+    # Code skills should never get owner defaulted
+    if source_value == 'code':
+        return False
+    
+    # UI skills are always local (created via editor)
+    if source_value == 'ui':
+        return True
+    
+    # Check for local file paths
+    if path_value:
+        # resource/my_skills paths (built-in or user editable)
+        if '/resource/my_skills/' in path_value or path_value.startswith('resource/my_skills/'):
+            return True
+        # Absolute paths to user directories (starts with / on Unix or contains :/ for Windows)
+        if path_value.startswith('/') or ':/' in path_value:
+            # Additional check: ensure it's not a cloud/store relative path
+            # Store skills typically have simple relative paths like "skill_name" without directory separators
+            if '/' in path_value or '\\' in path_value:
+                return True
+    
+    # Default: don't assign owner (likely a subscribed store skill)
+    return False
+
+
 def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Optional[str] = None) -> Dict[str, Any]:
     """Prepare skill data for database storage
 
@@ -1173,9 +1395,14 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         Dict containing prepared skill data
     """
    
+    owner_value = str(skill_info.get('owner') or '').strip()
+    if not owner_value and _should_default_owner_to_current_user(skill_info, username):
+        owner_value = str(username or '').strip()
+
     skill_data = {
         'name': skill_info.get('name', skill_info.get('skillName', 'Unnamed Skill')),
-        'owner': username,
+        'owner': owner_value,
+        'askid': skill_info.get('askid', 0),
         'description': skill_info.get('description', ''),
         'version': skill_info.get('version', '1.0.0'),
         'path': skill_info.get('path', ''),
@@ -1217,6 +1444,44 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     return skill_data
 
 
+def _find_memory_skill_index(agent_skills: Any, skill_id: Optional[str] = None, askid: Optional[Any] = None,
+                             path: Optional[str] = None, name: Optional[str] = None) -> int:
+    target_id = str(skill_id or '').strip()
+    target_askid = str(askid or '').strip()
+    target_path = str(path or '').strip()
+
+    for i, skill in enumerate(agent_skills or []):
+        cur_id = str(getattr(skill, 'id', '') or '').strip()
+        cur_askid = str(getattr(skill, 'askid', '') or '').strip()
+        cur_path = str(getattr(skill, 'path', '') or '').strip()
+        if target_id and cur_id == target_id:
+            return i
+        if target_askid and cur_askid == target_askid:
+            return i
+        if target_path and cur_path and cur_path == target_path:
+            return i
+    return -1
+
+
+def _remove_skill_from_memory(skill_id: Optional[str] = None, askid: Optional[Any] = None,
+                              request=None, params=None) -> bool:
+    try:
+        ctx = get_handler_context(request, params)
+        if not ctx or not hasattr(ctx, 'get_agent_skills'):
+            return False
+        agent_skills = ctx.get_agent_skills()
+        if agent_skills is None:
+            return False
+        idx = _find_memory_skill_index(agent_skills, skill_id=skill_id, askid=askid)
+        if idx < 0:
+            return False
+        del agent_skills[idx]
+        return True
+    except Exception as e:
+        logger.debug(f"[skill_handler] Failed to remove skill from memory: {e}")
+        return False
+
+
 def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=None, params=None) -> bool:
     """Update or add skill in mainwin.agent_skills memory
 
@@ -1242,11 +1507,14 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
         logger.info(f"[skill_handler] _update_skill_in_memory called: id={skill_id}, name={skill_name}, path={skill_path}")
 
         # Check if skill already exists in memory
-        existing_index = None
-        for i, skill in enumerate(ctx.get_agent_skills() or []):
-            if hasattr(skill, 'id') and skill.id == skill_id:
-                existing_index = i
-                break
+        agent_skills = ctx.get_agent_skills() or []
+        existing_index = _find_memory_skill_index(
+            agent_skills,
+            skill_id=skill_id,
+            askid=skill_data.get('askid'),
+            path=skill_path,
+            name=skill_name,
+        )
 
         # Try to compile skill object from skill_data for runtime execution.
         # Note: skill_data is already the latest from DB (caller just saved it)
@@ -1276,6 +1544,7 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
             skill_obj.description = skill_data.get('description', '')
             skill_obj.version = skill_data.get('version', '1.0.0')
             skill_obj.path = skill_path
+            skill_obj.askid = skill_data.get('askid', 0)
             skill_obj.config = skill_data.get('config', {})
             skill_obj.diagram = skill_data.get('diagram', {})
             skill_obj.level = skill_data.get('level', 'entry')
@@ -1300,14 +1569,12 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
             except Exception:
                 pass
         
-        if existing_index is not None:
+        if existing_index >= 0:
             # Update existing skill
-            agent_skills = ctx.get_agent_skills()
             agent_skills[existing_index] = skill_obj
             logger.info(f"[skill_handler] ✅ Updated skill in memory: {skill_name} (index={existing_index})")
         else:
             # Add new skill
-            agent_skills = ctx.get_agent_skills()
             if agent_skills is not None:
                 agent_skills.append(skill_obj)
                 logger.info(f"[skill_handler] ✅ Added new skill to memory: {skill_name} (total={len(agent_skills)})")
@@ -1427,18 +1694,37 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     """
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType, Operation as Op
+
+    def _op_name(value: Any) -> str:
+        try:
+            if hasattr(value, 'name'):
+                return str(getattr(value, 'name') or '').upper()
+            return str(value or '').split('.')[-1].upper()
+        except Exception:
+            return str(value or '').upper()
     
     def _log_result(result: Dict[str, Any]):
-        """Log sync result and retry UPDATE→ADD on NOT_FOUND"""
+        """Log sync result and retry UPDATE↔ADD on common cloud state mismatches"""
         # Check per-item errors in the cloud response (transport may succeed but item may fail)
+        operation_name = _op_name(operation)
         cloud_resp = result.get('response')
         if isinstance(cloud_resp, list):
             for item in cloud_resp:
-                if isinstance(item, dict) and 'NOT_FOUND' in str(item.get('error', '')):
+                if not isinstance(item, dict):
+                    continue
+                item_error = str(item.get('error', '') or '')
+                if operation_name == 'UPDATE' and 'NOT_FOUND' in item_error:
                     # Skill doesn't exist in cloud yet — retry with ADD
                     logger.info(f"[skill_handler] 🔄 Cloud returned NOT_FOUND for UPDATE, retrying with ADD: {skill_data.get('name')}")
                     manager = get_sync_manager()
                     manager.sync_to_cloud_async(DataType.SKILL, cloud_data, Op.ADD, callback=_log_result_final)
+                    return
+                if operation_name == 'ADD' and 'ID_TAKEN' in item_error:
+                    # Skill already exists in cloud — retry with UPDATE so latest metadata
+                    # (e.g. public/rentable/publish state) is actually propagated.
+                    logger.info(f"[skill_handler] 🔄 Cloud returned ID_TAKEN for ADD, retrying with UPDATE: {skill_data.get('name')}")
+                    manager = get_sync_manager()
+                    manager.sync_to_cloud_async(DataType.SKILL, cloud_data, Op.UPDATE, callback=_log_result_final)
                     return
         
         error_msg = result.get('error')
@@ -1454,16 +1740,16 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
             logger.error(f"[skill_handler] ❌ Failed to sync skill: {error_msg or result}")
     
     def _log_result_final(result: Dict[str, Any]):
-        """Log result for the ADD retry (no further retries)"""
+        """Log result for the one-shot retry (no further retries)"""
         error_msg = result.get('error')
         if not error_msg:
             errors = result.get('errors')
             if isinstance(errors, list) and errors:
                 error_msg = '; '.join([str(e) for e in errors if e])
         if result.get('synced'):
-            logger.info(f"[skill_handler] ✅ Skill synced to cloud (ADD retry): {skill_data.get('name')}")
+            logger.info(f"[skill_handler] ✅ Skill synced to cloud (retry): {skill_data.get('name')}")
         else:
-            logger.error(f"[skill_handler] ❌ ADD retry also failed: {error_msg or result}")
+            logger.error(f"[skill_handler] ❌ Cloud retry also failed: {error_msg or result}")
     
     # Relativize the 'path' field before sending to cloud.
     # Local DB stores the full filesystem path (e.g. C:\...\my_skills\passive0_skill\diagram_dir\...).
@@ -1680,23 +1966,22 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
         
         # Prepare skill data - only use fields that have values
         skill_name = skill_data.get('name') or skill_data.get('skillName', 'Unnamed Skill')
+        file_skill_id = str(skill_data.get('skillId') or '').strip()
         
         logger.info(f"[skill_handler] Syncing skill: {skill_name}, path: {file_path}")
         
-        # Standard upsert logic: find existing skill by path first, then by name
+        # Standard upsert logic:
+        # 1) match by file path
+        # 2) if file carries a skillId, match by that exact DB id
+        # DO NOT fall back to name: same-name skills are valid and must remain distinct.
         existing_skill = skill_service.get_skill_by_path(file_path)
         
-        if not (existing_skill.get('success') and existing_skill.get('data')):
-            # Not found by path, try by name (handles rename scenarios)
-            logger.debug(f"[skill_handler] Skill not found by path, trying by name: {skill_name}")
-            name_search = skill_service.query_skills(name=skill_name)
-            if name_search.get('success') and name_search.get('data'):
-                candidates = name_search.get('data', [])
-                # Filter to user's skills only to avoid updating other users' skills
-                user_candidates = [s for s in candidates if s.get('owner') == username]
-                if user_candidates:
-                    existing_skill = {'success': True, 'data': user_candidates[0]}
-                    logger.info(f"[skill_handler] Found existing skill by name: {skill_name} (ID: {user_candidates[0].get('id')})")
+        if not (existing_skill.get('success') and existing_skill.get('data')) and file_skill_id:
+            logger.debug(f"[skill_handler] Skill not found by path, trying by file skillId: {file_skill_id}")
+            id_match = skill_service.get_skill_by_id(file_skill_id)
+            if id_match.get('success') and id_match.get('data'):
+                existing_skill = id_match
+                logger.info(f"[skill_handler] Found existing skill by file skillId: {skill_name} (ID: {file_skill_id})")
         
         # At this point: existing_skill has data → UPDATE, no data → INSERT
         
@@ -1755,6 +2040,15 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
+
+                try:
+                    if file_skill_id != str(skill_id):
+                        skill_data['skillId'] = skill_id
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            json.dump(skill_data, f, indent=2, ensure_ascii=False)
+                        logger.info(f"[skill_handler] Updated file skillId to match DB id: {skill_id}")
+                except Exception as file_sync_err:
+                    logger.warning(f"[skill_handler] Failed to write updated skillId back to file: {file_sync_err}")
                 
                 # NOTE: S3 file upload is NOT done here.
                 # sync_skill_from_file is a secondary path (triggered by file_handler
@@ -1785,6 +2079,15 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+
+                try:
+                    if file_skill_id != str(skill_id):
+                        skill_data['skillId'] = skill_id
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            json.dump(skill_data, f, indent=2, ensure_ascii=False)
+                        logger.info(f"[skill_handler] Updated file skillId to match created DB id: {skill_id}")
+                except Exception as file_sync_err:
+                    logger.warning(f"[skill_handler] Failed to write created skillId back to file: {file_sync_err}")
                 
                 # NOTE: S3 file upload is NOT done here (see comment in update branch above).
                 

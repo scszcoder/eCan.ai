@@ -193,10 +193,22 @@ class CloudAPIService:
                 logger.debug(f"[CloudAPIService] Cloud API response: {result}")
 
             # Schema mismatch: server doesn't support this operation.
-            # Relations are required by design, so treat this as a hard failure.
+            # Some legacy relation syncs are now represented directly on the entity
+            # (e.g. agent.org_id), so they can be treated as a successful no-op.
             if isinstance(result, dict) and result.get('skipped'):
                 reason = result.get('reason', 'unknown reason')
                 op_name = result.get('operation', f"{self.data_type}.{operation}")
+                if self.data_type == 'agent_org':
+                    logger.info(
+                        f"[CloudAPIService] ⏭️ Skipping deprecated cloud operation: {op_name} | endpoint={endpoint} | reason={reason}"
+                    )
+                    return {
+                        'success': True,
+                        'synced': len(local_items),
+                        'failed': 0,
+                        'errors': [],
+                        'response': result
+                    }
                 logger.error(
                     f"[CloudAPIService] ❌ Cloud operation not supported by server schema: {op_name} | endpoint={endpoint} | reason={reason}"
                 )
