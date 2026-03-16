@@ -3509,26 +3509,38 @@ def send_query_agent_tool_relations_request_to_cloud(session, token, q_settings,
 
 @cloud_api(DataType.AGENT_ORG, Operation.ADD)
 def send_add_agent_org_rels_to_cloud(session, relations, token, endpoint, timeout=180):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.ADD, relations)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentOrgRels", "addAgentOrgRels")
+    """Legacy: Agent-Org direct relationship mutations are not supported in current cloud schema."""
+    logger.warning("[AGENT_ORG] Agent-Org direct relationship ADD is not supported in current schema. Using agent.org_id as source of truth.")
+    return {
+        "skipped": True,
+        "success": True,
+        "operation": "agent_org.add",
+        "reason": "Agent-Org direct relationship mutation is undefined in current server schema",
+    }
 
 
 @cloud_api(DataType.AGENT_ORG, Operation.UPDATE)
 def send_update_agent_org_rels_to_cloud(session, relations, token, endpoint, timeout=180):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.UPDATE, relations)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "updateAgentOrgRels", "updateAgentOrgRels")
+    """Legacy: Agent-Org direct relationship mutations are not supported in current cloud schema."""
+    logger.warning("[AGENT_ORG] Agent-Org direct relationship UPDATE is not supported in current schema. Using agent.org_id as source of truth.")
+    return {
+        "skipped": True,
+        "success": True,
+        "operation": "agent_org.update",
+        "reason": "Agent-Org direct relationship mutation is undefined in current server schema",
+    }
 
 
 @cloud_api(DataType.AGENT_ORG, Operation.DELETE)
 def send_remove_agent_org_rels_to_cloud(session, removes, token, endpoint, timeout=180):
-    from agent.cloud_api.graphql_builder import build_mutation
-    mutationInfo = build_mutation(DataType.AGENT_ORG, Operation.DELETE, removes)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "removeAgentOrgRels", "removeAgentOrgRels")
+    """Legacy: Agent-Org direct relationship mutations are not supported in current cloud schema."""
+    logger.warning("[AGENT_ORG] Agent-Org direct relationship DELETE is not supported in current schema. Using agent.org_id as source of truth.")
+    return {
+        "skipped": True,
+        "success": True,
+        "operation": "agent_org.delete",
+        "reason": "Agent-Org direct relationship mutation is undefined in current server schema",
+    }
 
 
 # ============================================================================
@@ -3847,13 +3859,16 @@ def send_get_nodes_prompts_request_to_cloud(session, token, nodes, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
     logger.debug("send_get_nodes_prompts_request_to_cloud jresp: ", jresp)
     if "errors" in jresp:
-        screen_error = True
-        # GraphQL errors may not have errorType field, handle both formats
-        error = jresp['errors'][0]
-        error_type = error.get('errorType', 'GraphQLError')
-        error_msg = f"ERROR Type: {error_type} ERROR Info: {error.get('message', 'Unknown error')}"
-        logger.error(error_msg)
-        # 返回错误信息而不是抛出异常，让调用者处理
+        error = jresp['errors'][0] if jresp.get('errors') else {}
+        error_msg = error.get('message', 'Unknown error')
+        if "FieldUndefined" in error_msg or "getNodesPrompts" in error_msg and "undefined" in error_msg:
+            logger.warning(
+                "[getNodesPrompts] Cloud schema missing 'getNodesPrompts' query; "
+                "caller should degrade gracefully"
+            )
+        else:
+            error_type = error.get('errorType', 'GraphQLError')
+            logger.error(f"ERROR Type: {error_type} ERROR Info: {error_msg}")
         return {"errors": jresp["errors"], "body": None}
     else:
         try:

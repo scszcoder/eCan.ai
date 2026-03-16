@@ -1245,70 +1245,17 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         diagram_path = str(new_diagram_dir / f"{new_name}_skill.json")
         
-        # SaveAs: update database and memory to new location, then delete old directory
+        # SaveAs/Copy: create a NEW skill record for the copied directory.
+        # Do not mutate the original DB record, in-memory skill, or source folder.
         skill_id = None
-        new_skill_full_name = f"{new_name}_skill"
         try:
-            from app_context import AppContext
-            from gui.ipc.context_bridge import get_handler_context
-            ctx = get_handler_context(request, params)
-            if ctx:
-                # Update database: find existing skill and update its path
-                ec_db_mgr = ctx.get_ec_db_mgr()
-                if ec_db_mgr:
-                    skill_service = ec_db_mgr.get_skill_service()
-                    if skill_service:
-                        old_skill_name = old_skill_root.name  # e.g., "ff_skill"
-                        all_skills = skill_service.search_skills()
-                        for skill in all_skills:
-                            skill_path = skill.get('path', '')
-                            if skill_path and old_skill_name in skill_path:
-                                skill_id = skill.get('id')
-                                update_data = {
-                                    'name': new_skill_full_name,
-                                    'path': diagram_path,
-                                }
-                                if skill_json:
-                                    update_data['description'] = skill_json.get('description', '')
-                                    update_data['config'] = skill_json.get('config', {})
-                                
-                                update_result = skill_service.update_skill(skill_id, update_data)
-                                if update_result.get('success'):
-                                    logger.info(f"[SKILL_COPY] ✅ Skill updated in database (ID: {skill_id}, new path: {diagram_path})")
-                                else:
-                                    logger.warning(f"[SKILL_COPY] ⚠️ Failed to update skill in database: {update_result.get('error')}")
-                                break
-                        
-                        # If no existing skill found, create new one
-                        if not skill_id:
-                            from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-                            sync_result = sync_skill_from_file(diagram_path)
-                            if sync_result.get('success'):
-                                skill_id = sync_result.get('skill_id')
-                                logger.info(f"[SKILL_COPY] ✅ New skill created in database (ID: {skill_id})")
-                
-                # Update in-memory skill list
-                if hasattr(ctx, 'agent_skills'):
-                    old_dir_name = old_skill_root.name
-                    old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
-                    
-                    for mem_skill in (ctx.get_agent_skills() or []):
-                        if hasattr(mem_skill, 'name'):
-                            skill_name = mem_skill.name
-                            if skill_name == old_dir_name or skill_name == old_base_name:
-                                if skill_name.endswith('_skill'):
-                                    mem_skill.name = new_skill_full_name
-                                else:
-                                    mem_skill.name = new_name
-                                if hasattr(mem_skill, 'path'):
-                                    mem_skill.path = diagram_path
-                                logger.info(f"[SKILL_COPY] ✅ In-memory skill updated: {skill_name} -> {mem_skill.name}")
-                                break
-                
-                # Delete old skill directory
-                if old_skill_root.exists() and old_skill_root != new_skill_root:
-                    shutil.rmtree(str(old_skill_root))
-                    logger.info(f"[SKILL_COPY] ✅ Deleted old skill directory: {old_skill_root}")
+            from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+            sync_result = sync_skill_from_file(diagram_path, request=request, params=params)
+            if sync_result.get('success'):
+                skill_id = sync_result.get('skill_id')
+                logger.info(f"[SKILL_COPY] ✅ New copied skill created in database (ID: {skill_id})")
+            else:
+                logger.warning(f"[SKILL_COPY] ⚠️ Failed to sync copied skill to database: {sync_result.get('error')}")
         except Exception as sync_err:
             logger.warning(f"[SKILL_COPY] ⚠️ Error updating skill in database/memory: {sync_err}")
         

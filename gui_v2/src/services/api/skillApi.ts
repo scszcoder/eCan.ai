@@ -43,6 +43,14 @@ export class SkillAPI implements ResourceAPI<Skill> {
         }
 
         logger.info('[SkillAPI] Successfully fetched skills:', skills.length);
+        logger.info(
+          '[SkillAPI][diag] fetched skill names:',
+          skills.map((skill) => `${skill.name}#${skill.id}`)
+        );
+        logger.info(
+          '[SkillAPI][diag] basic_chatter_xxx present:',
+          skills.some((skill) => skill.name === 'basic_chatter_xxx')
+        );
 
         return {
           success: true,

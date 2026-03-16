@@ -81,7 +81,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Download Windows artifacts
         if: inputs.windows-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: eCan-windows-amd64-${{ inputs.version }}-s3-transfer
           path: windows-artifacts
@@ -89,7 +89,7 @@ jobs:
 
       - name: Download macOS amd64 artifacts
         if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-amd64 == true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: eCan-macos-amd64-${{ inputs.version }}-s3-transfer
           path: macos-amd64-artifacts
@@ -97,7 +97,7 @@ jobs:
 
       - name: Download macOS aarch64 artifacts
         if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-aarch64 == true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: eCan-macos-aarch64-${{ inputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
@@ -105,7 +105,7 @@ jobs:
 
       - name: Download Linux artifacts
         if: inputs.linux-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: eCan-linux-amd64-${{ inputs.version }}-s3-transfer
           path: linux-artifacts
@@ -490,7 +490,7 @@ jobs:
 
       - name: Upload download links document artifact
         if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: download-links-${{ inputs.version }}
           path: download-links-${{ inputs.version }}.txt
