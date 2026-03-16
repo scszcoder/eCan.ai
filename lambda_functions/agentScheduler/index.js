@@ -4662,7 +4662,30 @@ async function processEvent(event, context, callback, test_stub) {
   let overQuota = (quota > 1150);   // quote 1000 means 100% 1150 means 115% i.e. 15% over quote.
 
   if (((status =="active") && !overQuota) || isSuperUser || isExemptUser) {
-  
+
+    // Guard: reject write operations when owner could not be resolved.
+    // This prevents data from being stored with an empty/unknown owner,
+    // which can happen when the Cognito JWT expires and the client falls
+    // back to API-key auth (no identity claims).
+    const OWNER_REQUIRED_FIELDS = new Set([
+      "addAgents", "updateAgents",
+      "addAgentSkills", "updateAgentSkills",
+      "addAgentTasks", "updateAgentTasks",
+      "addOrgs", "updateOrgs",
+      "addPrompts", "updatePrompts",
+    ]);
+    if (OWNER_REQUIRED_FIELDS.has(fieldName) && !owner) {
+      const errMsg = `Owner identity could not be resolved for ${fieldName}. Please sign in again.`;
+      console.error(`[agentScheduler] OWNER_GUARD: ${errMsg} (identity=${JSON.stringify(event.identity || {}).slice(0, 200)})`);
+      const inputItems = Array.isArray(event.arguments?.input) ? event.arguments.input : [event.arguments?.input].filter(Boolean);
+      returnData = inputItems.map((item) => ({
+        id: item?.id || null,
+        success: false,
+        error: errMsg,
+      }));
+      return returnData;
+    }
+
     switch (event.info.parentTypeName) {
       case "Mutation":
         switch (event.info.fieldName) {
