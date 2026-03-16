@@ -209,6 +209,11 @@ class EC_Skill(AgentSkill):
     local_helper_skill_id: str | None = None
     local_helper_machine: str | None = None
 
+    # Original author of this skill (email).  When the runner is not the
+    # author, prompt resolution must query DynamoDB under *skill_owner*
+    # instead of the runner identity so the correct prompts are loaded.
+    skill_owner: str = ""
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode='after')
@@ -291,6 +296,7 @@ class EC_Skill(AgentSkill):
             "hybrid_cloud_mode": self.hybrid_cloud_mode,
             "local_helper_skill_id": self.local_helper_skill_id,
             "local_helper_machine": self.local_helper_machine,
+            "skill_owner": self.skill_owner,
         }
 
 
