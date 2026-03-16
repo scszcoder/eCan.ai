@@ -29,12 +29,12 @@ import {
 // Helpers
 // ============================================================
 
-/** Resolve the current user's identifier from Zustand store or localStorage. */
+/** Resolve the current user's identifier from Zustand store or localStorage.
+ *  Prefer email so it matches the Lambda owner (Cognito email claims)
+ *  and the AppSync subscription owner filter. */
 const resolveUserId = (): string | null => {
-  const fromStore = useUserStore.getState().username;
-  if (fromStore) return fromStore;
   const info = userStorageManager.getUserInfo();
-  return info?.username || info?.email || null;
+  return info?.email || info?.username || useUserStore.getState().username || null;
 };
 
 /** Parse an AWSJSON field (string → object). Returns the parsed value or the original if already parsed / null. */

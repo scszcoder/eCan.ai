@@ -10,6 +10,17 @@ import { localWebSocketClient } from './localWebSocketClient';
 import { initWebSocketEventListeners } from './wsEventListeners';
 import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
 import { detectPlatform } from '@/config/platform';
+import { userStorageManager } from '@/services/storage/UserStorageManager';
+
+/**
+ * Resolve the owner identity for AppSync subscriptions.
+ * Must match the owner that Lambda _publish() uses (email from Cognito claims).
+ * Falls back to display name (username) for backward compatibility.
+ */
+const resolveSubscriptionOwner = (): string | null => {
+  const info = userStorageManager.getUserInfo();
+  return info?.email || info?.username || useUserStore.getState().username;
+};
 
 const DEFAULT_WS_ENDPOINT = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql';
 const DEFAULT_WS_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com';
@@ -355,11 +366,11 @@ const connectWebSocket = (owner: string) => {
 export const startWebSubscriptions = () => {
   console.log('[AppSyncSubscriptions] startWebSubscriptions called');
   
-  // Check if already have a user
-  const currentUsername = useUserStore.getState().username;
-  if (currentUsername) {
-    console.log('[AppSyncSubscriptions] User already logged in:', currentUsername);
-    connectWebSocket(currentUsername);
+  // Check if already have a user — prefer email for subscription owner
+  const currentOwner = resolveSubscriptionOwner();
+  if (currentOwner) {
+    console.log('[AppSyncSubscriptions] User already logged in, subscription owner:', currentOwner);
+    connectWebSocket(currentOwner);
   } else {
     console.log('[AppSyncSubscriptions] No user yet, will connect after login');
   }
@@ -373,13 +384,14 @@ export const startWebSubscriptions = () => {
       console.log('[AppSyncSubscriptions] User state changed:', { oldUsername, newUsername });
       
       if (newUsername && newUsername !== oldUsername) {
-        // User logged in - connect subscriptions
-        console.log('[AppSyncSubscriptions] User logged in, connecting subscriptions for:', newUsername);
+        // User logged in - resolve email-based owner for subscription
+        const owner = resolveSubscriptionOwner() || newUsername;
+        console.log('[AppSyncSubscriptions] User logged in, connecting subscriptions for owner:', owner);
         // Close existing connection if any
         if (active) {
           stopWebSubscriptions();
         }
-        connectWebSocket(newUsername);
+        connectWebSocket(owner);
       } else if (!newUsername && oldUsername) {
         // User logged out - disconnect subscriptions
         console.log('[AppSyncSubscriptions] User logged out, disconnecting subscriptions');
