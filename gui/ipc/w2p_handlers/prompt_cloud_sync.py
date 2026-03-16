@@ -148,6 +148,13 @@ def _prompt_to_graphql_input(prompt: Dict[str, Any], owner: str) -> Dict[str, An
         "readOnly": False,
         "lastModified": prompt.get("lastModified", datetime.utcnow().isoformat()),
     }
+    # Preserve markdown-mode fields so cloud stays in sync with local
+    fmt = prompt.get("format")
+    if fmt in ("json", "md"):
+        prompt_content["format"] = fmt
+    md_content = prompt.get("mdContent")
+    if md_content:
+        prompt_content["mdContent"] = md_content
 
     return {
         "id": prompt_id,
@@ -297,6 +304,11 @@ def fetch_cloud_prompts() -> List[Dict[str, Any]]:
                         "source": "cloud",
                         "readOnly": False,
                     }
+                    # Restore markdown-mode fields if present
+                    if prompt_data.get("format"):
+                        normalized["format"] = prompt_data["format"]
+                    if prompt_data.get("mdContent"):
+                        normalized["mdContent"] = prompt_data["mdContent"]
                 else:
                     # prompt_data is a raw string (not structured JSON) — preserve as rawContent
                     normalized: Dict[str, Any] = {
