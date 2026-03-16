@@ -655,6 +655,9 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
     skill_obj.local_helper_machine = config.get('local_helper_machine', None)
 
+    # skill_owner tracks the original author (for prompt resolution on rented skills)
+    skill_obj.skill_owner = v.str('skill_owner', '') or v.str('owner', '')
+
 
 def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, dict | None]:
     """Load (core_dict, bundle_dict) from skill json path.

@@ -83,11 +83,11 @@ async function addSkill(skill) {
 
   const sql = `
     INSERT INTO agent_skills
-    (id, askid, name, owner, description, version, path, source, level,
+    (id, askid, name, owner, skill_owner, description, version, path, source, level,
      config, diagram, tags, examples, inputModes, outputModes, apps, limitations,
      price, price_model, public, rentable)
     VALUES
-    (:id, :askid, :name, :owner, :description, :version, :path, :source, :level,
+    (:id, :askid, :name, :owner, :skill_owner, :description, :version, :path, :source, :level,
      :config, :diagram, :tags, :examples, :inputModes, :outputModes, :apps, :limitations,
      :price, :price_model, :public, :rentable)
   `;
@@ -96,6 +96,7 @@ async function addSkill(skill) {
     toDbParam("askid", skill.askid || 0),
     toDbParam("name", skill.name || ""),
     toDbParam("owner", skill.owner),
+    toDbParam("skill_owner", skill.skill_owner || skill.owner),
     toDbParam("description", skill.description || null),
     toDbParam("version", skill.version || "1.0.0"),
     toDbParam("path", skill.path || null),
@@ -138,6 +139,7 @@ async function updateSkill(id, owner, fields) {
     "askid",
     "name",
     "owner",
+    "skill_owner",
     "description",
     "version",
     "path",

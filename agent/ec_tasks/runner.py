@@ -1905,7 +1905,29 @@ class TaskRunner(Generic[Context]):
         # Determine cloud execution mode
         is_hybrid = self._is_hybrid_cloud_task(task)
         is_pure_cloud = self._is_pure_cloud_task(task)
-        
+
+        # ── Paid-skill guard: non-free, non-owned skills MUST run in cloud ──
+        # This prevents local exposure of prompt IP for paid/rented skills.
+        if not is_hybrid and not is_pure_cloud and task.skill is not None:
+            _price = 0
+            try:
+                _price = int(getattr(task.skill, 'price', 0) or 0)
+            except (TypeError, ValueError):
+                pass
+            if _price > 0:
+                _skill_owner = (getattr(task.skill, 'skill_owner', '') or getattr(task.skill, 'owner', '') or '').strip().lower()
+                _current_user = ''
+                try:
+                    _current_user = (self.agent.mainwin.user or '').strip().lower()
+                except Exception:
+                    pass
+                if _skill_owner and _current_user and _skill_owner != _current_user:
+                    logger.warning(
+                        f"[SUBMIT] Paid skill '{getattr(task.skill, 'name', '?')}' (price={_price}) "
+                        f"not owned by runner — forcing hybrid cloud execution to protect prompt IP"
+                    )
+                    is_hybrid = True
+
         # Pure cloud + schedule: cloud scheduler handles it, nothing to do locally
         if is_pure_cloud and trigger_type == "schedule":
             logger.info(f"[SUBMIT] Pure cloud task '{task.name}' with schedule trigger — cloud scheduler handles, skipping local execution")
