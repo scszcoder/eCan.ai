@@ -1384,8 +1384,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                             
                                             # Load the renamed skill into memory
                                             try:
-                                                from agent.ec_skills.build_agent_skills import load_from_diagram
-                                                new_skill = load_from_diagram(Path(str(new_skill_file)))
+                                                from agent.ec_skills.build_agent_skills import load_skill_from_folder
+                                                new_skill = load_skill_from_folder(Path(str(new_skill_file)).parent.parent, mainwin=ctx)
                                                 if new_skill:
                                                     agent_skills = ctx.get_agent_skills()
                                                     if agent_skills is not None:

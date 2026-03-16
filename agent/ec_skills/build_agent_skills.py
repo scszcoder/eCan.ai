@@ -66,7 +66,7 @@ async def build_agent_skills_parallel(mainwin, db_skill_names: set = None):
     # Create async wrapper for each discovered skill
     async def create_resource_skill_wrapper(skill_name: str):
         """Async wrapper for create_skill_from_resource"""
-        return create_skill_from_resource(skill_name)
+        return create_skill_from_resource(skill_name, mainwin=mainwin)
     
     advanced_skills = [
         (name, lambda mw, n=name: create_resource_skill_wrapper(n))
@@ -245,7 +245,8 @@ def scan_resource_skills(exclude_names: set = None) -> List[str]:
 def create_skill_from_resource(
     skill_name: str,
     json_filename: Optional[str] = None,
-    bundle_filename: Optional[str] = None
+    bundle_filename: Optional[str] = None,
+    mainwin=None,
 ) -> Optional[EC_Skill]:
     """
     Create a skill from resource/my_skills directory.
@@ -272,19 +273,25 @@ def create_skill_from_resource(
             logger.error(f"[create_skill_from_resource] Skill folder not found in resource or appdata: {skill_name}_skill")
             return None
         
+        resource_root = _get_resource_skills_root().resolve()
+        skill_folder_resolved = skill_folder.resolve()
+        is_resource_example = skill_folder_resolved.is_relative_to(resource_root)
+
         # Use load_skill_from_folder which handles both diagram_dir and code_dir
-        sk = load_skill_from_folder(skill_folder, mainwin=None)
+        sk = load_skill_from_folder(skill_folder, mainwin=mainwin)
         if not sk:
             logger.warning(f"[create_skill_from_resource] Failed to load skill from {skill_folder}")
             return None
 
-        # Treat resource examples as code-based skills (read-only + deterministic id)
-        sk.source = "code"
-        try:
-            from agent.ec_skill import _generate_stable_id
-            sk.id = _generate_stable_id(sk.name, sk.source)
-        except Exception:
-            pass
+        # Only bundled resource examples are read-only code skills.
+        # User-created appdata/my_skills entries should remain editable.
+        if is_resource_example:
+            sk.source = "code"
+            try:
+                from agent.ec_skill import _generate_stable_id
+                sk.id = _generate_stable_id(sk.name, sk.source)
+            except Exception:
+                pass
 
         logger.info(f"[create_skill_from_resource] ✅ Created skill '{sk.name}' from {skill_folder.name}")
         return sk
@@ -404,20 +411,49 @@ async def build_agent_skills(mainwin, skill_path=""):
         except Exception as e:
             logger.error(f"[build_agent_skills] ❌ Cloud failed: {e}")
 
-        # Step 3: Check cloud data, if available overwrite local database (async non-blocking)
+        # Step 3: Merge DB + cloud skill rows, never let cloud wholesale replace local DB rows.
+        # Cloud is useful for backfilling/updating records, but local DB may contain user-created
+        # skills that haven't synced cleanly yet and must still remain editable/visible.
         final_db_skills = []
         if cloud_skills and len(cloud_skills) > 0:
-            logger.info(f"[build_agent_skills] Step 3: Cloud data available, using cloud skills...")
+            logger.info(f"[build_agent_skills] Step 3: Cloud data available, merging with database skills...")
 
-            # Cloud data overwrites local database (background async execution, non-blocking)
+            # Cloud data updates local database asynchronously (non-blocking), but in-memory build
+            # must preserve existing local DB-only skills for this session.
             asyncio.create_task(_update_database_with_cloud_skills(cloud_skills, mainwin))
             logger.info(f"[build_agent_skills] 🔄 Database update started in background (non-blocking)")
 
-            # Use cloud data as final database skills
-            final_db_skills = cloud_skills
-            logger.info(f"[build_agent_skills] ✅ Using {len(cloud_skills)} cloud skills")
+            merged_rows = []
+            seen_ids = set()
+            seen_askids = set()
+            seen_names = set()
+
+            def _add_row(row):
+                if not isinstance(row, dict):
+                    return False
+                row_id = str(row.get('id') or '').strip()
+                row_askid = str(row.get('askid') or '').strip()
+                row_name = str(row.get('name') or '').strip().lower()
+                if (row_id and row_id in seen_ids) or (row_askid and row_askid in seen_askids) or (row_name and row_name in seen_names):
+                    return False
+                merged_rows.append(row)
+                if row_id:
+                    seen_ids.add(row_id)
+                if row_askid:
+                    seen_askids.add(row_askid)
+                if row_name:
+                    seen_names.add(row_name)
+                return True
+
+            # Prefer local DB rows first to preserve local metadata/source/editability.
+            for row in db_skills or []:
+                _add_row(row)
+            for row in cloud_skills or []:
+                _add_row(row)
+
+            final_db_skills = merged_rows
+            logger.info(f"[build_agent_skills] ✅ Merged DB+cloud skills: db={len(db_skills)}, cloud={len(cloud_skills)}, final={len(final_db_skills)}")
         else:
-            # No cloud data, use local database data
             logger.info(f"[build_agent_skills] Step 3: No cloud data, using database skills...")
             final_db_skills = db_skills
 
@@ -475,14 +511,24 @@ async def build_agent_skills(mainwin, skill_path=""):
                 skills_dict[skill.name] = skill
         
         # Then add code skills (built-in + examples)
-        # Code skills override DB skills with same name
+        # IMPORTANT: editable DB/UI skills must win over code skills with the same name.
+        # Otherwise a user-created skill can be silently replaced by a read-only code skill
+        # and become non-editable/non-publishable in the UI.
         if code_skills:
             for skill in code_skills:
                 if skill is not None and hasattr(skill, 'name'):
                     if skill.name in skills_dict:
-                        logger.info(f"[build_agent_skills] 🔄 Code skill '{skill.name}' overrides DB version")
-                        logger.info(f"[build_agent_skills] 💡 Consider deleting '{skill.name}' from database to avoid conflicts")
-                    skill.source = "code"  # Ensure source is set
+                        existing_skill = skills_dict.get(skill.name)
+                        existing_source = str(getattr(existing_skill, 'source', '') or '').strip().lower()
+                        if existing_source != 'code':
+                            logger.info(
+                                f"[build_agent_skills] Keeping editable DB/UI skill '{skill.name}' "
+                                f"instead of overriding with code skill"
+                            )
+                            continue
+                        logger.info(f"[build_agent_skills] � Code skill '{skill.name}' overrides existing code version")
+                    if not getattr(skill, 'source', None):
+                        skill.source = "code"
                     skills_dict[skill.name] = skill
         
         # Convert back to list
@@ -949,6 +995,17 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 except Exception as e:
                     logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
 
+        owner_username = _get_username(mainwin) or ""
+
+        def _apply_owner(sk: EC_Skill) -> None:
+            try:
+                if owner_username and not getattr(sk, "owner", ""):
+                    sk.owner = owner_username
+                if owner_username and not getattr(sk, "skill_owner", ""):
+                    sk.skill_owner = owner_username
+            except Exception:
+                pass
+
         def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
             """Common finalization: set source, path, and load mapping rules
             
@@ -968,6 +1025,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
             else:
                 sk.path = path
             # ID will be automatically regenerated by model_post_init when source changes
+            _apply_owner(sk)
             load_mapping_rules(sk, skill_root)
             log_path = sk.path or 'None (code_only)'
             logger.debug(f"[build_agent_skills] Finalized skill: {sk.name} (source={source}, path={log_path})")
@@ -1186,6 +1244,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                     return None
                 
                 # Load mapping rules for file-loaded skills
+                _apply_owner(sk)
                 load_mapping_rules(sk, skill_root)
                 return sk
             except Exception as e:

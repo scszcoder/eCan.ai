@@ -944,6 +944,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
       // 8. Save to new location
       let finalDiagramPath: string;
+      let copiedSkillId: string | undefined;
       if (!selectedPath) {
         throw new Error('Save As path is missing');
       }
@@ -976,6 +977,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
           if (copyResult.success && copyResult.data) {
             finalDiagramPath = (copyResult.data as any).diagramPath;
+            copiedSkillId = (copyResult.data as any).skillId ? String((copyResult.data as any).skillId) : undefined;
             if (dataMappingForSave) {
               const mappingPath = deriveDataMappingPath(finalDiagramPath, newSkillName);
               try {
@@ -1005,6 +1007,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       // 9. Update in-memory state
       const finalSkillInfo = {
         ...skillInfo,
+        skillId: copiedSkillId || undefined,
+        id: copiedSkillId || undefined,
         skillName: newSkillName,
         workFlow: diagram,  // Keep original diagram in memory
         lastModified: new Date().toISOString(),
@@ -1019,6 +1023,11 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
         },
       } as any;
+
+      if (!copiedSkillId) {
+        delete finalSkillInfo.skillId;
+        delete finalSkillInfo.id;
+      }
 
       setSkillInfo(finalSkillInfo);
       setCurrentFilePath(finalDiagramPath);

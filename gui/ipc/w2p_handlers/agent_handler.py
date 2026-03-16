@@ -1,7 +1,7 @@
 import traceback
 import uuid
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Optional, Dict
+from typing import TYPE_CHECKING, Any, Optional, Dict, Set
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -26,7 +26,12 @@ def _get_converter():
     return convert_agent_dict_to_ec_agent or None
 
 
-def _json_safe(value, depth: int = 0):
+def _json_safe(
+    value,
+    depth: int = 0,
+    seen: Optional[Set[int]] = None,
+    depth_warning_state: Optional[Dict[str, bool]] = None,
+):
     """Recursively convert values to JSON-serializable structures.
 
     - Pydantic models: use model_dump(mode="python")
@@ -34,31 +39,48 @@ def _json_safe(value, depth: int = 0):
     - Dicts/lists/sets/tuples: sanitize recursively
     - Fallback: str(value)
     """
+    if seen is None:
+        seen = set()
+    if depth_warning_state is None:
+        depth_warning_state = {'emitted': False}
     try:
         # Prevent extremely deep recursion - increased limit for complex agent objects
         if depth > 15:
-            logger.warning(f"[agent_handler] _json_safe depth limit reached at depth {depth}, converting to string")
+            if not depth_warning_state['emitted']:
+                logger.warning(
+                    f"[agent_handler] _json_safe depth limit reached at depth {depth}, "
+                    "converting nested values to string (warning shown once per sanitation pass)"
+                )
+                depth_warning_state['emitted'] = True
             return str(value)
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
+        obj_id = id(value)
+        if obj_id in seen:
+            return '<circular_ref>'
         if isinstance(value, dict):
+            seen.add(obj_id)
             safe_dict = {}
             for k, v in value.items():
                 key = str(k)
-                safe_dict[key] = _json_safe(v, depth + 1)
+                safe_dict[key] = _json_safe(v, depth + 1, seen, depth_warning_state)
+            seen.discard(obj_id)
             return safe_dict
         if isinstance(value, (list, tuple, set)):
-            return [_json_safe(v, depth + 1) for v in value]
+            seen.add(obj_id)
+            result = [_json_safe(v, depth + 1, seen, depth_warning_state) for v in value]
+            seen.discard(obj_id)
+            return result
         # Pydantic BaseModel-like
         if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
             try:
-                return _json_safe(value.model_dump(mode="python"), depth + 1)
+                return _json_safe(value.model_dump(mode="python"), depth + 1, seen, depth_warning_state)
             except Exception:
                 pass
         # Generic objects
         if hasattr(value, '__dict__'):
             try:
-                return _json_safe(vars(value), depth + 1)
+                return _json_safe(vars(value), depth + 1, seen, depth_warning_state)
             except Exception:
                 pass
         return str(value)

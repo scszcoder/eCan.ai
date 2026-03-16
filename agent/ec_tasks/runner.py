@@ -2692,13 +2692,17 @@ class TaskRunner(Generic[Context]):
                     return str(resp.get("Error") or resp.get("error") or resp.get("message") or "")
                 return str(resp or "")
             
+            task_metadata = task.metadata if isinstance(task.metadata, dict) else {}
+            if not isinstance(task.metadata, dict):
+                task.metadata = task_metadata
+
             # Determine if async execution should be used
             # Can be disabled per-task or globally via env var
-            use_async = task.metadata.get("use_async", True)
+            use_async = task_metadata.get("use_async", True)
             
             # Dev mode defaults to sync for easier debugging (can be overridden)
             if trigger_type == "dev":
-                use_async = task.metadata.get("use_async", False)
+                use_async = task_metadata.get("use_async", False)
             
             if is_initial_run:
                 # Prepare state
@@ -2707,11 +2711,11 @@ class TaskRunner(Generic[Context]):
                 else:
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, None)
 
-                task.metadata["state"] = final_state
+                task_metadata["state"] = final_state
 
-                max_retries = int(task.metadata.get("retry_max", 2) or 2)
-                retry_base_delay = float(task.metadata.get("retry_delay", 1.0) or 1.0)
-                retry_backoff = float(task.metadata.get("retry_backoff", 2.0) or 2.0)
+                max_retries = int(task_metadata.get("retry_max", 2) or 2)
+                retry_base_delay = float(task_metadata.get("retry_delay", 1.0) or 1.0)
+                retry_backoff = float(task_metadata.get("retry_backoff", 2.0) or 2.0)
 
                 response = None
                 for attempt in range(max_retries + 1):
@@ -2784,9 +2788,9 @@ class TaskRunner(Generic[Context]):
                 if resume_tag:
                     resume_context = {"skip_bp_once": [resume_tag]}
 
-                max_retries = int(task.metadata.get("retry_max", 2) or 2)
-                retry_base_delay = float(task.metadata.get("retry_delay", 1.0) or 1.0)
-                retry_backoff = float(task.metadata.get("retry_backoff", 2.0) or 2.0)
+                max_retries = int(task_metadata.get("retry_max", 2) or 2)
+                retry_base_delay = float(task_metadata.get("retry_delay", 1.0) or 1.0)
+                retry_backoff = float(task_metadata.get("retry_backoff", 2.0) or 2.0)
 
                 response = None
                 for attempt in range(max_retries + 1):

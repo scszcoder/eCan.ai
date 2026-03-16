@@ -210,13 +210,13 @@ class MainWindow:
         self._initialization_status['ui_ready'] = True
         self._initialization_status['sync_init_complete'] = True
         ui_ready_time = time.time() - self._init_start_time
-        logger.info(f"[MainWindow] âœ… Phase 1 completed in {ui_ready_time:.2f}s - UI ready for display")
-        logger.info("[MainWindow] ðŸŽ¯ Synchronous initialization complete - UI can be displayed to user")
+        logger.info(f"[MainWindow] ✅ Phase 1 completed in {ui_ready_time:.2f}s - UI ready for display")
+        logger.info("[MainWindow] Synchronous initialization complete - UI can be displayed to user")
 
         # ============================================================================
         # PHASE 2: BACKGROUND INITIALIZATION (Non-blocking)
         # ============================================================================
-        logger.info("[MainWindow] ðŸš€ Phase 2: Starting background initialization...")
+        logger.info("[MainWindow] Phase 2: Starting background initialization...")
 
         # Notify IPC Registry that system is ready, clear cache to ensure immediate effect
         self._initialization_status['fully_ready'] = True
@@ -231,14 +231,14 @@ class MainWindow:
             # Try to create task in existing event loop
             loop = asyncio.get_running_loop()
             loop.create_task(self._async_background_initialization())
-            logger.info("[MainWindow] âœ… Background initialization task created successfully")
+            logger.info("[MainWindow] ✅ Background initialization task created successfully")
         except RuntimeError as e:
-            logger.error(f"[MainWindow] âš ï¸ No running event loop for background initialization: {e}")
+            logger.error(f"[MainWindow] No running event loop for background initialization: {e}")
             # Mark initialization complete directly to avoid frontend infinite waiting
             self._initialization_status['async_init_complete'] = True
-            logger.info("[MainWindow] âœ… Marked async_init_complete=True due to no event loop")
+            logger.info("[MainWindow] ✅ Marked async_init_complete=True due to no event loop")
 
-        logger.info("[MainWindow] âœ… MainWindow basic initialization completed - background services starting")
+        logger.info("[MainWindow] ✅ MainWindow basic initialization completed - background services starting")
 
     async def _update_vehicle_metrics_async(self, vehicle):
         """Asynchronously update vehicle performance metrics without blocking main thread"""
@@ -1673,12 +1673,12 @@ class MainWindow:
             )
 
             if success:
-                logger.info("[MainWindow] âœ… LightRAG server initialization completed!")
+                logger.info("[MainWindow] ✅ LightRAG server initialization completed!")
             else:
-                logger.error("[MainWindow] âŒ LightRAG server initialization failed - check logs for details")
+                logger.error("[MainWindow] LightRAG server initialization failed - check logs for details")
 
         except Exception as e:
-            logger.error(f"âŒ LightRAG server initialization failed: {e}")
+            logger.error(f"LightRAG server initialization failed: {e}")
             logger.error(f"LightRAG server error details: {traceback.format_exc()}")
 
 
@@ -1717,7 +1717,7 @@ class MainWindow:
             # Wait up to 15 seconds for subscription to be acknowledged
             for _ in range(30):
                 if getattr(self, 'get_wan_msg_subscribed', None) and self.get_wan_msg_subscribed():
-                    logger.info("[MainWindow] âœ… websocket wan chat initialization completed!")
+                    logger.info("[MainWindow] ✅ websocket wan chat initialization completed!")
                     break
                 await asyncio.sleep(0.5)
             else:
@@ -2230,10 +2230,10 @@ class MainWindow:
             await self._wait_for_server_ready(local_server_port)
             
             elapsed_phase1 = time.time() - phase1_start
-            logger.info(f"[MainWindow] âœ… Phase 1 completed in {elapsed_phase1:.3f}s")
+            logger.info(f"[MainWindow] ✅ Phase 1 completed in {elapsed_phase1:.3f}s")
             
             # Phase 2: Aggressive parallel initialization (target: <2s)
-            logger.info("[MainWindow] ðŸš€ Phase 2: Aggressive parallel initialization...")
+            logger.info("[MainWindow] Phase 2: Aggressive parallel initialization...")
             phase2_start = time.time()
             
             # Create all parallel tasks with timeout protection
