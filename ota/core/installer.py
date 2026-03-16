@@ -245,7 +245,7 @@ class InstallationManager:
                 return
 
             log_path = Path(tempfile.gettempdir()) / f"ecan_ota_install_{int(time.time())}.log"
-            cmd.append(f'/LOG="{log_path}"')
+            cmd.append(f'/LOG={log_path}')
             logger.info(f"Inno Setup logging enabled: {log_path}")
             logger.info(f"[OTA Installer] Inno Setup log path appended to command: {log_path}")
         except Exception as e:
