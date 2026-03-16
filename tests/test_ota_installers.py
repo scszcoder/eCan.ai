@@ -2,7 +2,22 @@ import unittest
 import os
 import sys
 import tempfile
+import types
+import logging
 from pathlib import Path
+from unittest.mock import patch
+
+
+if "colorlog" not in sys.modules:
+    colorlog_stub = types.ModuleType("colorlog")
+
+    class ColoredFormatter(logging.Formatter):
+        def __init__(self, *args, **kwargs):
+            fmt = args[0] if args else kwargs.get("fmt", "%(message)s")
+            super().__init__(fmt=fmt)
+
+    colorlog_stub.ColoredFormatter = ColoredFormatter
+    sys.modules["colorlog"] = colorlog_stub
 
 
 class DummyManager:
@@ -79,6 +94,66 @@ class TestPackageManagerDevGating(unittest.TestCase):
                 os.remove(p)
             except Exception:
                 pass
+
+
+class TestWindowsOtaLauncherQuoting(unittest.TestCase):
+    def test_windows_launcher_handles_users_path_safely(self):
+        from ota.core.installer import InstallationManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            appdata_root = Path(tmpdir) / "appdata"
+            appdata_root.mkdir(parents=True, exist_ok=True)
+
+            template_text = (
+                "@echo off\n"
+                "setlocal\n"
+                "timeout /t __DELAY_SECONDS__ /nobreak >nul\n"
+                "echo [OTA] Launching installer: __INSTALLER_COMMAND__\n"
+                "start \"\" __INSTALLER_COMMAND__\n"
+            )
+
+            writes = {}
+
+            class DummyProcess:
+                pid = 12345
+
+            def fake_open(path, mode="r", encoding=None, newline=None):
+                class _Writer:
+                    def __enter__(self_inner):
+                        return self_inner
+
+                    def __exit__(self_inner, exc_type, exc, tb):
+                        return False
+
+                    def write(self_inner, content):
+                        writes["path"] = str(path)
+                        writes["encoding"] = encoding
+                        writes["newline"] = newline
+                        writes["content"] = content
+
+                return _Writer()
+
+            manager = InstallationManager()
+            cmd = [
+                r"C:\Users\26468\AppData\Local\eCan\ota_downloads\eCan-0.8.10.1-windows-amd64-Setup.exe",
+                "/SILENT",
+                '/DIR="C:\\Users\\26468\\AppData\\Local\\eCan"',
+            ]
+
+            with patch("ota.core.installer.sys.platform", "win32"), \
+                 patch("config.app_info.app_info.appdata_path", str(appdata_root)), \
+                 patch("ota.core.installer.Path.exists", return_value=True), \
+                 patch("ota.core.installer.Path.read_text", return_value=template_text), \
+                 patch("builtins.open", side_effect=fake_open), \
+                 patch("ota.core.installer.subprocess.Popen", return_value=DummyProcess()):
+                pid = manager._launch_windows_installer_delayed(cmd, delay_seconds=3)
+
+            self.assertEqual(pid, 12345)
+            self.assertEqual(writes["encoding"], "utf-8-sig")
+            self.assertEqual(writes["newline"], "\r\n")
+            self.assertIn(r'C:\Users\26468\AppData\Local\eCan\ota_downloads\eCan-0.8.10.1-windows-amd64-Setup.exe', writes["content"])
+            self.assertIn('/DIR="C:\\Users\\26468\\AppData\\Local\\eCan"', writes["content"])
+            self.assertIn('start ""', writes["content"])
 
 
 if __name__ == "__main__":
