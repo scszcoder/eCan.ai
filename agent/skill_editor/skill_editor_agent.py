@@ -579,6 +579,10 @@ class SkillEditorAgent:
     def clarification_round(self) -> int:
         return self._clarification_round
 
+    @property
+    def user_lang(self) -> str:
+        return self._user_lang
+
     def restore_state(
         self,
         pipeline_state: str,
@@ -596,11 +600,14 @@ class SkillEditorAgent:
         log_analysis_context: Optional[Dict[str, Any]] = None,
         last_saved_skill_name: Optional[str] = None,
         cached_flowgram_dict: Optional[Dict[str, Any]] = None,
+        user_lang: Optional[str] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
             logger.info(f"[SkillEditorAgent] restore_state called: pipeline_state={pipeline_state}, has_plan={current_plan is not None}")
             self._pipeline_state = PipelineState(pipeline_state)
+            if user_lang in ("zh", "en"):
+                self._user_lang = user_lang
             self._current_request = current_request
             self._classified_domain = classified_domain
             self._classified_intent_taxonomy = classified_intent_taxonomy
@@ -2417,7 +2424,13 @@ class SkillEditorAgent:
         canvas_context = self._normalize_canvas_context(canvas_context)
 
         # Detect user language for i18n
-        self._user_lang = detect_language(message)
+        # When processing clarification responses, the message may be synthetic
+        # English text (e.g. "Clarification answers submitted"), so preserve the
+        # language detected from the original user request.
+        if not clarification_responses:
+            self._user_lang = detect_language(message)
+        elif self._user_lang == "en" and self._current_request:
+            self._user_lang = detect_language(self._current_request)
 
         await self._emit_progress(on_event, t("progress_thinking", self._user_lang))
 

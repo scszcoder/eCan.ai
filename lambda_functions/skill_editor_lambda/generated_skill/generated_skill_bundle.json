@@ -1,0 +1,1951 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "start",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": 100,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "start",
+              "breakpoint": false,
+              "outputs": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          },
+          {
+            "id": "llm_load_run_configuration",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 260,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "llm_load_run_configuration",
+              "breakpoint": false,
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o-mini"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.2
+                },
+                "useThinking": {
+                  "type": "constant",
+                  "content": false
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "Role: Run configuration loader for an e-commerce fulfillment workflow.\n\nGoals this node serves:\n- Initialize state for this scheduled run (run_id, rules, retry limits, counters, per-order outcomes).\n- Normalize/validate run inputs (channel=eBay, date window, max_orders_per_run, fulfillment rules).\n\nInstructions:\n- Read any existing state inputs (e.g., state[\"form\"], state[\"inputs\"]). If missing, set safe defaults.\n- Create state[\"run\"] with: run_id (uuid-like string), started_at (ISO timestamp), channel (default \"ebay\"), date_window (optional), max_orders_per_run (default 50), retry_limits (default 2), fulfillment_rules (split shipments allowed, warehouse preference, carrier/service preferences).\n- Create state[\"run_summary\"] with counters: pulled, processed, ready_to_ship, needs_review, backordered, skipped, failures; plus arrays: order_outcomes[], human_intervention_needed[].\n- Output JSON only with keys: run, run_summary."
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "Load configuration for this scheduled run using current workflow state. Use defaults if not provided. Return JSON with run + run_summary."
+                },
+                "promptSelection": {
+                  "content": "inline"
+                },
+                "attachments": {
+                  "type": "constant",
+                  "content": []
+                },
+                "apiKey": {
+                  "type": "constant",
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "useThinking": {
+                    "type": "boolean"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "promptSelection": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "attachments": {
+                    "type": "object"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "mcp_tool_fetch_ebay_orders",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": 520,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "mcp_fetch_ebay_orders",
+              "breakpoint": false,
+              "inputsValues": {},
+              "data": {
+                "callable": {
+                  "id": "llm-auto-select",
+                  "name": "llm auto select",
+                  "desc": "Let the LLM automatically select the appropriate tool",
+                  "type": "system",
+                  "source": ""
+                },
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "condition_orders_fetch_ok",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 780,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "condition_orders_fetch_ok",
+              "breakpoint": false,
+              "conditions": [
+                {
+                  "key": "if_branch",
+                  "value": {
+                    "mode": "custom",
+                    "expr": "state.get('tool_result', {}) and state['tool_result'].get('orders') and len(state['tool_result']['orders']) > 0"
+                  }
+                },
+                {
+                  "key": "else_branch",
+                  "value": {}
+                }
+              ],
+              "if": "custom",
+              "customExpr": "state.get('tool_result', {}) and state['tool_result'].get('orders') and len(state['tool_result']['orders']) > 0",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "browser_automation_pull_ebay_orders",
+            "type": "browser-automation",
+            "meta": {
+              "position": {
+                "x": 1170,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "browser_automation_pull_ebay_orders",
+              "breakpoint": false,
+              "inputsValues": {
+                "tool": {
+                  "type": "constant",
+                  "content": "browser-use"
+                },
+                "browser": {
+                  "type": "constant",
+                  "content": "new chromium"
+                },
+                "browserDriver": {
+                  "type": "constant",
+                  "content": "native"
+                },
+                "cdpPort": {
+                  "type": "constant",
+                  "content": ""
+                },
+                "shopName": {
+                  "type": "constant",
+                  "content": "ebay"
+                },
+                "customShopName": {
+                  "type": "constant",
+                  "content": ""
+                },
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.3
+                },
+                "useThinking": {
+                  "type": "constant",
+                  "content": false
+                },
+                "profile": {
+                  "type": "constant",
+                  "content": ""
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "You are a browser automation agent.\n\nGoals this node serves:\n- Fallback method to retrieve a batched, structured list of eBay orders that are PAID and UN-SHIPPED (waiting for shipment).\n- Persist a raw pull for traceability.\n\nRules:\n- Do not get stuck. If login fails or page layout differs, capture a detailed error and return partial results.\n- Return JSON only.\n"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "Open eBay Seller Hub in the browser. Log in if required.\nNavigate to Orders that are paid and waiting for shipment/unshipped.\nExtract up to {{run.max_orders_per_run}} orders.\nFor each order, return: orderId, buyer (name/username), shipTo (full address fields), lineItems (title, sku if visible, qty, variation), totals, timestamps, currentStatus.\nAlso store the raw pull content as a string/array in result.raw_pull for traceability.\n\nReturn JSON:\n{\n  \"ok\": true/false,\n  \"orders\": [ ... ],\n  \"raw_pull\": \"...\",\n  \"errors\": [ {\"message\":\"...\",\"step\":\"...\"} ]\n}"
+                },
+                "promptSelection": {
+                  "content": "inline"
+                },
+                "timeout_seconds": {
+                  "type": "constant",
+                  "content": 120
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string"
+                  },
+                  "browser": {
+                    "type": "string"
+                  },
+                  "browserDriver": {
+                    "type": "string"
+                  },
+                  "cdpPort": {
+                    "type": "string"
+                  },
+                  "shopName": {
+                    "type": "string"
+                  },
+                  "customShopName": {
+                    "type": "string"
+                  },
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "useThinking": {
+                    "type": "boolean"
+                  },
+                  "profile": {
+                    "type": "string"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "promptSelection": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "timeout_seconds": {
+                    "type": "number"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "loop_process_orders",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 1660.3358541801645,
+                "y": -51.275477287452276
+              }
+            },
+            "data": {
+              "title": "loop_process_orders",
+              "breakpoint": false,
+              "loopMode": "loopFor",
+              "loopCountExpr": "len(state.get('orders', []))",
+              "loopWhileExpr": "",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "block_start_process_orders",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 30,
+                    "y": 0
+                  }
+                },
+                "data": {
+                  "title": "block_start_process_orders",
+                  "breakpoint": false
+                }
+              },
+              {
+                "id": "llm_prepare_order_context",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 178
+                  }
+                },
+                "data": {
+                  "title": "llm_prepare_order_context",
+                  "breakpoint": false,
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.2
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "Role: Per-order orchestrator.\n\nGoals this node serves:\n- Create/refresh state[\"order_context\"] for the current loop iteration.\n- Apply the sub-agent error-handling pattern: capture errors, mark needs_review/skipped, and continue without blocking.\n\nInstructions:\n- Determine current index i from state[\"loop_index\"] if present; otherwise infer from runtime-provided loop context.\n- Set state[\"order_context\"] = {\"index\": i, \"order\": current_order, \"errors\": [], \"decisions\": {}, \"status\": \"processing\"}.\n- Also initialize state[\"order_context\"][\"attempts\"] for detail fetch retry to 0.\n- Return JSON with order_context."
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": "Using the loop-provided current order item from state, initialize order_context for safe processing and retries. Return JSON {\"order_context\": ...}."
+                    },
+                    "promptSelection": {
+                      "content": "inline"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_has_order",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 372
+                  }
+                },
+                "data": {
+                  "title": "condition_has_order",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('order_context', {}).get('order') is not None"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('order_context', {}).get('order') is not None",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_validate_normalize_order",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 566
+                  }
+                },
+                "data": {
+                  "title": "llm_validate_normalize_order",
+                  "breakpoint": false,
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.2
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "Role: Data validator/normalizer for eBay order fulfillment.\n\nGoals this node serves:\n- Validate required fields (order id, recipient name, full address, items/SKUs, quantities).\n- Normalize addresses and SKU formats.\n- If critical data missing: mark needs_review, add a clear entry to state[\"run_summary\"][\"human_intervention_needed\"], and DO NOT block the run.\n\nOutput JSON keys:\n- validation: {\"ok\": bool, \"missing_fields\": [...], \"normalized_order\": {...}, \"notes\": [...]}\n- suggested_status: one of [\"processing\",\"needs_review\"]."
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": "Validate and normalize this order: {{order_context.order}}. If critical fields are missing, set suggested_status=needs_review and list missing_fields. Return JSON only."
+                    },
+                    "promptSelection": {
+                      "content": "inline"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_validation_ok",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 760
+                  }
+                },
+                "data": {
+                  "title": "condition_validation_ok",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('result', {}).get('llm_result', {}).get('validation', {}).get('ok') == True"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('result', {}).get('llm_result', {}).get('validation', {}).get('ok') == True",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_confirm_fulfillment_eligibility",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 954
+                  }
+                },
+                "data": {
+                  "title": "llm_confirm_fulfillment_eligibility",
+                  "breakpoint": false,
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.2
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "Role: Fulfillment eligibility checker.\n\nGoals this node serves:\n- Confirm order is still paid and unshipped/not cancelled/not already shipped.\n- Decide eligible vs skipped with a reason.\n\nOutput JSON:\n- eligibility: {\"eligible\": bool, \"reason\": \"\"}\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": "Given the normalized_order and any status fields present, determine if order is eligible (paid and unshipped, not cancelled). Input: {{result.llm_result.validation.normalized_order}}. Return JSON only."
+                    },
+                    "promptSelection": {
+                      "content": "inline"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_is_eligible",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 1148
+                  }
+                },
+                "data": {
+                  "title": "condition_is_eligible",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('result', {}).get('llm_result', {}).get('eligibility', {}).get('eligible') == True"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('result', {}).get('llm_result', {}).get('eligibility', {}).get('eligible') == True",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "mcp_fetch_full_order_details",
+                "type": "mcp",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 1342
+                  }
+                },
+                "data": {
+                  "title": "mcp_fetch_full_order_details",
+                  "breakpoint": false,
+                  "inputsValues": {},
+                  "data": {
+                    "callable": {
+                      "id": "llm-auto-select",
+                      "name": "llm auto select",
+                      "desc": "Let the LLM automatically select the appropriate tool",
+                      "type": "system",
+                      "source": ""
+                    },
+                    "inputsValues": {}
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_details_fetch_ok",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 1536
+                  }
+                },
+                "data": {
+                  "title": "condition_details_fetch_ok",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('tool_result', {}).get('ok', True) != False and state.get('tool_result', {}).get('order') is not None"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('tool_result', {}).get('ok', True) != False and state.get('tool_result', {}).get('order') is not None",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "mcp_inventory_allocation_check",
+                "type": "mcp",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 1730
+                  }
+                },
+                "data": {
+                  "title": "mcp_inventory_allocation_check",
+                  "breakpoint": false,
+                  "inputsValues": {},
+                  "data": {
+                    "callable": {
+                      "id": "llm-auto-select",
+                      "name": "llm auto select",
+                      "desc": "Let the LLM automatically select the appropriate tool",
+                      "type": "system",
+                      "source": ""
+                    },
+                    "inputsValues": {}
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_decide_allocation_outcome",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 1924
+                  }
+                },
+                "data": {
+                  "title": "llm_decide_allocation_outcome",
+                  "breakpoint": false,
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.2
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "Role: Inventory/allocation decision engine.\n\nGoals this node serves:\n- Interpret inventory tool output and apply run rules.\n- If insufficient inventory: choose one of [backordered, split_shipment, needs_review] based on rules.\n- Record clear allocation decisions and exceptions.\n\nOutput JSON:\n- allocation_decision: {\"status\": \"sufficient\"|\"split\"|\"backordered\"|\"needs_review\", \"reason\": \"...\", \"allocations\": [...], \"exceptions\": [...]}\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": "Input inventory results: {{tool_result}} and rules: {{run.fulfillment_rules}}. Decide the allocation outcome and return JSON allocation_decision."
+                    },
+                    "promptSelection": {
+                      "content": "inline"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_allocation_path",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 2118
+                  }
+                },
+                "data": {
+                  "title": "condition_allocation_path",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('result', {}).get('llm_result', {}).get('allocation_decision', {}).get('status') in ['sufficient','split']"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('result', {}).get('llm_result', {}).get('allocation_decision', {}).get('status') in ['sufficient','split']",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_create_fulfillment_plan",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 2312
+                  }
+                },
+                "data": {
+                  "title": "llm_create_fulfillment_plan",
+                  "breakpoint": false,
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.25
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "Role: Fulfillment planner.\n\nGoals this node serves:\n- Create planned shipments: package grouping, warehouse assignment, shipping method selection using run rules.\n- enrichment_mode=no_enrichment: do NOT browse for weights/dimensions; use available data and allowed defaults.\n- If insufficient data to produce a safe plan, set needs_review and list missing fields.\n\nOutput JSON:\n- fulfillment_plan: {\"ok\": bool, \"missing\": [...], \"shipments\": [...], \"carrier_service\": {\"carrier\": \"\", \"service\": \"\"}, \"notes\": [...]}\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": "Create a fulfillment plan using order={{tool_result.order}} and allocation_decision={{result.llm_result.allocation_decision}} and run rules={{run.fulfillment_rules}}. Return JSON fulfillment_plan."
+                    },
+                    "promptSelection": {
+                      "content": "inline"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_plan_ok",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 2506
+                  }
+                },
+                "data": {
+                  "title": "condition_plan_ok",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('result', {}).get('llm_result', {}).get('fulfillment_plan', {}).get('ok') == True"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('result', {}).get('llm_result', {}).get('fulfillment_plan', {}).get('ok') == True",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_generate_fulfillment_json",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 2700
+                  }
+                },
+                "data": {
+                  "title": "llm_generate_fulfillment_json",
+                  "breakpoint": false,
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.1
+                    },
+                    "useThinking": {
+                      "type": "constant",
+                      "content": false
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "Role: Fulfillment JSON generator.\n\nGoals this node serves:\n- Produce a structured JSON per order containing: order identifiers, buyer/ship-to, line items, allocations, shipment plan(s), carrier/service (or placeholder), status flag (ready_to_ship/needs_review/skipped/backordered), and audit trail (timestamps, rule set, errors).\n\nRules:\n- Output MUST be valid JSON.\n- Include an audit_trail with what data sources were used and any errors.\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": "Generate the final per-order fulfillment JSON payload using:\n- run metadata: {{run}}\n- normalized_order: {{result.llm_result.validation.normalized_order}}\n- full_order_details (if available): {{tool_result.order}}\n- allocation_decision: {{result.llm_result.allocation_decision}}\n- fulfillment_plan: {{result.llm_result.fulfillment_plan}}\n- eligibility: {{result.llm_result.eligibility}}\nReturn a single JSON object payload."
+                    },
+                    "promptSelection": {
+                      "content": "inline"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "useThinking": {
+                        "type": "boolean"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "mcp_writeback_log_results",
+                "type": "mcp",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 2894
+                  }
+                },
+                "data": {
+                  "title": "mcp_writeback_log_results",
+                  "breakpoint": false,
+                  "inputsValues": {},
+                  "data": {
+                    "callable": {
+                      "id": "llm-auto-select",
+                      "name": "llm auto select",
+                      "desc": "Let the LLM automatically select the appropriate tool",
+                      "type": "system",
+                      "source": ""
+                    },
+                    "inputsValues": {}
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "condition_writeback_ok",
+                "type": "condition",
+                "meta": {
+                  "position": {
+                    "x": 120,
+                    "y": 3088
+                  }
+                },
+                "data": {
+                  "title": "condition_writeback_ok",
+                  "breakpoint": false,
+                  "conditions": [
+                    {
+                      "key": "if_branch",
+                      "value": {
+                        "mode": "custom",
+                        "expr": "state.get('tool_result', {}).get('ok', True) != False"
+                      }
+                    },
+                    {
+                      "key": "else_branch",
+                      "value": {}
+                    }
+                  ],
+                  "if": "custom",
+                  "customExpr": "state.get('tool_result', {}).get('ok', True) != False",
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "block_end_process_orders",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 450,
+                    "y": 16
+                  }
+                },
+                "data": {
+                  "title": "block_end_process_orders",
+                  "breakpoint": false
+                }
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "condition_writeback_ok",
+                "targetNodeID": "block_start_process_orders",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "block_start_process_orders",
+                "targetNodeID": "llm_prepare_order_context"
+              },
+              {
+                "sourceNodeID": "llm_prepare_order_context",
+                "targetNodeID": "condition_has_order"
+              },
+              {
+                "sourceNodeID": "condition_has_order",
+                "targetNodeID": "llm_validate_normalize_order",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_has_order",
+                "targetNodeID": "block_end_process_orders",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "llm_validate_normalize_order",
+                "targetNodeID": "condition_validation_ok"
+              },
+              {
+                "sourceNodeID": "condition_validation_ok",
+                "targetNodeID": "llm_confirm_fulfillment_eligibility",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_validation_ok",
+                "targetNodeID": "block_end_process_orders",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "llm_confirm_fulfillment_eligibility",
+                "targetNodeID": "condition_is_eligible"
+              },
+              {
+                "sourceNodeID": "condition_is_eligible",
+                "targetNodeID": "mcp_fetch_full_order_details",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_is_eligible",
+                "targetNodeID": "block_end_process_orders",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "mcp_fetch_full_order_details",
+                "targetNodeID": "condition_details_fetch_ok"
+              },
+              {
+                "sourceNodeID": "condition_details_fetch_ok",
+                "targetNodeID": "mcp_inventory_allocation_check",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_details_fetch_ok",
+                "targetNodeID": "block_end_process_orders",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "mcp_inventory_allocation_check",
+                "targetNodeID": "llm_decide_allocation_outcome"
+              },
+              {
+                "sourceNodeID": "llm_decide_allocation_outcome",
+                "targetNodeID": "condition_allocation_path"
+              },
+              {
+                "sourceNodeID": "condition_allocation_path",
+                "targetNodeID": "llm_create_fulfillment_plan",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_allocation_path",
+                "targetNodeID": "llm_generate_fulfillment_json",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "llm_create_fulfillment_plan",
+                "targetNodeID": "condition_plan_ok"
+              },
+              {
+                "sourceNodeID": "condition_plan_ok",
+                "targetNodeID": "llm_generate_fulfillment_json",
+                "sourcePortID": "if_branch"
+              },
+              {
+                "sourceNodeID": "condition_plan_ok",
+                "targetNodeID": "llm_generate_fulfillment_json",
+                "sourcePortID": "else_branch"
+              },
+              {
+                "sourceNodeID": "llm_generate_fulfillment_json",
+                "targetNodeID": "mcp_writeback_log_results"
+              },
+              {
+                "sourceNodeID": "mcp_writeback_log_results",
+                "targetNodeID": "condition_writeback_ok"
+              },
+              {
+                "sourceNodeID": "condition_writeback_ok",
+                "targetNodeID": "block_end_process_orders",
+                "sourcePortID": "else_branch"
+              }
+            ]
+          },
+          {
+            "id": "llm_compile_final_run_report",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 2090,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "llm_compile_final_run_report",
+              "breakpoint": false,
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o-mini"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.2
+                },
+                "useThinking": {
+                  "type": "constant",
+                  "content": false
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "Role: Run reporter.\n\nGoals this node serves:\n- Aggregate run metrics: total pulled, processed, ready_to_ship, needs_review, backordered, skipped, failures by category.\n- Compile a consolidated human-intervention-needed list with order ids, what failed, and what was attempted.\n\nRules:\n- Do not invent numbers; derive from state data.\n- Output JSON with: summary_metrics, human_attention_needed, storage_recommendation, run_id."
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "Build a consolidated end-of-run report using current state (run, run_summary, any per-order outcomes). Return JSON only."
+                },
+                "promptSelection": {
+                  "content": "inline"
+                },
+                "attachments": {
+                  "type": "constant",
+                  "content": []
+                },
+                "apiKey": {
+                  "type": "constant",
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "useThinking": {
+                    "type": "boolean"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "promptSelection": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "attachments": {
+                    "type": "object"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "mcp_tool_store_final_report",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": 2350,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "mcp_store_final_report",
+              "breakpoint": false,
+              "inputsValues": {},
+              "data": {
+                "callable": {
+                  "id": "llm-auto-select",
+                  "name": "llm auto select",
+                  "desc": "Let the LLM automatically select the appropriate tool",
+                  "type": "system",
+                  "source": ""
+                },
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "chat_node_run_summary",
+            "type": "chat_node",
+            "meta": {
+              "position": {
+                "x": 2610,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "chat_node_run_summary",
+              "breakpoint": false,
+              "inputsValues": {
+                "message": {
+                  "type": "template",
+                  "content": "Scheduled run {{run.run_id}} completed.\n\nSummary (JSON):\n{{result.llm_result}}\n"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "end",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 2870,
+                "y": 200
+              }
+            },
+            "data": {
+              "title": "end",
+              "breakpoint": false,
+              "inputsValues": {},
+              "data": {
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start",
+            "targetNodeID": "llm_load_run_configuration"
+          },
+          {
+            "sourceNodeID": "llm_load_run_configuration",
+            "targetNodeID": "mcp_tool_fetch_ebay_orders"
+          },
+          {
+            "sourceNodeID": "mcp_tool_fetch_ebay_orders",
+            "targetNodeID": "condition_orders_fetch_ok"
+          },
+          {
+            "sourceNodeID": "condition_orders_fetch_ok",
+            "targetNodeID": "loop_process_orders",
+            "sourcePortID": "if_branch"
+          },
+          {
+            "sourceNodeID": "condition_orders_fetch_ok",
+            "targetNodeID": "browser_automation_pull_ebay_orders",
+            "sourcePortID": "else_branch"
+          },
+          {
+            "sourceNodeID": "browser_automation_pull_ebay_orders",
+            "targetNodeID": "loop_process_orders"
+          },
+          {
+            "sourceNodeID": "loop_process_orders",
+            "targetNodeID": "llm_compile_final_run_report"
+          },
+          {
+            "sourceNodeID": "llm_compile_final_run_report",
+            "targetNodeID": "mcp_tool_store_final_report"
+          },
+          {
+            "sourceNodeID": "mcp_tool_store_final_report",
+            "targetNodeID": "chat_node_run_summary"
+          },
+          {
+            "sourceNodeID": "chat_node_run_summary",
+            "targetNodeID": "end"
+          }
+        ]
+      },
+      "createdAt": 1773199292781,
+      "lastOpenedAt": 1773203970661
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}
