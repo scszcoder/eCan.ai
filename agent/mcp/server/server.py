@@ -130,7 +130,15 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async
-from agent.mcp.server.self_utils.self_tools import async_describe_self
+from agent.mcp.server.self_utils.self_tools import (
+    async_describe_self,
+    async_diagnose_llm,
+    async_create_agent,
+    async_delete_agent,
+    async_find_skill,
+    async_open_channel,
+    async_close_channel,
+)
 from agent.ec_tasks.task_mcp_tools import (
     async_launch_agent_task,
     async_create_agent_task_with_skill,
@@ -3489,8 +3497,14 @@ tool_function_mapping = {
         "rag_query": rag_query,
         "wait_for_rag_completion": wait_for_rag_completion,
         "ragify_async": ragify_async,
-        # Self-introspection tools
+        # Self-introspection and agent management tools
         "describe_self": async_describe_self,
+        "diagnose_llm": async_diagnose_llm,
+        "create_agent": async_create_agent,
+        "delete_agent": async_delete_agent,
+        "find_skill": async_find_skill,
+        "open_channel": async_open_channel,
+        "close_channel": async_close_channel,
         # Task management tools
         "launch_agent_task": async_launch_agent_task,
         "create_agent_task_with_skill": async_create_agent_task_with_skill,

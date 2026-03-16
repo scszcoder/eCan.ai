@@ -125,8 +125,11 @@ class CognitoService:
                 issuer=f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}"
             )
 
-            if claims.get('token_use') != token_use:
-                return {'success': False, 'error': f'Invalid token_use claim. Expected "{token_use}"'}
+            actual_token_use = claims.get('token_use')
+            # Google-federated Cognito ID tokens may omit the 'token_use' claim entirely.
+            # Only reject if the claim IS present but doesn't match the expected value.
+            if actual_token_use is not None and actual_token_use != token_use:
+                return {'success': False, 'error': f'Invalid token_use claim. Expected "{token_use}", got "{actual_token_use}"'}
 
             return {'success': True, 'data': claims}
 

@@ -2139,9 +2139,23 @@ def build_agent_mcp_tools_schemas():
 
     add_ragify_async_tool_schema(tool_schemas)
 
-    # Self-introspection tools
-    from agent.mcp.server.self_utils.self_tools import add_describe_self_tool_schema
+    # Self-introspection and agent management tools
+    from agent.mcp.server.self_utils.self_tools import (
+        add_describe_self_tool_schema,
+        add_diagnose_llm_tool_schema,
+        add_create_agent_tool_schema,
+        add_delete_agent_tool_schema,
+        add_find_skill_tool_schema,
+        add_open_channel_tool_schema,
+        add_close_channel_tool_schema,
+    )
     add_describe_self_tool_schema(tool_schemas)
+    add_diagnose_llm_tool_schema(tool_schemas)
+    add_create_agent_tool_schema(tool_schemas)
+    add_delete_agent_tool_schema(tool_schemas)
+    add_find_skill_tool_schema(tool_schemas)
+    add_open_channel_tool_schema(tool_schemas)
+    add_close_channel_tool_schema(tool_schemas)
 
     # Task management tools
     from agent.ec_tasks.task_mcp_tools import (
