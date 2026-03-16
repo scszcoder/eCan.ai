@@ -402,15 +402,45 @@ export class APIRouter {
     try {
       const normalizedParams = (() => {
         if (!params || typeof params !== 'object') return params;
-        if (!gqlString.includes('getAllMine')) return params;
-        if (!('username' in params)) return params;
-        if ('owner' in params || 'userId' in params) return params;
 
-        return {
-          ...params,
-          owner: (params as any).username,
-          userId: (params as any).username,
-        };
+        // For getAllMine queries: map username → owner/userId
+        if (gqlString.includes('getAllMine')) {
+          if ('username' in params && !('owner' in params) && !('userId' in params)) {
+            return {
+              ...params,
+              owner: (params as any).username,
+              userId: (params as any).username,
+            };
+          }
+          return params;
+        }
+
+        // For mutations with input objects: inject owner into each input item
+        // so the Lambda can resolve user identity even when JWT expires and
+        // AppSync falls back to API-key auth (no identity claims available).
+        if (mutation && 'input' in params) {
+          const username = (params as any).username
+            || userStorageManager.getUsername()
+            || userStorageManager.getUserInfo()?.email
+            || undefined;
+          if (username) {
+            const rawInput = (params as any).input;
+            const injectOwner = (item: any) => {
+              if (item && typeof item === 'object' && !item.owner) {
+                return { ...item, owner: username };
+              }
+              return item;
+            };
+            return {
+              ...params,
+              input: Array.isArray(rawInput)
+                ? rawInput.map(injectOwner)
+                : injectOwner(rawInput),
+            };
+          }
+        }
+
+        return params;
       })();
 
       // IMPORTANT: LocalServer GraphQL handler requires extensions.method for routing.

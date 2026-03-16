@@ -1100,6 +1100,7 @@ input AddressInput {
 input AgentInput {
   avatar_resource_id: ID
   birthday: String
+  owner: String
   capabilities: AWSJSON
   description: String
   extra_data: AWSJSON
@@ -1125,6 +1126,7 @@ input AgentQueryInput {
 input AgentUpdateInput {
   avatar_resource_id: ID
   birthday: String
+  owner: String
   capabilities: AWSJSON
   description: String
   extra_data: AWSJSON
@@ -1430,6 +1432,7 @@ input OrgInput {
   description: String
   id: ID
   name: String!
+  owner: String
   org_type: String
   parent_id: ID
   settings: AWSJSON
@@ -1447,6 +1450,7 @@ input OrgUpdateInput {
   description: String
   id: ID!
   level: Int
+  owner: String
   name: String
   org_type: String
   parent_id: ID
@@ -1819,6 +1823,7 @@ input SkillInput {
   apps: AWSJSON
   askid: Int
   config: AWSJSON
+  owner: String
   description: String
   diagram: AWSJSON
   examples: AWSJSON
@@ -1888,6 +1893,7 @@ input SkillUpdateInput {
   apps: AWSJSON
   askid: Int
   config: AWSJSON
+  owner: String
   description: String
   diagram: AWSJSON
   examples: AWSJSON
@@ -1940,6 +1946,7 @@ input TaskInput {
   id: ID
   metadata: AWSJSON
   name: String!
+  owner: String
   objectives: AWSJSON
   org_id: ID
   priority: String
@@ -1971,6 +1978,7 @@ input TaskUpdateInput {
   id: ID!
   metadata: AWSJSON
   name: String
+  owner: String
   objectives: AWSJSON
   org_id: ID
   priority: String
