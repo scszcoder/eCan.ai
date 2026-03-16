@@ -322,10 +322,17 @@ STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
 
-def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
+def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | None, Any]:
     """
     Load prompt data either from cloud (DynamoDB) or local (GUI prompt_handler).
-    
+
+    Args:
+        selection: prompt ID to load
+        skill_owner: email of the skill's original author.  When running
+            someone else's skill the prompt lives under *their* DynamoDB
+            partition, not the runner's.  If empty, falls back to the
+            current cloud context owner or local prompts.
+
     Returns:
         (prompt_data, normalizer_module) - prompt_data is the raw prompt dict,
         normalizer_module has _normalize_prompt function
@@ -340,10 +347,11 @@ def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
         
         cloud_ctx = get_cloud_prompt_context()
         if cloud_ctx is not None:
-            # We're in cloud mode - use DynamoDB-based prompt loading
-            logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}'")
+            # Determine which owner to query — prefer explicit skill_owner
+            effective_owner = skill_owner or cloud_ctx.owner_id
+            logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}' owner='{effective_owner}'")
             loader = get_cloud_prompt_loader(
-                owner_id=cloud_ctx.owner_id,
+                owner_id=effective_owner,
                 region=cloud_ctx.region,
                 table_name=cloud_ctx.table_name,
             )
@@ -366,6 +374,32 @@ def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
         from gui.ipc.w2p_handlers import prompt_handler
         prompts = prompt_handler._load_all_prompts()
         prompt_data = next((p for p in prompts if p.get("id") == selection), None)
+
+        # If not found locally and we have a skill_owner, try fetching from
+        # cloud under the skill owner's partition (free-skill auto-download).
+        if prompt_data is None and skill_owner:
+            try:
+                from gui.ipc.w2p_handlers.prompt_cloud_sync import _get_cloud_context, _appsync_request
+                import json as _json
+                ctx = _get_cloud_context()
+                if ctx:
+                    query = """
+                        query QueryPrompts($input: PromptQueryInput) {
+                            queryPrompts(input: $input) { id owner prompt version }
+                        }
+                    """
+                    resp = _appsync_request(query, ctx, variables={"input": {"id": selection, "owner": skill_owner}})
+                    items = (resp.get("data") or {}).get("queryPrompts") or []
+                    if items:
+                        raw = items[0].get("prompt", "{}")
+                        pdata = _json.loads(raw) if isinstance(raw, str) else raw
+                        if isinstance(pdata, dict):
+                            pdata["id"] = selection
+                        prompt_data = pdata
+                        logger.info(f"[prompts] Fetched prompt '{selection}' from cloud (skill_owner={skill_owner})")
+            except Exception as fetch_exc:
+                logger.debug(f"[prompts] Cloud fallback for skill_owner prompt failed: {fetch_exc}")
+
         return prompt_data, prompt_handler
     except ImportError:
         # PySide6 not available
@@ -376,8 +410,12 @@ def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
         return None, None
 
 
-def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str) -> tuple[str, str, dict]:
+def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str, *, skill_owner: str = "") -> tuple[str, str, dict]:
     """Resolve system/user prompt templates based on selection.
+
+    Args:
+        skill_owner: original author email — passed to _load_prompt_data so
+            prompts belonging to another user's skill can be resolved.
 
     Returns:
         (system_text, user_text, prompt_variables) where prompt_variables is
@@ -388,7 +426,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         return inline_system, inline_user, {}
 
     # Load prompt data from cloud or local
-    prompt_data, normalizer = _load_prompt_data(selection)
+    prompt_data, normalizer = _load_prompt_data(selection, skill_owner=skill_owner)
     
     if not prompt_data:
         logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
@@ -852,6 +890,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         prompt_selection,
         inline_system_prompt,
         inline_user_prompt,
+        skill_owner=owner or "",
     )
 
     # Load prompts using legacy prompt ids if provided for backwards compatibility
@@ -4349,6 +4388,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         prompt_selection,
         inline_system_prompt,
         inline_user_prompt,
+        skill_owner=owner or "",
     )
 
     from agent.ec_skills.prompt_loader import get_prompt_content

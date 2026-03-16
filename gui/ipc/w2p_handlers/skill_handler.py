@@ -589,6 +589,29 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
                 'Code-based skills cannot be edited. Please modify the source files directly.'
             )
 
+        # ── Publish gate: non-free skills must use cloud/hybrid execution ──
+        # If price > 0 and the skill is not already marked for cloud execution,
+        # forcefully enable hybrid_cloud_mode to protect prompt IP.
+        _price = 0
+        try:
+            _price = int(skill_info.get('price', 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        _config = skill_info.get('config') or {}
+        _ric = bool(skill_info.get('run_in_cloud', _config.get('run_in_cloud', False)))
+        _hcm = bool(skill_info.get('hybrid_cloud_mode', _config.get('hybrid_cloud_mode', False)))
+        if _price > 0 and not _ric and not _hcm:
+            logger.warning(
+                f"[skill_handler] Non-free skill '{skill_info.get('name')}' (price={_price}) "
+                "saved as local — forcing hybrid_cloud_mode=true to protect prompt IP"
+            )
+            skill_info['hybrid_cloud_mode'] = True
+            skill_info['run_in_cloud'] = True
+            if isinstance(_config, dict):
+                _config['hybrid_cloud_mode'] = True
+                _config['run_in_cloud'] = True
+                skill_info['config'] = _config
+
         logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
 
         # Get database service

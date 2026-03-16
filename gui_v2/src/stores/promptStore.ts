@@ -91,10 +91,25 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
         }
         return acc;
       }, []);
+
+      // Filter out prompts not owned by the current user.
+      // Prompts from free skills (auto-downloaded for execution) are kept in
+      // the backend/logs but should NOT appear on the Prompts page UI.
+      const normalise = (s: string) => (s || '').trim().toLowerCase();
+      const myPrompts = uniquePrompts.filter((p: any) => {
+        const pOwner = normalise(p.owner);
+        // Show prompt if: no owner set, owner matches current user,
+        // or source is explicitly 'my_prompts' / 'sample_prompts'.
+        if (!pOwner || pOwner === normalise(username)) return true;
+        const src = normalise(p.source);
+        if (src === 'my_prompts' || src === 'sample_prompts') return true;
+        return false;
+      });
+      const hiddenCount = uniquePrompts.length - myPrompts.length;
       
-      console.log(`[promptStore] Loaded ${uniquePrompts.length} unique prompts (${incoming.length - uniquePrompts.length} duplicates removed)`);
+      console.log(`[promptStore] Loaded ${myPrompts.length} prompts (${incoming.length - uniquePrompts.length} duplicates, ${hiddenCount} non-owned hidden)`);
       
-      set({ prompts: uniquePrompts, loading: false, fetched: true });
+      set({ prompts: myPrompts, loading: false, fetched: true });
     } catch (e: any) {
       console.error('[promptStore] Fetch error:', e);
       set({ loading: false, error: e?.message || 'Unknown error' });
