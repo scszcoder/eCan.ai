@@ -177,7 +177,11 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
                 return
 
             owner = ctx["owner"]
+            endpoint = ctx.get("endpoint", "?")
             gql_input = _prompt_to_graphql_input(prompt, owner)
+
+            logger.info(f"[prompt_sync] >>> Syncing prompt '{prompt.get('id')}' | owner='{owner}' | endpoint={endpoint[:60]}...")
+            logger.debug(f"[prompt_sync] >>> gql_input keys={list(gql_input.keys())}, id={gql_input.get('id')}, owner={gql_input.get('owner')}, prompt_len={len(gql_input.get('prompt',''))}")
 
             mutation = """
                 mutation AddPrompts($input: [PromptInput!]!) {
@@ -188,6 +192,7 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
             resp = _appsync_request(mutation, ctx, variables={"input": [gql_input]})
 
             # Check response
+            logger.info(f"[prompt_sync] <<< Full response for '{prompt.get('id')}': {resp}")
             errors = resp.get("errors")
             if errors:
                 logger.warning(f"[prompt_sync] addPrompts error for {prompt.get('id')}: {errors}")
