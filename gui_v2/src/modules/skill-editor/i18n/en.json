@@ -671,7 +671,8 @@
       },
       "defaultProfile": "(Default Profile)",
       "inlinePrompt": "In-line Prompt",
-      "cdpPortPlaceholder": "9228 (default)"
+      "cdpPortPlaceholder": "9228 (default)",
+      "chromeLaunchCommandHint": "Please be sure to launch Chrome using the following command:"
     },
     "mcp": {
       "name": "MCP",
