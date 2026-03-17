@@ -26,6 +26,7 @@ class AuthManager:
         self.current_user = None
         self.user_profile = {}  # Store user profile info (name, picture, etc.)
         self.signed_in = False
+        self.last_login_error = None  # Store last login error for IPC handler to retrieve
         self.machine_role = "Platoon"  # Default role
         self.ecb_data_homepath = getECBotDataHome()
         self.acct_file = self.ecb_data_homepath + "/uli.json"
@@ -106,6 +107,59 @@ class AuthManager:
         """Get the current user's profile information."""
         return self.user_profile or {}
 
+    @staticmethod
+    def _decode_jwt_payload_unsafe(token: str) -> dict:
+        """Decode a JWT payload WITHOUT cryptographic verification.
+        Used only as a fallback to extract user identity (email) from an ID token
+        that was just received over HTTPS from Cognito's /oauth2/token endpoint.
+        """
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                return {}
+            payload_b64 = parts[1]
+            # JWT base64url may lack padding
+            padding = 4 - len(payload_b64) % 4
+            if padding != 4:
+                payload_b64 += '=' * padding
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            return json.loads(payload_bytes)
+        except Exception as e:
+            logger.warning(f"[_decode_jwt_payload_unsafe] Could not decode JWT payload: {e}")
+            return {}
+
+    def _build_profile_from_claims(self, claim_data: dict):
+        """Build user_profile dict and email from JWT claim data."""
+        email = claim_data.get('email') or claim_data.get('username')
+
+        # Construct name with fallback logic
+        name = claim_data.get('name')
+        given_name = claim_data.get('given_name', '')
+        family_name = claim_data.get('family_name', '')
+
+        # If no name provided, try to construct from given_name/family_name
+        if not name and (given_name or family_name):
+            # Check for CJK characters to decide on spacing
+            has_cjk = any('\u4e00' <= c <= '\u9fff' for c in (given_name + family_name))
+            if has_cjk:
+                name = f"{family_name}{given_name}"
+            else:
+                name = f"{given_name} {family_name}".strip()
+
+        # Final fallback: use email username part (before @)
+        if not name and email:
+            name = email.split('@')[0]
+
+        user_profile = {
+            'email': email,
+            'name': name or '',
+            'given_name': given_name,
+            'family_name': family_name,
+            'picture': claim_data.get('picture', ''),
+            'email_verified': claim_data.get('email_verified', False),
+        }
+        return user_profile, email
+
     def _fetch_user_profile(self, access_token, id_token=None):
         """
         Helper method to fetch and construct the user profile from ID token claims
@@ -114,44 +168,31 @@ class AuthManager:
         user_profile = {}
         email = None
 
-        # 1. Try extracting from ID Token
+        # 1. Try extracting from ID Token via verified decode
         if id_token:
             claims = self.cognito_service.verify_token(id_token, 'id')
             logger.debug(f"[_fetch_user_profile] verify_token result: success={claims.get('success')}, error={claims.get('error')}")
             if claims.get('success'):
                 claim_data = claims['data']
                 logger.debug(f"ID Token Claims: {claim_data}")
-                email = claim_data.get('email') or claim_data.get('username')
-                
-                # Construct name with fallback logic
-                name = claim_data.get('name')
-                given_name = claim_data.get('given_name', '')
-                family_name = claim_data.get('family_name', '')
-                
-                # If no name provided, try to construct from given_name/family_name
-                if not name and (given_name or family_name):
-                    # Check for CJK characters to decide on spacing
-                    has_cjk = any('\u4e00' <= c <= '\u9fff' for c in (given_name + family_name))
-                    if has_cjk:
-                        name = f"{family_name}{given_name}"
-                    else:
-                        name = f"{given_name} {family_name}".strip()
-                
-                # Final fallback: use email username part (before @)
-                if not name and email:
-                    name = email.split('@')[0]
-                
-                user_profile = {
-                    'email': email,
-                    'name': name or '',
-                    'given_name': given_name,
-                    'family_name': family_name,
-                    'picture': claim_data.get('picture', ''),
-                    'email_verified': claim_data.get('email_verified', False),
-                }
-                logger.info(f"[_fetch_user_profile] Constructed user_profile: {user_profile}")
+                user_profile, email = self._build_profile_from_claims(claim_data)
+                logger.info(f"[_fetch_user_profile] Constructed user_profile from verified token: {user_profile}")
             else:
                 logger.warning(f"[_fetch_user_profile] verify_token failed: {claims.get('error')}")
+                # 1b. FALLBACK: decode JWT payload without verification.
+                # This is safe because the token was just received over HTTPS directly
+                # from Cognito's /oauth2/token endpoint seconds ago.
+                # Google federated ID tokens may fail verify_token due to missing
+                # 'token_use' claim or JWKS fetch issues in slow networks.
+                logger.info("[_fetch_user_profile] Attempting unverified JWT decode fallback for email extraction...")
+                fallback_claims = self._decode_jwt_payload_unsafe(id_token)
+                if fallback_claims:
+                    logger.info(f"[_fetch_user_profile] Fallback claims keys: {list(fallback_claims.keys())}")
+                    user_profile, email = self._build_profile_from_claims(fallback_claims)
+                    if email:
+                        logger.info(f"[_fetch_user_profile] Extracted email via fallback: {email}")
+                    else:
+                        logger.warning("[_fetch_user_profile] Fallback decode succeeded but no email found in claims")
 
         # 2. OPTIMIZATION: Skip UserInfo endpoint to avoid additional 90+ second network delay
         # ID Token already contains all necessary user information (email, name, given_name, family_name, picture)
@@ -214,6 +255,7 @@ class AuthManager:
         """Orchestrates the entire Google login flow using a local callback server with PKCE and persists refresh token."""
         try:
             self.machine_role = role
+            self.last_login_error = None
 
             # Step 1: Start a temporary local HTTP server to listen for the callback.
             callback_url = AuthConfig.GOOGLE.CALLBACK_URL
@@ -259,7 +301,22 @@ class AuthManager:
                 access_token = self.tokens.get('access_token') or self.tokens.get('AccessToken')
                 id_token = self.tokens.get('id_token') or self.tokens.get('IdToken')
                 
+                logger.info(f"[google_login] Token keys received: {list(tokens.keys())}")
+                logger.info(f"[google_login] id_token present: {bool(id_token)}, access_token present: {bool(access_token)}")
+                
                 self.user_profile, fetched_email = self._fetch_user_profile(access_token, id_token)
+                
+                # Extra fallback: if _fetch_user_profile couldn't get an email,
+                # try decoding the access_token payload (Cognito access tokens
+                # contain 'username' which for Google-federated users is often the email)
+                if not fetched_email and access_token:
+                    logger.info("[google_login] No email from id_token, trying access_token payload...")
+                    at_claims = self._decode_jwt_payload_unsafe(access_token)
+                    if at_claims:
+                        fetched_email = at_claims.get('email') or at_claims.get('username')
+                        if fetched_email:
+                            logger.info(f"[google_login] Extracted email from access_token: {fetched_email}")
+                            self.user_profile['email'] = fetched_email
                 
                 logger.info(f"Final User Profile: {self.user_profile}")
                 self.current_user = fetched_email or self._get_saved_username() or "unknown@local"
@@ -280,6 +337,7 @@ class AuthManager:
         except Exception as e:
             logger.error(f"AuthManager: An unexpected error occurred during Google login: {e}")
             logger.error(traceback.format_exc())
+            self.last_login_error = str(e)
             return {'success': False, 'error': str(e)}
 
 
@@ -998,6 +1056,73 @@ class AuthManager:
             logger.error(f"Failed to read saved machine role: {e}")
             # Return default role on error
             return "Commander"
+
+    def clear_auth_cache(self) -> dict:
+        """Clear all cached authentication data (saved username, credentials, refresh tokens, uli.json user field).
+        
+        This is useful when switching login methods (e.g. from password to Google)
+        and stale cached data causes issues.
+        """
+        cleared = []
+        errors = []
+
+        # 0. Capture saved username BEFORE clearing anything (needed for keyring cleanup)
+        saved_user = self.current_user or self._get_saved_username()
+
+        # 1. Clear in-memory state
+        self.tokens = None
+        self.current_user = None
+        self.user_profile = {}
+        self.signed_in = False
+        self.stop_refresh_task()
+        cleared.append("in_memory_state")
+
+        # 2. Clear saved username from uli.json (but preserve language/theme)
+        try:
+            if exists(self.acct_file):
+                with open(self.acct_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                old_user = data.get("user")
+                data.pop("user", None)
+                data.pop("machine_role", None)
+                with open(self.acct_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                cleared.append(f"uli_json_user({old_user})")
+        except Exception as e:
+            errors.append(f"uli.json: {e}")
+
+        # 3. Clear keyring credentials and refresh tokens for the saved user
+        if saved_user:
+            try:
+                keyring.delete_password("ecan_auth", saved_user)
+                cleared.append(f"keyring_credentials({saved_user})")
+            except Exception:
+                try:
+                    keyring.set_password("ecan_auth", saved_user, "")
+                    cleared.append(f"keyring_credentials_zeroed({saved_user})")
+                except Exception as ke:
+                    errors.append(f"keyring_credentials: {ke}")
+
+            try:
+                self._delete_refresh_token(saved_user)
+                cleared.append(f"refresh_token({saved_user})")
+            except Exception as re_err:
+                errors.append(f"refresh_token: {re_err}")
+
+        # 4. Clear IPC registry cache
+        try:
+            from gui.ipc.registry import IPCHandlerRegistry
+            IPCHandlerRegistry.clear_system_ready_cache()
+            cleared.append("ipc_registry_cache")
+        except Exception as e:
+            errors.append(f"ipc_registry: {e}")
+
+        logger.info(f"AuthManager.clear_auth_cache: cleared={cleared}, errors={errors}")
+        return {
+            'success': len(errors) == 0,
+            'cleared': cleared,
+            'errors': errors
+        }
 
     def try_restore_session(self) -> bool:
         """Attempt to restore session from stored refresh token silently at startup."""

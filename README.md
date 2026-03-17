@@ -3,10 +3,7 @@
 </p>
 
 # eCan.ai (E-Commerce Agent Network)
-eCan.ai is an AI native, privacy-first, agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce businesses with minimal human overheads.
-This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing/procurement to selling, 
-from marketing research to advertising, from legal counsel to customer service. Hopefully your business can run by agents, so that you can be 
-sitting on the beach :)
+eCan.ai is an AI native, privacy-first, cross-platform(win/mac/linux/web), developer friendly, multi-communication channelled agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce businesses with minimal human overheads. This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing/procurement to selling, from marketing research to advertising, from legal counsel to customer service. Hopefully your business can run by agents, so that you can slack off on the beach :)
 
 <img src="resource/images/videos/demo_clip0.gif" alt="" style="width:960px;"/>
 
@@ -99,6 +96,16 @@ so we have built in mechanism to protect your privacy:
 
 ### Interfacing with Agents over the internet
 You will need to subscribe to ["Pro" plan](). With "Pro" plan, you can chat with any agent remotely even when you're on the road.
+Communications channels supported include:
+* ✅ whatsapp
+* ✅ telegram
+* ✅ slack
+* ✅ email
+* ✅ sms
+* ✅ facebook messenger
+* ✅ discord
+* ✅ wechat
+* ✅ ding-talk
 
 
 ## 📥 Download Latest Release (v0.0.5)

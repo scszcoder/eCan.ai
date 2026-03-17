@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Tag, Space } from 'antd';
 import { CheckOutlined, CloseOutlined, RocketOutlined } from '@ant-design/icons';
 import styled from 'styled-components';
@@ -185,6 +186,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
   isSubmitting = false,
   submittedAction,
 }) => {
+  const { t } = useTranslation('skillEditor');
   // Read-only mode when submittedAction is provided
   const isReadOnly = !!submittedAction;
 
@@ -231,8 +233,8 @@ export const PlanCard: React.FC<PlanCardProps> = ({
         <CardTitle>
           <RocketOutlined style={{ color: isReadOnly ? (submittedAction === 'approved' ? '#22c55e' : '#f59e0b') : '#22c55e' }} />
           {isReadOnly 
-            ? (submittedAction === 'approved' ? '✅ Plan Approved' : '📝 Plan Revised')
-            : 'Implementation Plan'}
+            ? (submittedAction === 'approved' ? t('chatPanel.planApproved') : t('chatPanel.planRevised'))
+            : t('chatPanel.planTitle')}
         </CardTitle>
         <ComplexityBadge $complexity={safePlan.complexity}>
           {safePlan.complexity.charAt(0).toUpperCase() + safePlan.complexity.slice(1)}
@@ -242,7 +244,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
       <Summary>{safePlan.summary}</Summary>
       
       <StepsContainer>
-        <StepsTitle>Steps</StepsTitle>
+        <StepsTitle>{t('chatPanel.planSteps')}</StepsTitle>
         {safePlan.steps.map((step, index) => (
           <StepItem key={index}>
             <StepNumber>{index + 1}</StepNumber>
@@ -263,7 +265,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
       
       {safePlan.estimated_nodes.length > 0 && (
         <EstimatedNodes>
-          <EstimatedNodesTitle>Estimated nodes:</EstimatedNodesTitle>
+          <EstimatedNodesTitle>{t('chatPanel.planEstimatedNodes')}</EstimatedNodesTitle>
           <Space size={4} wrap>
             {safePlan.estimated_nodes.map((node, i) => (
               <NodeTag key={i}>{node}</NodeTag>
@@ -283,14 +285,14 @@ export const PlanCard: React.FC<PlanCardProps> = ({
             loading={isSubmitting}
             style={{ background: '#22c55e', borderColor: '#22c55e' }}
           >
-            Proceed
+            {t('chatPanel.planProceed')}
           </ApproveButton>
           <RejectButton
             icon={<CloseOutlined />}
             onClick={handleReject}
             disabled={isSubmitting}
           >
-            Revise
+            {t('chatPanel.planRevise')}
           </RejectButton>
         </ButtonContainer>
       )}

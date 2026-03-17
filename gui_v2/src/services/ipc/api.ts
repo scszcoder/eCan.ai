@@ -303,6 +303,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'login_with_apple' });
     }
 
+    public async clearAuthCache<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'clear_auth_cache' });
+    }
+
     /**
      * Get token information
      * @param token - JWT token
