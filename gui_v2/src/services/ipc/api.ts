@@ -2495,6 +2495,11 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'save_browser_use_settings' }, { settings });
     }
 
+    // LLM Token Usage APIs
+    public async getMonthlyTokenUsage<T>(month?: number, year?: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getMonthlyTokenUsage' }, { month, year });
+    }
+
 }
 
 /**

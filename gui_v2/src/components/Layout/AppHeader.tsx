@@ -14,6 +14,7 @@ import { messageManager } from '../../pages/Chat/managers/MessageManager';
 import { userStorageManager, type UserInfo } from '../../services/storage/UserStorageManager';
 import { UserAvatar } from '../Common/UserAvatar';
 import { AdBanner, AdPopup } from '../AdBanner';
+import { TokenUsageDisplay } from '../TokenUsage';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
@@ -373,6 +374,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
             />
             <AdBanner />
             <HeaderRight>
+                <TokenUsageDisplay />
                 <StyledBadge count={totalUnreadCount > 0 ? totalUnreadCount : 0} overflowCount={99}>
                     <StyledButton
                         type="text"
