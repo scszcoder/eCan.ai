@@ -701,6 +701,35 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 logger.warning("[SkillEditorChat] Cloud send_message failed, falling back to local agent")
 
         # --- Local fallback ---
+        # Ensure canvas_context is parsed (may still be a JSON string)
+        local_canvas = canvas_context
+        if isinstance(local_canvas, str):
+            try:
+                import json as _json
+                local_canvas = _json.loads(local_canvas)
+            except (ValueError, TypeError):
+                local_canvas = None
+        # Inject nodes from local disk if canvas is empty but has skillName
+        if isinstance(local_canvas, dict) and not local_canvas.get("nodes"):
+            skill_name = local_canvas.get("skillName")
+            if skill_name:
+                try:
+                    from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+                    sdir = f"{skill_name}_skill" if not skill_name.endswith("_skill") else skill_name
+                    skill_json_path = user_skills_root() / sdir / "diagram_dir" / f"{sdir}.json"
+                    if skill_json_path.exists():
+                        import json as _json
+                        local_skill = _json.loads(skill_json_path.read_text(encoding="utf-8"))
+                        wf = local_skill.get("workFlow", {})
+                        local_nodes = wf.get("nodes", [])
+                        local_edges = wf.get("edges", [])
+                        if local_nodes:
+                            local_canvas["nodes"] = local_nodes
+                            local_canvas["edges"] = local_edges
+                            logger.info(f"[SkillEditorChat] Local fallback: injected {len(local_nodes)} nodes from disk: {skill_name}")
+                except Exception as e:
+                    logger.warning(f"[SkillEditorChat] Local fallback: failed to inject nodes: {e}")
+
         session = _chat_store.get_session(session_id)
         if not session:
             # Auto-create session if not exists
@@ -761,7 +790,7 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 
             # Process with LLM agent
             logger.info(f"[SkillEditorChat] Processing message with LLM agent...")
-            agent_result = _process_chat_message(session, user_message, canvas_context, clarification_responses, on_event=on_event)
+            agent_result = _process_chat_message(session, user_message, local_canvas, clarification_responses, on_event=on_event)
             logger.info(f"[SkillEditorChat] LLM response generated, state={agent_result.get('state')}")
 
             try:
