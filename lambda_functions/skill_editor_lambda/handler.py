@@ -2033,6 +2033,12 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
 
         canvas_context = input_.get("canvasContext")
+        # AWSJSON arrives as a JSON string from AppSync — parse it first
+        if isinstance(canvas_context, str):
+            try:
+                canvas_context = json.loads(canvas_context)
+            except (json.JSONDecodeError, TypeError):
+                canvas_context = None
         clarification = input_.get("clarificationResponses")
         recent_context_sessions = _load_recent_context_sessions(env, owner, skill_name, limit=3)
         if isinstance(canvas_context, dict):
