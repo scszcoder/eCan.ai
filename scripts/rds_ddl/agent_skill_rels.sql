@@ -1,0 +1,21 @@
+CREATE TABLE `agent_skill_rels` (
+  `id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agent_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `skill_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `proficiency_level` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'beginner',
+  `experience_points` int DEFAULT '0',
+  `certification_level` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `usage_count` int DEFAULT '0',
+  `success_rate` double DEFAULT '0',
+  `last_used` datetime(6) DEFAULT NULL,
+  `status` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'active',
+  `is_favorite` tinyint(1) DEFAULT '0',
+  `priority` int DEFAULT '0',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uc_agent_skill` (`agent_id`,`skill_id`),
+  KEY `fk_asr_skill` (`skill_id`),
+  CONSTRAINT `fk_asr_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
+  CONSTRAINT `fk_asr_skill` FOREIGN KEY (`skill_id`) REFERENCES `agent_skills` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

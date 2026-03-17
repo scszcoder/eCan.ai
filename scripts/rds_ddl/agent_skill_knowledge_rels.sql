@@ -1,0 +1,21 @@
+CREATE TABLE `agent_skill_knowledge_rels` (
+  `id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `skill_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `knowledge_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `dependency_type` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'required',
+  `usage_frequency` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'medium',
+  `importance` int DEFAULT '1',
+  `access_pattern` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'read',
+  `knowledge_scope` json DEFAULT NULL,
+  `access_count` int DEFAULT '0',
+  `last_accessed` datetime(6) DEFAULT NULL,
+  `average_query_time` double DEFAULT '0',
+  `status` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'active',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uc_skill_knowledge` (`skill_id`,`knowledge_id`),
+  KEY `fk_ask_knowledge` (`knowledge_id`),
+  CONSTRAINT `fk_ask_knowledge` FOREIGN KEY (`knowledge_id`) REFERENCES `agent_knowledges` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT,
+  CONSTRAINT `fk_ask_skill` FOREIGN KEY (`skill_id`) REFERENCES `agent_skills` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

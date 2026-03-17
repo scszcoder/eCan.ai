@@ -441,7 +441,8 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             if login.auth_manager.is_signed_in() and login.auth_manager.get_current_user():
                 result = {'success': True}
             else:
-                result = {'success': False, 'error': 'Authentication failed'}
+                error_detail = getattr(login.auth_manager, 'last_login_error', None) or 'Authentication failed'
+                result = {'success': False, 'error': error_detail}
         except Exception as e:
             logger.error(f"[GoogleLogin] Exception: {e}")
             result = {'success': False, 'error': str(e)}
@@ -493,6 +494,21 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         logger.error(f"Error in Google login handler: {e} {traceback.format_exc()}")
         auth_messages.set_language(lang)
         return create_error_response(request, 'GOOGLE_LOGIN_ERROR', auth_messages.get_message('login_failed'))
+
+@IPCHandlerRegistry.handler('clear_auth_cache')
+def handle_clear_auth_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Clear all cached authentication data to fix stale login issues."""
+    try:
+        login = AppContext.get_login()
+        if login is None:
+            return create_error_response(request, 'SYSTEM_NOT_READY', 'System not ready')
+        
+        result = login.auth_manager.clear_auth_cache()
+        logger.info(f"[ClearAuthCache] Result: {result}")
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[ClearAuthCache] Error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'CLEAR_CACHE_ERROR', str(e))
 
 @IPCHandlerRegistry.handler('get_account_info')
 def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:

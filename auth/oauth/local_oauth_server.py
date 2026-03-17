@@ -511,8 +511,60 @@ class LocalOAuthServer:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind((self.hostname, self.port))
         except OSError as e:
-            logger.error(f"Address {self.hostname}:{self.port} is already in use. Please close the other application or change the CALLBACK_URL in auth_config.yml.")
-            raise RuntimeError(f"Address {self.hostname}:{self.port} is in use.") from e
+            blocker = self._find_port_blocker(self.port)
+            if blocker:
+                msg = (f"Port {self.port} is occupied by '{blocker}'. "
+                       f"Please close '{blocker}' or restart it, then try Google login again.")
+            else:
+                msg = (f"Port {self.port} is occupied by another application. "
+                       f"Please close the application using this port and try again.")
+            logger.error(f"OAuth port check failed: {msg}")
+            raise RuntimeError(msg) from e
+
+    @staticmethod
+    def _find_port_blocker(port: int) -> str:
+        """Try to identify which process is holding the given port."""
+        import sys
+        try:
+            if sys.platform == 'win32':
+                import subprocess
+                # netstat to find PID
+                result = subprocess.run(
+                    ['netstat', '-ano'], capture_output=True, text=True, timeout=5
+                )
+                pid = None
+                for line in result.stdout.splitlines():
+                    if f':{port}' in line and 'LISTENING' in line:
+                        parts = line.strip().split()
+                        pid = int(parts[-1])
+                        break
+                if pid:
+                    # tasklist to find process name
+                    result2 = subprocess.run(
+                        ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    for line in result2.stdout.splitlines():
+                        if line.strip():
+                            name = line.split(',')[0].strip('"')
+                            return f"{name} (PID {pid})"
+            else:
+                import subprocess
+                result = subprocess.run(
+                    ['lsof', '-i', f':{port}', '-sTCP:LISTEN', '-t'],
+                    capture_output=True, text=True, timeout=5
+                )
+                pid = result.stdout.strip().split('\n')[0]
+                if pid:
+                    result2 = subprocess.run(
+                        ['ps', '-p', pid, '-o', 'comm='],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    name = result2.stdout.strip()
+                    return f"{name} (PID {pid})" if name else f"PID {pid}"
+        except Exception as ex:
+            logger.debug(f"Could not identify port blocker: {ex}")
+        return ""
     
     def _generate_pkce_pair(self):
         """Generate PKCE code verifier and challenge"""

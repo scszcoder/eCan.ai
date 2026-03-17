@@ -644,10 +644,14 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                                 chunk_index=0,
                             )
                         else:
+                            # Forward structured data (clarification, plan,
+                            # state, etc.) so the frontend handleDone can
+                            # set pending states from the local-ws push.
                             ipc.push_skill_editor_chat_done(
                                 session_id=session_id,
                                 message_id=msg_id,
                                 full_content=msg_content,
+                                extra=cloud_result,
                             )
 
                         # Forward flowgram as a canvas command so the local frontend loads it
@@ -666,22 +670,29 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 except Exception as relay_push_err:
                     logger.debug(f"[SkillEditorChat] Cloud relay push to frontend skipped: {relay_push_err}")
 
-                # When subscription is active the real data (plan, clarification,
-                # flowgram) will arrive via stream_end events.  Returning the
-                # full result here would cause the frontend to render duplicate
-                # messages/plans.  Return a "processing" placeholder instead.
+                # When subscription is active the real structured data
+                # (plan, clarification, flowgram) MAY arrive via stream_end
+                # events — but the subscription enrichment is not always
+                # reliable (bare stream_end).  Include the structured data
+                # in the sync response so the frontend can use whichever
+                # arrives first.  The frontend dedup logic protects against
+                # double-rendering.
                 if sub_active:
                     msg = cloud_result.get("message") or {}
                     placeholder = {
                         "sessionId": cloud_result.get("sessionId", session_id),
-                        "state": "processing",
+                        "state": cloud_result.get("state", "processing"),
                         "intent": cloud_result.get("intent"),
+                        "clarification": cloud_result.get("clarification"),
+                        "plan": cloud_result.get("plan"),
+                        "flowgram": cloud_result.get("flowgram"),
+                        "validation": cloud_result.get("validation"),
                         "message": {
                             "id": msg.get("id") if isinstance(msg, dict) else None,
                             "role": "assistant",
-                            "content": "",
-                            "timestamp": int(time.time() * 1000),
-                            "metadata": {"placeholder": True},
+                            "content": msg.get("content", "") if isinstance(msg, dict) else "",
+                            "timestamp": msg.get("timestamp", int(time.time() * 1000)) if isinstance(msg, dict) else int(time.time() * 1000),
+                            "metadata": msg.get("metadata") if isinstance(msg, dict) else None,
                         },
                     }
                     return create_success_response(request, placeholder)
