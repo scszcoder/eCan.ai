@@ -1,25 +1,102 @@
 import os
+from typing import Any, Dict
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
+from agent.mcp.server.code_utils.code_tools import run_code, run_shell_script
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ExtractDomAction,
     FileRenameAction,
     FilesPrintAction,
     LabelInputFile,
     LabelsReformatAction,
+    RunCodeAction,
+    RunShellScriptAction,
 )
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
 )
 
+from app_context import AppContext
+
 # Create a shared controller with custom actions for browser_use
 custom_controller = Controller()
 
+@custom_controller.action(
+    "Execute Python code in a sandboxed environment. Use 'result' variable to return a value.",
+    param_model=RunCodeAction,
+)
+async def bu_run_code(params: RunCodeAction) -> ActionResult:
+    config: Dict[str, Any] = {"code": params.code, "language": "python"}
+    if params.args is not None:
+        config["args"] = params.args
+    if params.timeout is not None:
+        config["timeout"] = params.timeout
+    if params.allowed_imports is not None:
+        config["allowed_imports"] = params.allowed_imports
+
+    login = AppContext.login
+    result = run_code(login.main_win, config)
+
+    if result.get("success"):
+        parts = [f"Code executed successfully in {result.get('execution_time_ms', 0)}ms"]
+        if result.get("stdout"):
+            parts.append(f"\nOutput:\n{result['stdout']}")
+        if result.get("return_value") is not None:
+            parts.append(f"\nReturn value: {result['return_value']}")
+        return ActionResult(extracted_content="\n".join(parts))
+    else:
+        error_msg = f"Code execution failed: {result.get('error', 'Unknown error')}"
+        if result.get("stderr"):
+            error_msg += f"\nStderr:\n{result['stderr']}"
+        return ActionResult(error=error_msg)
+
+
+
+@custom_controller.action(
+    "Execute a shell script. Auto-detects OS shell (PowerShell/bash/zsh).",
+    param_model=RunShellScriptAction,
+)
+async def bu_run_shell_script(params: RunShellScriptAction) -> ActionResult:
+    config: Dict[str, Any] = {"script": params.script}
+    if params.shell is not None:
+        config["shell"] = params.shell
+    if params.timeout is not None:
+        config["timeout"] = params.timeout
+    if params.working_dir is not None:
+        config["working_dir"] = params.working_dir
+    if params.env_vars is not None:
+        config["env_vars"] = params.env_vars
+
+    login = AppContext.login
+    result = run_shell_script(login.main_win, config)
+
+    if result.get("success"):
+        parts = [
+            f"Script executed successfully on {result.get('os', 'unknown')} "
+            f"using {result.get('shell', 'unknown')} in {result.get('execution_time_ms', 0)}ms"
+        ]
+        if result.get("stdout"):
+            stdout = result['stdout'][:2000]
+            if len(result['stdout']) > 2000:
+                stdout += "\n... (truncated)"
+            parts.append(f"\nOutput:\n{stdout}")
+        return ActionResult(extracted_content="\n".join(parts))
+    else:
+        error_msg = f"Script failed (exit code {result.get('return_code', -1)})"
+        if result.get("error"):
+            error_msg += f": {result['error']}"
+        if result.get("stderr"):
+            stderr = result['stderr'][:2000]
+            if len(result['stderr']) > 2000:
+                stderr += "\n... (truncated)"
+            error_msg += f"\nStderr:\n{stderr}"
+        return ActionResult(error=error_msg)
+
 
 @custom_controller.action("List all files in a directory recursively, returning file names and sizes.")
-def list_files(directory: str) -> str:
+async def list_files(directory: str) -> str:
     results = []
     for root, dirs, files in os.walk(directory):
         for f in files:
