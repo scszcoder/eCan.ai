@@ -992,7 +992,7 @@ def _process_chat_message(
         try:
             return _process_with_agent(session, message, canvas_context, clarification_responses, on_event=on_event)
         except Exception as e:
-            logger.warning(f"[SkillEditorChat] Agent processing failed, using fallback: {e}")
+            logger.error(f"[SkillEditorChat] Agent processing failed, using fallback: {e}\n{traceback.format_exc()}")
             fallback_msg = _process_fallback(message, canvas_context)
             return {"message": fallback_msg, "state": "complete"}
     else:
@@ -1244,7 +1244,10 @@ def _process_fallback(
         logger.debug("[SkillEditorChat] Fallback matched: greeting")
         return _fb('greeting')
     
-    if "create" in content or "build" in content or "make" in content or "创建" in content or "构建" in content:
+    if "create" in content or "build" in content or "make" in content or \
+       "创建" in content or "构建" in content or "生成" in content or "新建" in content or \
+       "帮我" in content or "新工作流" in content or "新的工作流" in content or \
+       "做一个" in content or "做个" in content:
         logger.debug("[SkillEditorChat] Fallback matched: create/build/make")
         return _fb('create')
     
@@ -1255,8 +1258,9 @@ def _process_fallback(
     if canvas_context:
         node_count = len(canvas_context.get("nodes", []))
         edge_count = len(canvas_context.get("edges", []))
-        logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
-        return _fb('canvas_context', node_count=node_count, edge_count=edge_count)
+        if node_count > 0:
+            logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
+            return _fb('canvas_context', node_count=node_count, edge_count=edge_count)
     
     logger.debug("[SkillEditorChat] Fallback matched: default response")
     return _fb('default')
