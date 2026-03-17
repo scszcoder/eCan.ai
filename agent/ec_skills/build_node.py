@@ -5225,6 +5225,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         **agent_kwargs,
                     )
                     
+                    # Register agent instance for extension tools
+                    from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+                    set_current_agent(agent)
+                    
                     logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
                     send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
                     
@@ -5568,6 +5572,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Fallback: browser session creation failed or unsupported driver
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+            
+            # Register agent instance for extension tools (e.g., list_files auto-authorization)
+            from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+            set_current_agent(agent)
 
             # Look up cancellation_event from global registry by task_id
             from agent.ec_tasks import cancellation_registry
