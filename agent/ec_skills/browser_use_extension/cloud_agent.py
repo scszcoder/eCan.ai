@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -18,7 +19,23 @@ class PassivePubSubTransport(Protocol):
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
         raise NotImplementedError
 
-    async def wait_for_result(self, *, run_id: str, step_id: str, timeout_s: float) -> PassiveBrowserStepResult:
+    async def prepare_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
+        raise NotImplementedError
+
+    async def wait_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        timeout_s: float,
+        cancellation_event: threading.Event | None = None,
+    ) -> PassiveBrowserStepResult:
         raise NotImplementedError
 
 
@@ -36,7 +53,13 @@ class AsyncQueuePassivePubSubTransport:
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
         raise NotImplementedError('publish_command must be implemented for your pub endpoint')
 
-    async def prepare_for_result(self, *, run_id: str, step_id: str) -> None:
+    async def prepare_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
         """No-op for queue-based transports — results arrive via deliver_result()."""
         pass
 
@@ -58,13 +81,24 @@ class AsyncQueuePassivePubSubTransport:
         except Exception:
             self._pending[(result.run_id, result.step_id)] = result
 
-    async def wait_for_result(self, *, run_id: str, step_id: str, timeout_s: float) -> PassiveBrowserStepResult:
+    async def wait_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        timeout_s: float,
+        cancellation_event: threading.Event | None = None,
+    ) -> PassiveBrowserStepResult:
         key = (run_id, step_id)
         if key in self._pending:
             return self._pending.pop(key)
 
         deadline = time.time() + max(1.0, float(timeout_s))
         while True:
+            if cancellation_event and cancellation_event.is_set():
+                raise asyncio.CancelledError(
+                    f'Passive step cancelled for run_id={run_id} step_id={step_id}'
+                )
             remaining = deadline - time.time()
             if remaining <= 0:
                 raise TimeoutError(f'Timed out waiting for passive step result run_id={run_id} step_id={step_id}')
@@ -137,7 +171,13 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
         if evt is not None:
             evt.set()
 
-    async def prepare_for_result(self, *, run_id: str, step_id: str) -> None:
+    async def prepare_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
         """Pre-register a threading.Event so early-arriving results are captured."""
         key = (run_id, step_id)
         with self._step_lock:
@@ -145,7 +185,12 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
                 self._step_events[key] = threading.Event()
 
     async def wait_for_result(
-        self, *, run_id: str, step_id: str, timeout_s: float
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        timeout_s: float,
+        cancellation_event: threading.Event | None = None,
     ) -> PassiveBrowserStepResult:
         """Wait for a result using threading.Event (event-loop agnostic)."""
         key = (run_id, step_id)
@@ -161,15 +206,43 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
                 evt = threading.Event()
                 self._step_events[key] = evt
 
-        # Wait on the event in an executor thread so we don't block the loop
-        loop = asyncio.get_running_loop()
-        got_it = await loop.run_in_executor(
-            None, evt.wait, max(1.0, float(timeout_s))
-        )
+        deadline = time.time() + max(1.0, float(timeout_s))
+        while True:
+            if cancellation_event and cancellation_event.is_set():
+                with self._step_lock:
+                    self._step_events.pop(key, None)
+                    self._step_results.pop(key, None)
+                raise asyncio.CancelledError(
+                    f"Passive step cancelled for run_id={run_id} step_id={step_id}"
+                )
 
-        # Late-arrival grace: tolerate small publish delays near the timeout edge.
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                got_it = False
+                break
+
+            got_it = await asyncio.to_thread(evt.wait, min(0.2, remaining))
+            if got_it:
+                break
+
         if not got_it and grace_s > 0:
-            got_it = await loop.run_in_executor(None, evt.wait, grace_s)
+            grace_deadline = time.time() + grace_s
+            while True:
+                if cancellation_event and cancellation_event.is_set():
+                    with self._step_lock:
+                        self._step_events.pop(key, None)
+                        self._step_results.pop(key, None)
+                    raise asyncio.CancelledError(
+                        f"Passive step cancelled for run_id={run_id} step_id={step_id}"
+                    )
+
+                remaining = grace_deadline - time.time()
+                if remaining <= 0:
+                    break
+
+                got_it = await asyncio.to_thread(evt.wait, min(0.2, remaining))
+                if got_it:
+                    break
 
         with self._step_lock:
             self._step_events.pop(key, None)
@@ -284,11 +357,31 @@ class HttpPassivePubSubTransport:
             resp = await client.post(self.publish_endpoint, json=cmd.model_dump(), headers=self._headers(), timeout=30.0)
             resp.raise_for_status()
 
-    async def wait_for_result(self, *, run_id: str, step_id: str, timeout_s: float) -> PassiveBrowserStepResult:
+    async def prepare_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
+        pass
+
+    async def wait_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        timeout_s: float,
+        cancellation_event: threading.Event | None = None,
+    ) -> PassiveBrowserStepResult:
         deadline = time.time() + max(1.0, float(timeout_s))
         last_error: Exception | None = None
         async with httpx.AsyncClient() as client:
             while time.time() < deadline:
+                if cancellation_event and cancellation_event.is_set():
+                    raise asyncio.CancelledError(
+                        f"Passive step cancelled for run_id={run_id} step_id={step_id}"
+                    )
                 try:
                     resp = await client.get(
                         self.wait_endpoint,
@@ -399,10 +492,73 @@ class CloudAgent(Agent):
         # Track the tab we expect to be focused on (for wrong-tab detection)
         self._expected_tab_url: str | None = None
         self._expected_tab_id: str | None = None
+        self._pending_opened_tab_id: str | None = None
         self._wrong_tab_fix_attempts: int = 0
         self._max_wrong_tab_fixes: int = 2  # give up after this many attempts
         
         _cloud_agent_log(f"[CloudAgent] Initialized: run_id={run_id}, agent_id={agent_id}, skill_id={skill_id}")
+
+    @staticmethod
+    def _truncate_for_memory(value: Any, max_len: int = 240) -> str:
+        text = str(value or "").strip()
+        if len(text) <= max_len:
+            return text
+        if max_len <= 32:
+            return text[:max_len]
+        return f"{text[:max_len - 16]}...[truncated]"
+
+    def _summarize_action_result(self, result: ActionResult) -> ActionResult:
+        error_text = self._truncate_for_memory(getattr(result, "error", ""), 240)
+        extracted = self._truncate_for_memory(getattr(result, "extracted_content", ""), 240)
+        long_term = self._truncate_for_memory(getattr(result, "long_term_memory", ""), 240)
+        is_done = bool(getattr(result, "is_done", False))
+        success = not bool(error_text)
+
+        summary_parts: list[str] = []
+        if is_done:
+            summary_parts.append("done")
+        if success:
+            summary_parts.append("ok")
+        if error_text:
+            summary_parts.append(f"error={error_text}")
+        elif long_term:
+            summary_parts.append(long_term)
+        elif extracted:
+            summary_parts.append(extracted)
+        else:
+            summary_parts.append("action completed")
+
+        summary_text = "; ".join(p for p in summary_parts if p).strip()
+
+        return ActionResult(
+            is_done=is_done,
+            error=error_text or None,
+            extracted_content=None,
+            include_in_memory=True,
+            long_term_memory=summary_text or None,
+        )
+
+    def _get_compacted_last_result(self) -> list[ActionResult] | None:
+        last_result = self.state.last_result
+        if not last_result:
+            return last_result
+        compacted: list[ActionResult] = []
+        try:
+            for item in last_result:
+                if isinstance(item, ActionResult):
+                    compacted.append(self._summarize_action_result(item))
+                else:
+                    compacted.append(
+                        ActionResult(
+                            error=self._truncate_for_memory(item, 240),
+                            include_in_memory=True,
+                            long_term_memory=self._truncate_for_memory(item, 240),
+                        )
+                    )
+        except Exception as exc:
+            _cloud_agent_log(f"[CloudAgent] Failed to compact last_result for memory: {exc}", level="warning")
+            return last_result
+        return compacted
 
     async def run(
         self,
@@ -482,6 +638,10 @@ class CloudAgent(Agent):
                 except Exception:
                     pass
 
+    async def step(self, step_info: AgentStepInfo | None = None) -> None:
+        await self._prepare_context(step_info)
+        await self._execute_actions()
+
     async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
         # If we already have a post-action snapshot from previous step, use it.
         if self._next_state_from_client is None:
@@ -504,10 +664,12 @@ class CloudAgent(Agent):
         
         # browser_use's MessageCompaction will automatically handle history management
         # No need for manual truncation - let the framework do its job
+        compacted_last_result = self._get_compacted_last_result()
+
         self._message_manager.create_state_messages(
             browser_state_summary=browser_state_summary,
             model_output=self.state.last_model_output,
-            result=self.state.last_result,
+            result=compacted_last_result,
             step_info=step_info,
             use_vision=self.settings.use_vision,
             page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
@@ -595,6 +757,35 @@ class CloudAgent(Agent):
         if len(parts) >= 2:
             return '.'.join(parts[-2:])
         return host
+
+    @staticmethod
+    def _is_same_tab_context(current_url: str, expected_url: str) -> bool:
+        """Conservative tab-context match.
+
+        Only treat the current tab as "already correct" when host matches and
+        the path is clearly the same page/context. This avoids false positives
+        where a newly opened tab shares the same base domain as the previous tab.
+        """
+        if not current_url or not expected_url:
+            return False
+        from urllib.parse import urlparse
+
+        current = urlparse(current_url)
+        expected = urlparse(expected_url)
+        current_host = current.netloc.split(':')[0]
+        expected_host = expected.netloc.split(':')[0]
+        if not current_host or not expected_host or current_host != expected_host:
+            return False
+
+        current_path = (current.path or '/').rstrip('/') or '/'
+        expected_path = (expected.path or '/').rstrip('/') or '/'
+        if current_path == expected_path:
+            return True
+
+        if current_path != '/' and expected_path != '/':
+            return current_path.startswith(expected_path) or expected_path.startswith(current_path)
+
+        return False
 
     async def _execute_actions(self) -> None:
         if self.state.last_model_output is None:
@@ -695,20 +886,47 @@ class CloudAgent(Agent):
         # local side which regenerates selector_map with DIFFERENT indices, breaking the
         # LLM's click/input targets that were chosen from the previous step's DOM.
         current_url = (self._next_state_from_client or {}).get('url', '') if self._next_state_from_client else ''
+        cached_tabs = (self._next_state_from_client or {}).get('tabs', [])
+        force_switch_to_pending_tab = bool(self._pending_opened_tab_id and not llm_has_explicit_switch)
+
+        if force_switch_to_pending_tab:
+            pending_tab = None
+            for tab in cached_tabs or []:
+                if isinstance(tab, dict) and (tab.get('tab_id') or tab.get('target_id', '')) == self._pending_opened_tab_id:
+                    pending_tab = tab
+                    break
+
+            self._expected_tab_id = self._pending_opened_tab_id
+            if pending_tab and pending_tab.get('url'):
+                self._expected_tab_url = pending_tab.get('url', '')
+            _cloud_agent_log(
+                f"[CloudAgent] 🧭 Pending opened tab takes priority: "
+                f"tab_id={self._pending_opened_tab_id}, url={(self._expected_tab_url or '')[:80]}"
+            )
+            if pending_tab and current_url and pending_tab.get('url') and self._is_same_tab_context(
+                current_url, pending_tab.get('url', '')
+            ):
+                _cloud_agent_log(
+                    f"[CloudAgent] ✅ Pending opened tab is already focused; clearing pending marker "
+                    f"for tab_id={self._pending_opened_tab_id}"
+                )
+                self._pending_opened_tab_id = None
+                force_switch_to_pending_tab = False
+
         already_on_correct_tab = False
         if self._expected_tab_url and current_url:
             already_on_correct_tab = (
-                self._base_domain(current_url) == self._base_domain(self._expected_tab_url)
+                not force_switch_to_pending_tab
+                and self._is_same_tab_context(current_url, self._expected_tab_url)
             )
         if self._expected_tab_url and remote_actions and not llm_has_explicit_switch:
             # Only auto-prepend when LLM did NOT explicitly request a switch.
             # If LLM wants to switch to a specific tab (e.g. search results), respect that.
             if already_on_correct_tab:
                 _cloud_agent_log(
-                    f"[CloudAgent] ✅ Already on correct tab (domain={self._base_domain(current_url)}, "
+                    f"[CloudAgent] ✅ Already on correct tab (host/path match, "
                     f"url={current_url[:60]}) — skipping auto-prepend to preserve element indices"
                 )
-            cached_tabs = (self._next_state_from_client or {}).get('tabs', [])
             fresh_id = self._find_tab_id_by_url(cached_tabs, self._expected_tab_url)
             if fresh_id and fresh_id != self._expected_tab_id:
                 _cloud_agent_log(
@@ -774,6 +992,12 @@ class CloudAgent(Agent):
                 _cloud_agent_log(
                     f"[CloudAgent] ✅ Prepended switch_tab({self._expected_tab_id}) succeeded"
                 )
+                if self._pending_opened_tab_id and self._expected_tab_id == self._pending_opened_tab_id:
+                    _cloud_agent_log(
+                        f"[CloudAgent] ✅ Cleared pending opened tab after successful switch: "
+                        f"tab_id={self._pending_opened_tab_id}"
+                    )
+                    self._pending_opened_tab_id = None
 
         # Strip the prepended switch_tab result so the LLM only sees results for its own actions
         if prepended_switch and result.action_results and len(result.action_results) > 0:
@@ -781,6 +1005,30 @@ class CloudAgent(Agent):
                 f"[CloudAgent] 🔧 Stripping prepended switch_tab result (had {len(result.action_results)} results)"
             )
             result.action_results = result.action_results[1:]
+
+        # --- Fallback: click opened a new tab but normal tab tracking may lag ---
+        # Keep this as a narrow recovery path only:
+        # - only inspect click results
+        # - only capture an explicitly reported opened-tab id
+        # - do not override an explicit LLM switch decision
+        opened_tab_id_from_result: str | None = None
+        click_action_present = any(isinstance(a, dict) and 'click' in a for a in remote_actions)
+        if click_action_present and result.action_results:
+            for action_result in result.action_results:
+                if not isinstance(action_result, dict):
+                    continue
+                extracted = action_result.get('extracted_content', '') or ''
+                if not isinstance(extracted, str):
+                    continue
+                match = re.search(r'opened a new tab \(tab_id:\s*([A-Za-z0-9_-]+)\)', extracted, re.IGNORECASE)
+                if match:
+                    opened_tab_id_from_result = match.group(1)
+                    break
+        if opened_tab_id_from_result and not llm_has_explicit_switch:
+            self._pending_opened_tab_id = opened_tab_id_from_result
+            _cloud_agent_log(
+                f"[CloudAgent] 🧭 Recorded opened-tab fallback candidate: tab_id={opened_tab_id_from_result}"
+            )
 
         parsed_results: list[ActionResult] = []
 
@@ -854,6 +1102,39 @@ class CloudAgent(Agent):
                 level='warning',
             )
             browser_dict = dict(self._next_state_from_client)
+
+        # If a click explicitly opened a new tab but the returned browser state is still on the
+        # previously tracked tab/page, switch our expected focus to the opened tab as a fallback.
+        # This does not immediately force a switch in the same step; it only updates tracking so
+        # the normal prepend-switch logic can recover on the next step.
+        if self._pending_opened_tab_id and not llm_has_explicit_switch:
+            result_tabs = browser_dict.get('tabs', []) if isinstance(browser_dict, dict) else []
+            result_url = browser_dict.get('url', '') if isinstance(browser_dict, dict) else ''
+            previous_url = (self._next_state_from_client or {}).get('url', '') if self._next_state_from_client else ''
+            target_tab = None
+            for tab in result_tabs or []:
+                if isinstance(tab, dict) and (tab.get('tab_id') or tab.get('target_id', '')) == self._pending_opened_tab_id:
+                    target_tab = tab
+                    break
+            same_page_after_click = bool(previous_url and result_url and previous_url == result_url)
+            if target_tab and same_page_after_click:
+                target_url = target_tab.get('url', '') or self._expected_tab_url or result_url
+                _cloud_agent_log(
+                    f"[CloudAgent] 🔄 Click opened new tab but state remained on previous page; "
+                    f"tracking fallback tab_id={self._pending_opened_tab_id}, url={str(target_url)[:80]}",
+                    level='warning',
+                )
+                self._expected_tab_id = self._pending_opened_tab_id
+                if target_url:
+                    self._expected_tab_url = target_url
+                self._wrong_tab_fix_attempts = 0
+                _cloud_agent_log(
+                    f"[CloudAgent] 🧭 Will force switch to opened tab on next step: "
+                    f"tab_id={self._pending_opened_tab_id}"
+                )
+            elif target_tab and result_url and target_tab.get('url') and result_url == target_tab.get('url'):
+                # We are already on the opened tab; clear the fallback candidate.
+                self._pending_opened_tab_id = None
 
         # --- Wrong-tab detection and auto-correction ---
         # The local client has a bug where after click/type actions, the state capture
@@ -975,6 +1256,7 @@ class CloudAgent(Agent):
                         )
                         self._expected_tab_url = nt_url
                         self._expected_tab_id = nt_id
+                        self._pending_opened_tab_id = nt_id
                         break
                     elif nt_url and nt_id:
                         _cloud_agent_log(
