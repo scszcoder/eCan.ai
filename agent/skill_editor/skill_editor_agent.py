@@ -741,14 +741,16 @@ class SkillEditorAgent:
         action_phrases_zh = ["我要", "我想", "我需要", "帮我", "请", "做一个", "做个", "来一个", "来个", "弄一个", "弄个"]
         has_workflow_word = any(word in msg_lower for word in workflow_words_en) or any(word in message for word in workflow_words_zh)
         has_action_phrase = any(phrase in msg_lower for phrase in action_phrases_en) or any(phrase in message for phrase in action_phrases_zh)
-        if has_workflow_word and (not has_edit_marker) and has_action_phrase:
+        # Guard: don't classify explain/question messages as CREATE_FLOWGRAM
+        # e.g. "please explain what does the first loop do in this workflow?"
+        if has_workflow_word and (not has_edit_marker) and has_action_phrase and not self._is_explain_request(message):
             return IntentType.CREATE_FLOWGRAM
         
         # Diagnostic / "why" questions — recognise before node-operation rules
         # so that "why the added node has the wrong connection" isn't mistaken
         # for an add_node intent.
         _question_prefix = bool(re.search(
-            r"\b(why|how come|what went wrong|what happened|figure out|diagnose|debug|explain|wrong|issue|problem|broken)",
+            r"\b(why|how come|how does|how do|what does|what is|what are|what went wrong|what happened|figure out|diagnose|debug|explain|wrong|issue|problem|broken)",
             msg_lower,
         ))
         # Chinese diagnostic words: 检查(check) 纠错(find errors) 查错(check errors) 查出(find out)
@@ -757,6 +759,10 @@ class SkillEditorAgent:
             "检查", "检察", "纠错", "查错", "查出", "溯源", "追溯", "追查",
             "为什么", "怎么回事", "什么问题", "哪里出错", "出了什么", "诊断", "排查",
             "出错了", "有问题", "不对", "不正确", "不工作", "失败了", "报错",
+            # Explain / question words (Chinese)
+            "解释", "说明", "帮我理解", "介绍", "描述", "告诉我",
+            "做什么", "干什么", "什么意思", "什么作用", "什么用", "干嘛",
+            "是什么", "怎么运行", "怎么工作", "如何",
         ])
         if (_question_prefix or _question_prefix_zh) and not any(w in msg_lower for w in [
             "add a ", "add an ", "please add", "insert a ", "remove the ", "delete the ",
@@ -905,40 +911,44 @@ class SkillEditorAgent:
             return False
 
         # Avoid misclassifying workflow-building prompts as explanations.
-        workflow_markers = [
-            "workflow",
-            "flowgram",
-            "skill",
-            "node",
-            "edge",
-            "loop",
-            "condition",
-            "branch",
-            "connect",
-            "disconnect",
-            "add ",
-            "remove ",
-            "delete ",
-            "modify",
-            "modif",
-            "edit",
-            "create",
-            "build",
-            "generate",
-            "load",
-            "save",
-            "deploy",
-            "test",
-            "debug",
-            "run",
+        # Only block when the message contains BOTH a workflow term AND an action verb.
+        # Questions like "what does the first loop do?" should NOT be blocked.
+        action_verbs = [
+            "add ", "remove ", "delete ", "modify", "modif", "edit",
+            "create", "build", "generate", "load", "save", "deploy",
+            "connect", "disconnect",
         ]
-        if any(m in msg for m in workflow_markers):
+        workflow_nouns = [
+            "workflow", "flowgram", "skill", "node", "edge",
+            "loop", "condition", "branch",
+        ]
+        has_action = any(v in msg for v in action_verbs)
+        has_wf_noun = any(n in msg for n in workflow_nouns)
+        # Chinese action verbs and workflow nouns for the same blocker
+        action_verbs_zh = ["添加", "删除", "移除", "修改", "编辑", "创建", "新建", "生成", "构建", "部署", "连接", "断开"]
+        workflow_nouns_zh = ["工作流", "流程图", "技能", "节点", "边", "循环", "条件", "分支"]
+        has_action_zh = any(v in message for v in action_verbs_zh)
+        has_wf_noun_zh = any(n in message for n in workflow_nouns_zh)
+        # If the message has both an action verb and a workflow noun, it's likely
+        # a building/editing request, not an explain request.
+        if (has_action and has_wf_noun) or (has_action_zh and has_wf_noun_zh):
+            return False
+        # Also block standalone action verbs like "test", "run", "debug" as intents
+        standalone_action = any(msg.startswith(v.strip()) for v in ["test", "run", "debug"])
+        if standalone_action and not any(w in msg for w in ["explain", "what", "how", "why", "?"]):
             return False
 
         normalized = re.sub(r"\s+", " ", msg).strip()
 
-        # Common short Q&A / explain-style prompts.
+        # Common short Q&A / explain-style prompts (English).
         if any(w in normalized for w in ["explain", "help"]):
+            return True
+
+        # Chinese explain/question keywords
+        if any(w in message for w in ["解释", "说明", "帮我理解", "介绍", "描述", "告诉我"]):
+            return True
+        # Chinese question phrases ("what does X do", "what is X for", etc.)
+        if any(w in message for w in ["做什么", "干什么", "什么意思", "什么作用", "什么用", "干嘛", "是什么", "怎么运行", "怎么工作"]):
             return True
 
         starts_with_question_word = any(
@@ -956,7 +966,13 @@ class SkillEditorAgent:
         if starts_with_question_word:
             return True
 
-        if normalized.endswith("?"):
+        # Chinese question starters
+        stripped = message.strip()
+        if any(stripped.startswith(w) for w in ["什么", "为什么", "怎么", "怎样", "如何", "哪个", "哪里", "谁", "什么时候", "多少"]):
+            return True
+
+        # Question marks (half-width and full-width)
+        if normalized.endswith("?") or stripped.endswith("？"):
             return True
 
         return False
@@ -2329,14 +2345,47 @@ class SkillEditorAgent:
             },
         )
 
-    async def _run_explain(self, message: str, session_id: Optional[str], on_event: Optional[Callable]) -> AgentResponse:
+    async def _run_explain(self, message: str, canvas_context: Optional[Dict], session_id: Optional[str], on_event: Optional[Callable]) -> AgentResponse:
         self._pipeline_state = PipelineState.IDLE
         await self._emit_progress(on_event, t("progress_answering", self._user_lang))
 
         lang_inst = get_language_instruction(self._user_lang)
+
+        # Build workflow context if a skill is loaded
+        workflow_desc = ""
+        if canvas_context and isinstance(canvas_context, dict):
+            nodes = canvas_context.get("nodes", [])
+            edges = canvas_context.get("edges", [])
+            skill_name = canvas_context.get("skillName", "")
+            if nodes:
+                workflow_desc = f"\n\nThe user has a workflow loaded on canvas"
+                if skill_name:
+                    workflow_desc += f" named '{skill_name}'"
+                workflow_desc += f" with {len(nodes)} nodes and {len(edges)} connections.\n"
+                workflow_desc += "Workflow nodes:\n"
+                for i, node in enumerate(nodes):
+                    n_id = node.get('id', '')
+                    n_type = node.get('type', '')
+                    n_label = node.get('label', node.get('data', {}).get('label', '') if isinstance(node.get('data'), dict) else '')
+                    n_data = node.get('data', {})
+                    workflow_desc += f"  {i+1}. [{n_type}] {n_label} (id={n_id})\n"
+                    # Include key config for context
+                    if isinstance(n_data, dict):
+                        for key in ['prompt', 'code', 'url', 'condition', 'items', 'loopType', 'maxIterations', 'description']:
+                            val = n_data.get(key)
+                            if val:
+                                val_str = str(val)[:300]
+                                workflow_desc += f"     {key}: {val_str}\n"
+                if edges:
+                    workflow_desc += "Connections:\n"
+                    for edge in edges:
+                        workflow_desc += f"  {edge.get('source','')} → {edge.get('target','')}\n"
+
         prompt = (
-            "You are a helpful assistant. Answer the user's question directly and concisely. "
-            "If the question is about current events and you are not fully certain, say that your information may be outdated.\n\n"
+            "You are a helpful eCan.ai skill editor assistant. Answer the user's question directly and concisely. "
+            "If the question is about the current workflow on canvas, use the workflow context below to give a specific answer."
+            "If the question is about current events and you are not fully certain, say that your information may be outdated.\n"
+            f"{workflow_desc}\n"
             f"user_question={json.dumps(message)}\n"
             f"{lang_inst}"
         )
@@ -2711,7 +2760,7 @@ class SkillEditorAgent:
                 return response
 
             if intent == IntentType.EXPLAIN:
-                response = await self._run_explain(message, session_id, on_event)
+                response = await self._run_explain(message, canvas_context, session_id, on_event)
                 self._add_response_to_history(response)
                 return response
 
