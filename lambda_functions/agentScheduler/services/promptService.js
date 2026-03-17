@@ -16,13 +16,21 @@ const {
   QueryCommand
 } = require("@aws-sdk/client-dynamodb");
 const { marshall, unmarshall } = require("@aws-sdk/util-dynamodb");
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectVersionsCommand
+} = require("@aws-sdk/client-s3");
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const PROMPTS_TABLE = process.env.PROMPTS_TABLE || "Agent_Prompts";
+const PROMPTS_S3_BUCKET = process.env.PROMPTS_S3_BUCKET || "ecan-prompts";
 const PUBLIC_OWNER = "public";
 const DEFAULT_VERSION = "0.1";
 
 const dynamodb = new DynamoDBClient({ region: REGION });
+const s3 = new S3Client({ region: REGION });
 
 /**
  * Generate a unique prompt ID
@@ -477,6 +485,98 @@ async function listPromptsByOwnerOnly(owner) {
   return prompts;
 }
 
+/**
+ * Save prompt JSON to S3 bucket (ecan-prompts) for versioning.
+ * Path: {owner}/{promptId}.json
+ */
+async function savePromptToS3(owner, promptId, promptData) {
+  if (!owner || !promptId) {
+    console.warn(`[promptService] savePromptToS3: skipping - missing owner or promptId`);
+    return;
+  }
+  const key = `${owner}/${promptId}.json`;
+  const body = JSON.stringify(promptData, null, 2);
+  try {
+    await s3.send(new PutObjectCommand({
+      Bucket: PROMPTS_S3_BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: "application/json"
+    }));
+    console.log(`[promptService] savePromptToS3: saved s3://${PROMPTS_S3_BUCKET}/${key}`);
+  } catch (err) {
+    console.error(`[promptService] savePromptToS3: failed for ${key}:`, err.message);
+  }
+}
+
+/**
+ * List all S3 versions for a prompt file.
+ * Returns array of { versionId, lastModified, size, isLatest }.
+ */
+async function listPromptVersions(owner, promptId) {
+  if (!owner || !promptId) {
+    throw new Error("owner and promptId are required");
+  }
+  const key = `${owner}/${promptId}.json`;
+  const versions = [];
+
+  let keyMarker;
+  let versionIdMarker;
+  do {
+    const resp = await s3.send(new ListObjectVersionsCommand({
+      Bucket: PROMPTS_S3_BUCKET,
+      Prefix: key,
+      KeyMarker: keyMarker,
+      VersionIdMarker: versionIdMarker
+    }));
+    if (resp.Versions) {
+      for (const v of resp.Versions) {
+        if (v.Key === key) {
+          versions.push({
+            versionId: v.VersionId,
+            lastModified: v.LastModified ? v.LastModified.toISOString() : null,
+            size: v.Size,
+            isLatest: v.IsLatest || false
+          });
+        }
+      }
+    }
+    keyMarker = resp.NextKeyMarker;
+    versionIdMarker = resp.NextVersionIdMarker;
+  } while (keyMarker);
+
+  console.log(`[promptService] listPromptVersions: ${key} => ${versions.length} versions`);
+  return versions;
+}
+
+/**
+ * Retrieve a specific version (or latest) of a prompt from S3.
+ * Returns the parsed JSON content.
+ */
+async function getPromptVersion(owner, promptId, versionId) {
+  if (!owner || !promptId) {
+    throw new Error("owner and promptId are required");
+  }
+  const key = `${owner}/${promptId}.json`;
+  const params = {
+    Bucket: PROMPTS_S3_BUCKET,
+    Key: key
+  };
+  if (versionId) {
+    params.VersionId = versionId;
+  }
+  const resp = await s3.send(new GetObjectCommand(params));
+  const bodyStr = await resp.Body.transformToString("utf-8");
+  console.log(`[promptService] getPromptVersion: ${key} versionId=${versionId || 'latest'} size=${bodyStr.length}`);
+  return {
+    promptId,
+    owner,
+    versionId: resp.VersionId || null,
+    lastModified: resp.LastModified ? resp.LastModified.toISOString() : null,
+    content: JSON.parse(bodyStr)
+  };
+}
+
 module.exports = {
   addPrompt,
   updatePrompt,
@@ -484,5 +584,8 @@ module.exports = {
   getPromptById,
   listPrompts,
   listPromptsByOwnerOnly,
-  queryPrompts
+  queryPrompts,
+  savePromptToS3,
+  listPromptVersions,
+  getPromptVersion
 };
