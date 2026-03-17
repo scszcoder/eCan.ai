@@ -1,9 +1,54 @@
-from typing import Generic, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
+class RunCodeAction(BaseModel):
+	"""Execute Python code in a sandboxed environment with access to common safe modules.
+	Use the 'result' variable to return a value from the code."""
+	code: str = Field(
+		description="Python code to execute. Use 'result' variable to return a value. "
+		"Has access to: os, json, math, re, datetime, collections, itertools, functools, random, string, uuid, hashlib, base64."
+	)
+	args: Optional[dict[str, Any]] = Field(
+		default=None,
+		description="Input arguments dict accessible as 'args' and as individual variables in the code."
+	)
+	timeout: Optional[float] = Field(
+		default=None,
+		description="Maximum execution time in seconds. Default: 30."
+	)
+	allowed_imports: Optional[list[str]] = Field(
+		default=None,
+		description="Additional module names to allow importing beyond the safe defaults."
+	)
+
+
+class RunShellScriptAction(BaseModel):
+	"""Execute a shell script. Auto-detects OS and uses appropriate shell
+	(PowerShell on Windows, bash on Linux, zsh on macOS)."""
+	script: str = Field(
+		description="Shell script to execute."
+	)
+	shell: Optional[str] = Field(
+		default=None,
+		description="Shell to use: powershell, pwsh, bash, zsh, sh, cmd. Auto-detected from OS if not specified."
+	)
+	timeout: Optional[float] = Field(
+		default=None,
+		description="Maximum execution time in seconds. Default: 60."
+	)
+	working_dir: Optional[str] = Field(
+		default=None,
+		description="Working directory for script execution."
+	)
+	env_vars: Optional[dict[str, str]] = Field(
+		default=None,
+		description="Additional environment variables as key-value pairs."
+	)
+
+
 class FileRenameAction(BaseModel):
 	old_path: str = Field(
 		default="", description="current file's full path name"
