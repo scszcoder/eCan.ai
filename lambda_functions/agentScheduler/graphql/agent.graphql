@@ -194,6 +194,21 @@ type PromptMutationResult {
   success: Boolean!
 }
 
+type PromptVersionInfo {
+  versionId: String!
+  lastModified: AWSDateTime
+  size: Int
+  isLatest: Boolean
+}
+
+type PromptVersionContent {
+  promptId: ID!
+  owner: String!
+  versionId: String
+  lastModified: AWSDateTime
+  content: AWSJSON!
+}
+
 type GetAllMineResponse @aws_api_key @aws_cognito_user_pools {
   agents: [Agent!]!
   tasks: [Task!]!
@@ -291,6 +306,7 @@ type Mutation {
   reportRunExtSkillStatus(input: [SkillRunStatus]): AWSJSON!
   reportStatus(input: [MissionStatus]!): AWSJSON!
   reqPuzzleSolver(input: [PuzzleInput]!): Puzzle!
+  requestPuzzleSolve(input: [PuzzleInput]!): Puzzle!
   reqRAGStore(input: [RAGIN]!): AWSJSON!
   reqScene(input: ReqSceneInput!): ReqSceneResponse!
   reqTrain(input: [Skill]!): AWSJSON!
@@ -298,9 +314,11 @@ type Mutation {
   sendA2AMessage(input: A2AMessageInput!): A2AMessage!
   sendWanMessage(input: WanChatMessageInput): WanChatMessage
   sendPuzzleSolution(input: PuzzleSolutionInput): PuzzleSolution
+  startLongLLMTask(task_input: AWSJSON!): AWSJSON!
   startSoap(input: StartSoapInput!): StartSoapResponse!
   stopSoap(soap_id: ID!): Boolean!
   updateAccts(input: [Account]!): AWSJSON!
+  endLongLLMTask(input: [LongLLMTaskResultInput!]!): [LongLLMTaskResult!]!
   updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]!
   updateAgentTools(input: [ToolUpdateInput!]!): [ToolMutationResult!]!
   updateAgentKnowledges(input: [KnowledgeUpdateInput!]!): [KnowledgeMutationResult!]!
@@ -352,20 +370,6 @@ type OrgTree {
   status: String
 }
 
-type Puzzle {
-  module: String
-  options: String
-  prize: Int
-  puzzle_file: String
-  pzid: ID!
-  question: String
-  request_id: String
-  time_limit: Int
-  type: String
-  url: String
-  url_key: String
-}
-
 type PuzzleResult {
   pzid: ID!
   request_id: String
@@ -403,6 +407,8 @@ type Query {
   queryAgents(input: AgentQueryInput): [Agent!]!
   queryAvatars(input: AvatarQueryInput): [AvatarResource!]!
   queryPrompts(input: PromptQueryInput): [Prompt!]!
+  listPromptVersions(promptId: ID!, owner: String): [PromptVersionInfo!]!
+  getPromptVersion(promptId: ID!, versionId: String, owner: String): PromptVersionContent
   queryBots(qb: AWSJSON!): AWSJSON!
   queryChats(msgs: [ChatReq]!): AWSJSON
   queryExtBotSkillRun(qbsr: [SkillRunConfig!]): AWSJSON!
@@ -531,15 +537,15 @@ type StoryConnection {
 }
 
 type Subscription {
-  onA2AMessageReceived(channelId: String!): A2AMessage
+  onA2AMessageReceived(channelId: String!): A2AMessage @aws_subscribe(mutations : ["sendA2AMessage"])
   onAgentSceneEvent(acctSiteID: String!, agent_id: String!): Scene @aws_subscribe(mutations : ["updateScene"])
-  onMessageReceived(chatID: String!): WanChatMessage
-  onAccountNotification(owner: ID!): AccountNotification! @aws_subscribe(mutations: ["publishAccountNotification"])
-  onPuzzleReceived(solver: ID!): Puzzle @aws_subscribe(mutations : ["sendPuzzle"])
-  onPuzzleResultReceived(owner: ID!): PuzzleSolution @aws_subscribe(mutations : ["sendPuzzleSolution"])
+  onMessageReceived(chatID: String!): WanChatMessage @aws_subscribe(mutations : ["sendWanMessage"])
+  onAccountNotification(owner: String!): AccountNotification! @aws_subscribe(mutations: ["publishAccountNotification"])
+  onPuzzleReceived: Puzzle @aws_subscribe(mutations : ["requestPuzzleSolve"])
+  onPuzzleResultReceived: PuzzleSolution @aws_subscribe(mutations : ["sendPuzzleSolution"])
   onSceneComplete(acctSiteID: String!): SceneResult @aws_subscribe(mutations : ["publishSceneResult"])
   onStoryUpdate(acctSiteID: String!): Story @aws_subscribe(mutations : ["updateStory"])
-  onLongLLMTaskComplete(acctSiteID: String!): Story @aws_subscribe(mutations : ["EndLongLLMTask"])
+  onLongLLMTaskComplete(acctSiteID: String!): LongLLMTaskResult @aws_subscribe(mutations : ["endLongLLMTask"])
 }
 
 #   Tasks
@@ -1015,20 +1021,6 @@ input PromptUpdateInput {
   id: ID!
   version: String
   prompt: AWSJSON
-}
-
-input PuzzleInput {
-  module: String
-  options: String
-  prize: Int
-  puzzle_file: String
-  pzid: ID!
-  question: String
-  request_id: String
-  time_limit: Int
-  type: String
-  url: String
-  url_key: String
 }
 
 input PuzzleResultInput {
