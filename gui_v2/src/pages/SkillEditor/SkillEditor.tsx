@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useRef } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 const LazyEditor = lazy(async () => {
   const start = performance.now();
@@ -35,24 +35,21 @@ const SkillEditor: React.FC = () => {
     const { t, i18n } = useTranslation();
     const translationsLoadedRef = useRef(false);
     const pageMountPerfRef = useRef<number>(performance.now());
+    const [translationsReady, setTranslationsReady] = useState(false);
 
     // Dynamically load skill-editor translations when component mounts
     useEffect(() => {
         console.log('[Perf][SkillEditorPage] Page mounted');
         const loadSkillEditorTranslations = async () => {
             // Avoid loading multiple times
-            if (translationsLoadedRef.current) return;
+            if (translationsLoadedRef.current) {
+                setTranslationsReady(true);
+                return;
+            }
             
             try {
                 const translationStart = performance.now();
                 console.time('[Perf][SkillEditorPage] Translation load');
-                // Check if already loaded
-                if (i18n.hasResourceBundle('en-US', 'skillEditor') && 
-                    i18n.hasResourceBundle('zh-CN', 'skillEditor')) {
-                    translationsLoadedRef.current = true;
-                    console.log('[Perf][SkillEditorPage] Translation bundles already loaded');
-                    return;
-                }
 
                 // Dynamically import translation files
                 const [enSkillEditor, zhSkillEditor] = await Promise.all([
@@ -60,20 +57,18 @@ const SkillEditor: React.FC = () => {
                     import('../../modules/skill-editor/i18n/zh.json'),
                 ]);
 
-                // Add resource bundles to i18n
-                if (!i18n.hasResourceBundle('en-US', 'skillEditor')) {
-                    i18n.addResourceBundle('en-US', 'skillEditor', enSkillEditor.default, true, false);
-                }
-                if (!i18n.hasResourceBundle('zh-CN', 'skillEditor')) {
-                    i18n.addResourceBundle('zh-CN', 'skillEditor', zhSkillEditor.default, true, false);
-                }
+                // Always merge latest skill editor bundles so newly added keys are available
+                i18n.addResourceBundle('en-US', 'skillEditor', enSkillEditor.default, true, true);
+                i18n.addResourceBundle('zh-CN', 'skillEditor', zhSkillEditor.default, true, true);
 
                 translationsLoadedRef.current = true;
+                setTranslationsReady(true);
                 console.timeEnd('[Perf][SkillEditorPage] Translation load');
                 console.log('[Perf][SkillEditorPage] Translation load duration:', `${(performance.now() - translationStart).toFixed(1)}ms`);
                 console.log('[SkillEditor] Translations loaded successfully');
             } catch (error) {
                 console.error('[SkillEditor] Failed to load translations:', error);
+                setTranslationsReady(true);
             }
         };
 
@@ -94,7 +89,21 @@ const SkillEditor: React.FC = () => {
                 `}
             </style>
             <div style={{ flex: 1, minHeight: 0 }}>
-            <Suspense fallback={
+            {translationsReady ? (
+                <Suspense fallback={
+                    <div style={{
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--text-secondary)'
+                    }}>
+                        {t('pages.skills.loadingEditor') || 'Loading editor...'}
+                    </div>
+                }>
+                    <LazyEditor />
+                </Suspense>
+            ) : (
                 <div style={{
                     height: '100%',
                     display: 'flex',
@@ -104,9 +113,7 @@ const SkillEditor: React.FC = () => {
                 }}>
                     {t('pages.skills.loadingEditor') || 'Loading editor...'}
                 </div>
-            }>
-                <LazyEditor />
-            </Suspense>
+            )}
             </div>
             <SkillConsolePanel />
         </EditorContainer>
