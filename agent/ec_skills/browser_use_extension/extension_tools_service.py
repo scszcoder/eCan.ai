@@ -281,3 +281,7 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
         include_in_memory=True,
         long_term_memory=f"Extracted raw markdown for query: {query}",
     )
+
+
+# Log registered custom actions at module load time for debugging
+logger.info(f"[Browser-Use Extension] Registered {len(custom_controller.registry.actions)} custom actions: {list(custom_controller.registry.actions.keys())}")

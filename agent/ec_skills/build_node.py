@@ -5187,6 +5187,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         **agent_kwargs,
                     )
                     
+                    # Log all tools the LLM will see in its system prompt
+                    all_tools_description = agent.tools.registry.get_prompt_description(page_url=None)
+                    logger.info(f"[Browser-Use] LLM sees {len(agent.tools.registry.actions)} total actions in system prompt")
+                    logger.debug(f"[Browser-Use] Full tool list for LLM:\n{all_tools_description}")
+                    
                     logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
                     send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
                     
