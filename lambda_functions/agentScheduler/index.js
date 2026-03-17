@@ -5411,6 +5411,11 @@ async function processEvent(event, context, callback, test_stub) {
                   const res = await promptService.addPrompt({ ...prompt, owner: effectivePromptOwner });
                   console.log(`[agentScheduler] addPrompts: result=`, JSON.stringify(res));
                   created.push({ id: res.id || prompt.id, success: res.success !== false, error: res.error || null });
+                  // Save to S3 for versioning
+                  const savedId = res.id || prompt.id;
+                  if (savedId) {
+                    await promptService.savePromptToS3(effectivePromptOwner, savedId, { ...prompt, id: savedId, owner: effectivePromptOwner });
+                  }
                 } catch (err) {
                   console.error(`[agentScheduler] addPrompts: error=`, err.message);
                   created.push({ id: prompt.id || null, success: false, error: err.message });
@@ -5441,6 +5446,10 @@ async function processEvent(event, context, callback, test_stub) {
                   delete fields.owner;
                   const res = await promptService.updatePrompt(pid, promptOwner, fields);
                   updated.push({ id: pid, success: res.success !== false, error: res.error });
+                  // Save to S3 for versioning
+                  if (res.success !== false) {
+                    await promptService.savePromptToS3(promptOwner, pid, { ...prompt, id: pid, owner: promptOwner });
+                  }
                 } catch (err) {
                   updated.push({ id: pid, success: false, error: err.message });
                 }
@@ -7266,6 +7275,39 @@ async function processEvent(event, context, callback, test_stub) {
                 util.log("ERROR", "queryPrompts failed: " + err.message, api_caller, "processEvent", logFlag);
                 // Return empty list to satisfy non-nullable list return type
                 returnData = [];
+              }
+            }
+            break;
+          case "listPromptVersions":
+            {
+              const promptId = event.arguments?.promptId;
+              const promptOwner = event.arguments?.owner || ownerEmail || owner;
+              try {
+                const versions = await promptService.listPromptVersions(promptOwner, promptId);
+                returnData = versions;
+              } catch (err) {
+                console.error(`[agentScheduler] listPromptVersions failed:`, err.message);
+                returnData = [];
+              }
+            }
+            break;
+          case "getPromptVersion":
+            {
+              const promptId = event.arguments?.promptId;
+              const versionId = event.arguments?.versionId || null;
+              const promptOwner = event.arguments?.owner || ownerEmail || owner;
+              try {
+                const result = await promptService.getPromptVersion(promptOwner, promptId, versionId);
+                returnData = {
+                  promptId: result.promptId,
+                  owner: result.owner,
+                  versionId: result.versionId,
+                  lastModified: result.lastModified,
+                  content: JSON.stringify(result.content)
+                };
+              } catch (err) {
+                console.error(`[agentScheduler] getPromptVersion failed:`, err.message);
+                returnData = null;
               }
             }
             break;
