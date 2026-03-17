@@ -23,6 +23,19 @@ from app_context import AppContext
 # Create a shared controller with custom actions for browser_use
 custom_controller = Controller()
 
+# Global registry to track current agent instance for file path authorization
+_current_agent_instance = None
+
+def set_current_agent(agent):
+    """Set the current agent instance for file path authorization."""
+    global _current_agent_instance
+    _current_agent_instance = agent
+    logger.debug(f"[ExtensionTools] Set current agent instance: {type(agent).__name__}")
+
+def get_current_agent():
+    """Get the current agent instance."""
+    return _current_agent_instance
+
 @custom_controller.action(
     "Execute Python code in a sandboxed environment. Use 'result' variable to return a value.",
     param_model=RunCodeAction,
@@ -96,7 +109,7 @@ async def bu_run_shell_script(params: RunShellScriptAction) -> ActionResult:
 
 
 @custom_controller.action("List all files in a directory recursively, returning file names and sizes.")
-async def list_files(directory: str, browser_session: BrowserSession) -> str:
+async def list_files(directory: str) -> str:
     results = []
     file_paths = []
     for root, dirs, files in os.walk(directory):
@@ -114,16 +127,21 @@ async def list_files(directory: str, browser_session: BrowserSession) -> str:
             file_paths.append(path)
     
     # Auto-authorize all discovered files for upload_file action
-    if file_paths and hasattr(browser_session, 'agent') and browser_session.agent:
-        agent = browser_session.agent
-        if hasattr(agent, 'available_file_paths'):
+    if file_paths:
+        agent = get_current_agent()
+        if agent and hasattr(agent, 'available_file_paths'):
             if agent.available_file_paths is None:
                 agent.available_file_paths = []
             # Add new paths that aren't already in the list
+            added_count = 0
             for path in file_paths:
                 if path not in agent.available_file_paths:
                     agent.available_file_paths.append(path)
-            logger.info(f"[list_files] Auto-authorized {len(file_paths)} file paths for upload")
+                    added_count += 1
+            logger.info(f"[list_files] Auto-authorized {added_count} new file paths (total: {len(agent.available_file_paths)})")
+            logger.debug(f"[list_files] Available paths: {agent.available_file_paths}")
+        else:
+            logger.warning(f"[list_files] Cannot auto-authorize files: agent={agent is not None}, has_attr={hasattr(agent, 'available_file_paths') if agent else False}")
     
     return "\n".join(results)
 
