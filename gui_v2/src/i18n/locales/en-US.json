@@ -1522,6 +1522,7 @@
       },
       "usageCount": "Usage Count",
       "viewHistory": "View History",
+      "noSkillsAssociated": "No skills associated. Click Add to associate a skill.",
       "neverUsed": "Never used",
       "uses": "uses",
       "noDescription": "No description available",

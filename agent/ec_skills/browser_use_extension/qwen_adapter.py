@@ -104,19 +104,18 @@ def _convert_flat_action(data: dict) -> dict | None:
         
         bu_action_name = action_map.get(action_name, action_name)
         
-        # Valid browser_use action names
+        # Standard browser_use action names (custom controller actions are also allowed)
         valid_bu_actions = {
             'navigate', 'click', 'input', 'scroll', 'extract', 'done', 'search',
             'go_back', 'wait', 'switch', 'close', 'send_keys', 'find_text',
             'upload_file', 'dropdown_options', 'select_dropdown',
         }
         
-        # If action name is not recognized, convert to extract (let agent observe the page)
+        # Keep unknown actions as-is to support custom controller actions (e.g. list_files).
+        # Validation/execution should be handled by controller/browser-use, not hardcoded here.
         if bu_action_name not in valid_bu_actions:
-            thought = params.get('thought', params.get('reason', params.get('target', action_name)))
-            logger.warning(f"[QwenAdapter] ⚠️ Unknown action '{action_name}', converting to extract action")
-            action_obj = {'extract': {'query': str(thought)[:500]}}
-            bu_action_name = 'extract'
+            logger.info(f"[QwenAdapter] 🔄 Preserving custom action '{action_name}' as '{bu_action_name}'")
+            action_obj = {bu_action_name: params or {}}
         # Build action params based on action type
         elif bu_action_name == 'navigate':
             url = params.get('url', params.get('href', params.get('link', '')))
@@ -198,7 +197,7 @@ def _convert_flat_action(data: dict) -> dict | None:
         )
     
     # Pattern 2: {"go_to_url": {"url": "..."}} or {"navigate": {"url": "..."}}
-    # (action dict at top level, no wrapping)
+    # (action dict at top level, no wrapping). Also allow custom one-key actions.
     known_actions = {
         'navigate', 'click', 'input', 'done', 'scroll', 'wait', 'extract',
         'search', 'go_back', 'switch', 'close', 'send_keys', 'find_text',
@@ -221,16 +220,18 @@ def _convert_flat_action(data: dict) -> dict | None:
         'close_tab': 'close',
         'search_google': 'search',
     }
-    top_level_actions = set(data.keys()) & known_actions
-    if top_level_actions and 'action' not in data:
-        action_name = list(top_level_actions)[0]
+    if 'action' not in data and len(data.keys()) == 1:
+        action_name = list(data.keys())[0]
         action_params = data[action_name]
         if not isinstance(action_params, dict):
             action_params = {}
         # Remap to browser-use canonical name if needed
         bu_name = top_level_action_map.get(action_name, action_name)
         action_obj = {bu_name: action_params}
-        logger.info(f"[QwenAdapter] 🔄 Converted top-level action '{action_name}' → '{bu_name}' to action array")
+        if action_name in known_actions:
+            logger.info(f"[QwenAdapter] 🔄 Converted top-level action '{action_name}' → '{bu_name}' to action array")
+        else:
+            logger.info(f"[QwenAdapter] 🔄 Converted top-level custom action '{action_name}' to action array")
         return _make_agent_output([action_obj])
     
     return None
@@ -338,7 +339,7 @@ def _sanitize_action_array(actions: list) -> list:
     2. Fix index values < 1 for click/input actions (browser_use requires index >= 1)
     3. Map legacy action names to current browser_use names
     """
-    # Valid browser_use action names
+    # Standard browser_use action names
     valid_actions = {
         'navigate', 'click', 'input', 'scroll', 'extract', 'done', 'search',
         'go_back', 'wait', 'switch', 'close', 'send_keys', 'find_text',
@@ -407,13 +408,10 @@ def _sanitize_action_array(actions: list) -> list:
                 action = {real_action: action[key] if isinstance(action[key], dict) else {}}
                 logger.info(f"[QwenAdapter] 🔄 Remapped legacy action '{key}' → '{real_action}'")
 
-        # Check if action has any valid key; if not, convert to extract
+        # Keep custom action keys; do not force-convert to extract here.
         action_keys = set(action.keys())
         if not (action_keys & valid_actions):
-            # No valid action key found — convert to extract
-            info = str(action)[:500]
-            logger.warning(f"[QwenAdapter] ⚠️ No valid action key in {list(action_keys)}, converting to extract")
-            action = {'extract': {'query': info}}
+            logger.info(f"[QwenAdapter] 🔄 Preserving custom action keys: {list(action_keys)}")
 
         # Fix index values for click/input (must be >= 1)
         for act_name in ('click', 'input'):

@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import time
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -163,6 +164,49 @@ class AppSyncPassivePubSubTransport:
         self._max_reconnect_attempts = 10
         self._reconnect_attempt = 0
         self._intentionally_closed = False
+
+    def cancel_wait(self, *, run_id: str, step_id: str, reason: str = "Cancelled") -> None:
+        key = (run_id, step_id)
+        loop = self._loop
+
+        def _cancel() -> None:
+            fut = self._waiters.pop(key, None)
+            self._pending.pop(key, None)
+            if fut is not None and not fut.done():
+                fut.set_exception(asyncio.CancelledError(reason))
+
+        if loop and loop.is_running():
+            try:
+                loop.call_soon_threadsafe(_cancel)
+                return
+            except Exception:
+                pass
+
+        _cancel()
+
+    async def _wait_for_threading_event(
+        self,
+        event: threading.Event,
+        *,
+        timeout_s: float,
+        cancellation_event: threading.Event | None = None,
+        poll_interval: float = 0.2,
+        timeout_message: str,
+        cancel_message: str,
+    ) -> None:
+        deadline = time.time() + max(0.0, float(timeout_s))
+        while True:
+            if cancellation_event and cancellation_event.is_set():
+                raise asyncio.CancelledError(cancel_message)
+
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                raise TimeoutError(timeout_message)
+
+            wait_s = min(max(0.05, poll_interval), remaining)
+            signaled = await asyncio.to_thread(event.wait, wait_s)
+            if signaled:
+                return
 
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
         # AppSync AWSJSON scalar expects a JSON-encoded string in variables.
@@ -509,7 +553,13 @@ class AppSyncPassivePubSubTransport:
         except Exception:
             return
 
-    async def prepare_for_result(self, *, run_id: str, step_id: str) -> None:
+    async def prepare_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
         """Start subscription, wait for ack, and pre-register the waiter.
 
         MUST be called BEFORE publish_command so the subscription is
@@ -523,11 +573,13 @@ class AppSyncPassivePubSubTransport:
         # Wait until AppSync acknowledges the subscription (start_ack)
         if not self._subscription_acked.is_set():
             print("[AppSyncPassiveTransport] Waiting for subscription ack before publishing command...")
-            acked = await self._loop.run_in_executor(
-                None, self._subscription_acked.wait, 30.0
+            await self._wait_for_threading_event(
+                self._subscription_acked,
+                timeout_s=30.0,
+                cancellation_event=cancellation_event,
+                timeout_message="Subscription acknowledgement timed out after 30s",
+                cancel_message=f"Passive transport prepare cancelled for run_id={run_id} step_id={step_id}",
             )
-            if not acked:
-                raise TimeoutError("Subscription acknowledgement timed out after 30s")
             print("[AppSyncPassiveTransport] ✅ Subscription ack received, safe to publish")
 
         # Pre-register the waiter so results that arrive immediately are caught
@@ -536,7 +588,14 @@ class AppSyncPassivePubSubTransport:
             fut: asyncio.Future[PassiveBrowserStepResult] = self._loop.create_future()
             self._waiters[key] = fut
 
-    async def wait_for_result(self, *, run_id: str, step_id: str, timeout_s: float) -> PassiveBrowserStepResult:
+    async def wait_for_result(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        timeout_s: float,
+        cancellation_event: threading.Event | None = None,
+    ) -> PassiveBrowserStepResult:
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
 
@@ -552,11 +611,33 @@ class AppSyncPassivePubSubTransport:
             fut = self._loop.create_future()
             self._waiters[key] = fut
 
+        deadline = time.time() + max(1.0, float(timeout_s))
         try:
-            return await asyncio.wait_for(fut, timeout=max(1.0, float(timeout_s)))
+            while True:
+                if cancellation_event and cancellation_event.is_set():
+                    self.cancel_wait(
+                        run_id=run_id,
+                        step_id=step_id,
+                        reason=f"Passive step cancelled for run_id={run_id} step_id={step_id}",
+                    )
+                    raise asyncio.CancelledError(
+                        f"Passive step cancelled for run_id={run_id} step_id={step_id}"
+                    )
+
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
+
+                try:
+                    return await asyncio.wait_for(fut, timeout=min(0.2, remaining))
+                except asyncio.TimeoutError:
+                    continue
         except asyncio.TimeoutError:
             self._waiters.pop(key, None)
             raise TimeoutError(f"Timed out waiting for passive step result run_id={run_id} step_id={step_id}")
+        except asyncio.CancelledError:
+            self._waiters.pop(key, None)
+            raise
 
 
 def make_appsync_passive_transport_from_env() -> AppSyncPassivePubSubTransport:

@@ -43,14 +43,17 @@ try:
         AgentStepInfo,
         AgentState,
         AgentStructuredOutput,
+        ActionResult,
     )
     from browser_use.browser.views import BrowserStateSummary
     from browser_use.llm.base import BaseChatModel
     from browser_use.tools.service import Tools
     BROWSER_USE_AVAILABLE = True
-except ImportError:
+except Exception:
     BROWSER_USE_AVAILABLE = False
-    logger.warning("browser-use not available, PrivacyAgent will not work")
+    BrowserSession = BrowserProfile = Tools = object  # type: ignore
+    BrowserStateSummary = object  # type: ignore
+    ActionResult = object  # type: ignore
 
 # Import privacy components
 from .privacy import (
@@ -321,16 +324,7 @@ class PrivacyAgent:
 
             # Re-create state messages with filtered data
             # This replaces the messages created by the original _prepare_context
-            self._agent._message_manager.create_state_messages(
-                browser_state_summary=filtered_state,
-                model_output=self._agent.state.last_model_output,
-                result=self._agent.state.last_result,
-                step_info=step_info,
-                use_vision=self._agent.settings.use_vision,
-                page_filtered_actions=None,  # Will be re-added if needed
-                sensitive_data=self._agent.sensitive_data,
-                available_file_paths=self._agent.available_file_paths,
-            )
+            self._rebuild_state_messages_with_compacted_result(filtered_state, step_info)
 
             if self.privacy_debug:
                 logger.debug(
@@ -345,6 +339,10 @@ class PrivacyAgent:
             )
 
             return filtered_state
+
+        # Even when no privacy redaction happened, rebuild with compacted last_result
+        # so historical context uses summaries instead of raw long outputs.
+        self._rebuild_state_messages_with_compacted_result(browser_state_summary, step_info)
 
         if self.privacy_debug:
             logger.debug(
@@ -370,6 +368,68 @@ class PrivacyAgent:
         if len(s) <= max_len:
             return s
         return s[:max_len]
+
+    def _rebuild_state_messages_with_compacted_result(self, browser_state_summary: Any, step_info: Any) -> None:
+        page_filtered_actions = None
+        try:
+            registry = getattr(getattr(self._agent, "tools", None), "registry", None)
+            if registry and hasattr(registry, "get_prompt_description"):
+                url = getattr(browser_state_summary, "url", "") if browser_state_summary else ""
+                page_filtered_actions = registry.get_prompt_description(url) or None
+        except Exception:
+            page_filtered_actions = None
+
+        self._agent._message_manager.create_state_messages(
+            browser_state_summary=browser_state_summary,
+            model_output=self._agent.state.last_model_output,
+            result=self._get_compacted_last_result_for_memory(),
+            step_info=step_info,
+            use_vision=self._agent.settings.use_vision,
+            page_filtered_actions=page_filtered_actions,
+            sensitive_data=self._agent.sensitive_data,
+            available_file_paths=self._agent.available_file_paths,
+        )
+
+    def _summarize_action_result_for_memory(self, result: Any) -> Any:
+        if not BROWSER_USE_AVAILABLE:
+            return result
+        try:
+            error_text = self._truncate_text(getattr(result, "error", ""), 240)
+            extracted = self._truncate_text(getattr(result, "extracted_content", ""), 240)
+            long_term = self._truncate_text(getattr(result, "long_term_memory", ""), 240)
+            is_done = bool(getattr(result, "is_done", False))
+
+            summary_parts: list[str] = []
+            if is_done:
+                summary_parts.append("done")
+            if error_text:
+                summary_parts.append(f"error={error_text}")
+            elif long_term:
+                summary_parts.append(long_term)
+            elif extracted:
+                summary_parts.append(extracted)
+            else:
+                summary_parts.append("action completed")
+
+            summary_text = "; ".join(p for p in summary_parts if p).strip()
+            return ActionResult(
+                is_done=is_done,
+                error=error_text or None,
+                extracted_content=None,
+                include_in_memory=True,
+                long_term_memory=summary_text or None,
+            )
+        except Exception:
+            return result
+
+    def _get_compacted_last_result_for_memory(self) -> Any:
+        last_result = getattr(self._agent.state, "last_result", None)
+        if not last_result:
+            return last_result
+        try:
+            return [self._summarize_action_result_for_memory(item) for item in last_result]
+        except Exception:
+            return last_result
 
     def _compact_selector_map(self, selector_map: Any, *, max_elems: int = 250) -> list[dict[str, Any]]:
         try:

@@ -3640,13 +3640,25 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 )
                 
                 timeout_s = float(config_metadata.get('timeout', 180) or 180)
+                task_id = state.get('attributes', {}).get('task_id') if isinstance(state, dict) else None
+                cancellation_event = None
+                if task_id:
+                    try:
+                        from agent.ec_tasks import cancellation_registry
+                        cancellation_event = cancellation_registry.get(task_id)
+                    except Exception:
+                        cancellation_event = None
                 
                 async def _run_local_mcp():
                     import time as _time
                     _t0 = _time.time()
                     # Prepare to receive result before publishing command
                     logger.info(f"[RUN_LOCAL] Calling prepare_for_result(run_id={run_id}, step_id={step_id})...")
-                    await transport.prepare_for_result(run_id=run_id, step_id=step_id)
+                    await transport.prepare_for_result(
+                        run_id=run_id,
+                        step_id=step_id,
+                        cancellation_event=cancellation_event,
+                    )
                     logger.info(f"[RUN_LOCAL] prepare_for_result done, elapsed={_time.time()-_t0:.2f}s")
                     # Publish command to local machine
                     logger.info(f"[RUN_LOCAL] Publishing command to local machine via transport...")
@@ -3657,7 +3669,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     send_skill_editor_log("log", log_msg)
                     # Wait for result
                     result = await transport.wait_for_result(
-                        run_id=run_id, step_id=step_id, timeout_s=timeout_s
+                        run_id=run_id,
+                        step_id=step_id,
+                        timeout_s=timeout_s,
+                        cancellation_event=cancellation_event,
                     )
                     _total_elapsed = _time.time() - _t0
                     logger.info(f"[RUN_LOCAL] wait_for_result returned after {_total_elapsed:.2f}s, result type={type(result).__name__}, result is None={result is None}")
@@ -3665,6 +3680,21 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         logger.info(f"[RUN_LOCAL] Result keys: {list(result.keys()) if isinstance(result, dict) else dir(result)[:10]}")
                     return result
                 
+                if cancellation_event and hasattr(transport, 'cancel_wait'):
+                    try:
+                        state_task = state.get("task") if isinstance(state, dict) else None
+                        if state_task and hasattr(state_task, "register_force_stop_callback"):
+                            state_task.register_force_stop_callback(
+                                lambda: transport.cancel_wait(
+                                    run_id=run_id,
+                                    step_id=step_id,
+                                    reason=f"Task cancelled during run_local wait: run_id={run_id} step_id={step_id}",
+                                ),
+                                source=f"run_local_wait_{step_id}",
+                            )
+                    except Exception:
+                        pass
+
                 passive_result = run_async_in_sync(_run_local_mcp())
                 
                 # Extract tool result from passive response
@@ -4392,8 +4422,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     )
 
     from agent.ec_skills.prompt_loader import get_prompt_content
-    system_prompt_content = get_prompt_content(system_prompt_id, inline_system_prompt) if (system_prompt_id or inline_system_prompt) else None
-    user_prompt_content = get_prompt_content(user_prompt_id, inline_user_prompt) if (user_prompt_id or inline_user_prompt) else None
+    system_prompt_content = (
+        get_prompt_content(system_prompt_id, resolved_system_prompt)
+        if (system_prompt_id or resolved_system_prompt)
+        else None
+    )
+    user_prompt_content = (
+        get_prompt_content(user_prompt_id, resolved_user_prompt)
+        if (user_prompt_id or resolved_user_prompt)
+        else None
+    )
 
     # If prompts are configured, use them to enhance the task text
     if system_prompt_content or user_prompt_content:
@@ -4471,6 +4509,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception as e:
             logger.debug(f"[BrowserAutomation] _is_session_alive: exception: {e}")
             return False
+
 
     # Fix E-F1: Cache browser_session across steps so we don't create a new one
     # each iteration.  BrowserManager.acquire_browser marks the browser IN_USE,
@@ -5164,7 +5203,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         'use_thinking': node_use_thinking,
                         'use_judge': enable_judge_setting,
                     }
-                    
                     if not node_use_thinking:
                         agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
                     
@@ -5334,7 +5372,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 use_judge=enable_judge_setting,
                 llm=llm,  # Pass LLM to auto-detect context_length for adaptive compaction
             )
-            
             # Debug: Log the actual message_compaction settings
             if 'message_compaction' in agent_kwargs:
                 mc = agent_kwargs['message_compaction']
