@@ -317,4 +317,9 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
 
 
 # Log registered custom actions at module load time for debugging
-logger.info(f"[Browser-Use Extension] Registered {len(custom_controller.registry.actions)} custom actions: {list(custom_controller.registry.actions.keys())}")
+try:
+    # Access the actions dict from registry.registry.actions (current browser-use API)
+    action_registry = custom_controller.registry.registry.actions
+    logger.info(f"[Browser-Use Extension] Registered {len(action_registry)} custom actions: {list(action_registry.keys())}")
+except AttributeError:
+    logger.warning("[Browser-Use Extension] Could not access registry actions - API may have changed")
