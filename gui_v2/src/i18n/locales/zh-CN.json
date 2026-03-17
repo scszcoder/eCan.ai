@@ -1513,6 +1513,7 @@
       },
       "usageCount": "使用次数",
       "viewHistory": "查看历史",
+      "noSkillsAssociated": "尚未关联任何技能。点击“添加”以关联技能。",
       "neverUsed": "从未使用",
       "uses": "次",
       "noDescription": "暂无描述",

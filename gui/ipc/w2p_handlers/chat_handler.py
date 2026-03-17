@@ -384,6 +384,71 @@ def echo_and_push_message_async(chatId, message, request=None, params=None):
     timer.start()
 
 # ===================== Other Handlers (Keep original structure, can be optimized later) =====================
+@IPCHandlerRegistry.background_handler('get_a2a_messages')
+def handle_get_a2a_messages(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    Fetch A2A message history from AppSync for the given channel.
+    """
+    try:
+        import requests
+        from agent.chats.wan_a2a_chat import (
+            gen_a2a_get_messages_query,
+            get_a2a_appsync_endpoints,
+        )
+
+        params = params or {}
+        channel_id = params.get('channelId')
+        limit = params.get('limit')
+        next_token = params.get('nextToken')
+
+        if not channel_id:
+            return create_error_response(request, 'MISSING_CHANNEL_ID', 'channelId is required')
+
+        ctx = get_handler_context(request, params)
+        token = ctx.get_auth_token()
+        if not token:
+            return create_error_response(request, 'TOKEN_REQUIRED', 'No auth token available')
+
+        endpoints = get_a2a_appsync_endpoints()
+        variables = {
+            'channelId': channel_id,
+            'limit': limit,
+            'nextToken': next_token,
+        }
+
+        response = requests.post(
+            url=endpoints['http'],
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': token,
+                'cache-control': 'no-cache',
+            },
+            json={
+                'query': gen_a2a_get_messages_query(),
+                'variables': variables,
+            },
+            timeout=30,
+        )
+        result = response.json()
+
+        if result.get('errors'):
+            logger.error(f"[get_a2a_messages] GraphQL errors: {result['errors']}")
+            return create_error_response(
+                request,
+                'GET_A2A_MESSAGES_ERROR',
+                result['errors'][0].get('message', 'Failed to fetch A2A messages'),
+                result['errors'],
+            )
+
+        connection = ((result.get('data') or {}).get('getA2AMessages')) or {
+            'items': [],
+            'nextToken': None,
+        }
+        return create_success_response(request, connection)
+    except Exception as e:
+        logger.error(f"[get_a2a_messages] Error fetching A2A messages: {e}", exc_info=True)
+        return create_error_response(request, 'GET_A2A_MESSAGES_ERROR', str(e))
+
 @IPCHandlerRegistry.handler('get_chats')
 def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
