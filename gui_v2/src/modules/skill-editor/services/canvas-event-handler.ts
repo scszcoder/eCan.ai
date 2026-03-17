@@ -345,6 +345,15 @@ class CanvasEventHandler {
               
               console.log('[CanvasEventHandler] Skill loaded and stores updated:', skillName);
 
+              // Notify ChatPanel so it can cache the flowgram for the agent context fallback
+              eventBus.emit('skill_editor:flowgram_loaded', {
+                success: true,
+                skillName,
+                nodeCount: diagram?.nodes?.length || 0,
+                flowgramData: result.skillInfo,
+                source: 'disk',
+              });
+
               // Force-refresh prompt store so newly generated prompts (my_prompts/) are visible immediately.
               // This also ensures promptSelection IDs resolve to human-readable titles.
               try {

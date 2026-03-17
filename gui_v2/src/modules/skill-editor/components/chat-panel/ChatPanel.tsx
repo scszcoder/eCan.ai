@@ -1055,7 +1055,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
     // Listen for flowgram-loaded event to clear "Generating" status
     const handleFlowgramLoaded = (data: any) => {
-      console.log('[ChatPanel] Flowgram loaded via subscription:', data);
+      console.log('[ChatPanel] Flowgram loaded:', data?.source || 'subscription');
+      // Cache the flowgram so the agent can see nodes even when getCanvasState() returns empty
+      if (data?.flowgramData) {
+        lastFlowgramJsonRef.current = data.flowgramData;
+      }
+      if (data?.source === 'disk') return; // disk loads don't need streaming status changes
       setStreamingStatus('');
       setPipelineState('complete');
       setIsLoading(false);
