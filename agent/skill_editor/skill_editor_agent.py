@@ -670,10 +670,15 @@ class SkillEditorAgent:
             self._current_request = None
     
     def _classify_intent_simple(self, message: str) -> IntentType:
-        """Simple rule-based intent classification"""
+        """Fast rule-based classification for trivially unambiguous intents.
+
+        Only handles clear-cut system commands (casual chat, log analysis,
+        load/save).  Everything else returns GENERAL_CHAT so the LLM
+        taxonomy classifier can decide.
+        """
         msg_lower = message.lower()
 
-        # Casual chat: short acknowledgements / social chatter that shouldn't trigger planning.
+        # Casual chat: short acknowledgements / social chatter
         if self._is_casual_chat_message(message):
             return IntentType.CASUAL_CHAT
 
@@ -681,149 +686,49 @@ class SkillEditorAgent:
         if self._is_log_analysis_request(message):
             return IntentType.ANALYZE_LOG
 
-        # Robust edit marker detection (handles typos like "modifycation" / "modifcation")
-        has_modif_stem = bool(re.search(r"\bmodif\w*", msg_lower))
-
-        # Edit intent (must run BEFORE creation heuristics like "let's do ... workflow")
-        edit_markers = [
-            "modify",
-            "modification",
-            "edit",
-            "tweak",
-            "adjust",
-            "fine tune",
-            "fine-tune",
-            "tune",
-            "wrap",
-            "wrapped",
-            "rewire",
-            "reroute",
-            "fix",
-            "repair",
-        ]
-        edit_targets = ["workflow", "skill", "flowgram", "canvas", "node", "edge", "connection", "loop", "condition", "branch"]
-        # Chinese edit markers: 修改(modify) 编辑(edit) 调整(adjust) 微调(tweak) 修复(fix) 更改(change)
-        # 纠正(correct) 修正(amend) 改动(alter) 改进(improve) 改一下(change a bit)
-        edit_markers_zh = [
-            "修改", "编辑", "调整", "微调", "修复", "更改", "改一下", "改下",
-            "纠正", "修正", "改动", "改进", "优化", "重构", "重新连接", "重新布线",
-        ]
-        edit_targets_zh = ["工作流", "技能", "流程", "节点", "连接", "循环", "条件", "分支", "画布"]
-        has_edit_marker = has_modif_stem or any(w in msg_lower for w in edit_markers)
-        has_edit_marker_zh = any(w in message for w in edit_markers_zh)
-        has_edit_target = any(t in msg_lower for t in edit_targets)
-        has_edit_target_zh = any(t in message for t in edit_targets_zh)
-        if (has_edit_marker and has_edit_target) or (has_edit_marker_zh and has_edit_target_zh):
-            return IntentType.MODIFY_NODE
-        
-        # Load skill intent - check first as it's specific (English + Chinese)
+        # Load skill intent - explicit system command (English + Chinese)
         if (any(phrase in msg_lower for phrase in ["load", "open", "load up", "switch to"]) and "skill" in msg_lower) or \
-           any(w in message for w in ["加载技能", "打开技能", "加载", "切换到"]):
+           any(w in message for w in ["加载技能", "打开技能", "切换到"]):
             return IntentType.LOAD_SKILL
-        
-        # Save skill intent (English + Chinese)
+
+        # Save skill intent - explicit system command (English + Chinese)
         if (any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower)) or \
            any(w in message for w in ["保存", "存一下", "存储", "导出"]):
             return IntentType.SAVE_SKILL
-        
-        # Creation intents - explicit creation keywords (including -ing forms)
-        # Also match Chinese: 创建(create) 新建(new-create) 生成(generate) 产生(produce) 构建(build) 制作(make) 搭建(set up)
-        create_keywords_en = ["create", "creating", "build", "building", "make", "making", "generate", "generating", "new workflow", "new skill"]
-        create_keywords_zh = ["创建", "新建", "生成", "产生", "构建", "制作", "搭建", "新的工作流", "全新工作流", "新工作流", "新技能"]
-        if any(word in msg_lower for word in create_keywords_en) or any(word in message for word in create_keywords_zh):
-            return IntentType.CREATE_FLOWGRAM
-        
-        # Creation intents - "workflow" or "skill" with action phrases (e.g., "lets do an ebay workflow")
-        # Also match Chinese: 工作流(workflow) 技能(skill) 自动化(automation) with action phrases
-        workflow_words_en = ["workflow", "skill", "automation"]
-        workflow_words_zh = ["工作流", "技能", "自动化", "流程"]
-        action_phrases_en = ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]
-        action_phrases_zh = ["我要", "我想", "我需要", "帮我", "请", "做一个", "做个", "来一个", "来个", "弄一个", "弄个"]
-        has_workflow_word = any(word in msg_lower for word in workflow_words_en) or any(word in message for word in workflow_words_zh)
-        has_action_phrase = any(phrase in msg_lower for phrase in action_phrases_en) or any(phrase in message for phrase in action_phrases_zh)
-        # Guard: don't classify explain/question messages as CREATE_FLOWGRAM
-        # e.g. "please explain what does the first loop do in this workflow?"
-        if has_workflow_word and (not has_edit_marker) and has_action_phrase and not self._is_explain_request(message):
-            return IntentType.CREATE_FLOWGRAM
-        
-        # Diagnostic / "why" questions — recognise before node-operation rules
-        # so that "why the added node has the wrong connection" isn't mistaken
-        # for an add_node intent.
-        _question_prefix = bool(re.search(
-            r"\b(why|how come|how does|how do|what does|what is|what are|what went wrong|what happened|figure out|diagnose|debug|explain|wrong|issue|problem|broken)",
-            msg_lower,
-        ))
-        # Chinese diagnostic words: 检查(check) 纠错(find errors) 查错(check errors) 查出(find out)
-        # 溯源(trace origin) 追溯(trace back) 追查(investigate) 为什么(why) 怎么回事(what happened)
-        _question_prefix_zh = any(w in message for w in [
-            "检查", "检察", "纠错", "查错", "查出", "溯源", "追溯", "追查",
-            "为什么", "怎么回事", "什么问题", "哪里出错", "出了什么", "诊断", "排查",
-            "出错了", "有问题", "不对", "不正确", "不工作", "失败了", "报错",
-            # Explain / question words (Chinese)
-            "解释", "说明", "帮我理解", "介绍", "描述", "告诉我",
-            "做什么", "干什么", "什么意思", "什么作用", "什么用", "干嘛",
-            "是什么", "怎么运行", "怎么工作", "如何",
+
+        # Explicit create / generate workflow (skip expensive taxonomy LLM call)
+        _create_en = any(p in msg_lower for p in [
+            "create a workflow", "create workflow", "build a workflow", "build workflow",
+            "generate a workflow", "generate workflow", "make a workflow", "make workflow",
+            "design a workflow", "design workflow", "new workflow",
         ])
-        if (_question_prefix or _question_prefix_zh) and not any(w in msg_lower for w in [
-            "add a ", "add an ", "please add", "insert a ", "remove the ", "delete the ",
-        ]) and not any(w in message for w in ["添加", "添加一个", "删除", "移除"]):
-            return IntentType.EXPLAIN
+        _create_zh = any(w in message for w in [
+            "生成", "创建", "新建", "构建", "设计", "搭建",
+            "做一个", "做个", "帮我做", "帮我建",
+        ]) and any(w in message for w in ["工作流", "流程", "workflow"])
+        if _create_en or _create_zh:
+            return IntentType.CREATE_FLOWGRAM
 
-        # Node operations (English + Chinese)
-        if ("add" in msg_lower and "node" in msg_lower) or any(w in message for w in ["添加节点", "加个节点", "加一个节点", "新增节点"]):
-            return IntentType.ADD_NODE
-        if "remove" in msg_lower or "delete" in msg_lower or any(w in message for w in ["删除", "移除", "去掉"]):
-            return IntentType.REMOVE_NODE
-        if "connect" in msg_lower or "link" in msg_lower or any(w in message for w in ["连接", "关联", "连线"]):
-            return IntentType.CONNECT_NODES
-        if has_modif_stem:
-            return IntentType.MODIFY_NODE
-        if any(w in msg_lower for w in [
-            "modify",
-            "change",
-            "update",
-            "edit",
-            "tweak",
-            "adjust",
-            "fine tune",
-            "fine-tune",
-            "tune",
-        ]):
-            return IntentType.MODIFY_NODE
-
-        # Common edit phrasing that users use but doesn't include "modify/change/update"
-        if any(w in msg_lower for w in ["wrap", "wrapped", "inside", "within", "move", "rewire", "reroute", "replace", "insert", "surround", "encapsulate"]):
-            if any(w in msg_lower for w in ["node", "loop", "edge", "connection", "connect", "branch"]):
-                return IntentType.MODIFY_NODE
-
-        # Validation / repair intent (treat as edit intent, but handled deterministically later)
-        if any(w in msg_lower for w in ["validate", "repair", "fix connections", "fix connectivity", "fix edges"]):
-            if any(w in msg_lower for w in ["flowgram", "workflow", "canvas", "connections", "edges", "condition"]):
-                return IntentType.MODIFY_NODE
-        
-        # Test skill intents (English + Chinese)
-        if (any(phrase in msg_lower for phrase in ["test", "run test", "step through", "pause", "exit test"]) and \
-           any(word in msg_lower for word in ["skill", "workflow", "this"])) or \
-           any(w in message for w in ["测试", "运行测试", "试运行", "试一下", "跑一下"]):
-            return IntentType.TEST_SKILL
-        
-        # Deploy skill intents (English + Chinese)
-        if (any(phrase in msg_lower for phrase in ["deploy", "schedule", "create task", "assign agent", "kick off"]) and \
-           any(word in msg_lower for word in ["skill", "workflow", "this"])) or \
-           any(w in message for w in ["部署", "发布", "上线", "安排任务", "创建任务"]):
-            return IntentType.DEPLOY_SKILL
-        
-        # Execution intents (legacy - for direct run without test mode)
-        if "run" in msg_lower or "execute" in msg_lower:
-            return IntentType.RUN_FLOWGRAM
-        if "debug" in msg_lower or "step" in msg_lower:
-            return IntentType.DEBUG_FLOWGRAM
-        
-        # Explanation
-        if self._is_explain_request(message):
-            return IntentType.EXPLAIN
-        
+        # Everything else → let the LLM taxonomy classifier decide
         return IntentType.GENERAL_CHAT
+
+    def _infer_domain_fast(self, message: str) -> Optional[str]:
+        """Fast keyword-based domain inference to skip the taxonomy LLM call."""
+        msg = (message or "").lower()
+        _DOMAIN_KEYWORDS = {
+            "product_listing": ["listing", "产品", "product", "asin", "商品", "listing优化"],
+            "competition_analysis": ["竞品", "竞争", "competitor", "competition", "对手", "competing"],
+            "market_research": ["调研", "市场", "research", "market", "趋势", "trend", "销量", "排名", "top"],
+            "advertising": ["广告", "ppc", "advertising", "campaign", "推广", "投放", "bid"],
+            "customer_support": ["客服", "客户", "customer", "support", "review", "评论", "feedback"],
+            "supply_chain": ["供应链", "inventory", "库存", "物流", "shipping", "采购", "supplier"],
+            "content_creation": ["内容", "content", "文案", "copywriting", "seo", "关键词", "keyword"],
+            "data_reporting": ["report", "报告", "数据", "analytics", "统计", "dashboard"],
+        }
+        for domain, keywords in _DOMAIN_KEYWORDS.items():
+            if any(kw in msg for kw in keywords):
+                return domain
+        return None
 
     def _is_log_analysis_request(self, message: str) -> bool:
         """Detect if the user wants to analyze a log file.
@@ -1117,6 +1022,25 @@ class SkillEditorAgent:
         token_tracker.record(resp, agent="SkillEditorAgent", action=action)
         return resp.content if hasattr(resp, "content") else str(resp)
 
+    async def _invoke_llm_fast(self, prompt: str, *, action: str = "") -> str:
+        """Use a lighter/faster model for structured-output tasks like
+        requirement collection where speed matters more than deep reasoning."""
+        import os
+        fast_model = os.environ.get("SKILL_EDITOR_FAST_MODEL", "gpt-4.1-mini")
+        try:
+            from langchain_openai import ChatOpenAI
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return await self._invoke_llm_async(prompt, action=action)
+            llm = ChatOpenAI(model=fast_model, api_key=api_key, temperature=0.3)
+            logger.info(f"[SkillEditorAgent] Fast LLM call — model={fast_model}, prompt_len={len(prompt):,}")
+            resp = await llm.ainvoke(prompt)
+            token_tracker.record(resp, agent="SkillEditorAgent", action=action)
+            return resp.content if hasattr(resp, "content") else str(resp)
+        except Exception as e:
+            logger.warning(f"[SkillEditorAgent] Fast LLM failed ({e}), falling back to default")
+            return await self._invoke_llm_async(prompt, action=action)
+
     def _extract_json_from_text(self, text: str) -> Optional[Any]:
         try:
             json_match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
@@ -1363,7 +1287,7 @@ class SkillEditorAgent:
         )
 
         try:
-            response = await self._invoke_llm_async(prompt, action="classify_taxonomy")
+            response = await self._invoke_llm_fast(prompt, action="classify_taxonomy")
             data = self._extract_json_from_text(response) or {}
             tax_intent_str = str(data.get("intent", "need_info")).strip()
             domain = str(data.get("domain", "need_info")).strip()
@@ -2727,24 +2651,33 @@ class SkillEditorAgent:
 
                 has_canvas = self._has_loaded_canvas(canvas_context)
                 if has_canvas:
-                    # Only downgrade ambiguous intents to edit; never override
-                    # an explicit create_flowgram (user said "new skill" etc.).
-                    if tax_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.60:
+                    # When the user has a workflow loaded, low-confidence "create"
+                    # results are more likely edit intent (user is talking about
+                    # their loaded workflow, not asking for a brand new one).
+                    if tax_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.50:
                         tax_intent = IntentType.MODIFY_NODE
-                    elif tax_intent == IntentType.GENERAL_CHAT and confidence < 0.7:
+                    elif tax_intent == IntentType.GENERAL_CHAT and confidence < 0.5:
                         tax_intent = IntentType.MODIFY_NODE
 
-                if confidence >= 0.6 and tax_intent != IntentType.GENERAL_CHAT:
+                # Accept the LLM classification when it's specific enough
+                if tax_intent != IntentType.GENERAL_CHAT and confidence >= 0.4:
                     intent = tax_intent
                 elif has_canvas and tax_intent == IntentType.MODIFY_NODE:
                     intent = IntentType.MODIFY_NODE
 
             # When the simple classifier already detected CREATE_FLOWGRAM we still
-            # need the taxonomy classifier to derive the domain.
+            # need a domain to guide requirement collection.  Use a fast keyword
+            # heuristic first; only call the expensive taxonomy LLM when no
+            # domain can be inferred from keywords.
             if intent == IntentType.CREATE_FLOWGRAM and not self._classified_domain:
-                _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
-                self._classified_domain = domain
-                logger.info(f"[SkillEditorAgent] Domain derived via taxonomy: {domain}")
+                domain = self._infer_domain_fast(message)
+                if domain:
+                    self._classified_domain = domain
+                    logger.info(f"[SkillEditorAgent] Domain inferred via keywords: {domain}")
+                else:
+                    _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
+                    self._classified_domain = domain
+                    logger.info(f"[SkillEditorAgent] Domain derived via taxonomy: {domain}")
 
             logger.info(f"[SkillEditorAgent] Classified intent: {intent.value}")
 
@@ -3474,7 +3407,7 @@ class SkillEditorAgent:
         )
 
         try:
-            response = await self._invoke_llm_async(prompt, action="requirement_collection")
+            response = await self._invoke_llm_fast(prompt, action="requirement_collection")
             raw_questions = self._extract_json_from_text(response)
             if raw_questions is None:
                 logger.warning(
