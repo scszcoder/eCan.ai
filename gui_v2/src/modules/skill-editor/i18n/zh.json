@@ -698,7 +698,8 @@
       },
       "defaultProfile": "（默认配置）",
       "inlinePrompt": "内联提示词",
-      "cdpPortPlaceholder": "9228（默认）"
+      "cdpPortPlaceholder": "9228（默认）",
+      "chromeLaunchCommandHint": "请务必使用以下命令启动 Chrome："
     }
   },
   "formComponents": {

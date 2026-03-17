@@ -201,6 +201,8 @@
         "instructions": "Instructions",
         "variables": "Variables",
         "additional": "Additional Text",
+        "exceptions": "Exceptions",
+        "extra_attentions": "Extra Attentions",
         "tools_to_use": "Tools To Use",
         "custom": "Custom Section",
         "systemInputs": "System prompt: inputs",
