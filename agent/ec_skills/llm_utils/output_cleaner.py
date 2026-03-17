@@ -105,8 +105,18 @@ def extract_json_from_text(content: str) -> Optional[str]:
     try:
         json.loads(stripped)
         return stripped  # Already valid JSON
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+        # If error is "trailing characters", try to extract just the valid JSON part
+        if "trailing characters" in str(e).lower() or "extra data" in str(e).lower():
+            # Find where the valid JSON ends by parsing incrementally
+            for i in range(len(stripped), 0, -1):
+                try:
+                    candidate = stripped[:i].rstrip()
+                    json.loads(candidate)
+                    logger.debug(f"[OutputCleaner] Stripped trailing characters (original: {len(stripped)}, valid: {len(candidate)})")
+                    return candidate
+                except json.JSONDecodeError:
+                    continue
     
     # Try to find JSON object {...}
     # Find the first { and last }

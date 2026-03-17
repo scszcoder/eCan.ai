@@ -7,10 +7,10 @@ Standard approach: Use browser-use's compatibility flags:
 - remove_min_items_from_schema=True
 - remove_defaults_from_schema=True
 
-This adapter ONLY handles DeepSeek-specific issues:
-1. Filter invalid action types (file operations)
-2. Handle mixed action types in single object
-3. Convert completion indicators to 'done' action
+This adapter ONLY handles DeepSeek-specific output structure issues:
+1. Normalize action array/object structure
+2. Handle mixed standard action types in single object
+3. Ensure required AgentOutput fields exist
 
 All structural validation is handled by browser-use's Pydantic validation.
 """
@@ -39,11 +39,10 @@ class DeepSeekOutputAdapter:
         'close_tab', 'click_element', 'extract_content', 'scroll_down', 'scroll_up',
     }
     
-    # Invalid actions that DeepSeek sometimes generates
-    INVALID_ACTIONS = {
-        'read_file', 'write_file', 'move_file', 'verify_file', 
-        'delete_file', 'list_files', 'create_directory', 'replace_file'
-    }
+    # NOTE: Do not hardcode invalid/custom actions here.
+    # Custom controller actions (e.g. list_files) should pass through the adapter,
+    # and be validated/executed by browser-use/controller layers.
+    INVALID_ACTIONS = set()
     
     def __init__(self):
         self.adapt_count = 0
@@ -118,8 +117,8 @@ class DeepSeekOutputAdapter:
         Adapt the actions array.
         
         Handles:
-        1. Filter invalid action types
-        2. Handle mixed action types
+        1. Normalize list/object action payloads
+        2. Handle mixed standard action types
         3. Ensure at least one action exists (min_items=1 requirement)
         """
         if not isinstance(actions, list):
@@ -151,17 +150,10 @@ class DeepSeekOutputAdapter:
         """
         Adapt a single action - MINIMAL approach.
         
-        Only handle DeepSeek-specific issues:
-        1. Remove invalid action types (file operations)
-        2. Handle mixed action types (keep first valid one)
+        Only handle DeepSeek-specific structure issues:
+        1. Preserve custom actions (no hard filtering here)
+        2. Handle mixed standard action types (keep first valid standard one)
         """
-        # Remove invalid actions
-        action = self._remove_invalid_actions(action)
-        
-        # If action is empty after cleanup, skip it
-        if not action:
-            return None
-        
         # If action has multiple types, keep only the first valid one
         action_types = [k for k in action.keys() if k in self.VALID_ACTIONS]
         if len(action_types) > 1:
@@ -173,21 +165,8 @@ class DeepSeekOutputAdapter:
         return action
     
     def _remove_invalid_actions(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove invalid action types from the action object."""
-        cleaned = {}
-        removed = []
-        
-        for key, value in action.items():
-            if key in self.INVALID_ACTIONS:
-                removed.append(key)
-            else:
-                cleaned[key] = value
-        
-        if removed:
-            logger.warning(f"[DeepSeekAdapter] Removed invalid actions: {removed}")
-            self.adapt_count += 1
-        
-        return cleaned
+        """Backward-compatible no-op. Filtering is intentionally disabled."""
+        return action
     
     def get_stats(self) -> Dict[str, int]:
         """Get statistics about adaptations applied."""
