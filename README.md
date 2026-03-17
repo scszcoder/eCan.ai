@@ -108,15 +108,15 @@ Communications channels supported include:
 * ✅ ding-talk
 
 
-## 📥 Download Latest Release (v0.0.5)
+## 📥 Download Latest Release (v0.8.24)
 
-| Platform | Download | Size | SHA256 |
-|----------|----------|------|--------|
-| **Windows (64-bit)** | [⬇️ eCan-0.0.5-windows-amd64-Setup.exe](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.0.5/windows/amd64/eCan-0.0.5-windows-amd64-Setup.exe) | 547 MB | `2a6bb3b1...` |
-| **macOS (Apple Silicon)** | [⬇️ eCan-0.0.5-macos-aarch64.pkg](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.0.5/macos/aarch64/eCan-0.0.5-macos-aarch64.pkg) | 615 MB | `3e5864e2...` |
-| **macOS (Intel)** | [⬇️ eCan-0.0.5-macos-amd64.pkg](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.0.5/macos/amd64/eCan-0.0.5-macos-amd64.pkg) | 740 MB | `cd6a630c...` |
+| Platform | Download                                                                                                                                                                 | Size | SHA256 |
+|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------|--------|
+| **Windows (64-bit)** | [⬇️ eCan-0.8.24-windows-amd64-Setup.exe](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.8.24/windows/amd64/eCan-0.8.24-windows-amd64-Setup.exe) | 547 MB | `2a6bb3b1...` |
+| **macOS (Apple Silicon)** | [⬇️ eCan-0.8.24-macos-aarch64.pkg](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.8.24/macos/aarch64/eCan-0.8.24-macos-aarch64.pkg)             | 615 MB | `3e5864e2...` |
+| **macOS (Intel)** | [⬇️ eCan-0.8.24-macos-amd64.pkg](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.8.24/macos/amd64/eCan-0.8.24-macos-amd64.pkg)                   | 740 MB | `cd6a630c...` |
 
-> **Release Date:** December 8, 2025 | **Channel:** Stable
+> **Release Date:** March 16, 2026 | **Channel:** Stable
 
 ## 🔨 Building eCan.ai (On Local Machine)
 
