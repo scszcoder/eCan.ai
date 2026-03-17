@@ -696,8 +696,39 @@ class SkillEditorAgent:
            any(w in message for w in ["保存", "存一下", "存储", "导出"]):
             return IntentType.SAVE_SKILL
 
+        # Explicit create / generate workflow (skip expensive taxonomy LLM call)
+        _create_en = any(p in msg_lower for p in [
+            "create a workflow", "create workflow", "build a workflow", "build workflow",
+            "generate a workflow", "generate workflow", "make a workflow", "make workflow",
+            "design a workflow", "design workflow", "new workflow",
+        ])
+        _create_zh = any(w in message for w in [
+            "生成", "创建", "新建", "构建", "设计", "搭建",
+            "做一个", "做个", "帮我做", "帮我建",
+        ]) and any(w in message for w in ["工作流", "流程", "workflow"])
+        if _create_en or _create_zh:
+            return IntentType.CREATE_FLOWGRAM
+
         # Everything else → let the LLM taxonomy classifier decide
         return IntentType.GENERAL_CHAT
+
+    def _infer_domain_fast(self, message: str) -> Optional[str]:
+        """Fast keyword-based domain inference to skip the taxonomy LLM call."""
+        msg = (message or "").lower()
+        _DOMAIN_KEYWORDS = {
+            "product_listing": ["listing", "产品", "product", "asin", "商品", "listing优化"],
+            "competition_analysis": ["竞品", "竞争", "competitor", "competition", "对手", "competing"],
+            "market_research": ["调研", "市场", "research", "market", "趋势", "trend", "销量", "排名", "top"],
+            "advertising": ["广告", "ppc", "advertising", "campaign", "推广", "投放", "bid"],
+            "customer_support": ["客服", "客户", "customer", "support", "review", "评论", "feedback"],
+            "supply_chain": ["供应链", "inventory", "库存", "物流", "shipping", "采购", "supplier"],
+            "content_creation": ["内容", "content", "文案", "copywriting", "seo", "关键词", "keyword"],
+            "data_reporting": ["report", "报告", "数据", "analytics", "统计", "dashboard"],
+        }
+        for domain, keywords in _DOMAIN_KEYWORDS.items():
+            if any(kw in msg for kw in keywords):
+                return domain
+        return None
 
     def _is_log_analysis_request(self, message: str) -> bool:
         """Detect if the user wants to analyze a log file.
@@ -991,6 +1022,25 @@ class SkillEditorAgent:
         token_tracker.record(resp, agent="SkillEditorAgent", action=action)
         return resp.content if hasattr(resp, "content") else str(resp)
 
+    async def _invoke_llm_fast(self, prompt: str, *, action: str = "") -> str:
+        """Use a lighter/faster model for structured-output tasks like
+        requirement collection where speed matters more than deep reasoning."""
+        import os
+        fast_model = os.environ.get("SKILL_EDITOR_FAST_MODEL", "gpt-4.1-mini")
+        try:
+            from langchain_openai import ChatOpenAI
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            if not api_key:
+                return await self._invoke_llm_async(prompt, action=action)
+            llm = ChatOpenAI(model=fast_model, api_key=api_key, temperature=0.3)
+            logger.info(f"[SkillEditorAgent] Fast LLM call — model={fast_model}, prompt_len={len(prompt):,}")
+            resp = await llm.ainvoke(prompt)
+            token_tracker.record(resp, agent="SkillEditorAgent", action=action)
+            return resp.content if hasattr(resp, "content") else str(resp)
+        except Exception as e:
+            logger.warning(f"[SkillEditorAgent] Fast LLM failed ({e}), falling back to default")
+            return await self._invoke_llm_async(prompt, action=action)
+
     def _extract_json_from_text(self, text: str) -> Optional[Any]:
         try:
             json_match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
@@ -1237,7 +1287,7 @@ class SkillEditorAgent:
         )
 
         try:
-            response = await self._invoke_llm_async(prompt, action="classify_taxonomy")
+            response = await self._invoke_llm_fast(prompt, action="classify_taxonomy")
             data = self._extract_json_from_text(response) or {}
             tax_intent_str = str(data.get("intent", "need_info")).strip()
             domain = str(data.get("domain", "need_info")).strip()
@@ -2616,11 +2666,18 @@ class SkillEditorAgent:
                     intent = IntentType.MODIFY_NODE
 
             # When the simple classifier already detected CREATE_FLOWGRAM we still
-            # need the taxonomy classifier to derive the domain.
+            # need a domain to guide requirement collection.  Use a fast keyword
+            # heuristic first; only call the expensive taxonomy LLM when no
+            # domain can be inferred from keywords.
             if intent == IntentType.CREATE_FLOWGRAM and not self._classified_domain:
-                _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
-                self._classified_domain = domain
-                logger.info(f"[SkillEditorAgent] Domain derived via taxonomy: {domain}")
+                domain = self._infer_domain_fast(message)
+                if domain:
+                    self._classified_domain = domain
+                    logger.info(f"[SkillEditorAgent] Domain inferred via keywords: {domain}")
+                else:
+                    _, domain, _, _ = await self._classify_with_taxonomy(message, canvas_context)
+                    self._classified_domain = domain
+                    logger.info(f"[SkillEditorAgent] Domain derived via taxonomy: {domain}")
 
             logger.info(f"[SkillEditorAgent] Classified intent: {intent.value}")
 
@@ -3350,7 +3407,7 @@ class SkillEditorAgent:
         )
 
         try:
-            response = await self._invoke_llm_async(prompt, action="requirement_collection")
+            response = await self._invoke_llm_fast(prompt, action="requirement_collection")
             raw_questions = self._extract_json_from_text(response)
             if raw_questions is None:
                 logger.warning(
