@@ -1196,6 +1196,7 @@ class SkillEditorAgent:
         nodes = canvas_context.get("nodes")
         if isinstance(nodes, list) and len(nodes) > 0:
             return canvas_context  # already has real nodes
+        # Try lastFlowgramJson fallback (sent by frontend)
         last_fj = canvas_context.get("lastFlowgramJson")
         if isinstance(last_fj, dict):
             wf = last_fj.get("workFlow") or last_fj
@@ -1203,6 +1204,15 @@ class SkillEditorAgent:
             fallback_edges = wf.get("edges") or []
             if fallback_nodes:
                 logger.info(f"[SkillEditorAgent] Back-filling canvas_context from lastFlowgramJson: {len(fallback_nodes)} nodes, {len(fallback_edges)} edges")
+                canvas_context = {**canvas_context, "nodes": fallback_nodes, "edges": fallback_edges}
+                return canvas_context
+        # Try cached flowgram from a previous generation in this session
+        if self._cached_flowgram_dict:
+            wf = self._cached_flowgram_dict.get("workFlow") or self._cached_flowgram_dict
+            fallback_nodes = wf.get("nodes") or []
+            fallback_edges = wf.get("edges") or []
+            if fallback_nodes:
+                logger.info(f"[SkillEditorAgent] Back-filling canvas_context from cached_flowgram_dict: {len(fallback_nodes)} nodes, {len(fallback_edges)} edges")
                 canvas_context = {**canvas_context, "nodes": fallback_nodes, "edges": fallback_edges}
         return canvas_context
 
