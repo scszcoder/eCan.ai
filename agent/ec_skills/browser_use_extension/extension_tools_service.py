@@ -18,6 +18,23 @@ from agent.ec_skills.label_utils.print_label import (
 custom_controller = Controller()
 
 
+@custom_controller.action("List all files in a directory recursively, returning file names and sizes.")
+def list_files(directory: str) -> str:
+    results = []
+    for root, dirs, files in os.walk(directory):
+        for f in files:
+            path = os.path.join(root, f)
+            size = os.path.getsize(path)
+            ext = os.path.splitext(f)[1].lower()
+            if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg'):
+                file_type = "image"
+            elif ext in ('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'):
+                file_type = "document"
+            else:
+                file_type = "text"
+            results.append(f"{path} ({size} bytes, {file_type})")
+    return "\n".join(results)
+
 @custom_controller.action('Rename a downloaded file to a new name', param_model=FileRenameAction)
 async def rename_file(params: FileRenameAction, browser_session: BrowserSession):
     logger.info(f"[Browser Use Extension] Renaming file {params.old_path} to {params.new_name}")
