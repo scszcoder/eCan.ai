@@ -443,6 +443,7 @@ def get_agent_kwargs_with_compaction(
     max_clickable_elements_length: int = DOMConfig.DEFAULT_MAX_CLICKABLE_ELEMENTS,
     context_length: Optional[int] = None,
     llm: Optional[Any] = None,
+    max_actions_per_step: Optional[int] = None,
     **extra_kwargs
 ) -> dict:
     """
@@ -458,6 +459,7 @@ def get_agent_kwargs_with_compaction(
         max_clickable_elements_length: Max DOM chars (default: 20000)
         context_length: Model's context window size in tokens (auto-detect if None)
         llm: LLM object to auto-detect context_length from
+        max_actions_per_step: Max actions per step (default: None, uses browser-use default)
         **extra_kwargs: Additional kwargs to pass to agent
         
     Returns:
@@ -541,6 +543,11 @@ def get_agent_kwargs_with_compaction(
         'max_input_tokens': max_input_tokens,  # Limit extract tool input size
         **extra_kwargs
     }
+    
+    # Add max_actions_per_step if specified (performance optimization for multi-customer scenarios)
+    if max_actions_per_step is not None:
+        agent_kwargs['max_actions_per_step'] = max_actions_per_step
+        logger.info(f"[AgentConfig] 🚀 max_actions_per_step={max_actions_per_step} (allows batch actions for faster execution)")
     
     logger.info(
         f"[AgentConfig] 🔧 Extract limit: max_input_tokens={max_input_tokens} "

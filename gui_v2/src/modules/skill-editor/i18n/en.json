@@ -635,6 +635,13 @@
       "useThinkingDesc": "For reasoning models like Qwen3, DeepSeek-R1",
       "useVision": "Use Vision",
       "useVisionDesc": "Send screenshots to LLM, requires vision-capable model",
+      "flashMode": "Flash Mode",
+      "flashModeDesc": "Skip evaluation/thinking for faster execution (optimized for multi-customer scenarios)",
+      "maxSteps": "Max Steps",
+      "maxStepsPlaceholder": "Leave empty for default (e.g., 15 for fast response)",
+      "maxActionsPerStep": "Max Actions Per Step",
+      "maxActionsPerStepPlaceholder": "Leave empty for default (e.g., 5 for batch actions)",
+      "performanceSettings": "Performance Optimization",
       "customShopName": "Custom Shop Name",
       "customShopPlaceholder": "Enter custom shop name",
       "tools": {
