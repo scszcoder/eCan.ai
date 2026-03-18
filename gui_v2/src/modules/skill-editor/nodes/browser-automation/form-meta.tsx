@@ -526,6 +526,57 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Performance Optimization Section */}
+        <Divider>{t('nodes.browserAutomation.performanceSettings')}</Divider>
+
+        {/* Flash Mode checkbox */}
+        <FormItem name="flashMode" label={getCommonFieldLabel('flashMode', t)} type="boolean" vertical>
+          <Field<boolean> name="inputsValues.flashMode.content">
+            {({ field }) => (
+              <Checkbox
+                checked={!!field.value}
+                onChange={(e) => field.onChange((e.target as HTMLInputElement).checked)}
+              >
+                {t('nodes.browserAutomation.flashModeDesc')}
+              </Checkbox>
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Max Steps input */}
+        <FormItem name="maxSteps" label={getCommonFieldLabel('maxSteps', t)} type="number" vertical>
+          <Field<string> name="inputsValues.maxSteps.content">
+            {({ field }) => (
+              <input
+                type="number"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder={t('nodes.browserAutomation.maxStepsPlaceholder')}
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+                min="1"
+                max="100"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Max Actions Per Step input */}
+        <FormItem name="maxActionsPerStep" label={getCommonFieldLabel('maxActionsPerStep', t)} type="number" vertical>
+          <Field<string> name="inputsValues.maxActionsPerStep.content">
+            {({ field }) => (
+              <input
+                type="number"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder={t('nodes.browserAutomation.maxActionsPerStepPlaceholder')}
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+                min="1"
+                max="20"
+              />
+            )}
+          </Field>
+        </FormItem>
+
         {/* System Prompt with Selector */}
         <Divider />
         <PromptInputWithSelector
@@ -565,6 +616,9 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'useThinking',
               'useVision',
               'profile',
+              'flashMode',
+              'maxSteps',
+              'maxActionsPerStep',
             ];
             
             return (

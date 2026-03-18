@@ -147,6 +147,18 @@ from agent.ec_tasks.task_mcp_tools import (
     async_stop_agent_task,
     async_get_task_progress,
 )
+from agent.ec_tasks.agent_management_mcp_tools import (
+    async_spawn_worker_agent,
+    async_stop_worker_agents,
+    async_get_worker_agent_status,
+    async_list_worker_agents,
+)
+from agent.ec_tasks.platform_config_mcp_tools import (
+    async_create_custom_platform_profile,
+    async_test_platform_detection,
+    async_list_available_platforms,
+    async_get_platform_profile,
+)
 from agent.mcp.server.code_utils.code_tools import (
     async_run_code,
     async_run_shell_script,
@@ -3512,6 +3524,16 @@ tool_function_mapping = {
         "delete_agent_task": async_delete_agent_task,
         "stop_agent_task": async_stop_agent_task,
         "get_task_progress": async_get_task_progress,
+        # Agent management tools (Managerial category)
+        "spawn_worker_agent": async_spawn_worker_agent,
+        "stop_worker_agents": async_stop_worker_agents,
+        "get_worker_agent_status": async_get_worker_agent_status,
+        "list_worker_agents": async_list_worker_agents,
+        # Platform configuration tools
+        "create_custom_platform_profile": async_create_custom_platform_profile,
+        "test_platform_detection": async_test_platform_detection,
+        "list_available_platforms": async_list_available_platforms,
+        "get_platform_profile": async_get_platform_profile,
         # Code execution tools
         "run_code": async_run_code,
         "run_shell_script": async_run_shell_script,

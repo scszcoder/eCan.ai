@@ -2173,6 +2173,30 @@ def build_agent_mcp_tools_schemas():
     add_stop_agent_task_tool_schema(tool_schemas)
     add_get_task_progress_tool_schema(tool_schemas)
 
+    # Agent management tools (Managerial category)
+    from agent.ec_tasks.agent_management_mcp_tools import (
+        add_spawn_worker_agent_tool_schema,
+        add_stop_worker_agents_tool_schema,
+        add_get_worker_agent_status_tool_schema,
+        add_list_worker_agents_tool_schema,
+    )
+    add_spawn_worker_agent_tool_schema(tool_schemas)
+    add_stop_worker_agents_tool_schema(tool_schemas)
+    add_get_worker_agent_status_tool_schema(tool_schemas)
+    add_list_worker_agents_tool_schema(tool_schemas)
+
+    # Platform configuration tools (Platform category)
+    from agent.ec_tasks.platform_config_mcp_tools import (
+        add_create_custom_platform_profile_tool_schema,
+        add_test_platform_detection_tool_schema,
+        add_list_available_platforms_tool_schema,
+        add_get_platform_profile_tool_schema,
+    )
+    add_create_custom_platform_profile_tool_schema(tool_schemas)
+    add_test_platform_detection_tool_schema(tool_schemas)
+    add_list_available_platforms_tool_schema(tool_schemas)
+    add_get_platform_profile_tool_schema(tool_schemas)
+
     # Code execution tools
     from agent.mcp.server.code_utils.code_tools import (
     add_run_code_tool_schema,
