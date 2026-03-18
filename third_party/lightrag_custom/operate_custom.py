@@ -242,6 +242,16 @@ async def extract_entities_with_cancellation(
     original_chunk_count = len(ordered_chunks)
     batched_chunks = create_batched_chunks(ordered_chunks)
     logger.info(f"[Optimization] Batching: {original_chunk_count} chunks → {len(batched_chunks)} processing units ({original_chunk_count - len(batched_chunks)} LLM calls saved)")
+
+    def _is_content_inspection_error(error: Exception) -> bool:
+        """Detect provider content-inspection errors that should skip a single chunk."""
+        error_text = str(error).lower()
+        markers = (
+            "data_inspection_failed",
+            "inappropriate content",
+            "input data may contain inappropriate content",
+        )
+        return any(marker in error_text for marker in markers)
     
     async def _process_batched_content(batch_data):
         """Process a batch of small chunks together"""
@@ -595,6 +605,7 @@ async def extract_entities_with_cancellation(
     )
 
     async def _process_with_semaphore(chunk_or_batch):
+        nonlocal processed_chunks
         async with semaphore:
             # Check for cancellation before processing
             if pipeline_status is not None and pipeline_status_lock is not None:
@@ -613,7 +624,32 @@ async def extract_entities_with_cancellation(
                     # Process single chunk
                     return await _process_single_content(chunk_or_batch)
             except Exception as e:
-                chunk_id = chunk_or_batch[0] if not isinstance(chunk_or_batch, tuple) or chunk_or_batch[0] != "batch" else "batch"
+                is_batch = isinstance(chunk_or_batch, tuple) and chunk_or_batch[0] == "batch"
+
+                # Tolerate model-side content inspection failures for single chunks.
+                # This prevents one blocked chunk from aborting the entire document.
+                if not is_batch and _is_content_inspection_error(e):
+                    chunk_id = chunk_or_batch[0]
+                    chunk_dp = chunk_or_batch[1]
+                    file_path = chunk_dp.get("file_path", "unknown_source")
+                    processed_chunks += 1
+
+                    skip_message = (
+                        f"Chunk {processed_chunks} of {total_chunks} skipped due to provider content inspection: {chunk_id}"
+                    )
+                    logger.warning(f"[operate_custom] ⚠️ {skip_message}")
+
+                    if pipeline_status is not None and pipeline_status_lock is not None:
+                        async with pipeline_status_lock:
+                            pipeline_status["latest_message"] = skip_message
+                            pipeline_status["history_messages"].append(skip_message)
+                            pipeline_status["processed_chunks"] = processed_chunks
+                            pipeline_status["total_chunks"] = total_chunks
+                            pipeline_status["current_chunk_file"] = file_path
+
+                    return {}, {}
+
+                chunk_id = chunk_or_batch[0] if not is_batch else "batch"
                 prefixed_exception = create_prefixed_exception(e, chunk_id)
                 raise prefixed_exception from e
 
