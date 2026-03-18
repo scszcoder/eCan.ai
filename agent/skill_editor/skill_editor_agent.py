@@ -1243,6 +1243,8 @@ class SkillEditorAgent:
 
     # Mapping from taxonomy intent strings → IntentType enum values
     _TAXONOMY_INTENT_MAP: Dict[str, IntentType] = {
+        "casual_chat": IntentType.CASUAL_CHAT,
+        "multi_agent_design": IntentType.MULTI_AGENT_DESIGN,
         "new_feature": IntentType.CREATE_FLOWGRAM,
         "explain": IntentType.EXPLAIN,
         "find_content": IntentType.EXPLAIN,
@@ -1349,7 +1351,33 @@ class SkillEditorAgent:
         if any(p in msg_lower for p in opt_out_phrases):
             return False
         # Default: require for planner intents
-        return intent in [IntentType.CREATE_FLOWGRAM, IntentType.GENERAL_CHAT]
+        return intent in [IntentType.CREATE_FLOWGRAM, IntentType.GENERAL_CHAT, IntentType.MULTI_AGENT_DESIGN]
+
+    @staticmethod
+    def _needs_multi_agent(message: str) -> bool:
+        """Fast keyword heuristic: does this message clearly require multiple concurrent agents?
+
+        Returns True only when there are explicit concurrency/parallelism signals AND
+        the volume clearly exceeds what a single sequential workflow can handle.
+        We err on the side of false-negative (let the LLM planner decide) rather than
+        false-positive (wrongly routing a simple request to the architect).
+        """
+        import re as _re
+        msg = (message or "").lower()
+
+        _STRONG_PATTERNS = [
+            # Explicit concurrency with numbers > 1
+            _re.compile(r"\b([2-9]\d*|\d{2,})\s+(simultaneous|concurrent|parallel|at.once|at.the.same.time)"),
+            _re.compile(r"\b(simultaneous|concurrent|parallel)\b.{0,30}\b([2-9]\d*|\d{2,})\b"),
+            # "N users / sessions / chats / tabs" at the same time
+            _re.compile(r"\b([2-9]\d*|\d{2,})\s+(users?|customers?|clients?|sessions?|chats?|tabs?|agents?)\b.{0,60}\b(at.once|simultaneously|concurrently|at.the.same.time|in.parallel)"),
+            _re.compile(r"\b(handle|serve|support|manage)\b.{0,30}\b([2-9]\d*|\d{2,})\s+(users?|customers?|clients?|sessions?|chats?|tabs?)"),
+            # Explicit multi-agent vocabulary
+            _re.compile(r"\b(multiple\s+agents?|agent\s+pool|worker\s+agents?|manager\s+agent|agent\s+coordinator)\b"),
+            _re.compile(r"\b(20|30|50|100)\s+(tabs?|windows?|browsers?|instances?)\b"),
+        ]
+
+        return any(p.search(msg) for p in _STRONG_PATTERNS)
 
     def _handle_casual_chat(self, message: str, session_id: Optional[str]) -> AgentResponse:
         session_key = session_id or "default"
@@ -2325,6 +2353,56 @@ class SkillEditorAgent:
             intent=IntentType.EXPLAIN,
             metadata={"session_id": session_id, "state": self._pipeline_state.value},
         )
+
+    async def _run_multi_agent_design(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable],
+    ) -> AgentResponse:
+        """Handle multi-agent architecture design discussions.
+
+        Loads the architect prompt, injects conversation history for multi-turn
+        discussions, and responds with concrete multi-agent architecture recommendations.
+        """
+        self._pipeline_state = PipelineState.IDLE
+        await self._emit_progress(on_event, t("progress_answering", self._user_lang))
+
+        lang_inst = get_language_instruction(self._user_lang)
+        architect_prompt = prompt_store.get("architect", default="")
+
+        # Build conversation history block for multi-turn context
+        history_block = ""
+        if self._conversation_history:
+            recent = self._conversation_history[-8:]  # last 4 exchanges
+            lines = []
+            for msg in recent:
+                role = msg.get("role", "")
+                content = (msg.get("content") or "")[:600]  # cap per message
+                if role and content:
+                    lines.append(f"{role.upper()}: {content}")
+            if lines:
+                history_block = "\n\n## Conversation History (most recent)\n" + "\n".join(lines)
+
+        system_prompt = (
+            f"{architect_prompt}\n\n"
+            f"{history_block}\n\n"
+            f"{lang_inst}"
+        )
+        user_prompt = f"user_message={json.dumps(message)}"
+
+        try:
+            answer = await self._invoke_llm_async(system_prompt + "\n\n" + user_prompt, action="multi_agent_design")
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Multi-agent design failed: {e}")
+            answer = "I had trouble generating an architecture recommendation right now. Please try again."
+
+        return AgentResponse(
+            message=str(answer).strip(),
+            intent=IntentType.MULTI_AGENT_DESIGN,
+            metadata={"session_id": session_id, "state": self._pipeline_state.value},
+        )
     
     def _is_node_config_request(self, message: str, canvas_context: Optional[Dict]) -> bool:
         """Check if the message is a node configuration request"""
@@ -2694,6 +2772,11 @@ class SkillEditorAgent:
 
             if intent == IntentType.EXPLAIN:
                 response = await self._run_explain(message, canvas_context, session_id, on_event)
+                self._add_response_to_history(response)
+                return response
+
+            if intent == IntentType.MULTI_AGENT_DESIGN:
+                response = await self._run_multi_agent_design(message, canvas_context, session_id, on_event)
                 self._add_response_to_history(response)
                 return response
 
@@ -3166,7 +3249,17 @@ class SkillEditorAgent:
         )
         
         logger.info(f"[SkillEditorAgent] Planner action: {planner_output.action.value}")
-        
+
+        if planner_output.action == PlannerAction.RECOMMEND_MULTI_AGENT:
+            # Planner determined requirements exceed a single workflow — pivot to architect advisor
+            logger.info("[SkillEditorAgent] Planner recommended multi-agent design — pivoting to architect handler")
+            self._pipeline_state = PipelineState.IDLE
+            architect_response = await self._run_multi_agent_design(message, canvas_context, session_id, on_event)
+            # Prepend the planner's reasoning as context so the architect response is coherent
+            if planner_output.message:
+                architect_response.message = planner_output.message + "\n\n" + architect_response.message
+            return architect_response
+
         if planner_output.action == PlannerAction.ASK_CLARIFICATION:
             # Need clarification from user
             self._pipeline_state = PipelineState.AWAITING_CLARIFICATION
@@ -3266,6 +3359,16 @@ class SkillEditorAgent:
             user_lang=self._user_lang,
         )
         
+        if planner_output.action == PlannerAction.RECOMMEND_MULTI_AGENT:
+            logger.info("[SkillEditorAgent] Planner (clarification phase) recommended multi-agent design — pivoting")
+            self._pipeline_state = PipelineState.IDLE
+            architect_response = await self._run_multi_agent_design(
+                self._current_request or message, canvas_context, session_id, on_event
+            )
+            if planner_output.message:
+                architect_response.message = planner_output.message + "\n\n" + architect_response.message
+            return architect_response
+
         if planner_output.action == PlannerAction.ASK_CLARIFICATION and not force_plan:
             # More clarification needed
             self._pending_clarification = planner_output.questions
@@ -3327,10 +3430,18 @@ class SkillEditorAgent:
     ) -> AgentResponse:
         """Start domain-specific requirement collection.
 
-        Loads the domain QA tree + the requirement collector prompt, then asks an
-        LLM to produce a batch of clarification questions tailored to this domain
-        and the user's stated goal.
+        First checks whether the request requires multi-agent design (concurrency /
+        parallelism signals). If so, pivots immediately to the architect handler
+        before asking any domain Q&A. Otherwise, proceeds with standard requirement
+        collection → planner pipeline.
         """
+        # Fast-path: detect obvious multi-agent requirements before going through Q&A
+        if self._needs_multi_agent(message):
+            logger.info(
+                "[SkillEditorAgent] Multi-agent requirement detected in requirement collection — pivoting to architect handler"
+            )
+            return await self._run_multi_agent_design(message, canvas_context, session_id, on_event)
+
         domain = self._classified_domain or "need_info"
         logger.info(f"[SkillEditorAgent] Starting requirement collection for domain={domain}")
         self._pipeline_state = PipelineState.COLLECTING_REQUIREMENTS
