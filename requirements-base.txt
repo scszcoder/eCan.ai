@@ -77,7 +77,7 @@ paddleocr==3.4.0
 # ============================================================================
 selenium==4.32.0
 playwright==1.54.0
-browser-use==0.12.0
+browser-use==0.12.2
 # crawl4ai==0.8.0  # Commented out - no Python 3.14 wheels (requires lxml~=5.3 which lacks cp314 support)
 webdriver-manager==4.0.2
 fake-useragent==2.2.0

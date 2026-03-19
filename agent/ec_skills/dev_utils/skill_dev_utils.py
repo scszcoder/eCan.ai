@@ -77,6 +77,15 @@ def setup_dev_skill(mainwin, skill):
             except (json.JSONDecodeError, TypeError):
                 logger.warning(f"[setup_dev_skill] Failed to parse skill as JSON, using as-is")
         
+        # Log the skill name being received from frontend
+        skill_name = None
+        if isinstance(skill, dict):
+            skill_name = skill.get("skillName") or skill.get("diagram", {}).get("skillName") or "UNKNOWN"
+        logger.warning(f"[setup_dev_skill] 📥 BACKEND RECEIVED SKILL FROM FRONTEND: '{skill_name}'")
+        logger.warning(f"[setup_dev_skill] Skill type: {type(skill)}, is dict: {isinstance(skill, dict)}")
+        if isinstance(skill, dict):
+            logger.warning(f"[setup_dev_skill] Skill keys: {list(skill.keys())}")
+        
         # Unpack the workflow and the list of breakpoints
         # Accept either a top-level flow or a wrapper with a 'diagram' containing workFlow/bundle
         flow_payload = skill.get("diagram") if isinstance(skill, dict) else None
@@ -85,13 +94,15 @@ def setup_dev_skill(mainwin, skill):
         bundle_json = (flow_payload.get("bundle") if isinstance(flow_payload, dict) else None)
         try:
             bcnt = len((bundle_json or {}).get("sheets", [])) if isinstance(bundle_json, dict) else 0
-            logger.debug(f"[setup_dev_skill] Bundle sheets to pass: {bcnt}")
+            logger.warning(f"[setup_dev_skill] Bundle sheets to pass: {bcnt}")
         except Exception:
             pass
+        
+        logger.warning(f"[setup_dev_skill] 🔄 Converting skill '{skill_name}' to LangGraph workflow...")
         # Use v2 layered converter (flat mode for now)
         bp_mgr = getattr(tester_agent, 'runner', None).bp_manager if tester_agent and getattr(tester_agent, 'runner', None) else None
         skill_under_dev, breakpoints = flowgram2langgraph_v2(flow_payload or skill, bundle_json=bundle_json, enable_subgraph=False, bp_mgr=bp_mgr)
-        logger.debug("langgraph skill converted....")
+        logger.warning(f"[setup_dev_skill] ✅ LangGraph skill converted for '{skill_name}'")
         
         # Ensure the dev_run_task exists before using it; if missing, create and register it
         if not dev_run_task:

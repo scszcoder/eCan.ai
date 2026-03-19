@@ -217,8 +217,27 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     if (!hasPendingChangesRef.current) return;
     const currentDraft = latestDraftRef.current;
     if (!currentDraft) return;
-    commitSave(clonePrompt(currentDraft)).catch(() => {});
-  }, [cancelAutosave, clonePrompt, commitSave]);
+    
+    // Apply same mode-specific save logic as manual save
+    const savePayload = clonePrompt(currentDraft);
+    savePayload.format = editFormat;
+    
+    if (editFormat === 'md') {
+      // In markdown mode: save mdContent, clear sections
+      savePayload.mdContent = currentDraft.mdContent || '';
+      if (savePayload.mdContent.trim()) {
+        savePayload.sections = [];
+        savePayload.userSections = [];
+      }
+    } else {
+      // In JSON mode: save sections, clear mdContent
+      if (savePayload.sections && savePayload.sections.length > 0) {
+        savePayload.mdContent = '';
+      }
+    }
+    
+    commitSave(savePayload).catch(() => {});
+  }, [cancelAutosave, clonePrompt, commitSave, editFormat]);
 
   const scheduleAutosave = useCallback(() => {
     // Disable autosave for web app, only allow for desktop/Electron
@@ -866,9 +885,24 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
       const savePayload = clonePrompt(draft);
       // Persist format choice
       savePayload.format = editFormat;
+      
+      // Only save content from the active mode
       if (editFormat === 'md') {
+        // In markdown mode: save mdContent, clear sections
         savePayload.mdContent = draft.mdContent || '';
+        // Clear JSON mode content unless mdContent is empty
+        if (savePayload.mdContent.trim()) {
+          savePayload.sections = [];
+          savePayload.userSections = [];
+        }
+      } else {
+        // In JSON mode: save sections, clear mdContent
+        // Clear markdown content unless sections are empty
+        if (savePayload.sections && savePayload.sections.length > 0) {
+          savePayload.mdContent = '';
+        }
       }
+      
       latestDraftRef.current = savePayload;
       commitSave(savePayload).catch(() => {});
     }

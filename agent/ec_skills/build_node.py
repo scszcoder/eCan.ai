@@ -349,13 +349,17 @@ def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | Non
         if cloud_ctx is not None:
             # Determine which owner to query — prefer explicit skill_owner
             effective_owner = skill_owner or cloud_ctx.owner_id
-            logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}' owner='{effective_owner}'")
+            logger.warning(f"[prompts] ⚠️ CLOUD PROMPT LOADING ACTIVE - Using cloud prompt loader for selection '{selection}' owner='{effective_owner}'")
+            send_skill_editor_log("warning", f"[prompts] Loading prompt '{selection}' from CLOUD (may be stale)")
             loader = get_cloud_prompt_loader(
                 owner_id=effective_owner,
                 region=cloud_ctx.region,
                 table_name=cloud_ctx.table_name,
             )
             prompt_data = loader.get_prompt_by_id(selection)
+            if prompt_data:
+                logger.warning(f"[prompts] ⚠️ Loaded prompt '{selection}' from CLOUD - this may override your local version")
+                send_skill_editor_log("warning", f"[prompts] Loaded prompt from CLOUD (not local file)")
             
             # Create a simple normalizer wrapper
             class CloudNormalizer:
@@ -422,15 +426,22 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         a dict of variable declarations from the prompt JSON's "variables" field.
     """
     selection = (prompt_selection or "inline").strip()
+    logger.info(f"[_resolve_prompt_templates] 🔍 selection='{selection}', inline_system={len(inline_system)} chars, inline_user={len(inline_user)} chars")
+    
     if selection in ("", "inline"):
+        logger.info(f"[_resolve_prompt_templates] ↩️ Using inline prompts (selection is empty or 'inline')")
         return inline_system, inline_user, {}
 
     # Load prompt data from cloud or local
+    logger.info(f"[_resolve_prompt_templates] 📂 Loading prompt data for '{selection}', skill_owner='{skill_owner}'")
     prompt_data, normalizer = _load_prompt_data(selection, skill_owner=skill_owner)
     
     if not prompt_data:
-        logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
+        logger.warning(f"[_resolve_prompt_templates] ❌ Prompt selection '{selection}' not found. Falling back to inline prompts.")
+        send_skill_editor_log("warning", f"Prompt '{selection}' not found, using inline prompts")
         return inline_system, inline_user, {}
+    
+    logger.info(f"[_resolve_prompt_templates] ✅ Loaded prompt data for '{selection}'")
 
     normalized = prompt_data
     if not isinstance(normalized, dict) or "sections" not in normalized:
@@ -690,60 +701,71 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
 
     system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
 
-    user_parts: list[str] = []
-    title = str(normalized.get("title") or "").strip()
-    topic = str(normalized.get("topic") or "").strip()
-    if title and title != selection:
-        user_parts.append(title)
-    if topic and topic.lower() not in {"", "new prompt"} and topic.lower() != title.lower():
-        user_parts.append(topic)
-
-    # normalized is guaranteed to be dict from _normalize_prompt
-    instructions = normalized.get("instructions") or []
-    instructions_joined = _join_list(instructions if isinstance(instructions, list) else [])
-    if instructions_joined:
-        _add_section(user_parts, "Instructions", instructions_joined)
-
-    # Prioritize userSections over humanInputs - only use humanInputs if userSections is empty
-    user_sections = normalized.get("userSections") or []
-    user_sections_has_content = any(
-        isinstance(s, dict) and s.get("items") and any(str(i).strip() for i in (s.get("items") if isinstance(s.get("items"), list) else []))
-        for s in user_sections
-    )
-    
-    if user_sections_has_content:
-        # Use userSections
-        for section in user_sections:
-            if not isinstance(section, dict):
-                continue
-            sec_type = str(section.get("type") or "").strip().lower()
-            items = section.get("items") if isinstance(section.get("items"), list) else []
-            # Handle tools_to_use specially - fetch full schemas
-            if sec_type == "tools_to_use":
-                joined = _format_tools_to_use_section(items)
-            else:
-                joined = _join_list(items)
-            if not joined:
-                continue
-            label = _section_label(section)
-            _add_section(user_parts, label or None, joined)
+    # Check if mdContent exists (markdown mode) - if so, use it directly and skip structured sections
+    md_content = str(normalized.get("mdContent") or "").strip()
+    if md_content:
+        logger.warning(f"[_resolve_prompt_templates] ✅ Using mdContent for user prompt (markdown mode, {len(md_content)} chars)")
+        logger.warning(f"[_resolve_prompt_templates] mdContent preview: {md_content[:200]}...")
+        send_skill_editor_log("log", f"[_resolve_prompt_templates] Using mdContent ({len(md_content)} chars)")
+        user_text = md_content
     else:
-        # Fallback to humanInputs if userSections is empty
-        human_inputs = normalized.get("humanInputs") or []
-        human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
-        if human_inputs_joined:
-            _add_section(user_parts, "Provide", human_inputs_joined)
+        # Structured sections mode (JSON format)
+        logger.warning(f"[_resolve_prompt_templates] ⚠️ No mdContent, using structured sections")
+        user_parts: list[str] = []
+        title = str(normalized.get("title") or "").strip()
+        topic = str(normalized.get("topic") or "").strip()
+        if title and title != selection:
+            user_parts.append(title)
+        if topic and topic.lower() not in {"", "new prompt"} and topic.lower() != title.lower():
+            user_parts.append(topic)
 
-    sys_inputs = normalized.get("sysInputs") or []
-    sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
-    if sys_inputs_joined:
-        _add_section(user_parts, "System Inputs", sys_inputs_joined)
+        # normalized is guaranteed to be dict from _normalize_prompt
+        instructions = normalized.get("instructions") or []
+        instructions_joined = _join_list(instructions if isinstance(instructions, list) else [])
+        if instructions_joined:
+            _add_section(user_parts, "Instructions", instructions_joined)
 
-    additional_prompt = str(normalized.get("prompt") or "").strip()
-    if additional_prompt:
-        user_parts.append(additional_prompt)
+        # Prioritize userSections over humanInputs - only use humanInputs if userSections is empty
+        user_sections = normalized.get("userSections") or []
+        user_sections_has_content = any(
+            isinstance(s, dict) and s.get("items") and any(str(i).strip() for i in (s.get("items") if isinstance(s.get("items"), list) else []))
+            for s in user_sections
+        )
+        
+        if user_sections_has_content:
+            # Use userSections
+            for section in user_sections:
+                if not isinstance(section, dict):
+                    continue
+                sec_type = str(section.get("type") or "").strip().lower()
+                items = section.get("items") if isinstance(section.get("items"), list) else []
+                # Handle tools_to_use specially - fetch full schemas
+                if sec_type == "tools_to_use":
+                    joined = _format_tools_to_use_section(items)
+                else:
+                    joined = _join_list(items)
+                if not joined:
+                    continue
+                label = _section_label(section)
+                _add_section(user_parts, label or None, joined)
+        else:
+            # Fallback to humanInputs if userSections is empty (DEPRECATED - should use mdContent instead)
+            logger.warning(f"[_resolve_prompt_templates] ⚠️ Falling back to humanInputs (deprecated)")
+            human_inputs = normalized.get("humanInputs") or []
+            human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
+            if human_inputs_joined:
+                _add_section(user_parts, "Provide", human_inputs_joined)
 
-    user_text = "\n\n".join(part for part in user_parts if part) or inline_user
+        sys_inputs = normalized.get("sysInputs") or []
+        sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
+        if sys_inputs_joined:
+            _add_section(user_parts, "System Inputs", sys_inputs_joined)
+
+        additional_prompt = str(normalized.get("prompt") or "").strip()
+        if additional_prompt:
+            user_parts.append(additional_prompt)
+
+        user_text = "\n\n".join(part for part in user_parts if part) or inline_user
 
     # Extract prompt-level variable declarations for cascading resolution
     prompt_variables = {}
@@ -4423,7 +4445,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
-    logger.debug("[BrowserAutomation]prompt_selection:", prompt_selection)
+    logger.info(f"[BrowserAutomation] 🔍 prompt_selection='{prompt_selection}'")
+    send_skill_editor_log("log", f"[BrowserAutomation] Prompt selection: '{prompt_selection}'")
 
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
@@ -4431,34 +4454,46 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     # Get inline prompt content
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or "")
     inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "")
+    
+    logger.info(f"[BrowserAutomation] 📝 Raw inline prompts - system: {len(inline_system_prompt)} chars, user: {len(inline_user_prompt)} chars")
 
+    # Clear inline prompts when a saved prompt is selected to prevent stale inline content from overriding
+    if prompt_selection and prompt_selection not in ("", "inline"):
+        logger.info(f"[BrowserAutomation] ✂️ Using saved prompt '{prompt_selection}', clearing inline prompts to prevent override")
+        send_skill_editor_log("log", f"[BrowserAutomation] Using saved prompt '{prompt_selection}', clearing inline prompts")
+        inline_system_prompt = ""
+        inline_user_prompt = ""
+    else:
+        logger.info(f"[BrowserAutomation] 📄 Using inline prompts (selection='{prompt_selection}')")
 
     logger.debug("[BrowserAutomation]inline_system_prompt:", inline_system_prompt)
     logger.debug("[BrowserAutomation]inline_user_prompt:", inline_user_prompt)
-    log_msg = f"[BrowserAutomation]inline_system_prompt: {inline_system_prompt}\n\n{inline_user_prompt}"
-    send_skill_editor_log("log", log_msg)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     # Resolve prompt templates based on the selected prompt id first for initial config preview
+    logger.info(f"[BrowserAutomation] 🔄 Calling _resolve_prompt_templates with selection='{prompt_selection}', skill_owner='{owner}'")
     resolved_system_prompt, resolved_user_prompt, _browser_prompt_vars = _resolve_prompt_templates(
         prompt_selection,
         inline_system_prompt,
         inline_user_prompt,
         skill_owner=owner or "",
     )
+    
+    logger.info(f"[BrowserAutomation] ✅ Resolved prompts - system: {len(resolved_system_prompt)} chars, user: {len(resolved_user_prompt)} chars")
+    send_skill_editor_log("log", f"[BrowserAutomation] Resolved prompt lengths - system: {len(resolved_system_prompt)}, user: {len(resolved_user_prompt)}")
+    
+    # Log first 200 chars of resolved prompts for debugging
+    if resolved_user_prompt:
+        preview = resolved_user_prompt[:200] + "..." if len(resolved_user_prompt) > 200 else resolved_user_prompt
+        logger.info(f"[BrowserAutomation] 📋 User prompt preview: {preview}")
+        send_skill_editor_log("log", f"[BrowserAutomation] User prompt preview: {preview}")
 
-    from agent.ec_skills.prompt_loader import get_prompt_content
-    system_prompt_content = (
-        get_prompt_content(system_prompt_id, resolved_system_prompt)
-        if (system_prompt_id or resolved_system_prompt)
-        else None
-    )
-    user_prompt_content = (
-        get_prompt_content(user_prompt_id, resolved_user_prompt)
-        if (user_prompt_id or resolved_user_prompt)
-        else None
-    )
+    # Use the already-resolved prompts directly (no need to call get_prompt_content again)
+    # _resolve_prompt_templates already loaded and processed the prompt
+    system_prompt_content = resolved_system_prompt if resolved_system_prompt else None
+    user_prompt_content = resolved_user_prompt if resolved_user_prompt else None
 
     # If prompts are configured, use them to enhance the task text
+    logger.info(f"[BrowserAutomation] 🔧 Before prompt override - task_text length: {len(task_text)} chars")
     if system_prompt_content or user_prompt_content:
         prompt_parts = []
         if system_prompt_content:
@@ -4467,6 +4502,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             prompt_parts.append(f"Task:\n{user_prompt_content}")
         if prompt_parts:
             task_text = "\n\n".join(prompt_parts)
+            logger.info(f"[BrowserAutomation] ✅ Overrode task_text with prompt content - new length: {len(task_text)} chars")
+            send_skill_editor_log("log", f"[BrowserAutomation] Using prompt content as task (length: {len(task_text)})")
+    else:
+        logger.warning(f"[BrowserAutomation] ⚠️ No prompt content resolved, keeping original task_text")
+        send_skill_editor_log("warning", f"[BrowserAutomation] No prompt content found, using original task field")
 
     def _get_browser_profile_settings(profile_name: str) -> dict:
         """Load browser profile settings from backend configuration."""
