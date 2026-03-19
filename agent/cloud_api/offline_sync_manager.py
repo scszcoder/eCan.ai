@@ -35,6 +35,26 @@ class OfflineSyncManager:
         
         logger.info("[OfflineSyncManager] Initialized with thread pool (max_workers=5)")
         logger.info(f"[OfflineSyncManager] OFFLINE_SYNC_ENABLED={self.OFFLINE_SYNC_ENABLED}")
+
+    @staticmethod
+    def _is_duplicate_error(errors: List[Any]) -> bool:
+        """Check whether the error list indicates an idempotent duplicate-key failure."""
+        error_str = ' '.join(str(e) for e in errors)
+        return '1062' in error_str or 'Duplicate entry' in error_str
+
+    @staticmethod
+    def _is_non_retryable_error(errors: List[Any]) -> bool:
+        """Check whether the error list indicates a permanent authorization/configuration failure."""
+        error_str = ' '.join(str(e) for e in errors).lower()
+        non_retryable_markers = (
+            'not authorized to perform',
+            'no identity-based policy allows',
+            'accessdenied',
+            'access denied',
+            'unauthorized',
+            'scheduler:deleteschedule',
+        )
+        return any(marker in error_str for marker in non_retryable_markers)
     
     def sync_to_cloud(self, data_type: Union[DataType, str], data: Dict[str, Any], 
                      operation: Union[Operation, str] = Operation.ADD, timeout: float = None) -> Dict[str, Any]:
@@ -78,17 +98,29 @@ class OfflineSyncManager:
             else:
                 # Sync failed, check if we should add to queue
                 errors = result.get('errors', [])
-                
+
                 # Check for duplicate key errors (record already exists in cloud)
                 # Error code 1062 = Duplicate entry - treat as success, no need to retry
-                error_str = ' '.join(str(e) for e in errors)
-                if '1062' in error_str or 'Duplicate entry' in error_str:
+                if self._is_duplicate_error(errors):
                     logger.info(f"[OfflineSyncManager] ✅ Record already exists in cloud (duplicate key), treating as success: {data_type}.{operation} - {data_name}")
                     return {
                         'success': True,
                         'synced': True,
                         'cached': False,
                         'message': 'Record already exists in cloud',
+                        'errors': errors
+                    }
+
+                # Permanent cloud-side authorization/configuration failures should not
+                # be treated as offline sync issues, otherwise they will be retried forever.
+                if self._is_non_retryable_error(errors):
+                    logger.error(f"[OfflineSyncManager] ❌ Non-retryable cloud sync failure: {data_type}.{operation} - {data_name}")
+                    logger.error(f"[OfflineSyncManager] Non-retryable errors: {errors}")
+                    return {
+                        'success': True,
+                        'synced': False,
+                        'cached': False,
+                        'message': 'Cloud sync failed with non-retryable authorization/configuration error',
                         'errors': errors
                     }
                 
@@ -251,10 +283,14 @@ class OfflineSyncManager:
                     # Check for duplicate key errors - record already exists, treat as success
                     errors = result.get('errors', [])
                     error_str = ', '.join(str(e) for e in errors)
-                    if '1062' in error_str or 'Duplicate entry' in error_str:
+                    if self._is_duplicate_error(errors):
                         self.sync_queue.mark_success(task_id)
                         synced_count += 1
                         logger.info(f"[OfflineSyncManager] ✅ Queue task: record already exists in cloud (duplicate key), marking as success: {task_id}")
+                    elif self._is_non_retryable_error(errors):
+                        self.sync_queue.mark_failed(task_id, error_str or 'Non-retryable authorization/configuration error', max_retries=1)
+                        failed_count += 1
+                        logger.error(f"[OfflineSyncManager] ❌ Queue task hit non-retryable cloud error, stopping retries: {task_id}")
                     elif 'NOT_FOUND' in error_str and operation == 'update':
                         # UPDATE failed because resource doesn't exist in cloud.
                         # Retry with ADD to register it first.
