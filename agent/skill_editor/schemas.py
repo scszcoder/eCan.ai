@@ -32,6 +32,7 @@ class IntentType(str, Enum):
     EXPLAIN = "explain"
     CASUAL_CHAT = "casual_chat"
     GENERAL_CHAT = "general_chat"
+    MULTI_AGENT_DESIGN = "multi_agent_design"  # Architectural design for multi-agent / multi-skill systems
     UNKNOWN = "unknown"
 
 
@@ -41,6 +42,7 @@ class PlannerAction(str, Enum):
     GATHER_CONTEXT = "gather_context"
     GENERATE_PLAN = "generate_plan"
     PROCEED_TO_CODE = "proceed_to_code"
+    RECOMMEND_MULTI_AGENT = "recommend_multi_agent"  # Requirements exceed single-workflow limits
 
 
 class CodeAgentAction(str, Enum):

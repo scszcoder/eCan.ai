@@ -465,3 +465,113 @@ def get_browser_event_service() -> BrowserEventService:
             if _instance is None:
                 _instance = BrowserEventService()
     return _instance
+
+
+# ==================== Profile-Based Subscription ====================
+
+def subscribe_with_platform_profile(
+    agent_id: str,
+    cdp_client,
+    platform_profile: dict,
+    chat_id_filter: Optional[str] = None
+) -> List[str]:
+    """
+    Subscribe to all CDP events defined in a platform profile.
+    
+    Args:
+        agent_id: The owning agent's ID
+        cdp_client: The cdp_use.CDPClient instance
+        platform_profile: Platform profile dict from platform_profiles.json
+        chat_id_filter: Optional chat ID to filter events for specific conversation
+    
+    Returns:
+        List of subscription IDs created
+    """
+    service = get_browser_event_service()
+    subscription_ids = []
+    
+    event_strategy = platform_profile.get('event_strategy', {})
+    cdp_events = event_strategy.get('cdp_events', [])
+    
+    if not cdp_events:
+        logger.info(
+            f"[BrowserEventService] No CDP events defined for platform "
+            f"{platform_profile.get('platform_id')}, will use polling only"
+        )
+        return subscription_ids
+    
+    # Subscribe to each CDP event in the profile
+    for event_config in cdp_events:
+        try:
+            domain = event_config.get('domain')
+            event_method = event_config.get('method')
+            filter_expr = event_config.get('filter', '')
+            reliability = event_config.get('reliability', 'medium')
+            
+            # Add chat_id filter if provided
+            if chat_id_filter and filter_expr:
+                filter_expr = f"({filter_expr}) AND chat_id == '{chat_id_filter}'"
+            elif chat_id_filter:
+                filter_expr = f"chat_id == '{chat_id_filter}'"
+            
+            # Create label from platform and event
+            platform_id = platform_profile.get('platform_id', 'unknown')
+            label = f"{platform_id}_{domain}_{event_method.split('.')[-1]}"
+            if chat_id_filter:
+                label += f"_{chat_id_filter[:8]}"
+            
+            # Subscribe
+            import asyncio
+            loop = asyncio.new_event_loop()
+            try:
+                subscription = loop.run_until_complete(
+                    service.subscribe(
+                        agent_id=agent_id,
+                        cdp_client=cdp_client,
+                        domain=domain,
+                        event_method=event_method,
+                        label=label,
+                        filter_expr=filter_expr
+                    )
+                )
+                subscription_ids.append(subscription.sub_id)
+                logger.info(
+                    f"[BrowserEventService] Subscribed to {event_method} "
+                    f"(reliability={reliability}, label={label})"
+                )
+            finally:
+                loop.close()
+                
+        except Exception as e:
+            logger.error(
+                f"[BrowserEventService] Failed to subscribe to "
+                f"{event_config.get('method')}: {e}"
+            )
+    
+    return subscription_ids
+
+
+def unsubscribe_all(subscription_ids: List[str]) -> int:
+    """
+    Unsubscribe from multiple subscriptions.
+    
+    Args:
+        subscription_ids: List of subscription IDs to cancel
+    
+    Returns:
+        Number of subscriptions successfully cancelled
+    """
+    service = get_browser_event_service()
+    count = 0
+    
+    for sub_id in subscription_ids:
+        try:
+            service.unsubscribe(sub_id)
+            count += 1
+        except Exception as e:
+            logger.debug(f"[BrowserEventService] Failed to unsubscribe {sub_id}: {e}")
+    
+    if count > 0:
+        logger.info(f"[BrowserEventService] Unsubscribed from {count} event(s)")
+    
+    return count

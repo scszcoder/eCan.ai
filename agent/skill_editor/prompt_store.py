@@ -66,6 +66,7 @@ _PROMPT_FILE_MAP: Dict[str, str] = {
     "edit_flowgram":            "skill_agent_editor_prompt.md",
     "validator":                "skill_agent_validator_prompt.md",
     "requirement_collector":    "skill_agent_requirement_collector_prompt.md",
+    "architect":                "skill_agent_architect_prompt.md",
     "testor":                   "skill_agent_testor_prompt.md",
     "log_analysis_orchestrator": "skill_agent_log_analysis_orchestrator_prompt.md",
     "log_parser":               "skill_agent_log_parser_prompt.md",

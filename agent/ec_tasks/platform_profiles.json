@@ -1,0 +1,659 @@
+{
+  "_schema_version": "1.0.0",
+  "_description": "Platform-specific configurations for multi-customer chat monitoring. Each profile defines how to detect new messages and extract chat/customer IDs for different e-commerce platforms.",
+  "_usage": "Profiles are automatically selected based on URL patterns and DOM signatures. Custom profiles can be added by users for unsupported platforms.",
+  
+  "profiles": {
+    "amazon_seller_central": {
+      "platform_id": "amazon_seller_central",
+      "display_name": "Amazon Seller Central",
+      "region": "global",
+      "detection": {
+        "url_patterns": [
+          "sellercentral.amazon.com/messaging",
+          "sellercentral.amazon.*/messaging",
+          "sellercentral-*.amazon.com/messaging"
+        ],
+        "dom_signatures": [
+          "div[data-test-id='message-thread']",
+          "div[class*='messaging-inbox']"
+        ],
+        "required_elements": ["#message-inbox", "div[data-test-id='inbox-container']"]
+      },
+      "event_strategy": {
+        "primary": "websocket",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.webSocketFrameReceived",
+            "filter": "url contains '/messaging/ws'",
+            "reliability": "high",
+            "priority": 1
+          },
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/messaging'",
+            "reliability": "medium",
+            "priority": 2
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "event_payload",
+          "path": "params.response.payloadData.conversationId",
+          "validation_regex": "^[A-Z0-9-]{20,}$",
+          "description": "Extract from WebSocket payload"
+        },
+        {
+          "priority": 2,
+          "method": "dom_attribute",
+          "selector": "div.active-conversation, div[data-selected='true']",
+          "attribute": "data-conversation-id",
+          "validation_regex": "^[A-Z0-9-]{20,}$",
+          "description": "Extract from active conversation element"
+        },
+        {
+          "priority": 3,
+          "method": "url_pattern",
+          "regex": "/conversations?/([A-Z0-9-]+)",
+          "validation_regex": "^[A-Z0-9-]{20,}$",
+          "description": "Extract from URL path"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[data-test-id='message-list'], div[class*='message-thread']",
+        "message_selector": "div[data-test-id='message-bubble'], div[class*='message-item']",
+        "new_message_indicator": "span.unread-badge, div[class*='unread-count']",
+        "customer_name_selector": "span.buyer-name, div[data-test-id='customer-name']",
+        "message_text_selector": "div.message-content, div[data-test-id='message-text']",
+        "timestamp_selector": "span.message-timestamp"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2000,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[data-test-id='message-list']",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "ebay_messages": {
+      "platform_id": "ebay_messages",
+      "display_name": "eBay Messages",
+      "region": "global",
+      "detection": {
+        "url_patterns": [
+          "www.ebay.com/sh/messages",
+          "www.ebay.*/sh/messages",
+          "mesg.ebay.com"
+        ],
+        "dom_signatures": [
+          "div[data-test-id='message-center']",
+          "div.messages-container"
+        ],
+        "required_elements": ["div.inbox-container"]
+      },
+      "event_strategy": {
+        "primary": "polling",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/messages' OR url contains '/sh/api/inbox'",
+            "reliability": "medium",
+            "priority": 1
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "dom_attribute",
+          "selector": "div.message-thread-selected, div[aria-selected='true']",
+          "attribute": "data-thread-id",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "Extract from selected thread"
+        },
+        {
+          "priority": 2,
+          "method": "url_pattern",
+          "regex": "/messages/([0-9]+)",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "Extract from URL"
+        },
+        {
+          "priority": 3,
+          "method": "event_payload",
+          "path": "params.response.threadId",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "Extract from API response"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div.message-thread-container",
+        "message_selector": "div.message-item",
+        "new_message_indicator": "span.unread-indicator",
+        "customer_name_selector": "span.buyer-username",
+        "message_text_selector": "div.message-body",
+        "timestamp_selector": "time.message-time"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2000,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 8000,
+        "snapshot_selector": "div.message-thread-container",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "tiktok_shop": {
+      "platform_id": "tiktok_shop",
+      "display_name": "TikTok Shop",
+      "region": "global",
+      "detection": {
+        "url_patterns": [
+          "seller-us.tiktok.com/customer-service",
+          "seller.tiktok.com/customer-service",
+          "seller-*.tiktok.com/customer-service"
+        ],
+        "dom_signatures": [
+          "div[class*='customer-service']",
+          "div[class*='chat-container']"
+        ],
+        "required_elements": ["div[class*='message-list']"]
+      },
+      "event_strategy": {
+        "primary": "websocket",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.webSocketFrameReceived",
+            "filter": "url contains 'wss://' AND url contains 'tiktok'",
+            "reliability": "high",
+            "priority": 1
+          },
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/customer_service'",
+            "reliability": "medium",
+            "priority": 2
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "event_payload",
+          "path": "params.response.data.conversation_id",
+          "validation_regex": "^[0-9]{15,}$",
+          "description": "Extract from WebSocket/API payload"
+        },
+        {
+          "priority": 2,
+          "method": "dom_attribute",
+          "selector": "div[class*='active-chat'], div[class*='selected-conversation']",
+          "attribute": "data-conversation-id",
+          "validation_regex": "^[0-9]{15,}$",
+          "description": "Extract from active conversation"
+        },
+        {
+          "priority": 3,
+          "method": "url_pattern",
+          "regex": "/conversation/([0-9]+)",
+          "validation_regex": "^[0-9]{15,}$",
+          "description": "Extract from URL"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[class*='message-list']",
+        "message_selector": "div[class*='message-item']",
+        "new_message_indicator": "span[class*='unread']",
+        "customer_name_selector": "span[class*='customer-name']",
+        "message_text_selector": "div[class*='message-content']",
+        "timestamp_selector": "span[class*='timestamp']"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2000,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[class*='message-list']",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "douyin": {
+      "platform_id": "douyin",
+      "display_name": "抖音 (Douyin)",
+      "region": "china",
+      "detection": {
+        "url_patterns": [
+          "fxg.jinritemai.com/ffa/mshop/message",
+          "fxg.jinritemai.com/*/message",
+          "*.jinritemai.com/*/message"
+        ],
+        "dom_signatures": [
+          "div[class*='message-center']",
+          "div[class*='im-container']"
+        ],
+        "required_elements": ["div[class*='chat-list']"]
+      },
+      "event_strategy": {
+        "primary": "polling",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.webSocketFrameReceived",
+            "filter": "url contains 'wss://' AND url contains 'jinritemai'",
+            "reliability": "medium",
+            "priority": 1
+          },
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/message'",
+            "reliability": "low",
+            "priority": 2
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "dom_attribute",
+          "selector": "div[class*='active'], div[class*='selected']",
+          "attribute": "data-session-id",
+          "validation_regex": "^[0-9a-zA-Z_-]{10,}$",
+          "description": "从选中的会话元素提取"
+        },
+        {
+          "priority": 2,
+          "method": "url_pattern",
+          "regex": "/message/([0-9a-zA-Z_-]+)",
+          "validation_regex": "^[0-9a-zA-Z_-]{10,}$",
+          "description": "从URL提取"
+        },
+        {
+          "priority": 3,
+          "method": "event_payload",
+          "path": "params.response.data.session_id",
+          "validation_regex": "^[0-9a-zA-Z_-]{10,}$",
+          "description": "从API响应提取"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[class*='message-list'], div[class*='chat-content']",
+        "message_selector": "div[class*='message-item']",
+        "new_message_indicator": "span[class*='unread'], div[class*='badge']",
+        "customer_name_selector": "span[class*='nickname'], div[class*='user-name']",
+        "message_text_selector": "div[class*='text-content']",
+        "timestamp_selector": "span[class*='time']"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 3000,
+        "idle_interval_ms": 6000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[class*='message-list']",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "taobao": {
+      "platform_id": "taobao",
+      "display_name": "淘宝 (Taobao)",
+      "region": "china",
+      "detection": {
+        "url_patterns": [
+          "im.taobao.com",
+          "wuliu.taobao.com/user/im",
+          "*.taobao.com/*/im"
+        ],
+        "dom_signatures": [
+          "div[class*='im-container']",
+          "div[class*='chat-panel']"
+        ],
+        "required_elements": ["div[class*='message-box']"]
+      },
+      "event_strategy": {
+        "primary": "polling",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/im' OR url contains '/message'",
+            "reliability": "low",
+            "priority": 1
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "dom_attribute",
+          "selector": "div[class*='current-chat'], li[class*='active']",
+          "attribute": "data-uid",
+          "validation_regex": "^[0-9a-zA-Z]{10,}$",
+          "description": "从当前聊天窗口提取用户ID"
+        },
+        {
+          "priority": 2,
+          "method": "url_pattern",
+          "regex": "/uid=([0-9a-zA-Z]+)",
+          "validation_regex": "^[0-9a-zA-Z]{10,}$",
+          "description": "从URL参数提取"
+        },
+        {
+          "priority": 3,
+          "method": "dom_text",
+          "selector": "div[class*='user-info']",
+          "regex": "ID[:：]\\s*([0-9a-zA-Z]+)",
+          "validation_regex": "^[0-9a-zA-Z]{10,}$",
+          "description": "从用户信息文本提取"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[class*='message-container']",
+        "message_selector": "div[class*='msg-item']",
+        "new_message_indicator": "span[class*='new-msg']",
+        "customer_name_selector": "span[class*='nick-name']",
+        "message_text_selector": "div[class*='msg-content']",
+        "timestamp_selector": "span[class*='msg-time']"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2500,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[class*='message-container']",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "tmall": {
+      "platform_id": "tmall",
+      "display_name": "天猫 (Tmall)",
+      "region": "china",
+      "detection": {
+        "url_patterns": [
+          "im.tmall.com",
+          "*.tmall.com/*/im",
+          "service.tmall.com/support/im"
+        ],
+        "dom_signatures": [
+          "div[class*='tmall-im']",
+          "div[class*='service-chat']"
+        ],
+        "required_elements": ["div[class*='chat-window']"]
+      },
+      "event_strategy": {
+        "primary": "polling",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/im' OR url contains '/message'",
+            "reliability": "low",
+            "priority": 1
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "dom_attribute",
+          "selector": "div[class*='active-session']",
+          "attribute": "data-session-id",
+          "validation_regex": "^[0-9a-zA-Z_-]{10,}$",
+          "description": "从活动会话提取"
+        },
+        {
+          "priority": 2,
+          "method": "url_pattern",
+          "regex": "/session[=/]([0-9a-zA-Z_-]+)",
+          "validation_regex": "^[0-9a-zA-Z_-]{10,}$",
+          "description": "从URL提取会话ID"
+        },
+        {
+          "priority": 3,
+          "method": "event_payload",
+          "path": "params.response.data.sessionId",
+          "validation_regex": "^[0-9a-zA-Z_-]{10,}$",
+          "description": "从API响应提取"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[class*='msg-list']",
+        "message_selector": "div[class*='msg-item']",
+        "new_message_indicator": "span[class*='unread']",
+        "customer_name_selector": "div[class*='user-name']",
+        "message_text_selector": "div[class*='msg-text']",
+        "timestamp_selector": "span[class*='time']"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2500,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[class*='msg-list']",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "jd": {
+      "platform_id": "jd",
+      "display_name": "京东 (JD.com)",
+      "region": "china",
+      "detection": {
+        "url_patterns": [
+          "chat.jd.com",
+          "im.jd.com",
+          "*.jd.com/*/chat"
+        ],
+        "dom_signatures": [
+          "div[class*='jd-chat']",
+          "div[class*='im-panel']"
+        ],
+        "required_elements": ["div[class*='chat-container']"]
+      },
+      "event_strategy": {
+        "primary": "polling",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/chat' OR url contains '/im/message'",
+            "reliability": "medium",
+            "priority": 1
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "dom_attribute",
+          "selector": "div[class*='current'], li[class*='selected']",
+          "attribute": "data-chat-id",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "从当前聊天提取"
+        },
+        {
+          "priority": 2,
+          "method": "url_pattern",
+          "regex": "/chat[=/]([0-9]+)",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "从URL提取"
+        },
+        {
+          "priority": 3,
+          "method": "event_payload",
+          "path": "params.response.chatId",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "从API响应提取"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[class*='message-list']",
+        "message_selector": "div[class*='message-item']",
+        "new_message_indicator": "span[class*='new']",
+        "customer_name_selector": "span[class*='customer-name']",
+        "message_text_selector": "div[class*='content']",
+        "timestamp_selector": "span[class*='timestamp']"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2000,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[class*='message-list']",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "etsy": {
+      "platform_id": "etsy",
+      "display_name": "Etsy Messages",
+      "region": "global",
+      "detection": {
+        "url_patterns": [
+          "www.etsy.com/your/shops/*/messages",
+          "www.etsy.com/messages"
+        ],
+        "dom_signatures": [
+          "div[data-messages-container]",
+          "div[class*='message-thread']"
+        ],
+        "required_elements": ["div[data-inbox-container]"]
+      },
+      "event_strategy": {
+        "primary": "websocket",
+        "fallback": "polling",
+        "cdp_events": [
+          {
+            "domain": "Network",
+            "method": "Network.webSocketFrameReceived",
+            "filter": "url contains 'wss://' AND url contains 'etsy'",
+            "reliability": "high",
+            "priority": 1
+          },
+          {
+            "domain": "Network",
+            "method": "Network.responseReceived",
+            "filter": "url contains '/api/v3/ajax/bespoke/member/conversations'",
+            "reliability": "medium",
+            "priority": 2
+          }
+        ]
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "event_payload",
+          "path": "params.response.conversation_id",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "Extract from WebSocket/API payload"
+        },
+        {
+          "priority": 2,
+          "method": "dom_attribute",
+          "selector": "div[data-conversation-id]",
+          "attribute": "data-conversation-id",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "Extract from conversation element"
+        },
+        {
+          "priority": 3,
+          "method": "url_pattern",
+          "regex": "/conversations/([0-9]+)",
+          "validation_regex": "^[0-9]{10,}$",
+          "description": "Extract from URL"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div[data-messages-container]",
+        "message_selector": "div[data-message-id]",
+        "new_message_indicator": "span[class*='unread']",
+        "customer_name_selector": "span[data-buyer-name]",
+        "message_text_selector": "div[data-message-text]",
+        "timestamp_selector": "time[datetime]"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 2000,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div[data-messages-container]",
+        "change_detection": "dom_hash"
+      }
+    },
+
+    "custom_template": {
+      "_instructions": "Copy this template to create a custom platform profile. Replace all placeholder values with actual selectors and patterns for your platform.",
+      "platform_id": "my_custom_platform",
+      "display_name": "My Custom Platform",
+      "region": "global",
+      "detection": {
+        "url_patterns": [
+          "example.com/messages",
+          "*.example.com/chat"
+        ],
+        "dom_signatures": [
+          "div.chat-container",
+          "div[id='messages']"
+        ],
+        "required_elements": ["div.inbox"]
+      },
+      "event_strategy": {
+        "primary": "polling",
+        "fallback": "polling",
+        "cdp_events": []
+      },
+      "chat_id_extraction": [
+        {
+          "priority": 1,
+          "method": "dom_attribute",
+          "selector": "div.active-chat",
+          "attribute": "data-chat-id",
+          "validation_regex": "^[0-9a-zA-Z_-]+$",
+          "description": "Extract chat ID from active chat element"
+        },
+        {
+          "priority": 2,
+          "method": "url_pattern",
+          "regex": "/chat/([0-9a-zA-Z_-]+)",
+          "validation_regex": "^[0-9a-zA-Z_-]+$",
+          "description": "Extract chat ID from URL"
+        }
+      ],
+      "message_detection": {
+        "container_selector": "div.message-list",
+        "message_selector": "div.message",
+        "new_message_indicator": "span.unread",
+        "customer_name_selector": "span.customer-name",
+        "message_text_selector": "div.message-text",
+        "timestamp_selector": "span.timestamp"
+      },
+      "polling_config": {
+        "enabled": true,
+        "interval_ms": 3000,
+        "idle_interval_ms": 5000,
+        "max_interval_ms": 10000,
+        "snapshot_selector": "div.message-list",
+        "change_detection": "dom_hash"
+      }
+    }
+  }
+}

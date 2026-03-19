@@ -1008,6 +1008,7 @@ class RouteBuilder:
         return [
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
+            Route("/health", health_check),  # Alias for frontend compatibility
             Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
             Route("/api/test-ocr", test_ocr, methods=['GET', 'POST']),
             Route("/api/test-ocr-local", test_ocr_local, methods=['GET', 'POST']),

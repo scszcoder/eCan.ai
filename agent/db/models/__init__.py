@@ -95,6 +95,11 @@ from .avatar_model import (
     DBAvatarResource
 )
 
+# Import token usage model
+from .token_usage_model import (
+    TokenUsage
+)
+
 # Import association models
 from .association_models import (
     DBAgentOrgRel,
@@ -150,6 +155,9 @@ __all__ = [
     # Avatar models
     'DBAvatarResource',
     
+    # Token usage models
+    'TokenUsage',
+    
     # Association models
     'DBAgentOrgRel',
     'DBAgentSkillRel',
@@ -179,6 +187,7 @@ MODEL_REGISTRY = {
     'DBAgentSkill': DBAgentSkill,
     'DBAgentVehicle': DBAgentVehicle,
     'DBAvatarResource': DBAvatarResource,
+    'TokenUsage': TokenUsage,
     'DBAgentOrgRel': DBAgentOrgRel,
     'DBAgentSkillRel': DBAgentSkillRel,
     'DBAgentTaskRel': DBAgentTaskRel,

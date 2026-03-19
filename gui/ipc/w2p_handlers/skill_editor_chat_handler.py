@@ -992,7 +992,7 @@ def _process_chat_message(
         try:
             return _process_with_agent(session, message, canvas_context, clarification_responses, on_event=on_event)
         except Exception as e:
-            logger.warning(f"[SkillEditorChat] Agent processing failed, using fallback: {e}")
+            logger.error(f"[SkillEditorChat] Agent processing failed, using fallback: {e}\n{traceback.format_exc()}")
             fallback_msg = _process_fallback(message, canvas_context)
             return {"message": fallback_msg, "state": "complete"}
     else:
@@ -1239,12 +1239,34 @@ def _process_fallback(
             canvas_context = None
     
     content = message.content.lower()
+    raw_content = message.content
     
     if "hello" in content or "hi" in content or "你好" in content:
         logger.debug("[SkillEditorChat] Fallback matched: greeting")
         return _fb('greeting')
     
-    if "create" in content or "build" in content or "make" in content or "创建" in content or "构建" in content:
+    # Explain / question intent (must be checked BEFORE create to avoid
+    # "explain" being swallowed by the create branch when "帮我" is present)
+    _is_explain = (
+        "explain" in content or "what does" in content or "how does" in content
+        or "describe" in content or content.endswith("?")
+        or any(w in raw_content for w in [
+            "解释", "说明", "介绍", "描述", "原理", "什么意思", "什么作用",
+            "做什么", "干什么", "干嘛", "怎么运行", "怎么工作", "如何",
+        ])
+        or raw_content.strip().endswith("？")
+    )
+    if _is_explain and canvas_context:
+        nodes = canvas_context.get("nodes", [])
+        edges = canvas_context.get("edges", [])
+        if nodes:
+            logger.debug(f"[SkillEditorChat] Fallback matched: explain with {len(nodes)} nodes")
+            return _build_fallback_explain(nodes, edges, canvas_context.get("skillName", ""))
+    
+    if "create" in content or "build" in content or "make" in content or \
+       "创建" in content or "构建" in content or "生成" in content or "新建" in content or \
+       "帮我" in content or "新工作流" in content or "新的工作流" in content or \
+       "做一个" in content or "做个" in content:
         logger.debug("[SkillEditorChat] Fallback matched: create/build/make")
         return _fb('create')
     
@@ -1255,8 +1277,85 @@ def _process_fallback(
     if canvas_context:
         node_count = len(canvas_context.get("nodes", []))
         edge_count = len(canvas_context.get("edges", []))
-        logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
-        return _fb('canvas_context', node_count=node_count, edge_count=edge_count)
+        if node_count > 0:
+            logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
+            return _fb('canvas_context', node_count=node_count, edge_count=edge_count)
     
     logger.debug("[SkillEditorChat] Fallback matched: default response")
     return _fb('default')
+
+
+def _build_fallback_explain(nodes: list, edges: list, skill_name: str) -> str:
+    """Build a basic workflow description from canvas data (no LLM needed)."""
+    lang = _get_fallback_lang()
+    is_zh = lang.startswith("zh")
+
+    if is_zh:
+        lines = []
+        if skill_name:
+            lines.append(f"当前工作流 **{skill_name}** 包含 **{len(nodes)} 个节点**和 **{len(edges)} 个连接**：\n")
+        else:
+            lines.append(f"当前工作流包含 **{len(nodes)} 个节点**和 **{len(edges)} 个连接**：\n")
+
+        for i, node in enumerate(nodes):
+            n_type = node.get("type", "unknown")
+            data = node.get("data", {}) if isinstance(node.get("data"), dict) else {}
+            label = node.get("label") or data.get("label", "")
+            desc = data.get("description") or data.get("prompt", "")
+            if desc:
+                desc = str(desc)[:120]
+            tag = f"[{n_type}]"
+            line = f"{i+1}. {tag} **{label}**" if label else f"{i+1}. {tag}"
+            if desc:
+                line += f" — {desc}"
+            lines.append(line)
+
+        if edges:
+            lines.append("\n**连接关系：**")
+            # Build id→label map
+            id_label = {}
+            for n in nodes:
+                nid = n.get("id", "")
+                data = n.get("data", {}) if isinstance(n.get("data"), dict) else {}
+                id_label[nid] = n.get("label") or data.get("label", nid)
+            for e in edges:
+                src = id_label.get(e.get("source", ""), e.get("source", ""))
+                tgt = id_label.get(e.get("target", ""), e.get("target", ""))
+                lines.append(f"- {src} → {tgt}")
+
+        lines.append("\n> 注意：此为基本描述。完整的 AI 分析暂时不可用，请检查网络连接或稍后重试。")
+        return "\n".join(lines)
+    else:
+        lines = []
+        if skill_name:
+            lines.append(f"The workflow **{skill_name}** has **{len(nodes)} nodes** and **{len(edges)} connections**:\n")
+        else:
+            lines.append(f"The current workflow has **{len(nodes)} nodes** and **{len(edges)} connections**:\n")
+
+        for i, node in enumerate(nodes):
+            n_type = node.get("type", "unknown")
+            data = node.get("data", {}) if isinstance(node.get("data"), dict) else {}
+            label = node.get("label") or data.get("label", "")
+            desc = data.get("description") or data.get("prompt", "")
+            if desc:
+                desc = str(desc)[:120]
+            tag = f"[{n_type}]"
+            line = f"{i+1}. {tag} **{label}**" if label else f"{i+1}. {tag}"
+            if desc:
+                line += f" — {desc}"
+            lines.append(line)
+
+        if edges:
+            lines.append("\n**Connections:**")
+            id_label = {}
+            for n in nodes:
+                nid = n.get("id", "")
+                data = n.get("data", {}) if isinstance(n.get("data"), dict) else {}
+                id_label[nid] = n.get("label") or data.get("label", nid)
+            for e in edges:
+                src = id_label.get(e.get("source", ""), e.get("source", ""))
+                tgt = id_label.get(e.get("target", ""), e.get("target", ""))
+                lines.append(f"- {src} → {tgt}")
+
+        lines.append("\n> Note: This is a basic description. Full AI analysis is temporarily unavailable — please check your connection or try again later.")
+        return "\n".join(lines)

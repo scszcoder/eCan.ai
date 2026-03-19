@@ -662,6 +662,13 @@
       "useThinkingDesc": "用于推理模型（如 Qwen3, DeepSeek-R1）",
       "useVision": "使用视觉功能",
       "useVisionDesc": "发送截图到 LLM，需要支持视觉的模型",
+      "flashMode": "闪电模式",
+      "flashModeDesc": "跳过评估/思考以加快执行速度（针对多客户场景优化）",
+      "maxSteps": "最大步数",
+      "maxStepsPlaceholder": "留空使用默认值（例如：15 用于快速响应）",
+      "maxActionsPerStep": "每步最大操作数",
+      "maxActionsPerStepPlaceholder": "留空使用默认值（例如：5 用于批量操作）",
+      "performanceSettings": "性能优化",
       "customShopName": "自定义商店名称",
       "customShopPlaceholder": "输入自定义商店名称",
       "tools": {

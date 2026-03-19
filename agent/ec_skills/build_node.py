@@ -3648,7 +3648,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         cancellation_event = cancellation_registry.get(task_id)
                     except Exception:
                         cancellation_event = None
-                
+
                 async def _run_local_mcp():
                     import time as _time
                     _t0 = _time.time()
@@ -4376,7 +4376,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     # Extract browser profile setting from node editor
     node_profile = ((inputs.get("profile") or {}).get("content") or "").strip()
     
+    # Extract performance settings from node editor (for multi-customer chat scenarios)
+    node_flash_mode = False
+    try:
+        flash_mode_val = (inputs.get("flashMode") or {}).get("content")
+        node_flash_mode = str(flash_mode_val).lower() in ('true', '1', 'yes', 'on') if flash_mode_val is not None else False
+    except Exception:
+        node_flash_mode = False
+    
+    node_max_steps = None
+    try:
+        max_steps_val = (inputs.get("maxSteps") or {}).get("content")
+        if max_steps_val:
+            node_max_steps = int(max_steps_val)
+    except Exception:
+        node_max_steps = None
+    
+    node_max_actions_per_step = None
+    try:
+        max_actions_val = (inputs.get("maxActionsPerStep") or {}).get("content")
+        if max_actions_val:
+            node_max_actions_per_step = int(max_actions_val)
+    except Exception:
+        node_max_actions_per_step = None
+    
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
+    logger.info(f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, max_steps={node_max_steps}, max_actions_per_step={node_max_actions_per_step}")
     send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
     # Extract shop_name and build downloads_path
@@ -5228,7 +5253,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Register agent instance for extension tools
                     from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
                     set_current_agent(agent)
-                    
+
+                    # Log all tools the LLM will see in its system prompt
+                    all_tools_description = agent.tools.registry.get_prompt_description(page_url=None)
+                    logger.info(f"[Browser-Use] LLM sees {len(agent.tools.registry.actions)} total actions in system prompt")
+                    logger.debug(f"[Browser-Use] Full tool list for LLM:\n{all_tools_description}")
+
                     logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
                     send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
                     
@@ -5375,7 +5405,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 use_thinking=node_use_thinking,
                 use_judge=enable_judge_setting,
                 llm=llm,  # Pass LLM to auto-detect context_length for adaptive compaction
+                max_actions_per_step=node_max_actions_per_step,  # Performance optimization
             )
+            
             # Debug: Log the actual message_compaction settings
             if 'message_compaction' in agent_kwargs:
                 mc = agent_kwargs['message_compaction']
@@ -5572,10 +5604,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Fallback: browser session creation failed or unsupported driver
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
-            
-            # Register agent instance for extension tools (e.g., list_files auto-authorization)
-            from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
-            set_current_agent(agent)
 
             # Look up cancellation_event from global registry by task_id
             from agent.ec_tasks import cancellation_registry
@@ -5589,7 +5617,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # for native browser-use Agent, patch its step method inline.
                 agent_class_name = agent.__class__.__name__
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
-                    history = await agent.run(cancellation_event=cancellation_event)
+                    if node_max_steps:
+                        history = await agent.run(max_steps=node_max_steps, cancellation_event=cancellation_event)
+                    else:
+                        history = await agent.run(cancellation_event=cancellation_event)
                 elif cancellation_event and hasattr(agent, 'step'):
                     _orig_step = agent.step
                     async def _step_with_cancel(*a, **kw):
@@ -5599,11 +5630,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         return await _orig_step(*a, **kw)
                     agent.step = _step_with_cancel
                     try:
-                        history = await agent.run()
+                        if node_max_steps:
+                            history = await agent.run(max_steps=node_max_steps)
+                        else:
+                            history = await agent.run()
                     finally:
                         agent.step = _orig_step
                 else:
-                    history = await agent.run()
+                    if node_max_steps:
+                        history = await agent.run(max_steps=node_max_steps)
+                    else:
+                        history = await agent.run()
 
                 # Persist focus target across node iterations to survive session churn.
                 try:

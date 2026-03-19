@@ -148,6 +148,7 @@ const TextareaAutoComplete: React.FC<TextareaAutoCompleteProps> = ({
     ghostPos: null as { top: number; left: number } | null,
     ghostTA: null as HTMLTextAreaElement | null,
     lastGhostPrefix: '',
+    isComposing: false,
   });
 
   const ghostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -181,14 +182,44 @@ const TextareaAutoComplete: React.FC<TextareaAutoCompleteProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    // Use 'keyup' instead of 'input' for the {{ detection — fires after React has
-    // reconciled the controlled value, so ta.value is always up to date.
+    // Use 'keyup' for keyboard input and 'input' for IME (Chinese, Japanese, Korean) input
+    // Both events fire after React has reconciled the controlled value
     const handleKeyUp = (e: KeyboardEvent) => {
       const ta = e.target as HTMLElement;
       if (ta.tagName !== 'TEXTAREA') return;
       const textarea = ta as HTMLTextAreaElement;
 
       // Schedule a microtask so React has fully flushed the controlled value
+      setTimeout(() => processInput(textarea), 0);
+    };
+
+    const handleInput = (e: Event) => {
+      const ta = e.target as HTMLElement;
+      if (ta.tagName !== 'TEXTAREA') return;
+      const textarea = ta as HTMLTextAreaElement;
+
+      // Don't process input during IME composition (Chinese, Japanese, Korean)
+      if (stateRef.current.isComposing) return;
+
+      // Schedule a microtask so React has fully flushed the controlled value
+      setTimeout(() => processInput(textarea), 0);
+    };
+
+    const handleCompositionStart = (e: Event) => {
+      const ta = e.target as HTMLElement;
+      if (ta.tagName !== 'TEXTAREA') return;
+      console.log('[AutoComplete] Composition started');
+      stateRef.current.isComposing = true;
+    };
+
+    const handleCompositionEnd = (e: Event) => {
+      const ta = e.target as HTMLElement;
+      if (ta.tagName !== 'TEXTAREA') return;
+      const textarea = ta as HTMLTextAreaElement;
+      console.log('[AutoComplete] Composition ended, processing input...');
+      stateRef.current.isComposing = false;
+      
+      // Process input after composition ends
       setTimeout(() => processInput(textarea), 0);
     };
 
@@ -231,10 +262,17 @@ const TextareaAutoComplete: React.FC<TextareaAutoCompleteProps> = ({
         if (prefix === s.lastGhostPrefix) return;
         stateRef.current.lastGhostPrefix = prefix;
 
-        if (prefix.trim().length < 10) { dismissGhost(); return; }
+        console.log('[AutoComplete] Processing input:', { 
+          prefixLength: prefix.trim().length, 
+          isComposing: s.isComposing,
+          prefix: prefix.slice(-50)
+        });
+
+        if (prefix.trim().length < 8) { dismissGhost(); return; }
 
         if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
         ghostTimerRef.current = setTimeout(async () => {
+          console.log('[AutoComplete] Requesting ghost text completion...');
           const completion = await requestPromptCompletion({
             prefix: prefix.slice(-2000),
             suffix: suffix.slice(0, 500),
@@ -242,10 +280,14 @@ const TextareaAutoComplete: React.FC<TextareaAutoCompleteProps> = ({
             max_tokens: 80,
             temperature: 0.3,
           });
+          console.log('[AutoComplete] Got completion:', completion ? completion.slice(0, 50) : 'null');
           // Only show if cursor hasn't moved since request
           if (completion && ta.selectionStart === pos && ta.value.substring(0, pos) === prefix) {
             const coords = getCaretCoords(ta, pos);
             updateState({ ghostText: completion, ghostPos: coords, ghostTA: ta });
+            console.log('[AutoComplete] Ghost text displayed');
+          } else {
+            console.log('[AutoComplete] Ghost text not displayed - cursor moved or no completion');
           }
         }, ghostDelayRef.current);
       }
@@ -315,11 +357,17 @@ const TextareaAutoComplete: React.FC<TextareaAutoCompleteProps> = ({
 
     // Use capture phase so we get the event before Ant Design's handlers
     container.addEventListener('keyup', handleKeyUp, true);
+    container.addEventListener('input', handleInput, true);
+    container.addEventListener('compositionstart', handleCompositionStart, true);
+    container.addEventListener('compositionend', handleCompositionEnd, true);
     container.addEventListener('keydown', handleKeyDown, true);
     container.addEventListener('focusout', handleBlur, true);
 
     return () => {
       container.removeEventListener('keyup', handleKeyUp, true);
+      container.removeEventListener('input', handleInput, true);
+      container.removeEventListener('compositionstart', handleCompositionStart, true);
+      container.removeEventListener('compositionend', handleCompositionEnd, true);
       container.removeEventListener('keydown', handleKeyDown, true);
       container.removeEventListener('focusout', handleBlur, true);
       if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
