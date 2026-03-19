@@ -10,6 +10,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     FilesPrintAction,
     LabelInputFile,
     LabelsReformatAction,
+    RagQueryAction,
     RunCodeAction,
     RunShellScriptAction,
 )
@@ -225,6 +226,56 @@ async def reformat_labels(params: LabelsReformatAction, browser_session: Browser
     except Exception as e:
         logger.error(f"[Browser Use Extension] Reformat error: {e}")
         return ActionResult(error=f"Reformat failed: {str(e)}")
+
+
+@custom_controller.action(
+    "Query the local RAG knowledge base for relevant information from ingested documents.",
+    param_model=RagQueryAction,
+)
+async def bu_rag_query(params: RagQueryAction) -> ActionResult:
+    """Query the RAG knowledge base using the existing MCP tool."""
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import rag_query
+        
+        # Build input dict for MCP tool
+        input_data = {
+            "query": params.query,
+            "mode": params.mode or "mix",
+        }
+        
+        # Add optional parameters
+        if params.only_need_context is not None:
+            input_data["only_need_context"] = params.only_need_context
+        if params.response_type is not None:
+            input_data["response_type"] = params.response_type
+        if params.top_k is not None:
+            input_data["top_k"] = params.top_k
+        if params.enable_rerank is not None:
+            input_data["enable_rerank"] = params.enable_rerank
+        if params.include_references is not None:
+            input_data["include_references"] = params.include_references
+        
+        # Call MCP tool
+        login = AppContext.login
+        result_list = await rag_query(login.main_win, {"input": input_data})
+        
+        # Extract result from TextContent
+        if result_list and len(result_list) > 0:
+            text_content = result_list[0]
+            result_text = text_content.text
+            
+            # Check if it's an error
+            if result_text.startswith("Error:"):
+                return ActionResult(error=result_text)
+            
+            # Success - return the answer
+            return ActionResult(extracted_content=result_text)
+        else:
+            return ActionResult(error="No result returned from RAG query")
+            
+    except Exception as e:
+        logger.error(f"[Browser Use Extension] RAG query error: {e}")
+        return ActionResult(error=f"RAG query failed: {str(e)}")
 
 
 @custom_controller.action(
