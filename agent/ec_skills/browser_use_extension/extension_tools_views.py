@@ -143,3 +143,34 @@ class LabelsReformatAction(BaseModel):
 		default=True, description="create backup copies with note text on same sheet"
 	)
 
+
+class RagQueryAction(BaseModel):
+	"""Query the local RAG knowledge base for relevant information."""
+	query: str = Field(
+		description="The query text to search in the knowledge base (minimum 3 characters)"
+	)
+	mode: Optional[str] = Field(
+		default="mix",
+		description="Query mode: 'local' (entity-based), 'global' (community-based), 'hybrid' (both), 'naive' (vector only), 'mix' (all methods), 'bypass' (no retrieval). Default: mix"
+	)
+	only_need_context: Optional[bool] = Field(
+		default=False,
+		description="Return only retrieved context without generating a response"
+	)
+	response_type: Optional[str] = Field(
+		default=None,
+		description="Response format hint (e.g., 'Multiple Paragraphs', 'Bullet Points', 'Single Sentence')"
+	)
+	top_k: Optional[int] = Field(
+		default=None,
+		description="Number of top items to retrieve (default varies by mode)"
+	)
+	enable_rerank: Optional[bool] = Field(
+		default=True,
+		description="Enable reranking of retrieved results for better relevance"
+	)
+	include_references: Optional[bool] = Field(
+		default=True,
+		description="Include source references in the response"
+	)
+
