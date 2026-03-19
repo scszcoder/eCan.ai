@@ -161,6 +161,14 @@ class AppContext(metaclass=AppContextMeta):
         if login and hasattr(login, 'auth_manager'):
             return login.auth_manager
         return None
+    
+    @classmethod
+    def get_ec_db_mgr(cls):
+        """Get database manager instance from MainWindow"""
+        main_window = cls.get_main_window()
+        if main_window and hasattr(main_window, 'ec_db_mgr'):
+            return main_window.ec_db_mgr
+        return None
 
     def cleanup(self):
         """Clean up all references in AppContext"""

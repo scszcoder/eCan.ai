@@ -522,6 +522,13 @@ class PlannerAgent:
                 action = PlannerAction(action_str)
             except ValueError:
                 action = PlannerAction.PROCEED_TO_CODE
+
+            # recommend_multi_agent: pass the message straight through, no plan needed
+            if action == PlannerAction.RECOMMEND_MULTI_AGENT:
+                return PlannerOutput(
+                    action=action,
+                    message=data.get("message", ""),
+                )
             
             # Parse questions if present
             questions = None

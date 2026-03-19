@@ -122,7 +122,7 @@ def handle_req_prompt_auto_completion(request: IPCRequest, params: Optional[dict
             logger.warning("[prompt_completion] No cloud context available")
             return create_success_response(request, {
                 "completion": "",
-                "model": None,
+                "model": "",
                 "error": "Not authenticated — please log in first."
             })
 
@@ -141,17 +141,35 @@ def handle_req_prompt_auto_completion(request: IPCRequest, params: Optional[dict
             logger.warning(f"[prompt_completion] AppSync error: {error_msg}")
             return create_success_response(request, {
                 "completion": "",
-                "model": None,
+                "model": "",
                 "error": error_msg
             })
 
-        data = jresp.get("data", {}).get("reqPromptAutoCompletion", {})
+        data = jresp.get("data", {}).get("reqPromptAutoCompletion")
+        
+        # Ensure we always return a valid response structure (non-null)
+        if data is None:
+            logger.warning("[prompt_completion] Cloud returned null, returning empty completion")
+            return create_success_response(request, {
+                "completion": "",
+                "model": "",
+                "error": "Cloud service unavailable"
+            })
+        
+        # Ensure all required fields are present
+        if "completion" not in data:
+            data["completion"] = ""
+        if "model" not in data:
+            data["model"] = ""
+        if "error" not in data:
+            data["error"] = ""
+            
         return create_success_response(request, data)
 
     except Exception as e:
         logger.error(f"[prompt_completion] Error: {e}", exc_info=True)
         return create_success_response(request, {
             "completion": "",
-            "model": None,
+            "model": "",
             "error": str(e)
         })
