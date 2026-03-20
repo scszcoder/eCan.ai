@@ -259,7 +259,7 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     # ---- Query ----
-    def query(self, text: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def query(self, text: str, options: Optional[Dict[str, Any]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """Query the knowledge base.
         
         Args:
@@ -311,8 +311,9 @@ class LightragClient:
             
             # Use JSON content type
             headers = {'Content-Type': 'application/json'}
-            # Reduced timeout from 180s to 30s to prevent long UI blocking
-            r = self.session.post(f"{self.base_url}/query", json=payload, headers=headers, timeout=30)
+            # Default 90s; mix+rerank can exceed 30s for large knowledge bases
+            _timeout = timeout or 90
+            r = self.session.post(f"{self.base_url}/query", json=payload, headers=headers, timeout=_timeout)
 
             if r.status_code >= 400:
                 # Log full error body to help debug FastAPI validation errors
