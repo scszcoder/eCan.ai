@@ -25,6 +25,7 @@ Customers can extend the system by:
 """
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
@@ -74,7 +75,9 @@ def _provide_skills_schema(state: dict, mainwin: Any) -> str:
         from agent.mcp.server.skill_schemas import get_skill_schemas_summary
         summaries = get_skill_schemas_summary(mainwin)
         if summaries:
-            return json.dumps(summaries, indent=2, ensure_ascii=False)
+            result = json.dumps(summaries, indent=2, ensure_ascii=False)
+            logger.debug(f"[prompt_var] skills_schema: {len(summaries)} summaries, {len(result)} chars")
+            return result
         return "No skills available."
     except Exception as e:
         logger.warning(f"[prompt_var] skills_schema provider failed: {e}")
@@ -82,10 +85,11 @@ def _provide_skills_schema(state: dict, mainwin: Any) -> str:
 
 
 def _provide_tools_schema(state: dict, mainwin: Any) -> str:
-    """Return JSON summary of all MCP tool schemas.
+    """Return compact JSON summary of all MCP tool schemas for LLM decision-making.
 
-    Works in both GUI context (reads mainwin.mcp_tools_schemas) and
-    cloud-worker / no-GUI context (falls back to server-side registry).
+    Outputs only name, description (XML tags stripped), and parameter names.
+    Full inputSchema is NOT included — it is fetched separately at tool-call time.
+    This reduces prompt size from ~172K to ~38K chars (~78% reduction).
     """
     try:
         # 1) GUI context — main-window registry
@@ -96,27 +100,37 @@ def _provide_tools_schema(state: dict, mainwin: Any) -> str:
             try:
                 from agent.mcp.server.tool_schemas import get_tool_schemas
                 all_schemas = get_tool_schemas() or []
-                if all_schemas:
-                    logger.debug(
-                        f"[prompt_var] tools_schema: loaded {len(all_schemas)} schemas from MCP server registry (cloud fallback)"
-                    )
             except Exception as fallback_err:
                 logger.warning(f"[prompt_var] tools_schema cloud fallback failed: {fallback_err}")
 
         if not all_schemas:
             return "No tools available."
 
+        logger.debug(f"[prompt_var] tools_schema: building compact summary for {len(all_schemas)} tools")
+
         result = []
         for schema in all_schemas:
-            if hasattr(schema, "model_dump"):
-                result.append(schema.model_dump())
-            elif isinstance(schema, dict):
-                result.append(schema)
+            name = getattr(schema, "name", "") if not isinstance(schema, dict) else schema.get("name", "")
+            desc = getattr(schema, "description", "") if not isinstance(schema, dict) else schema.get("description", "")
+            inp_schema = getattr(schema, "inputSchema", {}) if not isinstance(schema, dict) else schema.get("inputSchema", {})
+
+            # Strip XML category/sub-category tags, keep human-readable text
+            clean_desc = re.sub(r"<[^>]+>", " ", desc).strip()
+            clean_desc = re.sub(r"\s{2,}", " ", clean_desc)
+
+            # Extract parameter names from inputSchema
+            props = (inp_schema or {}).get("properties", {})
+            inner = props.get("input", {})
+            if isinstance(inner, dict) and inner.get("properties"):
+                params = list(inner["properties"].keys())
             else:
-                result.append({
-                    "name": getattr(schema, "name", ""),
-                    "description": getattr(schema, "description", ""),
-                })
+                params = [p for p in props if p != "input"]
+
+            entry = {"name": name, "description": clean_desc}
+            if params:
+                entry["params"] = params
+            result.append(entry)
+
         return json.dumps(result, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.warning(f"[prompt_var] tools_schema provider failed: {e}")
@@ -381,7 +395,6 @@ def resolve_prompt_variables(
         # 1. Explicit from state["prompt_refs"]
         if var in prompt_refs:
             resolved[var] = str(prompt_refs[var])
-            logger.debug(f"[prompt_var] '{var}' resolved from prompt_refs")
             continue
 
         # 2. Prompt-level variable declaration
@@ -389,7 +402,6 @@ def resolve_prompt_variables(
             val = _resolve_variable_declaration(prompt_variables[var], state, mainwin)
             if val is not None:
                 resolved[var] = val
-                logger.debug(f"[prompt_var] '{var}' resolved from prompt variables")
                 continue
 
         # 3. Skill-level variable declaration
@@ -397,7 +409,6 @@ def resolve_prompt_variables(
             val = _resolve_variable_declaration(skill_prompt_variables[var], state, mainwin)
             if val is not None:
                 resolved[var] = val
-                logger.debug(f"[prompt_var] '{var}' resolved from skill prompt_variables")
                 continue
 
         # 4. Built-in provider
@@ -407,13 +418,12 @@ def resolve_prompt_variables(
                 val = provider(state, mainwin)
                 if val is not None:
                     resolved[var] = val
-                    logger.debug(f"[prompt_var] '{var}' resolved from builtin provider")
                     continue
             except Exception as e:
                 logger.warning(f"[prompt_var] builtin provider '{var}' failed: {e}")
 
         # 5. Fallback
-        logger.warning(f"[prompt_var] '{var}' unresolved, using empty string")
         resolved[var] = ""
 
+    logger.debug(f"[prompt_var] Resolved {len(resolved)} variables: {list(resolved.keys())}")
     return resolved

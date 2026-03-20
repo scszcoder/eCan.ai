@@ -12,6 +12,7 @@ Naming convention follows self_tools.py and tool_schemas.py patterns.
 """
 
 import json
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -63,17 +64,31 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         to poll / subscribe for status updates.
     """
     try:
-        agent_id = config.get("agent_id", "")
-        task_id = config.get("task_id", "")
-        task_name = config.get("task_name", "")
-        skill_name = config.get("skill_name", "")
-        skill_id = config.get("skill_id", "")
-        task_inputs = config.get("task_inputs") or {}
+        # Normalize: merge nested 'input' dict with top-level keys
+        nested_input = config.get("input") if isinstance(config.get("input"), dict) else {}
+        effective = dict(nested_input)
+        for _k, _v in (config or {}).items():
+            if _k == "input":
+                continue
+            if _v is not None:
+                effective[_k] = _v
+
+        agent_id = effective.get("agent_id", "")
+        task_id = effective.get("task_id", "")
+        task_name = effective.get("task_name", "")
+        skill_name = effective.get("skill_name", "")
+        skill_id = effective.get("skill_id", "")
+        task_inputs = effective.get("task_inputs") or {}
+
+        logger.info(
+            f"[launch_agent_task] Normalized keys: {sorted(effective.keys())} "
+            f"from top_level={sorted((config or {}).keys())}"
+        )
 
         # Lineage fields for nested task progress tracking
-        correlation_id = config.get("correlation_id", "")
-        parent_run_id = config.get("parent_run_id", "")
-        parent_depth = int(config.get("parent_depth", 0) or 0)
+        correlation_id = effective.get("correlation_id", "")
+        parent_run_id = effective.get("parent_run_id", "")
+        parent_depth = int(effective.get("parent_depth", 0) or 0)
 
         # --- Resolve agent ---
         agent = _resolve_agent(mainwin, agent_id)
@@ -87,6 +102,24 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             agent, task_id=task_id, task_name=task_name,
             skill_name=skill_name, skill_id=skill_id,
         )
+
+        # Fallback: search ALL agents if task not found on the default agent
+        if target_task is None and (task_id or task_name):
+            for other_agent in _iter_agents(mainwin):
+                if other_agent is agent:
+                    continue
+                target_task, created = _resolve_or_create_task(
+                    other_agent, task_id=task_id, task_name=task_name,
+                    skill_name=skill_name, skill_id=skill_id,
+                )
+                if target_task is not None:
+                    agent = other_agent
+                    agent_id = getattr(getattr(agent, "card", None), "id", "") or agent_id
+                    logger.info(
+                        f"[launch_agent_task] Found task on different agent: "
+                        f"agent_id={agent_id!r}, task_name={getattr(target_task, 'name', '')!r}"
+                    )
+                    break
 
         if target_task is None:
             return _error(
@@ -171,6 +204,135 @@ def _error(msg: str) -> Dict[str, Any]:
     return {"success": False, "error": msg, "timestamp": int(time.time() * 1000)}
 
 
+def _normalize_skill_key(value: str) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[\s\-]+", "_", str(value).strip().lower())
+
+
+def _iter_agents(mainwin) -> List[Any]:
+    agents = []
+    seen = set()
+    for agent in getattr(mainwin, "agents", []) or []:
+        if agent is None:
+            continue
+        agent_key = getattr(getattr(agent, "card", None), "id", "") or str(id(agent))
+        if agent_key in seen:
+            continue
+        seen.add(agent_key)
+        agents.append(agent)
+    return agents
+
+
+def _skill_matches(skill, skill_name: str, skill_id: str) -> bool:
+    if skill is None:
+        return False
+    if skill_id:
+        # Check multiple ID attributes that skill objects might have
+        for attr in ("id", "skillId", "skill_id"):
+            if getattr(skill, attr, "") == skill_id:
+                return True
+    if skill_name:
+        return _normalize_skill_key(getattr(skill, "name", "")) == _normalize_skill_key(skill_name)
+    return False
+
+
+def _find_existing_task_across_agents(mainwin, *, skill_name: str, skill_id: str, task_name: str = ""):
+    normalized_task_name = (task_name or "").strip().lower()
+
+    if normalized_task_name:
+        for agent in _iter_agents(mainwin):
+            for task in getattr(agent, "tasks", []) or []:
+                existing_task_name = (getattr(task, "name", "") or "").strip().lower()
+                if existing_task_name != normalized_task_name:
+                    continue
+                if _skill_matches(getattr(task, "skill", None), skill_name, skill_id):
+                    logger.info(
+                        f"[task_mcp_tools] Reusing existing task by exact task_name '{getattr(task, 'name', '')}' "
+                        f"for skill name={skill_name!r}, id={skill_id!r}"
+                    )
+                    return task, agent
+        logger.info(
+            f"[task_mcp_tools] No existing task found with requested task_name={task_name!r} "
+            f"for skill name={skill_name!r}, id={skill_id!r}; will create a new task"
+        )
+        return None, None
+
+    for agent in _iter_agents(mainwin):
+        for task in getattr(agent, "tasks", []) or []:
+            if _skill_matches(getattr(task, "skill", None), skill_name, skill_id):
+                logger.info(
+                    f"[task_mcp_tools] Reusing existing task '{getattr(task, 'name', '')}' "
+                    f"for skill name={skill_name!r}, id={skill_id!r}"
+                )
+                return task, agent
+    logger.info(
+        f"[task_mcp_tools] No existing task found across agents for "
+        f"skill name={skill_name!r}, id={skill_id!r}"
+    )
+    return None, None
+
+
+def _resolve_skill_global(mainwin, skill_name: str, skill_id: str):
+    """Search mainwin.agent_skills (global skill list) as fallback when no agent has the skill."""
+    global_skills = getattr(mainwin, "agent_skills", []) or []
+    for sk in global_skills:
+        if _skill_matches(sk, skill_name, skill_id):
+            logger.info(
+                f"[_resolve_skill_global] Found skill in mainwin.agent_skills: "
+                f"name={getattr(sk, 'name', '')!r}, id={getattr(sk, 'id', '')!r}"
+            )
+            return sk
+    return None
+
+
+def _select_agent_for_skill(mainwin, *, agent_id: str, skill_name: str, skill_id: str):
+    if agent_id:
+        agent = get_agent_by_id(agent_id)
+        logger.info(
+            f"[task_mcp_tools] Agent selection for skill name={skill_name!r}, id={skill_id!r}: "
+            f"explicit agent_id={agent_id!r}, found={agent is not None}"
+        )
+        return agent
+
+    candidates = [agent for agent in _iter_agents(mainwin) if _resolve_skill(agent, skill_name, skill_id) is not None]
+    if not candidates:
+        # Fallback: check if skill exists in mainwin.agent_skills (global list)
+        global_skill = _resolve_skill_global(mainwin, skill_name, skill_id)
+        if global_skill is not None:
+            # Skill exists globally but isn't assigned to any agent.
+            # Pick the least-loaded agent and return it.
+            all_agents = _iter_agents(mainwin)
+            if all_agents:
+                selected = min(
+                    all_agents,
+                    key=lambda a: len(getattr(a, "tasks", []) or []),
+                )
+                logger.info(
+                    f"[task_mcp_tools] Agent selection FALLBACK: skill found in global agent_skills, "
+                    f"assigning to least-loaded agent_id={getattr(getattr(selected, 'card', None), 'id', '')!r}"
+                )
+                return selected
+        logger.info(
+            f"[task_mcp_tools] Agent selection for skill name={skill_name!r}, id={skill_id!r}: no compatible agents"
+        )
+        return None
+
+    selected_agent = min(
+        candidates,
+        key=lambda agent: (
+            len(getattr(agent, "tasks", []) or []),
+            getattr(getattr(agent, "card", None), "id", "") or "",
+        ),
+    )
+    logger.info(
+        f"[task_mcp_tools] Agent selection for skill name={skill_name!r}, id={skill_id!r}: "
+        f"selected agent_id={getattr(getattr(selected_agent, 'card', None), 'id', '')!r} "
+        f"with task_count={len(getattr(selected_agent, 'tasks', []) or [])}"
+    )
+    return selected_agent
+
+
 def _resolve_agent(mainwin, agent_id: str):
     """Resolve agent by ID or fall back to the first available agent."""
     if agent_id:
@@ -210,11 +372,8 @@ def _resolve_or_create_task(agent, *, task_id, task_name, skill_name, skill_id):
             sk = getattr(t, "skill", None)
             if sk is None:
                 continue
-            if skill_name and getattr(sk, "name", "") == skill_name:
-                logger.info(f"[launch_agent_task] Found task by skill name: {skill_name}")
-                return t, False
-            if skill_id and getattr(sk, "id", "") == skill_id:
-                logger.info(f"[launch_agent_task] Found task by skill id: {skill_id}")
+            if _skill_matches(sk, skill_name, skill_id):
+                logger.info(f"[launch_agent_task] Found task by skill name/id: {skill_name or skill_id}")
                 return t, False
 
     # 4. No existing task — create a new one if we can resolve a skill
@@ -229,14 +388,19 @@ def _resolve_skill(agent, skill_name: str, skill_id: str):
     """Find a skill on the agent by name or id."""
     skills = getattr(agent, "skills", []) or []
     for sk in skills:
-        if skill_name and getattr(sk, "name", "") == skill_name:
+        if _skill_matches(sk, skill_name, skill_id):
             return sk
-        if skill_id and getattr(sk, "id", "") == skill_id:
-            return sk
-    available = [getattr(s, "name", "?") for s in skills]
+    available = [
+        {
+            "name": getattr(s, "name", "?"),
+            "id": getattr(s, "id", ""),
+            "skillId": getattr(s, "skillId", ""),
+        }
+        for s in skills
+    ]
     logger.warning(
-        f"[launch_agent_task] Skill not found (name={skill_name!r}, id={skill_id!r}). "
-        f"Available: {available}"
+        f"[_resolve_skill] Skill not found (name={skill_name!r}, id={skill_id!r}). "
+        f"Available on agent: {available}"
     )
     return None
 
@@ -253,6 +417,7 @@ def _create_task(agent, skill, task_name: str, *, trigger: str = "message", init
 
     task = ManagedTask(
         id=new_id,
+        context_id=new_id,
         run_id=str(uuid.uuid4()),
         name=name,
         description=f"Created via MCP tool using skill '{skill_name}'",
@@ -424,32 +589,93 @@ def create_agent_task_with_skill(mainwin, config: Dict[str, Any]) -> Dict[str, A
             - task_name: str (optional) - Custom name for the task
             - trigger: str (optional) - Trigger type: "message" (default), "auto", "schedule"
             - initial_state: dict (optional) - Initial state for the task
+            - input: dict (optional) - Nested input configuration
 
     Returns:
         Dict with creation result including task_id and run_id.
     """
     try:
-        agent_id = config.get("agent_id", "")
-        skill_name = config.get("skill_name", "")
-        skill_id = config.get("skill_id", "")
-        task_name = config.get("task_name", "")
-        trigger = config.get("trigger", "message")
-        initial_state = config.get("initial_state", {})
+        nested_input = config.get("input") if isinstance(config.get("input"), dict) else {}
+        effective_config = dict(nested_input)
+        for _key, _value in (config or {}).items():
+            if _key == "input":
+                continue
+            if _value is not None:
+                effective_config[_key] = _value
+
+        logger.info(
+            f"[create_agent_task_with_skill] Normalized config keys: {sorted(list(effective_config.keys()))} "
+            f"from top_level_keys={sorted(list((config or {}).keys()))}"
+        )
+
+        agent_id = effective_config.get("agent_id", "")
+        skill_name = effective_config.get("skill_name", "")
+        skill_id = effective_config.get("skill_id", "")
+        task_name = effective_config.get("task_name", "")
+        trigger = effective_config.get("trigger", "message")
+        initial_state = effective_config.get("initial_state", {})
+
+        if not isinstance(initial_state, dict):
+            initial_state = {}
 
         if not skill_name and not skill_id:
             return _error("skill_name or skill_id is required")
 
-        agent = _resolve_agent(mainwin, agent_id)
+        existing_task, existing_agent = _find_existing_task_across_agents(
+            mainwin,
+            skill_name=skill_name,
+            skill_id=skill_id,
+            task_name=task_name,
+        )
+        if existing_task is not None and existing_agent is not None:
+            resolved_agent_id = getattr(getattr(existing_agent, "card", None), "id", "") or getattr(existing_task, "agent_id", "") or agent_id
+            if resolved_agent_id and not getattr(existing_task, "agent_id", ""):
+                existing_task.agent_id = resolved_agent_id
+            logger.info(
+                f"[create_agent_task_with_skill] Decision path: reuse existing task_id={getattr(existing_task, 'id', '')!r} "
+                f"task_name={getattr(existing_task, 'name', '')!r} agent_id={resolved_agent_id!r}"
+            )
+            return {
+                "success": True,
+                "task_id": getattr(existing_task, "id", ""),
+                "run_id": getattr(existing_task, "run_id", "") or "",
+                "task_name": getattr(existing_task, "name", ""),
+                "skill_name": getattr(getattr(existing_task, "skill", None), "name", "") or skill_name,
+                "trigger": getattr(existing_task, "trigger", None) or trigger,
+                "agent_id": resolved_agent_id,
+                "created": False,
+                "message": f"Using existing task '{getattr(existing_task, 'name', '')}' for skill '{getattr(getattr(existing_task, 'skill', None), 'name', '') or skill_name}'",
+                "timestamp": int(time.time() * 1000),
+            }
+
+        logger.info(
+            f"[create_agent_task_with_skill] Decision path: no existing task found, will select agent for "
+            f"skill name={skill_name!r}, id={skill_id!r}"
+        )
+        agent = _select_agent_for_skill(mainwin, agent_id=agent_id, skill_name=skill_name, skill_id=skill_id)
         if agent is None:
-            return _error(f"Agent not found: {agent_id or '(default)'}")
+            if agent_id:
+                return _error(f"Agent not found: {agent_id or '(default)'}")
+            return _error(f"No compatible agent found for skill (name={skill_name!r}, id={skill_id!r})")
 
         agent_id = getattr(getattr(agent, "card", None), "id", "") or agent_id
 
         skill = _resolve_skill(agent, skill_name, skill_id)
         if skill is None:
+            # Fallback: try global agent_skills list
+            skill = _resolve_skill_global(mainwin, skill_name, skill_id)
+        if skill is None:
             available = [getattr(s, "name", "?") for s in (getattr(agent, "skills", []) or [])]
-            return _error(f"Skill not found (name={skill_name!r}, id={skill_id!r}). Available: {available}")
+            global_available = [getattr(s, "name", "?") for s in (getattr(mainwin, "agent_skills", []) or [])]
+            return _error(
+                f"Skill not found (name={skill_name!r}, id={skill_id!r}). "
+                f"Agent skills: {available}, Global skills: {global_available}"
+            )
 
+        logger.info(
+            f"[create_agent_task_with_skill] Decision path: create new task on agent_id={agent_id!r} "
+            f"for skill={getattr(skill, 'name', '')!r} task_name={task_name!r}"
+        )
         task = _create_task(agent, skill, task_name, trigger=trigger, initial_state=initial_state)
         run_id = str(uuid.uuid4())
         task.run_id = run_id
@@ -464,6 +690,7 @@ def create_agent_task_with_skill(mainwin, config: Dict[str, Any]) -> Dict[str, A
             "skill_name": getattr(skill, "name", ""),
             "trigger": trigger,
             "agent_id": agent_id,
+            "created": True,
             "message": f"Task '{task.name}' created with skill '{getattr(skill, 'name', '')}' (trigger={trigger})",
             "timestamp": int(time.time() * 1000),
         }
@@ -624,6 +851,16 @@ def delete_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         Dict with deletion result.
     """
     try:
+        # Normalize: merge nested 'input' dict with top-level keys
+        nested_input = config.get("input") if isinstance(config.get("input"), dict) else {}
+        effective = dict(nested_input)
+        for _k, _v in (config or {}).items():
+            if _k == "input":
+                continue
+            if _v is not None:
+                effective[_k] = _v
+        config = effective
+
         agent_id = config.get("agent_id", "")
         task_id = config.get("task_id", "")
         task_name = config.get("task_name", "")
@@ -687,6 +924,16 @@ def stop_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         Dict with stop result including previous state.
     """
     try:
+        # Normalize: merge nested 'input' dict with top-level keys
+        nested_input = config.get("input") if isinstance(config.get("input"), dict) else {}
+        effective = dict(nested_input)
+        for _k, _v in (config or {}).items():
+            if _k == "input":
+                continue
+            if _v is not None:
+                effective[_k] = _v
+        config = effective
+
         agent_id = config.get("agent_id", "")
         task_id = config.get("task_id", "")
         task_name = config.get("task_name", "")
@@ -1008,8 +1255,7 @@ def add_stop_agent_task_tool_schema(tool_schemas: list):
 async def async_launch_agent_task(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for launch_agent_task tool."""
     try:
-        input_config = args.get("input", {})
-        result = launch_agent_task(mainwin, input_config)
+        result = launch_agent_task(mainwin, args)
 
         if result.get("success"):
             msg = result.get("message", "Task launched successfully")
@@ -1029,8 +1275,7 @@ async def async_launch_agent_task(mainwin, args: Dict[str, Any]) -> List[TextCon
 async def async_create_agent_task_with_skill(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for create_agent_task_with_skill tool."""
     try:
-        input_config = args.get("input", {})
-        result = create_agent_task_with_skill(mainwin, input_config)
+        result = create_agent_task_with_skill(mainwin, args)
 
         if result.get("success"):
             msg = result.get("message", "Task created successfully")
@@ -1050,8 +1295,7 @@ async def async_create_agent_task_with_skill(mainwin, args: Dict[str, Any]) -> L
 async def async_schedule_agent_task(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for schedule_agent_task tool."""
     try:
-        input_config = args.get("input", {})
-        result = schedule_agent_task(mainwin, input_config)
+        result = schedule_agent_task(mainwin, args)
 
         if result.get("success"):
             msg = result.get("message", "Task scheduled successfully")
@@ -1071,8 +1315,7 @@ async def async_schedule_agent_task(mainwin, args: Dict[str, Any]) -> List[TextC
 async def async_delete_agent_task(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for delete_agent_task tool."""
     try:
-        input_config = args.get("input", {})
-        result = delete_agent_task(mainwin, input_config)
+        result = delete_agent_task(mainwin, args)
 
         if result.get("success"):
             msg = result.get("message", "Task deleted successfully")
@@ -1092,8 +1335,7 @@ async def async_delete_agent_task(mainwin, args: Dict[str, Any]) -> List[TextCon
 async def async_stop_agent_task(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for stop_agent_task tool."""
     try:
-        input_config = args.get("input", {})
-        result = stop_agent_task(mainwin, input_config)
+        result = stop_agent_task(mainwin, args)
 
         if result.get("success"):
             msg = result.get("message", "Task stopped successfully")
@@ -1135,6 +1377,16 @@ def get_task_progress(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         Dict with progress information.
     """
     try:
+        # Normalize: merge nested 'input' dict with top-level keys
+        nested_input = config.get("input") if isinstance(config.get("input"), dict) else {}
+        effective = dict(nested_input)
+        for _k, _v in (config or {}).items():
+            if _k == "input":
+                continue
+            if _v is not None:
+                effective[_k] = _v
+        config = effective
+
         run_id = config.get("run_id", "")
         correlation_id = config.get("correlation_id", "")
         include_events = config.get("include_events", True)
@@ -1236,8 +1488,7 @@ def add_get_task_progress_tool_schema(tool_schemas: list):
 async def async_get_task_progress(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for get_task_progress tool."""
     try:
-        input_config = args.get("input", {})
-        result = get_task_progress(mainwin, input_config)
+        result = get_task_progress(mainwin, args)
 
         if result.get("success"):
             msg = json.dumps(result, default=str, ensure_ascii=False)

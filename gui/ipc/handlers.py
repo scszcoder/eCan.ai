@@ -374,6 +374,50 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
         )
 
 
+@IPCHandlerRegistry.background_handler('test_task')
+def handle_test_task(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Directly call create_agent_task_with_skill + launch_agent_task for my_test_bu_tools.
+
+    Bypasses the LLM loop so we can test the MCP tool chain in isolation.
+    """
+    try:
+        main_win = AppContext.get_main_window()
+        if main_win is None:
+            return create_error_response(request, 'TEST_TASK_ERROR', 'MainWindow not initialized')
+
+        from agent.ec_tasks.task_mcp_tools import create_agent_task_with_skill, launch_agent_task
+
+        skill_name = (params or {}).get('skill_name', 'my_test_bu_tools')
+        logger.info(f"[test_task] Step 1: create_agent_task_with_skill(skill_name={skill_name!r})")
+        create_result = create_agent_task_with_skill(main_win, {"skill_name": skill_name, "trigger": "message"})
+        logger.info(f"[test_task] create result: {create_result}")
+
+        if not create_result.get("success"):
+            return create_error_response(request, 'TEST_TASK_ERROR',
+                                         f"create_agent_task_with_skill failed: {create_result.get('error', create_result)}")
+
+        task_id = create_result.get("task_id", "")
+        task_name = create_result.get("task_name", "")
+
+        logger.info(f"[test_task] Step 2: launch_agent_task(task_id={task_id!r}, task_name={task_name!r})")
+        launch_result = launch_agent_task(main_win, {"task_id": task_id, "task_name": task_name})
+        logger.info(f"[test_task] launch result: {launch_result}")
+
+        if not launch_result.get("success"):
+            return create_error_response(request, 'TEST_TASK_ERROR',
+                                         f"launch_agent_task failed: {launch_result.get('error', launch_result)}")
+
+        return create_success_response(request, {
+            'create_result': create_result,
+            'launch_result': launch_result,
+            'message': f"Task '{task_name}' created and launched for skill '{skill_name}'"
+        })
+
+    except Exception as e:
+        logger.error(f"[test_task] Error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'TEST_TASK_ERROR', f"Error: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('get_initialization_progress')
 def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """Get MainWindow initialization progress

@@ -1108,23 +1108,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             "azure_openai": AzureChatOpenAI,
         }
         return runtime_registry.get((runtime_kind or "").strip())
-    
+
     def _validate_runtime_registry():
         """
-        Self-check: Validate that all runtime_kinds in llm_providers.json 
+        Self-check: Validate that all runtime_kinds in llm_providers.json
         have corresponding constructors in the runtime registry.
         This runs once at module load time.
         """
         try:
-            from gui.config.llm_manager import get_llm_manager
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+
             llm_manager = get_llm_manager()
             all_providers = llm_manager.get_all_providers() or []
-            
+
             runtime_registry_keys = {
                 "openai_compatible", "anthropic", "google_genai", "deepseek",
                 "qwq_compatible", "ollama_native", "zhipuai", "bedrock_converse", "azure_openai"
             }
-            
+
             missing_constructors = []
             for provider in all_providers:
                 if not isinstance(provider, dict):
@@ -1133,7 +1134,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 if runtime_kind and runtime_kind not in runtime_registry_keys:
                     provider_name = provider.get("name") or provider.get("provider") or "Unknown"
                     missing_constructors.append(f"{provider_name} (runtime_kind: {runtime_kind})")
-            
+
             if missing_constructors:
                 logger.warning(
                     f"[build_llm_node] Runtime registry missing constructors for: {', '.join(missing_constructors)}. "
@@ -1326,6 +1327,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         skill_name = runtime.context["this_node"].get("skill_name")
         owner = runtime.context["this_node"].get("owner")
         full_node_name = f"{owner}:{skill_name}:{current_node_name}"
+        logger.debug(f"[LLM] llm_node_callable: node={node_name}, skill={skill_name}")
 
         log_msg = f"full_node_name: {full_node_name}"
         logger.debug(log_msg)
@@ -1342,6 +1344,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
+        logger.debug(f"[LLM] node={node_name} template_vars={variables}")
 
         # --- Cascading variable resolution ---
         # Priority: prompt_refs → prompt-level vars → skill-level vars → built-in providers → ""
@@ -1378,6 +1381,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             prompt_variables=prompt_level_variables,
             skill_prompt_variables=skill_prompt_variables,
         )
+        logger.debug(f"[LLM] node={node_name} resolved {len(format_context)} variables")
 
         # Substitute {{var_name}} with values from format_context
         try:
@@ -1390,6 +1394,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
+            # Check if any {{variables}} remain unresolved after substitution
+            _remaining_sys = re.findall(r'\{\{(\w+)\}\}', final_system_prompt)
+            _remaining_usr = re.findall(r'\{\{(\w+)\}\}', final_user_prompt)
+            if _remaining_sys or _remaining_usr:
+                logger.warning(
+                    f"[LLM] UNRESOLVED variables remain: system={_remaining_sys} user={_remaining_usr}"
+                )
             _perf_llm(
                 "prompt_format",
                 _t_stage,
@@ -3134,7 +3145,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 normalized_input['allowed_imports'] = [str(x) for x in allowed_imports_val]
             else:
                 normalized_input['allowed_imports'] = []
-
+ 
             # Always return nested form.
             # MCP server `run_code` will ignore unknown keys like language, but
             # our passive protocol expects language+code for consistent tooling.
@@ -3145,26 +3156,23 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             log_msg = f"🤖 Executing MCP node '{node_name}' in LLM auto-select mode"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
-            
-            # Extract LLM result from state
+
             llm_result = (state.get('result') or {}).get('llm_result') or {}
-            
-            # Handle case where LLM response is wrapped in 'message' field (multi-line JSON parsing fallback)
-            # Try to extract the JSON object containing next_tool_name
+
+            # Snapshot propagated work_result so the LLM response cannot blank it
+            _propagated_work_result = dict(llm_result.get('work_result') or {}) if isinstance(llm_result, dict) else {}
+
             if 'message' in llm_result and isinstance(llm_result.get('message'), str):
                 message_content = llm_result['message']
                 logger.debug(f"[MCP Auto-Select] Found 'message' wrapper, attempting to parse: {message_content[:300]}...")
-                
-                # Parse all complete JSON objects from the message and find the one with next_tool_name
+
                 parsed_objects = []
                 idx = 0
                 while idx < len(message_content):
-                    # Find next '{'
                     start_idx = message_content.find('{', idx)
                     if start_idx < 0:
                         break
-                    
-                    # Find matching closing brace using depth tracking
+
                     depth = 0
                     end_idx = -1
                     for i, c in enumerate(message_content[start_idx:]):
@@ -3175,7 +3183,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                             if depth == 0:
                                 end_idx = start_idx + i
                                 break
-                    
+
                     if end_idx > start_idx:
                         json_str = message_content[start_idx:end_idx + 1]
                         try:
@@ -3187,25 +3195,67 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         idx = end_idx + 1
                     else:
                         idx = start_idx + 1
-                
-                # Find the object with next_tool_name or tool_name
+
                 for obj in parsed_objects:
-                    if isinstance(obj, dict) and ('next_tool_name' in obj or 'tool_name' in obj):
+                    nested_tool_obj = {}
+                    if isinstance(obj, dict):
+                        for _tool_key in ('tool', 'tool_use', 'next_tool_use', 'next_tool'):
+                            _candidate = obj.get(_tool_key)
+                            if isinstance(_candidate, dict):
+                                nested_tool_obj = _candidate
+                                break
+                    if isinstance(obj, dict) and (
+                        'next_tool_name' in obj
+                        or 'tool_name' in obj
+                        or 'tool_name' in nested_tool_obj
+                    ):
                         llm_result = obj
-                        logger.debug(f"[MCP Auto-Select] Found target JSON with next_tool_name: {obj}")
-                        # Update state so loop condition can properly check work_done
+                        logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {obj}")
                         if 'result' in state and isinstance(state['result'], dict):
                             state['result']['llm_result'] = obj
                             logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
                         break
-            
+
+            # Merge propagated work_result back: LLM may have overwritten with empty values
+            if _propagated_work_result and isinstance(llm_result, dict):
+                llm_wr = llm_result.get('work_result')
+                if isinstance(llm_wr, dict):
+                    for _pk, _pv in _propagated_work_result.items():
+                        if _pv and not llm_wr.get(_pk):
+                            llm_wr[_pk] = _pv
+                else:
+                    llm_result['work_result'] = dict(_propagated_work_result)
+                # Also update state in case llm_result is a copy
+                if 'result' in state and isinstance(state.get('result'), dict):
+                    sr = state['result'].get('llm_result')
+                    if isinstance(sr, dict):
+                        sr_wr = sr.setdefault('work_result', {})
+                        if isinstance(sr_wr, dict):
+                            for _pk, _pv in _propagated_work_result.items():
+                                if _pv and not sr_wr.get(_pk):
+                                    sr_wr[_pk] = _pv
+                logger.debug(f"[MCP Auto-Select] Preserved propagated work_result: {_propagated_work_result}")
+
             work_done = llm_result.get('work_done', False)
-            next_tool_name = (llm_result.get('next_tool_name', '')
-                              or llm_result.get('tool_name', ''))
-            next_tool_input = (llm_result.get('next_tool_input')
-                               or llm_result.get('tool_input')
-                               or {})
-            
+            nested_tool = {}
+            for _tool_key in ('tool', 'tool_use', 'next_tool_use', 'next_tool'):
+                _candidate = llm_result.get(_tool_key) if isinstance(llm_result, dict) else None
+                if isinstance(_candidate, dict):
+                    nested_tool = _candidate
+                    break
+
+            next_tool_name = (
+                llm_result.get('next_tool_name', '')
+                or llm_result.get('tool_name', '')
+                or nested_tool.get('tool_name', '')
+            )
+            next_tool_input = (
+                llm_result.get('next_tool_input')
+                or llm_result.get('tool_input')
+                or nested_tool.get('tool_input')
+                or {}
+            )
+
             log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3220,31 +3270,23 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     llm_obj = result_obj.setdefault('llm_result', {})
                     if not isinstance(llm_obj, dict):
                         return
-                    if llm_obj.get('work_done') is True:
-                        llm_obj['all_done'] = True
+                    if 'all_done' not in llm_obj:
+                        llm_obj['all_done'] = False
                 except Exception:
                     return
-            
-            # Check if work is done - skip tool call
+
             if work_done:
                 _sync_completion_flags(state)
                 log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
                 logger.info(log_msg)
                 send_skill_editor_log("info", log_msg)
                 return state
-            
-            # Check if next_tool_name is empty or not provided
+
             if not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip():
-                # Check if this is an invalid LLM response format
-                # The LLM should return: {"work_done": bool, "next_tool_name": str, "next_tool_input": dict}
-                # But sometimes it returns just {"input": {...}} or {"message": ""}
-                
-                # Case 1: Empty message wrapper
                 if 'message' in llm_result and not llm_result.get('message', '').strip():
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned empty message with no next_tool_name. Setting work_done=True to exit loop gracefully."
                     logger.warning(log_msg)
                     send_skill_editor_log("warning", log_msg)
-                # Case 2: LLM returned just the input schema without required fields
                 elif 'input' in llm_result and 'next_tool_name' not in llm_result:
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned invalid format (just 'input' without 'next_tool_name'). Expected format: {{work_done, next_tool_name, next_tool_input}}. Got: {list(llm_result.keys())}. Setting work_done=True."
                     logger.warning(log_msg)
@@ -3253,29 +3295,27 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     log_msg = f"[MCP Auto-Select] next_tool_name is empty or not provided. LLM result keys: {list(llm_result.keys())}. Skipping tool call for node '{node_name}'"
                     logger.info(log_msg)
                     send_skill_editor_log("info", log_msg)
-                
-                # Set work_done to True so the loop condition exits gracefully
+
                 if 'result' in state and isinstance(state['result'], dict):
                     if 'llm_result' not in state['result']:
                         state['result']['llm_result'] = {}
                     state['result']['llm_result']['work_done'] = True
+                    state['result']['llm_result']['all_done'] = True
                 _sync_completion_flags(state)
                 return state
-            
+
             actual_tool_name = next_tool_name.strip()
-            
-            # Validate tool name against MCP tool registry
+
             tool_schema = _get_tool_schema_by_name(actual_tool_name)
             if not tool_schema:
                 log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
                 logger.warning(log_msg)
                 send_skill_editor_log("warning", log_msg)
                 return state
-            
-            # Use next_tool_input from LLM result
+
             if isinstance(next_tool_input, dict) and next_tool_input:
                 actual_tool_input = next_tool_input
-            
+
             log_msg = f"[MCP Auto-Select] Resolved tool: '{actual_tool_name}' with input: {actual_tool_input}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3343,6 +3383,72 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 pass
             return str(result)
 
+        def _extract_tool_result_payload(result):
+            try:
+                structured = getattr(result, 'structuredContent', None)
+                if isinstance(structured, dict):
+                    return structured
+            except Exception:
+                pass
+            try:
+                meta = getattr(result, 'meta', None)
+                if isinstance(meta, dict):
+                    if isinstance(meta.get('task_result'), dict):
+                        return meta.get('task_result')
+            except Exception:
+                pass
+            try:
+                if hasattr(result, 'content') and isinstance(result.content, list):
+                    for c in result.content:
+                        c_meta = getattr(c, 'meta', None)
+                        if isinstance(c_meta, dict) and isinstance(c_meta.get('task_result'), dict):
+                            return c_meta.get('task_result')
+            except Exception:
+                pass
+            return {}
+
+        def _apply_mcp_result_to_llm_state(st: dict, tool_name: str, result) -> None:
+            try:
+                if not isinstance(st, dict):
+                    return
+                result_obj = st.setdefault('result', {})
+                if not isinstance(result_obj, dict):
+                    return
+                llm_obj = result_obj.setdefault('llm_result', {})
+                if not isinstance(llm_obj, dict):
+                    return
+                work_result = llm_obj.setdefault('work_result', {})
+                if not isinstance(work_result, dict):
+                    llm_obj['work_result'] = {}
+                    work_result = llm_obj['work_result']
+
+                payload = _extract_tool_result_payload(result)
+                success = bool(isinstance(payload, dict) and payload.get('success'))
+                if success:
+                    work_result['last_action_succeeded'] = True
+
+                if tool_name == 'create_agent_task_with_skill' and success:
+                    task_id = str(payload.get('task_id') or '')
+                    work_result['skill_task_created'] = True
+                    if task_id:
+                        work_result['created_task_id'] = task_id
+                    llm_obj['all_done'] = False
+                elif tool_name == 'launch_agent_task' and success:
+                    work_result['skill_task_launched'] = True
+                    task_id = str(payload.get('task_id') or payload.get('run_id') or '')
+                    if task_id:
+                        work_result['created_task_id'] = task_id
+                    llm_obj['all_done'] = False
+                elif tool_name == 'os_screen_capture' and success:
+                    work_result['screen_capture_done'] = True
+                    llm_obj['all_done'] = False
+                logger.info(
+                    f"[MCP Result Propagation] tool={tool_name} success={success} "
+                    f"work_result={work_result}"
+                )
+            except Exception:
+                return
+
         async def run_tool_call():
             """A local async function to perform the actual tool call.
 
@@ -3363,11 +3469,18 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             from config.constants import DEFAULT_API_TIMEOUT
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
 
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+                llm_manager = get_llm_manager()
+                all_providers = llm_manager.get_all_providers() or []
+            except Exception:
+                pass
+
             # --- Cloud-worker direct invocation (no local MCP HTTP server) ---
             _is_cloud = os.environ.get("ECAN_MODE") == "worker"
             if not _is_cloud:
                 try:
-                    from gui.AppContext import AppContext
+                    from app_context import AppContext
                     _is_cloud = AppContext.get_main_window() is None
                 except Exception:
                     pass
@@ -3776,7 +3889,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _safe_inc_steps(state)
                     tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
                     add_to_history(state, tool_call_summary)
-                
+                    _apply_mcp_result_to_llm_state(state, _actual_tool_name, tool_result)
+
                 return state
                 
             except Exception as e:
@@ -3827,6 +3941,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 _safe_inc_steps(state)
                 tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
                 add_to_history(state, tool_call_summary)
+                _apply_mcp_result_to_llm_state(state, _actual_tool_name, tool_result)
 
                 # Also update attributes for easier access by subsequent nodes
                 log_msg = f"state tool_result: meta={getattr(tool_result, 'meta', None)} content={[c.text[:200] + '...' if hasattr(c, 'text') and len(getattr(c, 'text', '')) > 200 else c for c in getattr(tool_result, 'content', [])]!r} structuredContent={getattr(tool_result, 'structuredContent', None)} isError={getattr(tool_result, 'isError', None)}"
