@@ -1317,6 +1317,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'stop_tests' }, { test_ids });
     }
 
+    public async testTask<T>(skillName?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_task' }, { skill_name: skillName || 'my_test_bu_tools' });
+    }
+
     public async saveAgent<T>(username: string, agent: T[]): Promise<APIResponse<void>> {
         return apiRouter.execute(
       {

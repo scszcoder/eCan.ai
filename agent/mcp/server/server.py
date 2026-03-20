@@ -2880,9 +2880,15 @@ async def os_screen_analyze(mainwin, args):
 async def os_screen_capture(mainwin, args):
     from agent.ec_skills.ocr.image_prep import carveOutImage, maskOutImage, saveImageToFile, takeScreenShot
     try:
-        screen_img, window_rect = await takeScreenShot(args["input"]["win_title_kw"])
-        img_section = carveOutImage(screen_img, args["input"]["sub_area"], "")
-        maskOutImage(img_section, args["input"]["sub_area"], "")
+        screen_img, window_rect = takeScreenShot(args["input"]["win_title_kw"])
+        sub_area = args["input"].get("sub_area", [0, 0, 0, 0])
+        # carveOutImage expects [x, y, w, h]; maskOutImage expects {"masks": [...]}
+        if isinstance(sub_area, list) and len(sub_area) == 4:
+            img_section = carveOutImage(screen_img, sub_area, "")
+        else:
+            img_section = screen_img
+        if isinstance(sub_area, dict) and sub_area.get("masks"):
+            maskOutImage(img_section, sub_area, "")
 
         saveImageToFile(img_section, args["input"]["file"], "png")
 

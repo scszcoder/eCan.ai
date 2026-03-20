@@ -401,7 +401,7 @@ def _v2_convert_loops(wf: dict) -> dict:
         update_id = f"update_{lid}_condition"
 
         # Parse loop expression to find keys referenced under state['result']
-        # so we can seed them with sensible defaults (False) to prevent KeyError
+        # so we can seed them with sensible defaults to prevent KeyError
         # on the first iteration.
         _seed_lines = ""
         _loop_expr = str((lnode.get('data') or {}).get('loopWhileExpr') or '').strip()
@@ -410,7 +410,11 @@ def _v2_convert_loops(wf: dict) -> dict:
             # Match patterns like state["result"]["key"] or state['result']['key']
             _result_keys = _re.findall(r'''(?:state\s*\[\s*["']result["']\s*\]\s*\[\s*["'])(\w+)(?:["']\s*\])''', _loop_expr)
             for _rk in _result_keys:
-                _seed_lines += f"        if '{_rk}' not in result:\n            result['{_rk}'] = False\n"
+                # Initialize llm_result as a dict with all_done: False, not as a boolean
+                if _rk == 'llm_result':
+                    _seed_lines += f"        if '{_rk}' not in result:\n            result['{_rk}'] = {{'all_done': False, 'work_done': False}}\n"
+                else:
+                    _seed_lines += f"        if '{_rk}' not in result:\n            result['{_rk}'] = False\n"
 
         update_node = {
             'id': update_id,
