@@ -512,6 +512,20 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         logger.debug(f"[LLM_HOOKS] chat node: llm prompt ready: {formatted_prompt}")
         response = llm.invoke(formatted_prompt)
         logger.debug(f"[LLM_HOOKS] chat node: LLM response: {response}")
+
+        # Record token usage to database for the top-panel display
+        try:
+            from agent.ec_skills.token_tracker import token_tracker
+            token_tracker.record_llm_usage(
+                response,
+                source_type="skill_llm_node",
+                source_id=full_node_name,
+                source_name=full_node_name,
+                node_type="llm"
+            )
+        except Exception as _tk_err:
+            logger.debug(f"[TokenTracker] Failed to record LLM usage: {_tk_err}")
+
         # Parse the response
         run_post_llm_hook(full_node_name, agent, state, response)
         logger.debug(f"[LLM_HOOKS] llm_node_with_raw_file finished..... {state}")
