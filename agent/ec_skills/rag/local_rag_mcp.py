@@ -145,20 +145,50 @@ async def rag_query(mainwin, args):
                     continue
                 options[param] = val
         
-        # Execute query
-        response = client.query(query_text.strip(), options)
+        # Context-only queries use blocking /query (fast, <5s).
+        # Full-generation queries use /query/stream to avoid timeout on slow LLMs.
+        _is_context_only = options.get("only_need_context", False)
         
-        if response.get("status") == "success":
-            data = response.get("data", {})
-            # LightRAG returns {"response": "...", "references": [...]}
-            if isinstance(data, dict):
-                answer = data.get("response", str(data))
+        if _is_context_only:
+            # Blocking call — context retrieval is fast, 30s timeout is generous
+            response = client.query(query_text.strip(), options, timeout=30)
+            if response.get("status") == "success":
+                data = response.get("data", {})
+                if isinstance(data, dict):
+                    answer = data.get("response", str(data))
+                else:
+                    answer = str(data)
+                rag_result = response
             else:
-                answer = str(data)
-            rag_result = response
+                answer = f"Error: {response.get('message', 'Query failed')}"
+                rag_result = response
         else:
-            answer = f"Error: {response.get('message', 'Query failed')}"
-            rag_result = response
+            # Streaming call — keeps connection alive for slow LLM generation
+            import json as _json
+            _accumulated = ""
+            _refs = []
+            try:
+                for chunk_line in client.query_stream(query_text.strip(), options):
+                    try:
+                        chunk_data = _json.loads(chunk_line)
+                        if "response" in chunk_data:
+                            _accumulated += chunk_data.get("response", "")
+                        if "references" in chunk_data:
+                            _refs = chunk_data.get("references", [])
+                    except _json.JSONDecodeError:
+                        _accumulated += chunk_line
+                answer = _accumulated
+                rag_result = {"status": "success", "data": {"response": _accumulated, "references": _refs}}
+            except Exception as stream_err:
+                logger.warning(f"[MCP][RAG_QUERY] Stream failed, falling back to blocking: {stream_err}")
+                response = client.query(query_text.strip(), options, timeout=90)
+                if response.get("status") == "success":
+                    data = response.get("data", {})
+                    answer = data.get("response", str(data)) if isinstance(data, dict) else str(data)
+                    rag_result = response
+                else:
+                    answer = f"Error: {response.get('message', 'Query failed')}"
+                    rag_result = response
 
         result = TextContent(type="text", text=answer)
         if isinstance(rag_result, dict):
