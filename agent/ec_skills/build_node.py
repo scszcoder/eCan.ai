@@ -1900,6 +1900,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
+                # Record token usage to database for the top-panel display
+                try:
+                    from agent.ec_skills.token_tracker import token_tracker
+                    token_tracker.record_llm_usage(
+                        response,
+                        source_type="skill_llm_node",
+                        source_id=full_node_name,
+                        source_name=f"{skill_name}::{node_name}",
+                        node_type="llm"
+                    )
+                except Exception as _tk_err:
+                    logger.debug(f"[TokenTracker] Failed to record LLM usage: {_tk_err}")
+
                 # It's good practice to put results in specific keys
                 _t_stage = _time.perf_counter()
                 run_post_llm_hook(full_node_name, agent, state, response)
@@ -2063,6 +2076,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 log_msg = f"✅ LLM (no-agent) response from {_prov}: {_response}"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
+
+                # Record token usage to database for the top-panel display
+                try:
+                    from agent.ec_skills.token_tracker import token_tracker
+                    token_tracker.record_llm_usage(
+                        _response,
+                        source_type="skill_llm_node",
+                        source_id=full_node_name,
+                        source_name=f"{skill_name}::{node_name}",
+                        node_type="llm"
+                    )
+                except Exception as _tk_err:
+                    logger.debug(f"[TokenTracker] Failed to record LLM usage (no-agent): {_tk_err}")
 
                 # Parse the response and update state["result"] so loop conditions can evaluate
                 from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
@@ -5817,6 +5843,61 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     final_str = final_str[:10000] + '... (truncated)'
                 logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
                 
+                # Record token usage from browser-use AgentHistoryList.usage (UsageSummary)
+                # browser-use tracks per-model stats via TokenCost service
+                try:
+                    from agent.ec_skills.token_tracker import token_tracker as _bu_token_tracker
+                    _bu_usage = getattr(history, 'usage', None)
+                    if _bu_usage and (getattr(_bu_usage, 'total_tokens', 0) or 0) > 0:
+                        # Record per-model breakdown (handles main LLM + judge + page_extraction + compaction)
+                        _by_model = getattr(_bu_usage, 'by_model', None) or {}
+                        if _by_model:
+                            for _m_name, _m_stats in _by_model.items():
+                                _m_in = getattr(_m_stats, 'prompt_tokens', 0) or 0
+                                _m_out = getattr(_m_stats, 'completion_tokens', 0) or 0
+                                if _m_in > 0 or _m_out > 0:
+                                    _bu_token_tracker.record_llm_usage(
+                                        type('_BUTokens', (), {
+                                            'usage_metadata': {'input_tokens': _m_in, 'output_tokens': _m_out},
+                                            'response_metadata': {'model_name': _m_name},
+                                        })(),
+                                        source_type="skill_browser_node",
+                                        source_id=f"{skill_name}::{node_name}",
+                                        source_name=f"{skill_name}::{node_name}",
+                                        node_type="browser_automation"
+                                    )
+                                    logger.info(f"[TokenTracker] BrowserUse model={_m_name} in={_m_in} out={_m_out}")
+                        else:
+                            # Fallback: no per-model breakdown, record aggregate
+                            _bu_total_in = getattr(_bu_usage, 'total_prompt_tokens', 0) or 0
+                            _bu_total_out = getattr(_bu_usage, 'total_completion_tokens', 0) or 0
+                            _bu_model_name = (
+                                node_model_name
+                                or getattr(getattr(agent, 'llm', None), 'model_name', None)
+                                or getattr(getattr(agent, 'llm', None), 'model', None)
+                                or "unknown"
+                            )
+                            _bu_token_tracker.record_llm_usage(
+                                type('_BUTokens', (), {
+                                    'usage_metadata': {'input_tokens': _bu_total_in, 'output_tokens': _bu_total_out},
+                                    'response_metadata': {'model_name': _bu_model_name},
+                                })(),
+                                source_type="skill_browser_node",
+                                source_id=f"{skill_name}::{node_name}",
+                                source_name=f"{skill_name}::{node_name}",
+                                node_type="browser_automation"
+                            )
+                            logger.info(f"[TokenTracker] BrowserUse tokens: model={_bu_model_name} in={_bu_total_in} out={_bu_total_out}")
+                        logger.info(
+                            f"[TokenTracker] BrowserUse total: {getattr(_bu_usage, 'total_tokens', 0)} tokens, "
+                            f"{getattr(_bu_usage, 'entry_count', 0)} LLM calls, "
+                            f"cost=${getattr(_bu_usage, 'total_cost', 0.0):.4f}"
+                        )
+                    else:
+                        logger.debug(f"[TokenTracker] BrowserUse: no usage summary in history ({len(getattr(history, 'history', []))} steps)")
+                except Exception as _bu_tk_err:
+                    logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
+
                 return {"final": final, "history": str(history)}
             finally:
                 # Clean up browser session if not cached

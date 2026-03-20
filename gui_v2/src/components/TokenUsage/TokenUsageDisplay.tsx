@@ -151,11 +151,11 @@ export const TokenUsageDisplay: React.FC = () => {
         fetchTokenUsage();
     }, [fetchTokenUsage]);
 
-    // Auto-refresh every 5 minutes
+    // Auto-refresh every 60 seconds
     useEffect(() => {
         const interval = setInterval(() => {
             fetchTokenUsage();
-        }, 5 * 60 * 1000); // 5 minutes
+        }, 60 * 1000); // 60 seconds
 
         return () => clearInterval(interval);
     }, [fetchTokenUsage]);
