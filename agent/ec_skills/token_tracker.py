@@ -220,15 +220,15 @@ class TokenTracker:
                 output_tokens = usage.get("output_tokens", 0) or 0
             
             # Fallback to response_metadata.token_usage
+            resp_meta = getattr(response, "response_metadata", None) or {}
             if input_tokens == 0 and output_tokens == 0:
-                resp_meta = getattr(response, "response_metadata", None) or {}
                 token_usage = resp_meta.get("token_usage") or resp_meta.get("usage") or {}
                 if isinstance(token_usage, dict):
                     input_tokens = token_usage.get("prompt_tokens", 0) or token_usage.get("input_tokens", 0) or 0
                     output_tokens = token_usage.get("completion_tokens", 0) or token_usage.get("output_tokens", 0) or 0
-                
-                # Extract model name
-                model_name = resp_meta.get("model_name", "") or resp_meta.get("model", "") or "unknown"
+            
+            # Always extract model name from response_metadata
+            model_name = resp_meta.get("model_name", "") or resp_meta.get("model", "") or "unknown"
             
             # Determine vendor from model name
             vendor = self._determine_vendor(model_name)
@@ -241,7 +241,7 @@ class TokenTracker:
     def _determine_vendor(self, model_name: str) -> str:
         """Determine vendor from model name."""
         model_lower = model_name.lower()
-        if 'gpt' in model_lower or 'o1' in model_lower or 'davinci' in model_lower:
+        if 'gpt' in model_lower or 'o1' in model_lower or 'o3' in model_lower or 'o4' in model_lower or 'davinci' in model_lower:
             return 'openai'
         elif 'claude' in model_lower:
             return 'anthropic'
@@ -263,10 +263,18 @@ class TokenTracker:
         # Pricing per 1K tokens
         pricing_table = {
             'openai': {
-                'gpt-4': {'input': 0.03, 'output': 0.06},
-                'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
+                'gpt-5': {'input': 0.005, 'output': 0.015},
+                'gpt-4.1': {'input': 0.002, 'output': 0.008},
+                'gpt-4.1-mini': {'input': 0.0004, 'output': 0.0016},
+                'gpt-4.1-nano': {'input': 0.0001, 'output': 0.0004},
                 'gpt-4o': {'input': 0.005, 'output': 0.015},
+                'gpt-4o-mini': {'input': 0.00015, 'output': 0.0006},
+                'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
+                'gpt-4': {'input': 0.03, 'output': 0.06},
                 'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
+                'o4-mini': {'input': 0.0011, 'output': 0.0044},
+                'o3': {'input': 0.002, 'output': 0.008},
+                'o3-mini': {'input': 0.0011, 'output': 0.0044},
                 'o1-preview': {'input': 0.015, 'output': 0.06},
                 'o1-mini': {'input': 0.003, 'output': 0.012},
                 'text-embedding-3-small': {'input': 0.00002, 'output': 0},

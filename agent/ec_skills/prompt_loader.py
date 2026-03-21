@@ -55,7 +55,9 @@ def load_prompt_by_id(prompt_id: str) -> Optional[Dict[str, Any]]:
 
 def construct_prompt_from_data(prompt_data: Dict[str, Any]) -> str:
     """
-    Construct a prompt string from prompt data (sections and humanInputs).
+    Construct a prompt string from prompt data (mdContent or sections and humanInputs).
+    
+    Prioritizes mdContent if present (markdown mode), otherwise uses sections (JSON mode).
     
     Args:
         prompt_data: Dictionary containing prompt sections and humanInputs
@@ -66,6 +68,17 @@ def construct_prompt_from_data(prompt_data: Dict[str, Any]) -> str:
     if not prompt_data:
         return ""
     
+    # If mdContent exists and is not empty, use it directly (markdown mode)
+    md_content = prompt_data.get("mdContent", "").strip()
+    if md_content:
+        logger.warning(f"[prompt_loader] ✅ Using mdContent for prompt (markdown mode)")
+        logger.warning(f"[prompt_loader] mdContent length: {len(md_content)} chars")
+        logger.warning(f"[prompt_loader] mdContent preview: {md_content[:200]}...")
+        return md_content
+    
+    # Otherwise, construct from sections (JSON mode)
+    logger.warning(f"[prompt_loader] ⚠️ No mdContent, constructing from sections (JSON mode)")
+    logger.warning(f"[prompt_loader] Sections count: {len(prompt_data.get('sections', []))}")
     lines = []
     
     # Add title if present

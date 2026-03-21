@@ -349,13 +349,17 @@ def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | Non
         if cloud_ctx is not None:
             # Determine which owner to query — prefer explicit skill_owner
             effective_owner = skill_owner or cloud_ctx.owner_id
-            logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}' owner='{effective_owner}'")
+            logger.warning(f"[prompts] ⚠️ CLOUD PROMPT LOADING ACTIVE - Using cloud prompt loader for selection '{selection}' owner='{effective_owner}'")
+            send_skill_editor_log("warning", f"[prompts] Loading prompt '{selection}' from CLOUD (may be stale)")
             loader = get_cloud_prompt_loader(
                 owner_id=effective_owner,
                 region=cloud_ctx.region,
                 table_name=cloud_ctx.table_name,
             )
             prompt_data = loader.get_prompt_by_id(selection)
+            if prompt_data:
+                logger.warning(f"[prompts] ⚠️ Loaded prompt '{selection}' from CLOUD - this may override your local version")
+                send_skill_editor_log("warning", f"[prompts] Loaded prompt from CLOUD (not local file)")
             
             # Create a simple normalizer wrapper
             class CloudNormalizer:
@@ -422,15 +426,22 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         a dict of variable declarations from the prompt JSON's "variables" field.
     """
     selection = (prompt_selection or "inline").strip()
+    logger.info(f"[_resolve_prompt_templates] 🔍 selection='{selection}', inline_system={len(inline_system)} chars, inline_user={len(inline_user)} chars")
+    
     if selection in ("", "inline"):
+        logger.info(f"[_resolve_prompt_templates] ↩️ Using inline prompts (selection is empty or 'inline')")
         return inline_system, inline_user, {}
 
     # Load prompt data from cloud or local
+    logger.info(f"[_resolve_prompt_templates] 📂 Loading prompt data for '{selection}', skill_owner='{skill_owner}'")
     prompt_data, normalizer = _load_prompt_data(selection, skill_owner=skill_owner)
     
     if not prompt_data:
-        logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
+        logger.warning(f"[_resolve_prompt_templates] ❌ Prompt selection '{selection}' not found. Falling back to inline prompts.")
+        send_skill_editor_log("warning", f"Prompt '{selection}' not found, using inline prompts")
         return inline_system, inline_user, {}
+    
+    logger.info(f"[_resolve_prompt_templates] ✅ Loaded prompt data for '{selection}'")
 
     normalized = prompt_data
     if not isinstance(normalized, dict) or "sections" not in normalized:
@@ -690,60 +701,71 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
 
     system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
 
-    user_parts: list[str] = []
-    title = str(normalized.get("title") or "").strip()
-    topic = str(normalized.get("topic") or "").strip()
-    if title and title != selection:
-        user_parts.append(title)
-    if topic and topic.lower() not in {"", "new prompt"} and topic.lower() != title.lower():
-        user_parts.append(topic)
-
-    # normalized is guaranteed to be dict from _normalize_prompt
-    instructions = normalized.get("instructions") or []
-    instructions_joined = _join_list(instructions if isinstance(instructions, list) else [])
-    if instructions_joined:
-        _add_section(user_parts, "Instructions", instructions_joined)
-
-    # Prioritize userSections over humanInputs - only use humanInputs if userSections is empty
-    user_sections = normalized.get("userSections") or []
-    user_sections_has_content = any(
-        isinstance(s, dict) and s.get("items") and any(str(i).strip() for i in (s.get("items") if isinstance(s.get("items"), list) else []))
-        for s in user_sections
-    )
-    
-    if user_sections_has_content:
-        # Use userSections
-        for section in user_sections:
-            if not isinstance(section, dict):
-                continue
-            sec_type = str(section.get("type") or "").strip().lower()
-            items = section.get("items") if isinstance(section.get("items"), list) else []
-            # Handle tools_to_use specially - fetch full schemas
-            if sec_type == "tools_to_use":
-                joined = _format_tools_to_use_section(items)
-            else:
-                joined = _join_list(items)
-            if not joined:
-                continue
-            label = _section_label(section)
-            _add_section(user_parts, label or None, joined)
+    # Check if mdContent exists (markdown mode) - if so, use it directly and skip structured sections
+    md_content = str(normalized.get("mdContent") or "").strip()
+    if md_content:
+        logger.warning(f"[_resolve_prompt_templates] ✅ Using mdContent for user prompt (markdown mode, {len(md_content)} chars)")
+        logger.warning(f"[_resolve_prompt_templates] mdContent preview: {md_content[:200]}...")
+        send_skill_editor_log("log", f"[_resolve_prompt_templates] Using mdContent ({len(md_content)} chars)")
+        user_text = md_content
     else:
-        # Fallback to humanInputs if userSections is empty
-        human_inputs = normalized.get("humanInputs") or []
-        human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
-        if human_inputs_joined:
-            _add_section(user_parts, "Provide", human_inputs_joined)
+        # Structured sections mode (JSON format)
+        logger.warning(f"[_resolve_prompt_templates] ⚠️ No mdContent, using structured sections")
+        user_parts: list[str] = []
+        title = str(normalized.get("title") or "").strip()
+        topic = str(normalized.get("topic") or "").strip()
+        if title and title != selection:
+            user_parts.append(title)
+        if topic and topic.lower() not in {"", "new prompt"} and topic.lower() != title.lower():
+            user_parts.append(topic)
 
-    sys_inputs = normalized.get("sysInputs") or []
-    sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
-    if sys_inputs_joined:
-        _add_section(user_parts, "System Inputs", sys_inputs_joined)
+        # normalized is guaranteed to be dict from _normalize_prompt
+        instructions = normalized.get("instructions") or []
+        instructions_joined = _join_list(instructions if isinstance(instructions, list) else [])
+        if instructions_joined:
+            _add_section(user_parts, "Instructions", instructions_joined)
 
-    additional_prompt = str(normalized.get("prompt") or "").strip()
-    if additional_prompt:
-        user_parts.append(additional_prompt)
+        # Prioritize userSections over humanInputs - only use humanInputs if userSections is empty
+        user_sections = normalized.get("userSections") or []
+        user_sections_has_content = any(
+            isinstance(s, dict) and s.get("items") and any(str(i).strip() for i in (s.get("items") if isinstance(s.get("items"), list) else []))
+            for s in user_sections
+        )
+        
+        if user_sections_has_content:
+            # Use userSections
+            for section in user_sections:
+                if not isinstance(section, dict):
+                    continue
+                sec_type = str(section.get("type") or "").strip().lower()
+                items = section.get("items") if isinstance(section.get("items"), list) else []
+                # Handle tools_to_use specially - fetch full schemas
+                if sec_type == "tools_to_use":
+                    joined = _format_tools_to_use_section(items)
+                else:
+                    joined = _join_list(items)
+                if not joined:
+                    continue
+                label = _section_label(section)
+                _add_section(user_parts, label or None, joined)
+        else:
+            # Fallback to humanInputs if userSections is empty (DEPRECATED - should use mdContent instead)
+            logger.warning(f"[_resolve_prompt_templates] ⚠️ Falling back to humanInputs (deprecated)")
+            human_inputs = normalized.get("humanInputs") or []
+            human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
+            if human_inputs_joined:
+                _add_section(user_parts, "Provide", human_inputs_joined)
 
-    user_text = "\n\n".join(part for part in user_parts if part) or inline_user
+        sys_inputs = normalized.get("sysInputs") or []
+        sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
+        if sys_inputs_joined:
+            _add_section(user_parts, "System Inputs", sys_inputs_joined)
+
+        additional_prompt = str(normalized.get("prompt") or "").strip()
+        if additional_prompt:
+            user_parts.append(additional_prompt)
+
+        user_text = "\n\n".join(part for part in user_parts if part) or inline_user
 
     # Extract prompt-level variable declarations for cascading resolution
     prompt_variables = {}
@@ -1086,23 +1108,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             "azure_openai": AzureChatOpenAI,
         }
         return runtime_registry.get((runtime_kind or "").strip())
-    
+
     def _validate_runtime_registry():
         """
-        Self-check: Validate that all runtime_kinds in llm_providers.json 
+        Self-check: Validate that all runtime_kinds in llm_providers.json
         have corresponding constructors in the runtime registry.
         This runs once at module load time.
         """
         try:
-            from gui.config.llm_manager import get_llm_manager
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+
             llm_manager = get_llm_manager()
             all_providers = llm_manager.get_all_providers() or []
-            
+
             runtime_registry_keys = {
                 "openai_compatible", "anthropic", "google_genai", "deepseek",
                 "qwq_compatible", "ollama_native", "zhipuai", "bedrock_converse", "azure_openai"
             }
-            
+
             missing_constructors = []
             for provider in all_providers:
                 if not isinstance(provider, dict):
@@ -1111,7 +1134,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 if runtime_kind and runtime_kind not in runtime_registry_keys:
                     provider_name = provider.get("name") or provider.get("provider") or "Unknown"
                     missing_constructors.append(f"{provider_name} (runtime_kind: {runtime_kind})")
-            
+
             if missing_constructors:
                 logger.warning(
                     f"[build_llm_node] Runtime registry missing constructors for: {', '.join(missing_constructors)}. "
@@ -1304,6 +1327,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         skill_name = runtime.context["this_node"].get("skill_name")
         owner = runtime.context["this_node"].get("owner")
         full_node_name = f"{owner}:{skill_name}:{current_node_name}"
+        logger.debug(f"[LLM] llm_node_callable: node={node_name}, skill={skill_name}")
 
         log_msg = f"full_node_name: {full_node_name}"
         logger.debug(log_msg)
@@ -1320,6 +1344,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
+        logger.debug(f"[LLM] node={node_name} template_vars={variables}")
 
         # --- Cascading variable resolution ---
         # Priority: prompt_refs → prompt-level vars → skill-level vars → built-in providers → ""
@@ -1356,6 +1381,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             prompt_variables=prompt_level_variables,
             skill_prompt_variables=skill_prompt_variables,
         )
+        logger.debug(f"[LLM] node={node_name} resolved {len(format_context)} variables")
 
         # Substitute {{var_name}} with values from format_context
         try:
@@ -1368,6 +1394,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
+            # Check if any {{variables}} remain unresolved after substitution
+            _remaining_sys = re.findall(r'\{\{(\w+)\}\}', final_system_prompt)
+            _remaining_usr = re.findall(r'\{\{(\w+)\}\}', final_user_prompt)
+            if _remaining_sys or _remaining_usr:
+                logger.warning(
+                    f"[LLM] UNRESOLVED variables remain: system={_remaining_sys} user={_remaining_usr}"
+                )
             _perf_llm(
                 "prompt_format",
                 _t_stage,
@@ -1867,6 +1900,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
+                # Record token usage to database for the top-panel display
+                try:
+                    from agent.ec_skills.token_tracker import token_tracker
+                    token_tracker.record_llm_usage(
+                        response,
+                        source_type="skill_llm_node",
+                        source_id=full_node_name,
+                        source_name=f"{skill_name}::{node_name}",
+                        node_type="llm"
+                    )
+                except Exception as _tk_err:
+                    logger.debug(f"[TokenTracker] Failed to record LLM usage: {_tk_err}")
+
                 # It's good practice to put results in specific keys
                 _t_stage = _time.perf_counter()
                 run_post_llm_hook(full_node_name, agent, state, response)
@@ -2030,6 +2076,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 log_msg = f"✅ LLM (no-agent) response from {_prov}: {_response}"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
+
+                # Record token usage to database for the top-panel display
+                try:
+                    from agent.ec_skills.token_tracker import token_tracker
+                    token_tracker.record_llm_usage(
+                        _response,
+                        source_type="skill_llm_node",
+                        source_id=full_node_name,
+                        source_name=f"{skill_name}::{node_name}",
+                        node_type="llm"
+                    )
+                except Exception as _tk_err:
+                    logger.debug(f"[TokenTracker] Failed to record LLM usage (no-agent): {_tk_err}")
 
                 # Parse the response and update state["result"] so loop conditions can evaluate
                 from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
@@ -3112,7 +3171,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 normalized_input['allowed_imports'] = [str(x) for x in allowed_imports_val]
             else:
                 normalized_input['allowed_imports'] = []
-
+ 
             # Always return nested form.
             # MCP server `run_code` will ignore unknown keys like language, but
             # our passive protocol expects language+code for consistent tooling.
@@ -3123,26 +3182,23 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             log_msg = f"🤖 Executing MCP node '{node_name}' in LLM auto-select mode"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
-            
-            # Extract LLM result from state
+
             llm_result = (state.get('result') or {}).get('llm_result') or {}
-            
-            # Handle case where LLM response is wrapped in 'message' field (multi-line JSON parsing fallback)
-            # Try to extract the JSON object containing next_tool_name
+
+            # Snapshot propagated work_result so the LLM response cannot blank it
+            _propagated_work_result = dict(llm_result.get('work_result') or {}) if isinstance(llm_result, dict) else {}
+
             if 'message' in llm_result and isinstance(llm_result.get('message'), str):
                 message_content = llm_result['message']
                 logger.debug(f"[MCP Auto-Select] Found 'message' wrapper, attempting to parse: {message_content[:300]}...")
-                
-                # Parse all complete JSON objects from the message and find the one with next_tool_name
+
                 parsed_objects = []
                 idx = 0
                 while idx < len(message_content):
-                    # Find next '{'
                     start_idx = message_content.find('{', idx)
                     if start_idx < 0:
                         break
-                    
-                    # Find matching closing brace using depth tracking
+
                     depth = 0
                     end_idx = -1
                     for i, c in enumerate(message_content[start_idx:]):
@@ -3153,7 +3209,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                             if depth == 0:
                                 end_idx = start_idx + i
                                 break
-                    
+
                     if end_idx > start_idx:
                         json_str = message_content[start_idx:end_idx + 1]
                         try:
@@ -3165,25 +3221,67 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         idx = end_idx + 1
                     else:
                         idx = start_idx + 1
-                
-                # Find the object with next_tool_name or tool_name
+
                 for obj in parsed_objects:
-                    if isinstance(obj, dict) and ('next_tool_name' in obj or 'tool_name' in obj):
+                    nested_tool_obj = {}
+                    if isinstance(obj, dict):
+                        for _tool_key in ('tool', 'tool_use', 'next_tool_use', 'next_tool'):
+                            _candidate = obj.get(_tool_key)
+                            if isinstance(_candidate, dict):
+                                nested_tool_obj = _candidate
+                                break
+                    if isinstance(obj, dict) and (
+                        'next_tool_name' in obj
+                        or 'tool_name' in obj
+                        or 'tool_name' in nested_tool_obj
+                    ):
                         llm_result = obj
-                        logger.debug(f"[MCP Auto-Select] Found target JSON with next_tool_name: {obj}")
-                        # Update state so loop condition can properly check work_done
+                        logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {obj}")
                         if 'result' in state and isinstance(state['result'], dict):
                             state['result']['llm_result'] = obj
                             logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
                         break
-            
+
+            # Merge propagated work_result back: LLM may have overwritten with empty values
+            if _propagated_work_result and isinstance(llm_result, dict):
+                llm_wr = llm_result.get('work_result')
+                if isinstance(llm_wr, dict):
+                    for _pk, _pv in _propagated_work_result.items():
+                        if _pv and not llm_wr.get(_pk):
+                            llm_wr[_pk] = _pv
+                else:
+                    llm_result['work_result'] = dict(_propagated_work_result)
+                # Also update state in case llm_result is a copy
+                if 'result' in state and isinstance(state.get('result'), dict):
+                    sr = state['result'].get('llm_result')
+                    if isinstance(sr, dict):
+                        sr_wr = sr.setdefault('work_result', {})
+                        if isinstance(sr_wr, dict):
+                            for _pk, _pv in _propagated_work_result.items():
+                                if _pv and not sr_wr.get(_pk):
+                                    sr_wr[_pk] = _pv
+                logger.debug(f"[MCP Auto-Select] Preserved propagated work_result: {_propagated_work_result}")
+
             work_done = llm_result.get('work_done', False)
-            next_tool_name = (llm_result.get('next_tool_name', '')
-                              or llm_result.get('tool_name', ''))
-            next_tool_input = (llm_result.get('next_tool_input')
-                               or llm_result.get('tool_input')
-                               or {})
-            
+            nested_tool = {}
+            for _tool_key in ('tool', 'tool_use', 'next_tool_use', 'next_tool'):
+                _candidate = llm_result.get(_tool_key) if isinstance(llm_result, dict) else None
+                if isinstance(_candidate, dict):
+                    nested_tool = _candidate
+                    break
+
+            next_tool_name = (
+                llm_result.get('next_tool_name', '')
+                or llm_result.get('tool_name', '')
+                or nested_tool.get('tool_name', '')
+            )
+            next_tool_input = (
+                llm_result.get('next_tool_input')
+                or llm_result.get('tool_input')
+                or nested_tool.get('tool_input')
+                or {}
+            )
+
             log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3198,31 +3296,23 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     llm_obj = result_obj.setdefault('llm_result', {})
                     if not isinstance(llm_obj, dict):
                         return
-                    if llm_obj.get('work_done') is True:
-                        llm_obj['all_done'] = True
+                    if 'all_done' not in llm_obj:
+                        llm_obj['all_done'] = False
                 except Exception:
                     return
-            
-            # Check if work is done - skip tool call
+
             if work_done:
                 _sync_completion_flags(state)
                 log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
                 logger.info(log_msg)
                 send_skill_editor_log("info", log_msg)
                 return state
-            
-            # Check if next_tool_name is empty or not provided
+
             if not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip():
-                # Check if this is an invalid LLM response format
-                # The LLM should return: {"work_done": bool, "next_tool_name": str, "next_tool_input": dict}
-                # But sometimes it returns just {"input": {...}} or {"message": ""}
-                
-                # Case 1: Empty message wrapper
                 if 'message' in llm_result and not llm_result.get('message', '').strip():
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned empty message with no next_tool_name. Setting work_done=True to exit loop gracefully."
                     logger.warning(log_msg)
                     send_skill_editor_log("warning", log_msg)
-                # Case 2: LLM returned just the input schema without required fields
                 elif 'input' in llm_result and 'next_tool_name' not in llm_result:
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned invalid format (just 'input' without 'next_tool_name'). Expected format: {{work_done, next_tool_name, next_tool_input}}. Got: {list(llm_result.keys())}. Setting work_done=True."
                     logger.warning(log_msg)
@@ -3231,29 +3321,27 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     log_msg = f"[MCP Auto-Select] next_tool_name is empty or not provided. LLM result keys: {list(llm_result.keys())}. Skipping tool call for node '{node_name}'"
                     logger.info(log_msg)
                     send_skill_editor_log("info", log_msg)
-                
-                # Set work_done to True so the loop condition exits gracefully
+
                 if 'result' in state and isinstance(state['result'], dict):
                     if 'llm_result' not in state['result']:
                         state['result']['llm_result'] = {}
                     state['result']['llm_result']['work_done'] = True
+                    state['result']['llm_result']['all_done'] = True
                 _sync_completion_flags(state)
                 return state
-            
+
             actual_tool_name = next_tool_name.strip()
-            
-            # Validate tool name against MCP tool registry
+
             tool_schema = _get_tool_schema_by_name(actual_tool_name)
             if not tool_schema:
                 log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
                 logger.warning(log_msg)
                 send_skill_editor_log("warning", log_msg)
                 return state
-            
-            # Use next_tool_input from LLM result
+
             if isinstance(next_tool_input, dict) and next_tool_input:
                 actual_tool_input = next_tool_input
-            
+
             log_msg = f"[MCP Auto-Select] Resolved tool: '{actual_tool_name}' with input: {actual_tool_input}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3321,6 +3409,72 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 pass
             return str(result)
 
+        def _extract_tool_result_payload(result):
+            try:
+                structured = getattr(result, 'structuredContent', None)
+                if isinstance(structured, dict):
+                    return structured
+            except Exception:
+                pass
+            try:
+                meta = getattr(result, 'meta', None)
+                if isinstance(meta, dict):
+                    if isinstance(meta.get('task_result'), dict):
+                        return meta.get('task_result')
+            except Exception:
+                pass
+            try:
+                if hasattr(result, 'content') and isinstance(result.content, list):
+                    for c in result.content:
+                        c_meta = getattr(c, 'meta', None)
+                        if isinstance(c_meta, dict) and isinstance(c_meta.get('task_result'), dict):
+                            return c_meta.get('task_result')
+            except Exception:
+                pass
+            return {}
+
+        def _apply_mcp_result_to_llm_state(st: dict, tool_name: str, result) -> None:
+            try:
+                if not isinstance(st, dict):
+                    return
+                result_obj = st.setdefault('result', {})
+                if not isinstance(result_obj, dict):
+                    return
+                llm_obj = result_obj.setdefault('llm_result', {})
+                if not isinstance(llm_obj, dict):
+                    return
+                work_result = llm_obj.setdefault('work_result', {})
+                if not isinstance(work_result, dict):
+                    llm_obj['work_result'] = {}
+                    work_result = llm_obj['work_result']
+
+                payload = _extract_tool_result_payload(result)
+                success = bool(isinstance(payload, dict) and payload.get('success'))
+                if success:
+                    work_result['last_action_succeeded'] = True
+
+                if tool_name == 'create_agent_task_with_skill' and success:
+                    task_id = str(payload.get('task_id') or '')
+                    work_result['skill_task_created'] = True
+                    if task_id:
+                        work_result['created_task_id'] = task_id
+                    llm_obj['all_done'] = False
+                elif tool_name == 'launch_agent_task' and success:
+                    work_result['skill_task_launched'] = True
+                    task_id = str(payload.get('task_id') or payload.get('run_id') or '')
+                    if task_id:
+                        work_result['created_task_id'] = task_id
+                    llm_obj['all_done'] = False
+                elif tool_name == 'os_screen_capture' and success:
+                    work_result['screen_capture_done'] = True
+                    llm_obj['all_done'] = False
+                logger.info(
+                    f"[MCP Result Propagation] tool={tool_name} success={success} "
+                    f"work_result={work_result}"
+                )
+            except Exception:
+                return
+
         async def run_tool_call():
             """A local async function to perform the actual tool call.
 
@@ -3341,11 +3495,18 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             from config.constants import DEFAULT_API_TIMEOUT
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
 
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+                llm_manager = get_llm_manager()
+                all_providers = llm_manager.get_all_providers() or []
+            except Exception:
+                pass
+
             # --- Cloud-worker direct invocation (no local MCP HTTP server) ---
             _is_cloud = os.environ.get("ECAN_MODE") == "worker"
             if not _is_cloud:
                 try:
-                    from gui.AppContext import AppContext
+                    from app_context import AppContext
                     _is_cloud = AppContext.get_main_window() is None
                 except Exception:
                     pass
@@ -3754,7 +3915,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _safe_inc_steps(state)
                     tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
                     add_to_history(state, tool_call_summary)
-                
+                    _apply_mcp_result_to_llm_state(state, _actual_tool_name, tool_result)
+
                 return state
                 
             except Exception as e:
@@ -3805,6 +3967,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 _safe_inc_steps(state)
                 tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
                 add_to_history(state, tool_call_summary)
+                _apply_mcp_result_to_llm_state(state, _actual_tool_name, tool_result)
 
                 # Also update attributes for easier access by subsequent nodes
                 log_msg = f"state tool_result: meta={getattr(tool_result, 'meta', None)} content={[c.text[:200] + '...' if hasattr(c, 'text') and len(getattr(c, 'text', '')) > 200 else c for c in getattr(tool_result, 'content', [])]!r} structuredContent={getattr(tool_result, 'structuredContent', None)} isError={getattr(tool_result, 'isError', None)}"
@@ -4423,7 +4586,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
-    logger.debug("[BrowserAutomation]prompt_selection:", prompt_selection)
+    logger.info(f"[BrowserAutomation] 🔍 prompt_selection='{prompt_selection}'")
+    send_skill_editor_log("log", f"[BrowserAutomation] Prompt selection: '{prompt_selection}'")
 
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
@@ -4431,34 +4595,46 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     # Get inline prompt content
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or "")
     inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "")
+    
+    logger.info(f"[BrowserAutomation] 📝 Raw inline prompts - system: {len(inline_system_prompt)} chars, user: {len(inline_user_prompt)} chars")
 
+    # Clear inline prompts when a saved prompt is selected to prevent stale inline content from overriding
+    if prompt_selection and prompt_selection not in ("", "inline"):
+        logger.info(f"[BrowserAutomation] ✂️ Using saved prompt '{prompt_selection}', clearing inline prompts to prevent override")
+        send_skill_editor_log("log", f"[BrowserAutomation] Using saved prompt '{prompt_selection}', clearing inline prompts")
+        inline_system_prompt = ""
+        inline_user_prompt = ""
+    else:
+        logger.info(f"[BrowserAutomation] 📄 Using inline prompts (selection='{prompt_selection}')")
 
     logger.debug("[BrowserAutomation]inline_system_prompt:", inline_system_prompt)
     logger.debug("[BrowserAutomation]inline_user_prompt:", inline_user_prompt)
-    log_msg = f"[BrowserAutomation]inline_system_prompt: {inline_system_prompt}\n\n{inline_user_prompt}"
-    send_skill_editor_log("log", log_msg)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     # Resolve prompt templates based on the selected prompt id first for initial config preview
+    logger.info(f"[BrowserAutomation] 🔄 Calling _resolve_prompt_templates with selection='{prompt_selection}', skill_owner='{owner}'")
     resolved_system_prompt, resolved_user_prompt, _browser_prompt_vars = _resolve_prompt_templates(
         prompt_selection,
         inline_system_prompt,
         inline_user_prompt,
         skill_owner=owner or "",
     )
+    
+    logger.info(f"[BrowserAutomation] ✅ Resolved prompts - system: {len(resolved_system_prompt)} chars, user: {len(resolved_user_prompt)} chars")
+    send_skill_editor_log("log", f"[BrowserAutomation] Resolved prompt lengths - system: {len(resolved_system_prompt)}, user: {len(resolved_user_prompt)}")
+    
+    # Log first 200 chars of resolved prompts for debugging
+    if resolved_user_prompt:
+        preview = resolved_user_prompt[:200] + "..." if len(resolved_user_prompt) > 200 else resolved_user_prompt
+        logger.info(f"[BrowserAutomation] 📋 User prompt preview: {preview}")
+        send_skill_editor_log("log", f"[BrowserAutomation] User prompt preview: {preview}")
 
-    from agent.ec_skills.prompt_loader import get_prompt_content
-    system_prompt_content = (
-        get_prompt_content(system_prompt_id, resolved_system_prompt)
-        if (system_prompt_id or resolved_system_prompt)
-        else None
-    )
-    user_prompt_content = (
-        get_prompt_content(user_prompt_id, resolved_user_prompt)
-        if (user_prompt_id or resolved_user_prompt)
-        else None
-    )
+    # Use the already-resolved prompts directly (no need to call get_prompt_content again)
+    # _resolve_prompt_templates already loaded and processed the prompt
+    system_prompt_content = resolved_system_prompt if resolved_system_prompt else None
+    user_prompt_content = resolved_user_prompt if resolved_user_prompt else None
 
     # If prompts are configured, use them to enhance the task text
+    logger.info(f"[BrowserAutomation] 🔧 Before prompt override - task_text length: {len(task_text)} chars")
     if system_prompt_content or user_prompt_content:
         prompt_parts = []
         if system_prompt_content:
@@ -4467,6 +4643,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             prompt_parts.append(f"Task:\n{user_prompt_content}")
         if prompt_parts:
             task_text = "\n\n".join(prompt_parts)
+            logger.info(f"[BrowserAutomation] ✅ Overrode task_text with prompt content - new length: {len(task_text)} chars")
+            send_skill_editor_log("log", f"[BrowserAutomation] Using prompt content as task (length: {len(task_text)})")
+    else:
+        logger.warning(f"[BrowserAutomation] ⚠️ No prompt content resolved, keeping original task_text")
+        send_skill_editor_log("warning", f"[BrowserAutomation] No prompt content found, using original task field")
 
     def _get_browser_profile_settings(profile_name: str) -> dict:
         """Load browser profile settings from backend configuration."""
@@ -5662,6 +5843,61 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     final_str = final_str[:10000] + '... (truncated)'
                 logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
                 
+                # Record token usage from browser-use AgentHistoryList.usage (UsageSummary)
+                # browser-use tracks per-model stats via TokenCost service
+                try:
+                    from agent.ec_skills.token_tracker import token_tracker as _bu_token_tracker
+                    _bu_usage = getattr(history, 'usage', None)
+                    if _bu_usage and (getattr(_bu_usage, 'total_tokens', 0) or 0) > 0:
+                        # Record per-model breakdown (handles main LLM + judge + page_extraction + compaction)
+                        _by_model = getattr(_bu_usage, 'by_model', None) or {}
+                        if _by_model:
+                            for _m_name, _m_stats in _by_model.items():
+                                _m_in = getattr(_m_stats, 'prompt_tokens', 0) or 0
+                                _m_out = getattr(_m_stats, 'completion_tokens', 0) or 0
+                                if _m_in > 0 or _m_out > 0:
+                                    _bu_token_tracker.record_llm_usage(
+                                        type('_BUTokens', (), {
+                                            'usage_metadata': {'input_tokens': _m_in, 'output_tokens': _m_out},
+                                            'response_metadata': {'model_name': _m_name},
+                                        })(),
+                                        source_type="skill_browser_node",
+                                        source_id=f"{skill_name}::{node_name}",
+                                        source_name=f"{skill_name}::{node_name}",
+                                        node_type="browser_automation"
+                                    )
+                                    logger.info(f"[TokenTracker] BrowserUse model={_m_name} in={_m_in} out={_m_out}")
+                        else:
+                            # Fallback: no per-model breakdown, record aggregate
+                            _bu_total_in = getattr(_bu_usage, 'total_prompt_tokens', 0) or 0
+                            _bu_total_out = getattr(_bu_usage, 'total_completion_tokens', 0) or 0
+                            _bu_model_name = (
+                                node_model_name
+                                or getattr(getattr(agent, 'llm', None), 'model_name', None)
+                                or getattr(getattr(agent, 'llm', None), 'model', None)
+                                or "unknown"
+                            )
+                            _bu_token_tracker.record_llm_usage(
+                                type('_BUTokens', (), {
+                                    'usage_metadata': {'input_tokens': _bu_total_in, 'output_tokens': _bu_total_out},
+                                    'response_metadata': {'model_name': _bu_model_name},
+                                })(),
+                                source_type="skill_browser_node",
+                                source_id=f"{skill_name}::{node_name}",
+                                source_name=f"{skill_name}::{node_name}",
+                                node_type="browser_automation"
+                            )
+                            logger.info(f"[TokenTracker] BrowserUse tokens: model={_bu_model_name} in={_bu_total_in} out={_bu_total_out}")
+                        logger.info(
+                            f"[TokenTracker] BrowserUse total: {getattr(_bu_usage, 'total_tokens', 0)} tokens, "
+                            f"{getattr(_bu_usage, 'entry_count', 0)} LLM calls, "
+                            f"cost=${getattr(_bu_usage, 'total_cost', 0.0):.4f}"
+                        )
+                    else:
+                        logger.debug(f"[TokenTracker] BrowserUse: no usage summary in history ({len(getattr(history, 'history', []))} steps)")
+                except Exception as _bu_tk_err:
+                    logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
+
                 return {"final": final, "history": str(history)}
             finally:
                 # Clean up browser session if not cached

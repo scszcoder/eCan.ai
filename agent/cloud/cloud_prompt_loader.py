@@ -190,6 +190,18 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
 
     prompt["source"] = source
     prompt["readOnly"] = bool(read_only or data.get("readOnly"))
+    
+    # Preserve format and mdContent for markdown-mode prompts
+    fmt = data.get("format")
+    if fmt in ("json", "md"):
+        prompt["format"] = fmt
+    md_content = data.get("mdContent")
+    if md_content:
+        prompt["mdContent"] = str(md_content)
+        logger.warning(f"[cloud_prompts] ✅ Preserved mdContent for prompt '{prompt.get('id')}' (length: {len(str(md_content))} chars)")
+        logger.warning(f"[cloud_prompts] mdContent preview: {str(md_content)[:200]}...")
+    else:
+        logger.warning(f"[cloud_prompts] ⚠️ No mdContent found for prompt '{prompt.get('id')}', will use sections")
 
     return prompt
 
@@ -260,7 +272,15 @@ class CloudPromptLoader:
             if "id" not in prompt_data:
                 prompt_data["id"] = item.get("prompt_id", {}).get("S", prompt_id)
             
-            logger.debug(f"[cloud_prompts] Found prompt in DynamoDB: owner={owner_id}, prompt_id={prompt_id}")
+            logger.warning(f"[cloud_prompts] 📥 Found prompt in DynamoDB: owner={owner_id}, prompt_id={prompt_id}")
+            logger.warning(f"[cloud_prompts] Raw data has mdContent: {bool(prompt_data.get('mdContent'))}, has sections: {bool(prompt_data.get('sections'))}")
+            if prompt_data.get('mdContent'):
+                logger.warning(f"[cloud_prompts] mdContent preview from DynamoDB: {str(prompt_data['mdContent'])[:200]}...")
+            if prompt_data.get('sections'):
+                logger.warning(f"[cloud_prompts] sections count from DynamoDB: {len(prompt_data['sections'])}")
+                if prompt_data['sections']:
+                    logger.warning(f"[cloud_prompts] First section type: {prompt_data['sections'][0].get('type')}")
+            
             return prompt_data
             
         except Exception as e:

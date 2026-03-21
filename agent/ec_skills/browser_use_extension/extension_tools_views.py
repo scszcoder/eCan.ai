@@ -145,29 +145,32 @@ class LabelsReformatAction(BaseModel):
 
 
 class RagQueryAction(BaseModel):
-	"""Query the local RAG knowledge base for relevant information."""
+	"""Query the local RAG knowledge base for relevant information.
+	IMPORTANT: Do NOT override defaults unless explicitly asked. Defaults are tuned for fast, customer-ready answers.
+	Just provide the 'query' parameter and leave everything else at defaults.
+	"""
 	query: str = Field(
 		description="The query text to search in the knowledge base (minimum 3 characters)"
 	)
 	mode: Optional[str] = Field(
-		default="mix",
-		description="Query mode: 'local' (entity-based), 'global' (community-based), 'hybrid' (both), 'naive' (vector only), 'mix' (all methods), 'bypass' (no retrieval). Default: mix"
+		default="naive",
+		description="Query mode: 'naive' (vector only, fastest), 'local' (entity-based), 'global' (community-based), 'hybrid' (both), 'mix' (all methods), 'bypass' (no retrieval). Default: naive"
 	)
 	only_need_context: Optional[bool] = Field(
 		default=False,
-		description="Return only retrieved context without generating a response"
+		description="LEAVE AS FALSE (default). Returns a polished, customer-ready answer. Setting True returns raw context chunks instead (faster but not customer-readable)."
 	)
 	response_type: Optional[str] = Field(
 		default=None,
-		description="Response format hint (e.g., 'Multiple Paragraphs', 'Bullet Points', 'Single Sentence')"
+		description="Response format hint (e.g., 'Multiple Paragraphs', 'Bullet Points', 'Single Sentence'). Only used when only_need_context=False."
 	)
 	top_k: Optional[int] = Field(
-		default=None,
-		description="Number of top items to retrieve (default varies by mode)"
+		default=5,
+		description="Number of top chunks to retrieve (default: 5)"
 	)
 	enable_rerank: Optional[bool] = Field(
-		default=True,
-		description="Enable reranking of retrieved results for better relevance"
+		default=False,
+		description="LEAVE AS FALSE (default). Reranking adds 3-8s latency. Only enable if retrieval quality is poor."
 	)
 	include_references: Optional[bool] = Field(
 		default=True,

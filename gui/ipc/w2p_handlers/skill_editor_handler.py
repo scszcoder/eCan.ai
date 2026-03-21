@@ -71,9 +71,26 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         input_data = (params or {}).get("input") or {}
         skill = input_data.get("skill") or (params or {}).get("skill")
         
+        # Parse skill if it's a JSON string
+        skill_dict = skill
+        if isinstance(skill, str):
+            try:
+                skill_dict = json.loads(skill)
+            except Exception as e:
+                logger.warning(f"[IPC][run_skill] Failed to parse skill JSON string: {e}")
+                skill_dict = {}
+        
         # Extract meta_data for cloud execution
-        meta_data = skill.get("meta_data") if isinstance(skill, dict) else None
+        meta_data = skill_dict.get("meta_data") if isinstance(skill_dict, dict) else None
         run_in_cloud = meta_data.get("run_in_cloud", False) if isinstance(meta_data, dict) else False
+        
+        # Extract skill name for logging
+        skill_name = "UNKNOWN"
+        if isinstance(skill_dict, dict):
+            skill_name = skill_dict.get("skillName") or skill_dict.get("diagram", {}).get("skillName") or "UNKNOWN"
+        
+        logger.warning(f"[IPC][run_skill] 📥 FRONTEND SENT SKILL TO BACKEND: '{skill_name}'")
+        logger.warning(f"[IPC][run_skill] Skill type: {type(skill).__name__}, run_in_cloud: {run_in_cloud}")
         
         if skill:
             logger.debug(f"[IPC][run_skill] skill source: params.input.skill or params.skill")

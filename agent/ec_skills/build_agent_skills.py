@@ -803,6 +803,9 @@ def _convert_db_skill_to_object(db_skill):
         v = DBAgentSkill.view(db_skill)
 
         _fill_skill_from_db_view(skill_obj, v)
+        
+        logger.warning(f"[build_agent_skills] 🔄 Converting DB skill to object: '{skill_obj.name}'")
+        logger.warning(f"[build_agent_skills] Skill path: {skill_obj.path}")
 
         # Load mapping rules from data_mapping.json
         mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)
@@ -817,13 +820,18 @@ def _convert_db_skill_to_object(db_skill):
         # If we later enforce "file-only" workflows, we can remove the DB fallback block below.
         flow_for_convert, diagram = _extract_workflow_from_core_dict(skill_obj.name, core_dict)
         if flow_for_convert is None:
+            logger.warning(f"[build_agent_skills] ⚠️ No workflow from file for '{skill_obj.name}', trying DB diagram fallback")
             raw_db_diagram = (db_skill or {}).get("diagram")
             if isinstance(raw_db_diagram, dict) and raw_db_diagram:
                 wf = raw_db_diagram.get("workFlow")
                 if isinstance(wf, dict) and wf:
                     flow_for_convert, diagram = raw_db_diagram, wf
+                    logger.warning(f"[build_agent_skills] 📋 Using DB diagram for '{skill_obj.name}'")
                 else:
                     flow_for_convert, diagram = {"skillName": skill_obj.name, "workFlow": raw_db_diagram}, raw_db_diagram
+                    logger.warning(f"[build_agent_skills] 📋 Using DB diagram (alt format) for '{skill_obj.name}'")
+        else:
+            logger.warning(f"[build_agent_skills] 📁 Using file-based workflow for '{skill_obj.name}'")
 
         if diagram:
             skill_obj.diagram = diagram
@@ -842,7 +850,7 @@ def _convert_db_skill_to_object(db_skill):
             logger.warning(f"[build_agent_skills] ⚠️ No diagram data for skill: {skill_obj.name}")
             logger.warning(f"[build_agent_skills] 💡 This skill was created before diagram support was added")
 
-        logger.debug(f"[build_agent_skills] Converted DB skill: {skill_obj.name} (runnable: {'✅' if skill_obj.runnable else '❌'})")
+        logger.warning(f"[build_agent_skills] ✅ Converted DB skill: '{skill_obj.name}' (runnable: {'✅' if skill_obj.runnable else '❌'})")
         return skill_obj
 
     except Exception as e:

@@ -82,7 +82,7 @@ class DBTokenUsageService(BaseService):
             TokenUsage: Created token usage record or None on error
         """
         try:
-            with self.get_session() as session:
+            with self.session_scope() as session:
                 usage = TokenUsage(
                     source_type=source_type,
                     source_id=source_id,
@@ -101,8 +101,7 @@ class DBTokenUsageService(BaseService):
                 )
                 
                 session.add(usage)
-                session.commit()
-                session.refresh(usage)
+                session.flush()
                 
                 logger.debug(f"[TokenUsageService] Recorded usage: {source_type} - {model} - {input_tokens + output_tokens} tokens (${cost_usd:.4f})")
                 return usage
@@ -129,7 +128,7 @@ class DBTokenUsageService(BaseService):
             Dict with aggregated usage data
         """
         try:
-            with self.get_session() as session:
+            with self.session_scope() as session:
                 # Build query
                 query = session.query(
                     func.sum(TokenUsage.input_tokens).label('input_tokens'),
@@ -187,7 +186,7 @@ class DBTokenUsageService(BaseService):
             List of dicts with usage by source
         """
         try:
-            with self.get_session() as session:
+            with self.session_scope() as session:
                 query = session.query(
                     TokenUsage.source_type,
                     func.sum(TokenUsage.input_tokens).label('input_tokens'),
@@ -241,7 +240,7 @@ class DBTokenUsageService(BaseService):
             List of dicts with usage by model
         """
         try:
-            with self.get_session() as session:
+            with self.session_scope() as session:
                 query = session.query(
                     TokenUsage.vendor,
                     TokenUsage.model,
@@ -295,7 +294,7 @@ class DBTokenUsageService(BaseService):
             List of TokenUsage records
         """
         try:
-            with self.get_session() as session:
+            with self.session_scope() as session:
                 query = session.query(TokenUsage).order_by(
                     TokenUsage.usage_timestamp.desc()
                 ).limit(limit)

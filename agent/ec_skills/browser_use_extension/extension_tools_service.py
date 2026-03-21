@@ -233,14 +233,23 @@ async def reformat_labels(params: LabelsReformatAction, browser_session: Browser
     param_model=RagQueryAction,
 )
 async def bu_rag_query(params: RagQueryAction) -> ActionResult:
-    """Query the RAG knowledge base using the existing MCP tool."""
+    """Query the RAG knowledge base using the existing MCP tool.
+    
+    Defaults optimized for real-time customer support (<12s budget):
+    - mode=naive (vector retrieval only, ~1-2s)
+    - only_need_context=True (skip LightRAG LLM generation, saves 15-20s)
+    - top_k=5, enable_rerank=False
+    The calling LLM synthesizes the answer from the returned context chunks.
+    """
+    import time
+    _t0 = time.perf_counter()
     try:
         from agent.ec_skills.rag.local_rag_mcp import rag_query
         
         # Build input dict for MCP tool
         input_data = {
             "query": params.query,
-            "mode": params.mode or "mix",
+            "mode": params.mode or "naive",
         }
         
         # Add optional parameters
@@ -259,6 +268,8 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
         login = AppContext.login
         result_list = await rag_query(login.main_win, {"input": input_data})
         
+        _elapsed = time.perf_counter() - _t0
+        
         # Extract result from TextContent
         if result_list and len(result_list) > 0:
             text_content = result_list[0]
@@ -266,15 +277,22 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
             
             # Check if it's an error
             if result_text.startswith("Error:"):
+                logger.warning(f"[bu_rag_query] RAG error in {_elapsed:.2f}s: {result_text[:200]}")
                 return ActionResult(error=result_text)
             
-            # Success - return the answer
+            # Truncate very long context to keep LLM prompt manageable
+            if len(result_text) > 8000:
+                result_text = result_text[:8000] + "\n... (context truncated for speed)"
+            
+            logger.info(f"[bu_rag_query] RAG query completed in {_elapsed:.2f}s (mode={params.mode}, context_only={params.only_need_context}, chars={len(result_text)})")
             return ActionResult(extracted_content=result_text)
         else:
+            logger.warning(f"[bu_rag_query] No result in {_elapsed:.2f}s")
             return ActionResult(error="No result returned from RAG query")
             
     except Exception as e:
-        logger.error(f"[Browser Use Extension] RAG query error: {e}")
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_rag_query] RAG query error in {_elapsed:.2f}s: {e}")
         return ActionResult(error=f"RAG query failed: {str(e)}")
 
 
