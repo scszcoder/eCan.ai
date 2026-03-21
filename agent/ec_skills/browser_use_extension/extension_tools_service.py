@@ -28,7 +28,8 @@ custom_controller = Controller()
 _current_agent_instance = None
 
 def set_current_agent(agent):
-    """Set the current agent instance for file path authorization."""
+    """Set the current agent instance for fi
+    le path authorization."""
     global _current_agent_instance
     _current_agent_instance = agent
     logger.debug(f"[ExtensionTools] Set current agent instance: {type(agent).__name__}")
