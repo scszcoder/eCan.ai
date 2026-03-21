@@ -222,30 +222,52 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
     t.start()
 
 
+def delete_prompt_from_cloud_sync(prompt_id: str) -> bool:
+    """Remove a prompt from cloud by ID (blocking). Returns True if gone from cloud or already absent."""
+    if not prompt_id:
+        return False
+    try:
+        ctx = _get_cloud_context()
+        if ctx is None:
+            return False
+
+        mutation = """
+            mutation RemovePrompts($input: [ID!]!) {
+                removePrompts(input: $input) { id success error }
+            }
+        """
+
+        resp = _appsync_request(mutation, ctx, variables={"input": [prompt_id]})
+
+        errors = resp.get("errors")
+        if errors:
+            logger.warning(f"[prompt_sync] removePrompts error for {prompt_id}: {errors}")
+            return False
+
+        data = resp.get("data", {}).get("removePrompts") or []
+        if not data:
+            logger.info(f"[prompt_sync] Deleted prompt '{prompt_id}' from cloud (empty result)")
+            return True
+
+        row = data[0] if isinstance(data, list) else data
+        if row.get("success"):
+            logger.info(f"[prompt_sync] Deleted prompt '{prompt_id}' from cloud: {row}")
+            return True
+        err = str(row.get("error") or "")
+        if "NOT_FOUND" in err or "not found" in err.lower():
+            logger.info(f"[prompt_sync] Prompt '{prompt_id}' already absent in cloud: {err}")
+            return True
+        logger.warning(f"[prompt_sync] removePrompts failed for {prompt_id}: {row}")
+        return False
+    except Exception as exc:
+        logger.warning(f"[prompt_sync] Failed to delete prompt '{prompt_id}' from cloud: {exc}")
+        return False
+
+
 def delete_prompt_from_cloud(prompt_id: str) -> None:
     """Remove a prompt from cloud by ID. Runs in background thread."""
     def _do():
-        try:
-            ctx = _get_cloud_context()
-            if ctx is None:
-                return
-
-            mutation = """
-                mutation RemovePrompts($input: [ID!]!) {
-                    removePrompts(input: $input) { id success error }
-                }
-            """
-
-            resp = _appsync_request(mutation, ctx, variables={"input": [prompt_id]})
-
-            errors = resp.get("errors")
-            if errors:
-                logger.warning(f"[prompt_sync] removePrompts error for {prompt_id}: {errors}")
-            else:
-                data = resp.get("data", {}).get("removePrompts", [])
-                logger.info(f"[prompt_sync] Deleted prompt '{prompt_id}' from cloud: {data}")
-        except Exception as exc:
-            logger.warning(f"[prompt_sync] Failed to delete prompt '{prompt_id}' from cloud: {exc}")
+        delete_prompt_from_cloud_sync(prompt_id)
 
     t = threading.Thread(target=_do, daemon=True, name="prompt-cloud-delete")
     t.start()
