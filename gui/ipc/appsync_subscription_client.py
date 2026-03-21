@@ -242,6 +242,8 @@ class AppSyncSubscriptionClient:
                 # Refresh token on reconnect (it may have been rotated)
                 self._refresh_token()
             else:
+                # run_forever() returned after a successful connection that
+                # later closed cleanly — reset delay for next attempt.
                 delay = RECONNECT_BASE_DELAY
 
     def _refresh_token(self) -> None:
@@ -262,7 +264,12 @@ class AppSyncSubscriptionClient:
     # ------------------------------------------------------------------
 
     def _connect_and_listen(self) -> None:
-        """Open WebSocket, subscribe, and block until closed."""
+        """Open WebSocket, subscribe, and block until closed.
+
+        Raises ConnectionError if the socket was never successfully opened
+        (e.g. connection refused, DNS failure) so that _run_with_retry
+        applies exponential back-off instead of spinning.
+        """
         realtime_url, api_host = _derive_realtime_url_and_host(self._ws_endpoint)
         self._api_host = api_host
 
@@ -273,6 +280,8 @@ class AppSyncSubscriptionClient:
         signed_url = _build_signed_url(realtime_url, header_obj)
 
         logger.info(f"[AppSyncSubClient] Connecting to {realtime_url[:80]}…")
+
+        self._connection_opened = False
 
         ws = websocket.WebSocketApp(
             signed_url,
@@ -285,11 +294,15 @@ class AppSyncSubscriptionClient:
         self._ws = ws
         ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
 
+        if not self._connection_opened:
+            raise ConnectionError("WebSocket connection was never established")
+
     # ------------------------------------------------------------------
     # WebSocketApp callbacks
     # ------------------------------------------------------------------
 
     def _on_open(self, ws) -> None:
+        self._connection_opened = True
         logger.info("[AppSyncSubClient] WebSocket opened, sending connection_init")
         try:
             ws.send(json.dumps({"type": "connection_init", "payload": {}}))
