@@ -100,6 +100,14 @@ export class WorkflowRuntimeService {
       workFlow: (mainSheet && mainSheet.document) ? mainSheet.document : (schema as any)?.workFlow,
       bundle,
     };
+    
+    // Log skill name being sent to backend
+    const skillName = (composedSchema as any)?.skillName || (schema as any)?.skillName || 'UNKNOWN';
+    console.warn(`[RuntimeService] 🚀 RUN BUTTON CLICKED - Sending skill to backend: "${skillName}"`);
+    console.warn(`[RuntimeService] Schema keys: ${Object.keys(composedSchema).join(', ')}`);
+    console.warn(`[RuntimeService] WorkFlow nodes count: ${(composedSchema.workFlow?.nodes || []).length}`);
+    console.warn(`[RuntimeService] Main sheet: ${mainSheet?.name || mainSheet?.id || 'N/A'}`);
+    
     if (!isValidationDisabled()) {
       const validateResult = await this.runtimeClient.TaskValidate({
         schema: JSON.stringify(composedSchema),
@@ -115,12 +123,15 @@ export class WorkflowRuntimeService {
     this.reset();
     let taskID: string | undefined;
     try {
+      console.warn(`[RuntimeService] 📡 Calling backend TaskRun for skill: "${skillName}"`);
       const output = await this.runtimeClient.TaskRun({
         schema: JSON.stringify(composedSchema),
         inputs,
       });
       taskID = output?.taskID;
+      console.warn(`[RuntimeService] ✅ Backend returned taskID: ${taskID}`);
     } catch (e) {
+      console.error(`[RuntimeService] ❌ TaskRun failed for skill "${skillName}":`, e);
       this.resultEmitter.fire({
         errors: [(e as Error)?.message],
       });

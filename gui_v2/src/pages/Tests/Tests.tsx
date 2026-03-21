@@ -1710,6 +1710,31 @@ const Tests: React.FC = () => {
                         >
                             Test RX Skill
                         </Button>
+                        <Button
+                            onClick={async () => {
+                                console.log('[Tests] Test Task button clicked');
+                                setTestOutput('Test Task: calling create_agent_task_with_skill + launch_agent_task...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testTask(),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('TEST_TASK_TIMEOUT (30s)')), 30000))
+                                    ]);
+                                    console.log('[Tests] Test Task result', resp);
+                                    setTestOutput('Test Task result:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    console.warn('[Tests] Test Task error', e);
+                                    setTestOutput('Test Task error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#52c41a',
+                                borderColor: '#52c41a',
+                                color: '#fff',
+                            }}
+                        >
+                            Test Task
+                        </Button>
                     </Space>
                     {/* Test Selection */}
                     <Space align="center" style={{ width: '100%', marginBottom: '16px' }}>

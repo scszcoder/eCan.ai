@@ -49,12 +49,12 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
         from app_context import AppContext
         mainwin = AppContext.get_main_window()
         if mainwin is None:
-            logger.debug("[prompt_sync] MainWindow not available – skipping cloud sync")
+            logger.warning("[prompt_sync] ⚠️ MainWindow not available – skipping cloud sync")
             return None
 
         token = mainwin.get_auth_token()
         if not token:
-            logger.debug("[prompt_sync] No auth token – skipping cloud sync")
+            logger.warning("[prompt_sync] ⚠️ No auth token – skipping cloud sync")
             return None
 
         session = mainwin.session
@@ -62,9 +62,10 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
         owner = getattr(mainwin, 'user', None) or ""
 
         if not owner:
-            logger.debug("[prompt_sync] No owner/user – skipping cloud sync")
+            logger.warning("[prompt_sync] ⚠️ No owner/user – skipping cloud sync")
             return None
 
+        logger.info(f"[prompt_sync] ✅ Cloud context obtained - owner: {owner}, endpoint: {endpoint}")
         return {
             "session": session,
             "token": token,
@@ -72,7 +73,8 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
             "owner": owner,
         }
     except Exception as exc:
-        logger.debug(f"[prompt_sync] Failed to get cloud context: {exc}")
+        logger.error(f"[prompt_sync] ❌ Failed to get cloud context: {exc}")
+        logger.error(f"[prompt_sync] Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -137,13 +139,17 @@ def _prompt_to_graphql_input(prompt: Dict[str, Any], owner: str) -> Dict[str, An
             "version": prompt.get("version", "0.1"),
         }
 
+    # Check if this is a markdown-mode prompt (has mdContent)
+    md_content = prompt.get("mdContent")
+    
     prompt_content = {
         "title": prompt.get("title", ""),
         "topic": prompt.get("topic", ""),
         "usageCount": prompt.get("usageCount", 0),
         "sections": prompt.get("sections", []),
         "userSections": prompt.get("userSections", []),
-        "humanInputs": prompt.get("humanInputs", []),
+        # Clear humanInputs if mdContent is present to avoid stale data
+        "humanInputs": [] if md_content else prompt.get("humanInputs", []),
         "source": prompt.get("source", "my_prompts"),
         "readOnly": False,
         "lastModified": prompt.get("lastModified", datetime.utcnow().isoformat()),
@@ -152,7 +158,6 @@ def _prompt_to_graphql_input(prompt: Dict[str, Any], owner: str) -> Dict[str, An
     fmt = prompt.get("format")
     if fmt in ("json", "md"):
         prompt_content["format"] = fmt
-    md_content = prompt.get("mdContent")
     if md_content:
         prompt_content["mdContent"] = md_content
 
@@ -174,13 +179,20 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
         try:
             ctx = _get_cloud_context()
             if ctx is None:
+                logger.warning(f"[prompt_sync] ⚠️ CLOUD CONTEXT NOT AVAILABLE - Cannot sync prompt '{prompt.get('id')}'")
+                logger.warning(f"[prompt_sync] This may be due to missing/invalid AWS AppSync settings")
                 return
 
             owner = ctx["owner"]
             endpoint = ctx.get("endpoint", "?")
             gql_input = _prompt_to_graphql_input(prompt, owner)
 
-            logger.info(f"[prompt_sync] >>> Syncing prompt '{prompt.get('id')}' | owner='{owner}' | endpoint={endpoint[:60]}...")
+            logger.warning(f"[prompt_sync] 🚀 >>> SYNCING PROMPT TO CLOUD <<<")
+            logger.warning(f"[prompt_sync] Prompt ID: '{prompt.get('id')}'")
+            logger.warning(f"[prompt_sync] Prompt Title: '{prompt.get('title')}'")
+            logger.warning(f"[prompt_sync] Owner: '{owner}'")
+            logger.warning(f"[prompt_sync] Endpoint: {endpoint}")
+            logger.warning(f"[prompt_sync] Payload size: {len(gql_input.get('prompt',''))} chars")
             logger.debug(f"[prompt_sync] >>> gql_input keys={list(gql_input.keys())}, id={gql_input.get('id')}, owner={gql_input.get('owner')}, prompt_len={len(gql_input.get('prompt',''))}")
 
             mutation = """
@@ -189,18 +201,22 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
                 }
             """
 
+            logger.warning(f"[prompt_sync] 📡 Calling AppSync GraphQL mutation: addPrompts")
             resp = _appsync_request(mutation, ctx, variables={"input": [gql_input]})
 
             # Check response
-            logger.info(f"[prompt_sync] <<< Full response for '{prompt.get('id')}': {resp}")
+            logger.warning(f"[prompt_sync] 📥 <<< CLOUD RESPONSE RECEIVED <<<")
+            logger.warning(f"[prompt_sync] Full response for '{prompt.get('id')}': {resp}")
             errors = resp.get("errors")
             if errors:
-                logger.warning(f"[prompt_sync] addPrompts error for {prompt.get('id')}: {errors}")
+                logger.error(f"[prompt_sync] ❌ CLOUD SYNC FAILED for {prompt.get('id')}: {errors}")
+                logger.error(f"[prompt_sync] This indicates AWS AppSync settings may be incorrect")
             else:
                 data = resp.get("data", {}).get("addPrompts", [])
-                logger.info(f"[prompt_sync] Synced prompt '{prompt.get('id')}' to cloud: {data}")
+                logger.warning(f"[prompt_sync] ✅ SUCCESS - Synced prompt '{prompt.get('id')}' to cloud: {data}")
         except Exception as exc:
-            logger.warning(f"[prompt_sync] Failed to sync prompt '{prompt.get('id', '?')}' to cloud: {exc}")
+            logger.error(f"[prompt_sync] ❌ EXCEPTION during cloud sync for '{prompt.get('id', '?')}': {exc}")
+            logger.error(f"[prompt_sync] Traceback: {traceback.format_exc()}")
 
     t = threading.Thread(target=_do, daemon=True, name="prompt-cloud-sync")
     t.start()

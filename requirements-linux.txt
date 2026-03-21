@@ -76,7 +76,7 @@ crawl4ai==0.8.0             # Web crawling with lxml support (Linux-only enable)
 # ============================================================================
 
 # Browser automation
-browser-use==0.12.0         # Browser automation framework
+browser-use==0.12.2         # Browser automation framework
 playwright>=1.40.0          # Playwright for Linux
 
 # ============================================================================
