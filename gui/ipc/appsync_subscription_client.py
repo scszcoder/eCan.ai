@@ -150,6 +150,7 @@ class AppSyncSubscriptionClient:
                     inst._ws_endpoint: Optional[str] = None
                     inst._api_host: Optional[str] = None
                     inst._event_handlers: List[Callable[[Dict[str, Any]], None]] = []
+                    inst._auth_error_detected = False
                     cls._instance = inst
         return cls._instance
 
@@ -229,6 +230,21 @@ class AppSyncSubscriptionClient:
         while self._running:
             try:
                 self._connect_and_listen()
+                if not self._running:
+                    break
+                if self._auth_error_detected:
+                    logger.warning(
+                        "[AppSyncSubClient] Auth error detected on websocket "
+                        f"connection, refreshing token and reconnecting in {delay:.0f}s …"
+                    )
+                    self._refresh_token()
+                else:
+                    logger.warning(
+                        "[AppSyncSubClient] WebSocket closed, "
+                        f"reconnecting in {delay:.0f}s …"
+                    )
+                time.sleep(delay)
+                delay = min(delay * RECONNECT_BACKOFF, RECONNECT_MAX_DELAY)
             except Exception as exc:
                 if not self._running:
                     break
@@ -241,10 +257,6 @@ class AppSyncSubscriptionClient:
 
                 # Refresh token on reconnect (it may have been rotated)
                 self._refresh_token()
-            else:
-                # run_forever() returned after a successful connection that
-                # later closed cleanly — reset delay for next attempt.
-                delay = RECONNECT_BASE_DELAY
 
     def _refresh_token(self) -> None:
         """Re-read the Cognito token from MainWindow (it may have been refreshed)."""
@@ -313,7 +325,10 @@ class AppSyncSubscriptionClient:
         logger.error(f"[AppSyncSubClient] WebSocket error: {error}")
 
     def _on_close(self, ws, status_code, msg) -> None:
-        logger.warning(f"[AppSyncSubClient] WebSocket closed: code={status_code}, msg={msg}")
+        if status_code == 1000:
+            logger.info(f"[AppSyncSubClient] WebSocket closed normally: code={status_code}, msg={msg}")
+        else:
+            logger.warning(f"[AppSyncSubClient] WebSocket closed: code={status_code}, msg={msg}")
         self._ws = None
 
     def _on_message(self, ws, message: str) -> None:
@@ -325,6 +340,7 @@ class AppSyncSubscriptionClient:
         msg_type = data.get("type")
 
         if msg_type == "connection_ack":
+            self._auth_error_detected = False
             timeout_ms = data.get("payload", {}).get("connectionTimeoutMs", 300_000)
             logger.info(f"[AppSyncSubClient] connection_ack (timeout={timeout_ms}ms)")
             # Now subscribe
@@ -344,6 +360,15 @@ class AppSyncSubscriptionClient:
 
         if msg_type in ("error", "connection_error"):
             logger.error(f"[AppSyncSubClient] Error from AppSync: {data}")
+            payload = data.get("payload") if isinstance(data, dict) else None
+            err_text = json.dumps(payload or data, ensure_ascii=False)
+            if "UnauthorizedException" in err_text or "Token has expired" in err_text:
+                self._auth_error_detected = True
+                self._refresh_token()
+                try:
+                    ws.close()
+                except Exception:
+                    pass
             return
 
         logger.debug(f"[AppSyncSubClient] Unhandled message type: {msg_type}")
