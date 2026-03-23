@@ -632,7 +632,9 @@
       "invalid_tasks": "Invalid Tasks",
       "validation_hint": "These items do not exist in the database. Please remove them and try again.",
       "save_failed": "Save Failed",
-      "startChat": "Start Chat"
+      "startChat": "Start Chat",
+      "tasks": "Tasks",
+      "noTaskAssigned": "No Task Assigned"
     },
     "analytics": {
       "activeAgents": "Active Agents",

@@ -4118,12 +4118,18 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "timer_name": timer_name,
             "browser_event_label": browser_event_label,
         }
+        log_msg = f"[pend_event_node] Waiting for event: type={main_event}, browser_label={browser_event_label}, timer={timer_name}, node={node_name}"
+        logger.info(log_msg)
+        send_skill_editor_log("log", log_msg)
+
         resume_payload = interrupt(info)
 
         from agent.ec_skills.llm_utils.llm_utils import try_parse_json
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
-        log_msg = f"[pend_event_node] resume payload immediately after resuming: {resume_payload}"
-        logger.debug(log_msg)
+        _rp_event_type = resume_payload.get("event_type", "") if isinstance(resume_payload, dict) else ""
+        log_msg = f"[pend_event_node] RESUMED: event_type={_rp_event_type}, node={node_name}, payload_keys={list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
+        logger.info(log_msg)
+        send_skill_editor_log("log", log_msg)
         # send_skill_editor_log("log", log_msg)
 
         # --- Append full event envelope to state["events"] ---
@@ -4494,6 +4500,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
+    # Parse event monitor configs from node editor (Phase 1: HTTP polling)
+    _event_monitor_configs = []
+    event_monitor_done_policy = "keep"
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor import parse_monitor_configs
+        _event_monitor_configs = parse_monitor_configs(inputs)
+        event_monitor_done_policy = (
+            ((inputs.get("eventMonitorDonePolicy") or {}).get("content") or "keep").strip().lower() or "keep"
+        )
+        if event_monitor_done_policy == "teardown":
+            event_monitor_done_policy = "stop"
+        if _event_monitor_configs:
+            logger.info(
+                f"[BrowserAutomation] Parsed {len(_event_monitor_configs)} event monitor config(s): "
+                f"{[c.label for c in _event_monitor_configs]}"
+            )
+            send_skill_editor_log("log", f"[BrowserAutomation] {len(_event_monitor_configs)} event monitor(s) configured")
+    except Exception as _em_parse_err:
+        logger.warning(f"[BrowserAutomation] Failed to parse event monitor configs: {_em_parse_err}")
+
     # Extract browser settings from node editor
     browser_type_setting = ((inputs.get("browser") or {}).get("content") or "new chromium").lower().strip()
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
@@ -4859,6 +4885,44 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
+
+            def _extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> str | None:
+                """Pull a deterministic startup URL from task/state for control-page workflows."""
+                pattern = r'https?://(?:127\.0\.0\.1|localhost):9877/control[^\s\'"]*'
+                candidates = [task_text]
+                if isinstance(workflow_state, dict):
+                    try:
+                        candidates.append(json.dumps(workflow_state, ensure_ascii=False))
+                    except Exception:
+                        pass
+
+                for candidate in candidates:
+                    if not candidate:
+                        continue
+                    match = re.search(pattern, candidate, re.IGNORECASE)
+                    if match:
+                        return match.group(0)
+                return None
+
+            def _is_matching_control_url(actual_url: str, preferred_url: str) -> bool:
+                """Treat localhost and 127.0.0.1 control-panel URLs as equivalent."""
+                if not actual_url or not preferred_url:
+                    return False
+                try:
+                    actual = urlparse(actual_url)
+                    preferred = urlparse(preferred_url)
+                    actual_host = (actual.hostname or "").lower()
+                    preferred_host = (preferred.hostname or "").lower()
+                    local_hosts = {"127.0.0.1", "localhost"}
+                    if actual_host not in local_hosts or preferred_host not in local_hosts:
+                        return actual_url.rstrip("/") == preferred_url.rstrip("/")
+                    return (
+                        (actual.port or 80) == (preferred.port or 80)
+                        and actual.path.rstrip("/").startswith("/control")
+                        and preferred.path.rstrip("/").startswith("/control")
+                    )
+                except Exception:
+                    return actual_url.rstrip("/") == preferred_url.rstrip("/")
 
             # Determine run mode based on node editor setting (run_environment_setting)
             # Options: full_local, passive_local, hybrid_cloud, full_cloud
@@ -5430,6 +5494,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         node_id=node_name,
                         **agent_kwargs,
                     )
+
+                    try:
+                        setattr(agent, "_ecan_skill_name", skill_name)
+                        setattr(agent, "_ecan_node_id", node_name)
+                        setattr(agent, "_ecan_owner", owner)
+                    except Exception:
+                        pass
                     
                     # Register agent instance for extension tools
                     from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
@@ -5629,9 +5700,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             ensure_profile_unlocked(_bp_user_data_dir, auto_clean=True)
             
             # Create browser profile with persistent storage for all modes
+            keep_browser_alive = bool(_event_monitor_configs)
             browser_profile = BrowserProfile(
                 enable_default_extensions=not disable_extensions,
                 user_data_dir=_bp_user_data_dir,
+                keep_alive=keep_browser_alive or None,
             )
             
             if browser_type_setting == 'new chromium':
@@ -5639,11 +5712,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             else:
                 logger.info("[BrowserAutomation] Using persistent profile for existing-browser/CDP mode")
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
+            if keep_browser_alive:
+                logger.info("[BrowserAutomation] Browser profile keep_alive enabled for event-monitored workflow")
            
             if browser_profile:
                 agent_kwargs['browser_profile'] = browser_profile
-            
-            
+
+            _agent_ref: dict[str, Any] = {}
+            if _event_monitor_configs and event_monitor_done_policy == "stop":
+                async def _on_browser_done(_history):
+                    try:
+                        agent_obj = _agent_ref.get("agent")
+                        session_obj = getattr(agent_obj, "browser_session", None) if agent_obj else None
+                        if not session_obj:
+                            return
+                        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+                        capability = get_event_monitor_capability(session_obj, create=False)
+                        if capability:
+                            await capability.stop()
+                            logger.info("[BrowserAutomation] Stopped session event monitors on done()")
+                    except Exception as _done_monitor_err:
+                        logger.warning(f"[BrowserAutomation] Failed to stop monitors on done(): {_done_monitor_err}")
+
+                agent_kwargs["register_done_callback"] = _on_browser_done
+
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
 
@@ -5720,6 +5812,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # Mode 1: Let browser-use create and manage its own Chromium browser
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
                 agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                _agent_ref["agent"] = agent
                 
             else:
                 # Mode 2: Connect to existing browser via CDP
@@ -5733,6 +5826,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     log_msg = f"[BrowserAutomation] Connected to browser session: {getattr(browser_session, 'id', 'unknown')}"
                     logger.info(log_msg)
                     send_skill_editor_log("log", log_msg)
+
+                    # IMPORTANT: browser-use decides whether to reset/kill the session
+                    # on agent.close() from browser_session.browser_profile.keep_alive,
+                    # not from the separate BrowserProfile object we built above.
+                    # For event-monitored loop workflows, propagate keep_alive onto the
+                    # actual reused session so monitors survive done() -> pend_event.
+                    try:
+                        if hasattr(browser_session, "browser_profile") and browser_session.browser_profile:
+                            browser_session.browser_profile.keep_alive = bool(keep_browser_alive)
+                            logger.info(
+                                f"[BrowserAutomation] Applied keep_alive={bool(keep_browser_alive)} "
+                                f"to reused browser session profile"
+                            )
+                    except Exception as _keep_alive_err:
+                        logger.warning(
+                            f"[BrowserAutomation] Failed to apply keep_alive to reused browser session: "
+                            f"{_keep_alive_err}"
+                        )
                     
                     # Start the browser session
                     if not _is_session_started(browser_session):
@@ -5742,7 +5853,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # If agent_focus_target_id is missing/invalid (common after target detach),
                     # re-bind to a valid page target before running browser-use Agent.
                     try:
-                        from browser_use.browser.events import SwitchTabEvent
+                        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
 
                         sm = getattr(browser_session, 'session_manager', None)
                         all_targets = sm.get_all_targets() if sm else {}
@@ -5776,15 +5887,100 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             await browser_session.get_browser_state_summary(include_screenshot=False)
                         else:
                             logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
+
+                        preferred_start_url = _extract_preferred_start_url(task, state)
+                        if preferred_start_url and sm:
+                            latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                            all_targets = sm.get_all_targets() if sm else {}
+                            preferred_target_id = None
+                            current_target = sm.get_target(latest_focus) if latest_focus else None
+                            current_url = getattr(current_target, 'url', '') if current_target else ''
+
+                            for tid, target in (all_targets or {}).items():
+                                if getattr(target, 'target_type', '') not in ('page', 'tab'):
+                                    continue
+                                target_url = getattr(target, 'url', '') or ''
+                                if _is_matching_control_url(target_url, preferred_start_url):
+                                    preferred_target_id = tid
+                                    break
+
+                            if preferred_target_id and preferred_target_id != latest_focus:
+                                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=preferred_target_id))
+                                _last_known_focus_target_id = preferred_target_id
+                                logger.info(
+                                    f"[BrowserAutomation] Switched to preferred control tab: "
+                                    f"...{preferred_target_id[-4:]} url={preferred_start_url}"
+                                )
+                                await browser_session.get_browser_state_summary(include_screenshot=False)
+                            elif not _is_matching_control_url(current_url, preferred_start_url):
+                                await browser_session.event_bus.dispatch(
+                                    NavigateToUrlEvent(url=preferred_start_url, new_tab=False)
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] Pre-navigated focused tab to preferred startup URL: "
+                                    f"{preferred_start_url}"
+                                )
+                                await asyncio.sleep(0.8)
+                                await browser_session.get_browser_state_summary(include_screenshot=False)
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
-                    
+
                     # Create agent with existing browser session
                     agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                    _agent_ref["agent"] = agent
                 else:
                     # Fallback: browser session creation failed or unsupported driver
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                    _agent_ref["agent"] = agent
+
+            try:
+                setattr(agent, "_ecan_skill_name", skill_name)
+                setattr(agent, "_ecan_node_id", node_name)
+                setattr(agent, "_ecan_owner", owner)
+            except Exception:
+                pass
+            try:
+                # Defensive second application after agent construction. Some agent
+                # constructors may replace/wrap the session reference.
+                _agent_session = getattr(agent, "browser_session", None)
+                if _agent_session and hasattr(_agent_session, "browser_profile") and _agent_session.browser_profile:
+                    _agent_session.browser_profile.keep_alive = bool(keep_browser_alive)
+                    logger.info(
+                        f"[BrowserAutomation] Agent session keep_alive="
+                        f"{_agent_session.browser_profile.keep_alive}"
+                    )
+            except Exception as _agent_keep_alive_err:
+                logger.warning(
+                    f"[BrowserAutomation] Failed to apply keep_alive on agent session: "
+                    f"{_agent_keep_alive_err}"
+                )
+            try:
+                from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+                set_current_agent(agent)
+            except Exception as _set_agent_err:
+                logger.debug(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_err}")
+
+            # Auto-start event monitors on the browser session (Phase 1: HTTP polling)
+            _active_monitor_set = None
+            if _event_monitor_configs and hasattr(agent, 'browser_session') and agent.browser_session:
+                try:
+                    from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+                    capability = get_event_monitor_capability(agent.browser_session, create=True)
+                    _active_monitor_set = await capability.ensure_started(
+                        configs=_event_monitor_configs,
+                        agent_id=calling_agent_id or "",
+                    ) if capability else None
+                    if _active_monitor_set:
+                        log_msg = (
+                            f"[BrowserAutomation] Event monitors started: "
+                            f"{len(_active_monitor_set.monitors)} active "
+                            f"(set_id={_active_monitor_set.monitor_set_id})"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                except Exception as _em_start_err:
+                    logger.warning(f"[BrowserAutomation] Failed to start event monitors: {_em_start_err}")
 
             # Look up cancellation_event from global registry by task_id
             from agent.ec_tasks import cancellation_registry
@@ -5795,7 +5991,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             try:
                 # Pass cancellation_event to agents that support it natively;
-                # for native browser-use Agent, patch its step method inline.
+                # for native browser-use Agent, patch its step method inline for cancellation only.
                 agent_class_name = agent.__class__.__name__
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
                     if node_max_steps:
@@ -5806,10 +6002,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _orig_step = agent.step
                     async def _step_with_cancel(*a, **kw):
                         if cancellation_event.is_set():
-                            logger.info(f"[BrowserAutomation] 🛑 Cancellation requested, stopping")
+                            logger.info(f"[BrowserAutomation] Cancellation requested, stopping")
                             raise asyncio.CancelledError("Task cancelled by user")
                         return await _orig_step(*a, **kw)
                     agent.step = _step_with_cancel
+                    logger.info(f"[BrowserAutomation] Modified agent.step to include cancellation checks")
                     try:
                         if node_max_steps:
                             history = await agent.run(max_steps=node_max_steps)
@@ -5822,6 +6019,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         history = await agent.run(max_steps=node_max_steps)
                     else:
                         history = await agent.run()
+
 
                 # Persist focus target across node iterations to survive session churn.
                 try:
@@ -5900,6 +6098,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                 return {"final": final, "history": str(history)}
             finally:
+                # NOTE: Event monitors are NOT stopped here intentionally.
+                # They persist across the loop for pend_event nodes to receive events.
+                # Global cleanup happens when runner shuts down (see runner.py).
+                # To manually stop monitors early, call stop_monitors(session._ecan_event_monitors, session).
+                pass
+
                 # Clean up browser session if not cached
                 # Only close non-cached sessions to prevent resource leaks
                 if hasattr(agent, 'browser_session') and agent.browser_session:
