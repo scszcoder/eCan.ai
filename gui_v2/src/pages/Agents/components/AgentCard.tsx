@@ -7,10 +7,11 @@
  * 3. 保持原有的Concise性
  */
 
-import React, { useMemo, memo } from 'react';
-import { App, Button, Dropdown } from 'antd';
+import React, { useMemo, memo, useState, useEffect, useCallback } from 'react';
+import { App, Button, Dropdown, Popover, Tooltip, Tag, Spin, Empty } from 'antd';
 import type { MenuProps } from 'antd';
-import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
+import { MessageOutlined, MoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { useTaskStore } from '@/stores/domain/taskStore';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Agent, type AgentCard as AgentCardType } from '../types';
@@ -21,6 +22,7 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import './AgentCard.css';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
+import { eventBus } from '@/utils/eventBus';
 import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
 
 // DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
@@ -59,6 +61,207 @@ function getAgentDescription(agent: Agent | AgentCardType): string {
   if ('description' in agent && typeof agent.description === 'string') return agent.description;
   if ('card' in agent && typeof agent.card?.description === 'string') return agent.card.description;
   return '';
+}
+
+/**
+ * Task status display helper
+ */
+function getTaskStatusDisplay(task: any): { label: string; color: string } {
+  // Prioritize live status from IPC events, then state.top (runtime), then DB status
+  const liveStatus = task?._liveStatus;
+  const stateTop = task?.state?.top || task?.metadata?.state?.top;
+  const status = liveStatus || stateTop || task?.status || 'pending';
+  const s = String(status).toLowerCase();
+
+  // Terminal states take priority
+  if (s === 'completed' || s === 'done') return { label: 'Completed', color: 'success' };
+  if (s === 'failed' || s === 'error') return { label: 'Failed', color: 'error' };
+  if (s === 'cancelled') return { label: 'Cancelled', color: 'default' };
+
+  // Explicit running
+  if (s === 'running' || s === 'in_progress') return { label: 'Running', color: 'processing' };
+
+  // Infer running from trigger type: auto-triggered tasks that aren't terminal are running
+  const trigger = task?.trigger || '';
+  const triggers = Array.isArray(trigger) ? trigger : String(trigger).split(',').map((t: string) => t.trim());
+  if (triggers.includes('auto')) return { label: 'Running', color: 'processing' };
+
+  if (s === 'scheduled' || s === 'ready') return { label: 'Scheduled', color: 'warning' };
+  if (s === 'pending') return { label: 'Standby', color: 'warning' };
+  return { label: status, color: 'default' };
+}
+
+/**
+ * AgentTasksButton — icon button with popover listing tasks assigned to this agent
+ */
+function AgentTasksButton({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
+  const username = useUserStore((state) => state.username);
+  const allTasks = useTaskStore((state) => state.items);
+  const [agentTasks, setAgentTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+
+  const fetchTasks = useCallback(async () => {
+    if (!agentId || !username || fetched) return;
+    setLoading(true);
+    try {
+      const api = get_ipc_api();
+
+      // Step 1: ensure we have tasks loaded (fetch from API if store is empty)
+      let tasks = allTasks;
+      if (!tasks || tasks.length === 0) {
+        try {
+          const tasksResp = await api.getAgentTasks(username, []);
+          if (tasksResp.success && tasksResp.data) {
+            const data = tasksResp.data as any;
+            tasks = Array.isArray(data) ? data : (data.tasks || []);
+          }
+        } catch (e) {
+          console.warn('[AgentTasksButton] Failed to fetch all tasks:', e);
+        }
+      }
+
+      // Step 2: try direct agentId match on tasks
+      const fromStore = tasks.filter((t: any) => t.agentId === agentId || t.agent_id === agentId);
+      if (fromStore.length > 0) {
+        setAgentTasks(fromStore);
+        setFetched(true);
+        setLoading(false);
+        return;
+      }
+
+      // Step 3: query agent_task_rels table and cross-reference
+      const relsResp = await api.queryAgentTaskRels({ agent_id: agentId, limit: 100, offset: 0 });
+      if (relsResp.success && Array.isArray(relsResp.data) && relsResp.data.length > 0) {
+        const taskIds = new Set(relsResp.data.map((r: any) => String(r.task_id || '').trim()).filter(Boolean));
+        const matched = tasks.filter((t: any) => taskIds.has(t.id));
+        setAgentTasks(matched);
+      } else {
+        setAgentTasks([]);
+      }
+    } catch (e) {
+      console.warn('[AgentTasksButton] Failed to fetch tasks:', e);
+      setAgentTasks([]);
+    } finally {
+      setLoading(false);
+      setFetched(true);
+    }
+  }, [agentId, username, allTasks, fetched]);
+
+  // Listen for real-time task status updates via IPC event bus
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (!data) return;
+      const taskId = data?.langgraphState?.task_id || data?.task_id;
+      const taskStatus = data?.langgraphState?.task_status || data?.status;
+      if (!taskId || !taskStatus) return;
+
+      setAgentTasks((prev) => {
+        const idx = prev.findIndex((t: any) => t.id === taskId || t.run_id === data.agentTaskId);
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], _liveStatus: taskStatus };
+        return updated;
+      });
+    };
+    eventBus.on('ws:update_skill_run_stat', handler);
+    return () => { eventBus.off('ws:update_skill_run_stat', handler); };
+  }, []);
+
+  const handleOpenChange = (open: boolean) => {
+    if (open && !fetched) {
+      fetchTasks();
+    }
+  };
+
+  const content = (
+    <div style={{ minWidth: 200, maxWidth: 300 }}>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <Spin size="small" />
+        </div>
+      ) : agentTasks.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>
+              {t('pages.agents.noTaskAssigned') || 'No Task Assigned'}
+            </span>
+          }
+          style={{ margin: '8px 0' }}
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {agentTasks.map((task: any) => {
+            const { label, color } = getTaskStatusDisplay(task);
+            return (
+              <div
+                key={task.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: '4px 0',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: 'rgba(255,255,255,0.85)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                  }}
+                  title={task.name || task.id}
+                >
+                  {task.name || task.id}
+                </span>
+                <Tag
+                  color={color}
+                  style={{ margin: 0, fontSize: 11, lineHeight: '18px', flexShrink: 0 }}
+                >
+                  {label}
+                </Tag>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <Popover
+      content={content}
+      title={
+        <span style={{ fontSize: 13, fontWeight: 600 }}>
+          {t('pages.agents.tasks') || 'Tasks'}
+        </span>
+      }
+      trigger="click"
+      placement="bottom"
+      onOpenChange={handleOpenChange}
+    >
+      <Tooltip title={t('pages.agents.tasks') || 'Tasks'}>
+        <Button
+          shape="circle"
+          icon={<UnorderedListOutlined />}
+          size="small"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            color: 'rgba(255, 255, 255, 0.7)',
+            flexShrink: 0,
+          }}
+        />
+      </Tooltip>
+    </Popover>
+  );
 }
 
 /**
@@ -305,7 +508,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         position: 'relative',
         background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.05) 100%)',
         borderRadius: '16px',
-        padding: '20px',
+        padding: '20px 20px 12px 20px',
         border: '1px solid rgba(255, 255, 255, 0.1)',
         transition: 'all 0.3s ease',
         cursor: 'pointer',
@@ -322,7 +525,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       }}
     >
       {/* 媒体Content */}
-      <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', marginBottom: '16px' }}>
+      <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', marginBottom: '8px' }}>
         {isVideo ? (
           <div
             className="agent-gif-video-wrapper"
@@ -406,97 +609,70 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         )}
       </div>
       
-      {/* Agent Name and Status */}
-      <div style={{ marginBottom: '12px' }}>
-        <div 
-          className="agent-name" 
-          style={{ 
-            fontSize: '18px',
-            fontWeight: 600,
-            color: 'rgba(255, 255, 255, 0.95)',
-            marginBottom: '4px',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {name ? t(name) : ''}
-        </div>
-        {description && (
-          <div 
-            className="agent-desc" 
-            style={{
-              fontSize: '13px',
-              color: 'rgba(255, 255, 255, 0.6)',
-              lineHeight: '1.5',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical'
-            }}
-          >
-            {t(description)}
-          </div>
-        )}
-      </div>
-      
-      {/* Action Buttons */}
+      {/* Agent Name + Action Buttons (single row) */}
       <div
         className="agent-info-row"
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: 8,
-          paddingTop: '12px',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+          width: '100%',
         }}
       >
-        <Dropdown menu={{ items: menuItems }} trigger={["click"]} placement="bottomLeft">
-          <Button 
-            shape="circle" 
-            icon={<MoreOutlined />} 
-            size="middle"
+        {/* Name (left-aligned, takes remaining space) */}
+        <div
+          className="agent-name"
+          style={{
+            fontSize: '16px',
+            fontWeight: 600,
+            color: 'rgba(255, 255, 255, 0.95)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={name ? t(name) : ''}
+        >
+          {name ? t(name) : ''}
+        </div>
+
+        {/* Buttons (right-aligned) */}
+        <Tooltip title={t('pages.agents.startChat') || 'Start Chat'}>
+          <Button
+            shape="circle"
+            icon={<MessageOutlined />}
+            size="small"
+            className="agent-chat-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChat?.();
+            }}
             style={{
               background: 'rgba(255, 255, 255, 0.05)',
               borderColor: 'rgba(255, 255, 255, 0.1)',
-              color: 'rgba(255, 255, 255, 0.7)'
+              color: 'rgba(255, 255, 255, 0.7)',
+              flexShrink: 0,
+            }}
+          />
+        </Tooltip>
+
+        <AgentTasksButton agentId={id} />
+
+        <Dropdown menu={{ items: menuItems }} trigger={["click"]} placement="bottomRight">
+          <Button
+            shape="circle"
+            icon={<MoreOutlined />}
+            size="small"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+              color: 'rgba(255, 255, 255, 0.7)',
+              flexShrink: 0,
             }}
           />
         </Dropdown>
-        
-        <Button
-          type="default"
-          icon={<MessageOutlined />}
-          size="middle"
-          className="agent-chat-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onChat?.();
-          }}
-          style={{
-            flex: 1,
-            borderRadius: '8px',
-            height: '36px',
-            fontWeight: 400,
-            background: 'rgba(59, 130, 246, 0.08)',
-            border: '1px solid rgba(59, 130, 246, 0.2)',
-            color: 'rgba(59, 130, 246, 0.9)',
-            boxShadow: 'none',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)';
-            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
-            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
-          }}
-        >
-          {t('pages.agents.startChat') || 'Start Chat'}
-        </Button>
       </div>
     </div>
   );

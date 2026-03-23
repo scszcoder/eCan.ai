@@ -12,6 +12,7 @@ Key concepts:
   from event/node/state into resume/state_patch.
 """
 
+import json
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -240,6 +241,48 @@ def _to_string(v: Any) -> str:
         return _json.dumps(v, ensure_ascii=False)
     except Exception:
         return str(v)
+
+
+def _parse_browser_event_body(msg: Any) -> Dict[str, Any]:
+    """Best-effort parse browser_event payloads from msg.params.body/responseBody."""
+    try:
+        if not isinstance(msg, dict):
+            return {}
+        event = msg.get("event")
+        if isinstance(event, dict):
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                return dict(payload)
+        params = msg.get("params")
+        if not isinstance(params, dict):
+            return {}
+        for key in ("body", "responseBody", "payload", "data"):
+            raw = params.get(key)
+            if isinstance(raw, dict):
+                return dict(raw)
+            if isinstance(raw, str):
+                s = raw.strip()
+                if not s:
+                    continue
+                try:
+                    parsed = json.loads(s)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    continue
+        return {}
+    except Exception:
+        return {}
+
+
+def _parse_browser_event_envelope(msg: Any) -> Dict[str, Any]:
+    try:
+        if not isinstance(msg, dict):
+            return {}
+        event = msg.get("event")
+        return dict(event) if isinstance(event, dict) else {}
+    except Exception:
+        return {}
 
 
 # ---------- Event normalization ----------
@@ -1004,6 +1047,59 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                 _cv = _ch_params.get(_ck)
                 if _cv:
                     _write(state_patch, f"attributes.{_ck}", _cv, on_conflict="overwrite")
+
+        # Preserve browser_event payloads so resumed nodes can act without re-scraping.
+        if isinstance(msg, dict) and event.get("type") == "browser_event":
+            normalized_browser_event = _parse_browser_event_envelope(msg)
+            browser_event_payload = {
+                "type": "browser_event",
+                "sub_type": msg.get("sub_type") or normalized_browser_event.get("label") or _safe_get(msg, "context.sub_type") or "",
+                "sub_id": msg.get("sub_id") or normalized_browser_event.get("event_id") or _safe_get(msg, "context.sub_id") or "",
+                "source": msg.get("source") or event.get("source") or "",
+            }
+            parsed_body = _parse_browser_event_body(msg)
+            if parsed_body:
+                browser_event_payload["body"] = parsed_body
+            elif isinstance(msg.get("params"), dict):
+                browser_event_payload["body"] = msg.get("params")
+            if normalized_browser_event:
+                browser_event_payload["normalized_event"] = normalized_browser_event
+
+            customers = browser_event_payload.get("body", {}).get("customers")
+            if not isinstance(customers, list):
+                customers = []
+            session_ids = []
+            for customer in customers:
+                if not isinstance(customer, dict):
+                    continue
+                sid = customer.get("session_id") or customer.get("sessionId") or customer.get("session")
+                if isinstance(sid, str) and sid and sid not in session_ids:
+                    session_ids.append(sid)
+
+            body_items = browser_event_payload.get("body", {}).get("items")
+            if isinstance(body_items, list):
+                for item in body_items:
+                    if not isinstance(item, dict):
+                        continue
+                    sid = item.get("session_id") or item.get("sessionId") or item.get("session")
+                    if isinstance(sid, str) and sid and sid not in session_ids:
+                        session_ids.append(sid)
+
+            body_session_id = browser_event_payload.get("body", {}).get("session_id")
+            if isinstance(body_session_id, str) and body_session_id and body_session_id not in session_ids:
+                session_ids.append(body_session_id)
+
+            if session_ids:
+                browser_event_payload["session_ids"] = session_ids
+                browser_event_payload["count"] = len(session_ids)
+                _write(state_patch, "attributes.pending_customer_sessions", session_ids, on_conflict="overwrite")
+                _write(state_patch, "attributes.pending_customers", customers, on_conflict="overwrite")
+
+            _write(state_patch, "attributes.browser_event", browser_event_payload, on_conflict="overwrite")
+            _write(state_patch, "attributes.browser_event_sub_type", browser_event_payload.get("sub_type", ""), on_conflict="overwrite")
+            _write(state_patch, "attributes.browser_event_sub_id", browser_event_payload.get("sub_id", ""), on_conflict="overwrite")
+            _write(state_patch, "attributes.debug.last_browser_event", browser_event_payload, on_conflict="overwrite")
+            resume_payload["browser_event"] = browser_event_payload
 
         event_data = event.get("data", {}) if isinstance(event, dict) else {}
         human_text = event_data.get("human_text")

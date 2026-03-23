@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
-import { Divider, Select, Button, Checkbox } from '@douyinfe/semi-ui';
-import { IconEdit } from '@douyinfe/semi-icons';
+import { Divider, Select, Button, Checkbox, Input, InputNumber, Typography, TextArea } from '@douyinfe/semi-ui';
+import { IconChevronDown, IconChevronRight, IconEdit } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
@@ -216,6 +216,106 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     { label: t('nodes.browserAutomation.privacyStrategies.patternFilter'), value: 'pattern_filter' },
     { label: t('nodes.browserAutomation.privacyStrategies.localLlm'), value: 'local_llm' },
   ], [t]);
+
+  const SOURCE_TYPE_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.sourceTypes.httpPolling'), value: 'http_polling' },
+    { label: t('nodes.browserAutomation.sourceTypes.websocket'), value: 'websocket' },
+    { label: t('nodes.browserAutomation.sourceTypes.sse'), value: 'sse' },
+    { label: t('nodes.browserAutomation.sourceTypes.domMutation'), value: 'dom_mutation' },
+    { label: t('nodes.browserAutomation.sourceTypes.cdpRaw'), value: 'cdp_raw' },
+  ], [t]);
+
+  const FRAME_DIRECTION_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.frameDirections.incoming'), value: 'incoming' },
+    { label: t('nodes.browserAutomation.frameDirections.outgoing'), value: 'outgoing' },
+    { label: t('nodes.browserAutomation.frameDirections.both'), value: 'both' },
+  ], [t]);
+  const MONITOR_DONE_POLICY_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.monitorDonePolicies.keep'), value: 'keep' },
+    { label: t('nodes.browserAutomation.monitorDonePolicies.stop'), value: 'stop' },
+  ], [t]);
+
+  const [eventMonitorsExpanded, setEventMonitorsExpanded] = useState(false);
+  const [expandedMonitorIndexes, setExpandedMonitorIndexes] = useState<number[]>([]);
+
+  const parseDomExtractorConfig = useCallback((raw: any) => {
+    try {
+      const parsed = typeof raw === 'string' && raw.trim() ? JSON.parse(raw) : {};
+      return typeof parsed === 'object' && parsed ? parsed : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const buildDomExtractorConfig = useCallback((item: any) => {
+    const roots = String(item?.domExtractorRoots ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const pageUrlPatterns = String(item?.domPageUrlPatterns ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const emptyTextPatterns = String(item?.domEmptyTextPatterns ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const keyFields = String(item?.domKeyFields ?? item?.domKeyField ?? 'session')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const config = {
+      page_url_patterns: pageUrlPatterns,
+      roots,
+      items: [
+        {
+          selector: String(item?.domItemSelector ?? '').trim(),
+          fields: {
+            session: {
+              source: String(item?.domSessionSource ?? 'attr').trim() || 'attr',
+              selector: String(item?.domSessionSelector ?? '').trim(),
+              attr: String(item?.domSessionAttr ?? '').trim(),
+              regex: String(item?.domSessionRegex ?? '').trim(),
+              group: Number(item?.domSessionGroup ?? 1) || 1,
+            },
+            chatUrl: {
+              source: String(item?.domChatUrlSource ?? 'attr').trim() || 'attr',
+              selector: String(item?.domChatUrlSelector ?? '').trim(),
+              attr: String(item?.domChatUrlAttr ?? '').trim(),
+            },
+            name: {
+              source: String(item?.domNameSource ?? 'text').trim() || 'text',
+              selector: String(item?.domNameSelector ?? '').trim(),
+              closest: String(item?.domNameClosest ?? '').trim(),
+              regex: String(item?.domNameRegex ?? '').trim(),
+              group: Number(item?.domNameGroup ?? 1) || 1,
+              split_before: String(item?.domNameSplitBefore ?? '').trim(),
+            },
+          },
+        },
+      ],
+      key_field: keyFields[0] || 'session',
+      identity: {
+        key_fields: keyFields.length > 0 ? keyFields : ['session'],
+      },
+      empty_text_patterns: emptyTextPatterns,
+      emit_on: String(item?.domEmitOn ?? 'added').trim() || 'added',
+      top_n: Number(item?.domTopN ?? 10) || 10,
+    } as any;
+
+    if (!config.items[0].fields.session.selector) delete config.items[0].fields.session.selector;
+    if (!config.items[0].fields.session.attr) delete config.items[0].fields.session.attr;
+    if (!config.items[0].fields.session.regex) delete config.items[0].fields.session.regex;
+    if (!config.items[0].fields.chatUrl.selector) delete config.items[0].fields.chatUrl.selector;
+    if (!config.items[0].fields.chatUrl.attr) delete config.items[0].fields.chatUrl.attr;
+    if (!config.items[0].fields.name.selector) delete config.items[0].fields.name.selector;
+    if (!config.items[0].fields.name.closest) delete config.items[0].fields.name.closest;
+    if (!config.items[0].fields.name.regex) delete config.items[0].fields.name.regex;
+    if (!config.items[0].fields.name.split_before) delete config.items[0].fields.name.split_before;
+    return config;
+  }, []);
 
   return (
     <>
@@ -577,6 +677,538 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Event Monitors Section (collapsible) */}
+        <div
+          style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
+          onClick={() => setEventMonitorsExpanded(!eventMonitorsExpanded)}
+        >
+          {eventMonitorsExpanded ? <IconChevronDown size="small" /> : <IconChevronRight size="small" />}
+          <Divider style={{ flex: 1, margin: 0 }}>{t('nodes.browserAutomation.eventMonitors')}</Divider>
+        </div>
+        {eventMonitorsExpanded && (
+          <div style={{ marginBottom: 8 }}>
+            <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+              {t('nodes.browserAutomation.eventMonitorsDesc')}
+            </Typography.Text>
+            <FormItem name="eventMonitorDonePolicy" label={t('nodes.browserAutomation.eventMonitorDonePolicy')} type="string" vertical>
+              <Field<string> name="inputsValues.eventMonitorDonePolicy.content">
+                {({ field }) => (
+                  <Select
+                    value={(field.value as string) || 'keep'}
+                    onChange={(val) => field.onChange(val as string)}
+                    optionList={MONITOR_DONE_POLICY_OPTIONS}
+                    style={{ width: '100%' }}
+                    size="small"
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <Field<any> name="inputsValues.eventMonitors">
+              {({ field }) => {
+                const raw = Array.isArray(field.value?.content) ? (field.value.content as any[]) : [];
+                const toObj = (item: any) =>
+                  typeof item === 'string'
+                    ? { label: '', enabled: true, sourceType: 'http_polling' }
+                    : (() => {
+                        const domCfg = parseDomExtractorConfig(item?.cdpFilterExpr);
+                        const domItem = Array.isArray(domCfg?.items) && domCfg.items[0] ? domCfg.items[0] : {};
+                        const domFields = domItem?.fields || {};
+                        return {
+                        label: item?.label ?? '',
+                        enabled: item?.enabled !== false,
+                        sourceType: item?.sourceType ?? 'http_polling',
+                        urlPatterns: item?.urlPatterns ?? '',
+                        contentFilters: item?.contentFilters ?? '',
+                        methods: item?.methods ?? '',
+                        minBodyLength: item?.minBodyLength ?? 10,
+                        frameDirection: item?.frameDirection ?? 'incoming',
+                        sseEventTypes: item?.sseEventTypes ?? '',
+                        domSelector: item?.domSelector ?? '',
+                        domAttributes: item?.domAttributes ?? false,
+                        domChildList: item?.domChildList ?? true,
+                        domSubtree: item?.domSubtree ?? true,
+                        domCheckIntervalMs: item?.domCheckIntervalMs ?? 250,
+                        cdpDomain: item?.cdpDomain ?? '',
+                        cdpEventMethod: item?.cdpEventMethod ?? '',
+                        cdpFilterExpr: item?.cdpFilterExpr ?? '',
+                        domPageUrlPatterns: Array.isArray(domCfg?.page_url_patterns) ? domCfg.page_url_patterns.join(', ') : '',
+                        domExtractorRoots: Array.isArray(domCfg?.roots) ? domCfg.roots.join(', ') : '',
+                        domItemSelector: domItem?.selector ?? '',
+                        domKeyFields: Array.isArray(domCfg?.identity?.key_fields)
+                          ? domCfg.identity.key_fields.join(', ')
+                          : (domCfg?.key_field ?? 'session'),
+                        domKeyField: domCfg?.key_field ?? 'session',
+                        domEmitOn: domCfg?.emit_on ?? 'added',
+                        domTopN: domCfg?.top_n ?? 10,
+                        domEmptyTextPatterns: Array.isArray(domCfg?.empty_text_patterns) ? domCfg.empty_text_patterns.join(', ') : '',
+                        domSessionSource: domFields?.session?.source ?? 'attr',
+                        domSessionSelector: domFields?.session?.selector ?? '',
+                        domSessionAttr: domFields?.session?.attr ?? 'href',
+                        domSessionRegex: domFields?.session?.regex ?? '',
+                        domSessionGroup: domFields?.session?.group ?? 1,
+                        domChatUrlSource: domFields?.chatUrl?.source ?? 'attr',
+                        domChatUrlSelector: domFields?.chatUrl?.selector ?? '',
+                        domChatUrlAttr: domFields?.chatUrl?.attr ?? 'href',
+                        domNameSource: domFields?.name?.source ?? 'text',
+                        domNameSelector: domFields?.name?.selector ?? '',
+                        domNameClosest: domFields?.name?.closest ?? '',
+                        domNameRegex: domFields?.name?.regex ?? '',
+                        domNameGroup: domFields?.name?.group ?? 1,
+                        domNameSplitBefore: domFields?.name?.split_before ?? '',
+                      };
+                    })();
+                const arr = raw.map(toObj);
+                const setArray = (next: any[]) => field.onChange({ type: 'constant', content: next });
+                const addOne = () =>
+                  {
+                    const nextIndex = arr.length;
+                    setArray([...arr, { label: '', enabled: true, sourceType: 'http_polling', urlPatterns: '', contentFilters: '', methods: '', minBodyLength: 10, domCheckIntervalMs: 250 }]);
+                    setExpandedMonitorIndexes((prev) => (prev.includes(nextIndex) ? prev : [...prev, nextIndex]));
+                  };
+                const removeAt = (idx: number) => {
+                  const next = [...arr];
+                  next.splice(idx, 1);
+                  setArray(next);
+                  setExpandedMonitorIndexes((prev) =>
+                    prev
+                      .filter((x) => x !== idx)
+                      .map((x) => (x > idx ? x - 1 : x))
+                  );
+                };
+                const updateAt = (idx: number, key: string, val: any) => {
+                  const next = [...arr];
+                  next[idx] = { ...next[idx], [key]: val };
+                  if (next[idx]?.sourceType === 'dom_mutation') {
+                    next[idx].cdpFilterExpr = JSON.stringify(buildDomExtractorConfig(next[idx]), null, 2);
+                  }
+                  setArray(next);
+                };
+                const isMonitorExpanded = (idx: number) => expandedMonitorIndexes.includes(idx);
+                const toggleMonitorExpanded = (idx: number) => {
+                  setExpandedMonitorIndexes((prev) =>
+                    prev.includes(idx) ? prev.filter((x) => x !== idx) : [...prev, idx]
+                  );
+                };
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {arr.map((item, i) => {
+                      const st = item.sourceType || 'http_polling';
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            border: '1px solid #e0e0e0',
+                            borderRadius: 6,
+                            padding: 10,
+                            backgroundColor: item.enabled ? '#fafafa' : '#f0f0f0',
+                            opacity: item.enabled ? 1 : 0.6,
+                          }}
+                        >
+                          {/* Header: enabled toggle + delete */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <Button
+                                theme="borderless"
+                                type="tertiary"
+                                size="small"
+                                icon={isMonitorExpanded(i) ? <IconChevronDown size="small" /> : <IconChevronRight size="small" />}
+                                onClick={() => toggleMonitorExpanded(i)}
+                                aria-label={isMonitorExpanded(i) ? 'Collapse monitor' : 'Expand monitor'}
+                              />
+                              <Checkbox
+                                checked={item.enabled}
+                                onChange={(e) => updateAt(i, 'enabled', (e.target as HTMLInputElement).checked)}
+                              >
+                                <span style={{ fontWeight: 600, fontSize: 12 }}>
+                                  #{i + 1} {item.label ? `- ${item.label}` : ''}
+                                </span>
+                              </Checkbox>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <Typography.Text type="tertiary" size="small">{st}</Typography.Text>
+                              <Button type="danger" theme="borderless" size="small" onClick={() => removeAt(i)}>
+                                {t('nodes.browserAutomation.deleteMonitor')}
+                              </Button>
+                            </div>
+                          </div>
+
+                          {isMonitorExpanded(i) && (
+                            <>
+                          {/* Label */}
+                          <div style={{ marginBottom: 6 }}>
+                            <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                              {t('nodes.browserAutomation.monitorLabel')}
+                            </label>
+                            <Input
+                              value={item.label}
+                              placeholder={t('nodes.browserAutomation.monitorLabelPlaceholder')}
+                              onChange={(val) => updateAt(i, 'label', String(val))}
+                              size="small"
+                            />
+                          </div>
+
+                          {/* Source Type */}
+                          <div style={{ marginBottom: 6 }}>
+                            <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                              {t('nodes.browserAutomation.monitorSourceType')}
+                            </label>
+                            <Select
+                              value={st}
+                              onChange={(val) => updateAt(i, 'sourceType', val as string)}
+                              optionList={SOURCE_TYPE_OPTIONS}
+                              style={{ width: '100%' }}
+                              size="small"
+                            />
+                          </div>
+
+                          {/* URL Patterns (shown for http_polling, websocket, sse) */}
+                          {['http_polling', 'websocket', 'sse'].includes(st) && (
+                            <div style={{ marginBottom: 6 }}>
+                              <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                {t('nodes.browserAutomation.monitorUrlPatterns')}
+                              </label>
+                              <Input
+                                value={item.urlPatterns}
+                                placeholder={t('nodes.browserAutomation.monitorUrlPatternsPlaceholder')}
+                                onChange={(val) => updateAt(i, 'urlPatterns', String(val))}
+                                size="small"
+                              />
+                            </div>
+                          )}
+
+                          {/* HTTP Polling specific fields */}
+                          {st === 'http_polling' && (
+                            <>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorContentFilters')}
+                                </label>
+                                <Input
+                                  value={item.contentFilters}
+                                  placeholder={t('nodes.browserAutomation.monitorContentFiltersPlaceholder')}
+                                  onChange={(val) => updateAt(i, 'contentFilters', String(val))}
+                                  size="small"
+                                />
+                              </div>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <div style={{ flex: 1 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorMethods')}
+                                  </label>
+                                  <Input
+                                    value={item.methods}
+                                    placeholder={t('nodes.browserAutomation.monitorMethodsPlaceholder')}
+                                    onChange={(val) => updateAt(i, 'methods', String(val))}
+                                    size="small"
+                                  />
+                                </div>
+                                <div style={{ width: 100 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorMinBodyLength')}
+                                  </label>
+                                  <InputNumber
+                                    value={item.minBodyLength}
+                                    min={0}
+                                    onChange={(val) => updateAt(i, 'minBodyLength', Number(val || 0))}
+                                    size="small"
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          )}
+
+                          {/* WebSocket specific fields */}
+                          {st === 'websocket' && (
+                            <>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorFrameDirection')}
+                                </label>
+                                <Select
+                                  value={item.frameDirection || 'incoming'}
+                                  onChange={(val) => updateAt(i, 'frameDirection', val as string)}
+                                  optionList={FRAME_DIRECTION_OPTIONS}
+                                  style={{ width: '100%' }}
+                                  size="small"
+                                />
+                              </div>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorContentFilters')}
+                                </label>
+                                <Input
+                                  value={item.contentFilters}
+                                  placeholder={t('nodes.browserAutomation.monitorContentFiltersPlaceholder')}
+                                  onChange={(val) => updateAt(i, 'contentFilters', String(val))}
+                                  size="small"
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {/* SSE specific fields */}
+                          {st === 'sse' && (
+                            <>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorSseEventTypes')}
+                                </label>
+                                <Input
+                                  value={item.sseEventTypes}
+                                  placeholder="message, update"
+                                  onChange={(val) => updateAt(i, 'sseEventTypes', String(val))}
+                                  size="small"
+                                />
+                              </div>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorContentFilters')}
+                                </label>
+                                <Input
+                                  value={item.contentFilters}
+                                  placeholder={t('nodes.browserAutomation.monitorContentFiltersPlaceholder')}
+                                  onChange={(val) => updateAt(i, 'contentFilters', String(val))}
+                                  size="small"
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {/* DOM Mutation specific fields */}
+                          {st === 'dom_mutation' && (
+                            <>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorDomSelector')}
+                                </label>
+                                <Input
+                                  value={item.domSelector}
+                                  placeholder="#chat-container"
+                                  onChange={(val) => updateAt(i, 'domSelector', String(val))}
+                                  size="small"
+                                />
+                                <div style={{ marginTop: 6, width: 140 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    DOM Check Interval (ms)
+                                  </label>
+                                  <InputNumber
+                                    value={item.domCheckIntervalMs || 250}
+                                    min={50}
+                                    step={50}
+                                    onChange={(val) => updateAt(i, 'domCheckIntervalMs', Number(val || 250))}
+                                    size="small"
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                  <Checkbox checked={item.domChildList} onChange={(e) => updateAt(i, 'domChildList', (e.target as HTMLInputElement).checked)}>
+                                    childList
+                                  </Checkbox>
+                                  <Checkbox checked={item.domSubtree} onChange={(e) => updateAt(i, 'domSubtree', (e.target as HTMLInputElement).checked)}>
+                                    subtree
+                                  </Checkbox>
+                                  <Checkbox checked={item.domAttributes} onChange={(e) => updateAt(i, 'domAttributes', (e.target as HTMLInputElement).checked)}>
+                                    attributes
+                                  </Checkbox>
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorContentFilters')}
+                                </label>
+                                <Input
+                                  value={item.contentFilters}
+                                  placeholder={t('nodes.browserAutomation.monitorContentFiltersPlaceholder')}
+                                  onChange={(val) => updateAt(i, 'contentFilters', String(val))}
+                                  size="small"
+                                />
+                              </div>
+                              <div style={{ border: '1px dashed #d0d0d0', borderRadius: 6, padding: 8, marginBottom: 6 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: '#666', marginBottom: 6 }}>
+                                  {t('nodes.browserAutomation.monitorDomExtractor')}
+                                </div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorDomPageUrlPatterns')}
+                                  </label>
+                                  <Input value={item.domPageUrlPatterns} placeholder={t('nodes.browserAutomation.monitorDomPageUrlPatternsPlaceholder')} onChange={(val) => updateAt(i, 'domPageUrlPatterns', String(val))} size="small" />
+                                </div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorDomRoots')}
+                                  </label>
+                                  <Input value={item.domExtractorRoots} placeholder={t('nodes.browserAutomation.monitorDomRootsPlaceholder')} onChange={(val) => updateAt(i, 'domExtractorRoots', String(val))} size="small" />
+                                </div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorDomItemSelector')}
+                                  </label>
+                                  <Input value={item.domItemSelector} placeholder={t('nodes.browserAutomation.monitorDomItemSelectorPlaceholder')} onChange={(val) => updateAt(i, 'domItemSelector', String(val))} size="small" />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                      {t('nodes.browserAutomation.monitorDomKeyFields')}
+                                    </label>
+                                    <Input value={item.domKeyFields} placeholder="session, time_text, preview" onChange={(val) => updateAt(i, 'domKeyFields', String(val))} size="small" />
+                                  </div>
+                                  <div style={{ width: 140 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                      {t('nodes.browserAutomation.monitorDomEmitOn')}
+                                    </label>
+                                    <Select value={item.domEmitOn || 'added'} onChange={(val) => updateAt(i, 'domEmitOn', val as string)} optionList={[{ label: 'added', value: 'added' }, { label: 'changed', value: 'changed' }, { label: 'reordered', value: 'reordered' }, { label: 'top_changed', value: 'top_changed' }, { label: 'added_or_reordered', value: 'added_or_reordered' }]} size="small" style={{ width: '100%' }} />
+                                  </div>
+                                  <div style={{ width: 100 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                      {t('nodes.browserAutomation.monitorDomTopN')}
+                                    </label>
+                                    <InputNumber value={item.domTopN || 10} min={1} onChange={(val) => updateAt(i, 'domTopN', Number(val || 10))} size="small" style={{ width: '100%' }} />
+                                  </div>
+                                </div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorDomEmptyTextPatterns')}
+                                  </label>
+                                  <Input value={item.domEmptyTextPatterns} placeholder={t('nodes.browserAutomation.monitorDomEmptyTextPatternsPlaceholder')} onChange={(val) => updateAt(i, 'domEmptyTextPatterns', String(val))} size="small" />
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: '#666', marginBottom: 6 }}>
+                                  {t('nodes.browserAutomation.monitorDomFields')}
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Session Source</label>
+                                    <Select value={item.domSessionSource || 'attr'} onChange={(val) => updateAt(i, 'domSessionSource', val as string)} optionList={[{ label: 'attr', value: 'attr' }, { label: 'text', value: 'text' }, { label: 'closest_text', value: 'closest_text' }]} size="small" style={{ width: '100%' }} />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Session Selector</label>
+                                    <Input value={item.domSessionSelector} onChange={(val) => updateAt(i, 'domSessionSelector', String(val))} size="small" />
+                                  </div>
+                                  <div style={{ width: 110 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Attr</label>
+                                    <Input value={item.domSessionAttr} onChange={(val) => updateAt(i, 'domSessionAttr', String(val))} size="small" />
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Session Regex</label>
+                                    <Input value={item.domSessionRegex} onChange={(val) => updateAt(i, 'domSessionRegex', String(val))} size="small" />
+                                  </div>
+                                  <div style={{ width: 90 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Group</label>
+                                    <InputNumber value={item.domSessionGroup} min={1} onChange={(val) => updateAt(i, 'domSessionGroup', Number(val || 1))} size="small" style={{ width: '100%' }} />
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Chat URL Selector</label>
+                                    <Input value={item.domChatUrlSelector} onChange={(val) => updateAt(i, 'domChatUrlSelector', String(val))} size="small" />
+                                  </div>
+                                  <div style={{ width: 110 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Chat URL Attr</label>
+                                    <Input value={item.domChatUrlAttr} onChange={(val) => updateAt(i, 'domChatUrlAttr', String(val))} size="small" />
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                  <div style={{ width: 150 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Name Source</label>
+                                    <Select value={item.domNameSource || 'text'} onChange={(val) => updateAt(i, 'domNameSource', val as string)} optionList={[{ label: 'text', value: 'text' }, { label: 'closest_text', value: 'closest_text' }, { label: 'attr', value: 'attr' }]} size="small" style={{ width: '100%' }} />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Name Selector</label>
+                                    <Input value={item.domNameSelector} onChange={(val) => updateAt(i, 'domNameSelector', String(val))} size="small" />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Name Closest</label>
+                                    <Input value={item.domNameClosest} onChange={(val) => updateAt(i, 'domNameClosest', String(val))} size="small" />
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Name Regex</label>
+                                    <Input value={item.domNameRegex} onChange={(val) => updateAt(i, 'domNameRegex', String(val))} size="small" />
+                                  </div>
+                                  <div style={{ width: 90 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Group</label>
+                                    <InputNumber value={item.domNameGroup} min={1} onChange={(val) => updateAt(i, 'domNameGroup', Number(val || 1))} size="small" style={{ width: '100%' }} />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>Split Before</label>
+                                    <Input value={item.domNameSplitBefore} onChange={(val) => updateAt(i, 'domNameSplitBefore', String(val))} size="small" />
+                                  </div>
+                                </div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorDomRawJson')}
+                                  </label>
+                                  <TextArea value={item.cdpFilterExpr} rows={8} onChange={(val) => {
+                                    const next = [...arr];
+                                    next[i] = { ...next[i], cdpFilterExpr: String(val) };
+                                    setArray(next);
+                                  }} />
+                                </div>
+                              </div>
+                            </>
+                          )}
+
+                          {/* CDP Raw specific fields */}
+                          {st === 'cdp_raw' && (
+                            <>
+                              <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                                <div style={{ flex: 1 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorCdpDomain')}
+                                  </label>
+                                  <Input
+                                    value={item.cdpDomain}
+                                    placeholder="Network"
+                                    onChange={(val) => updateAt(i, 'cdpDomain', String(val))}
+                                    size="small"
+                                  />
+                                </div>
+                                <div style={{ flex: 2 }}>
+                                  <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                    {t('nodes.browserAutomation.monitorCdpEventMethod')}
+                                  </label>
+                                  <Input
+                                    value={item.cdpEventMethod}
+                                    placeholder="Network.responseReceived"
+                                    onChange={(val) => updateAt(i, 'cdpEventMethod', String(val))}
+                                    size="small"
+                                  />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 6 }}>
+                                <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
+                                  {t('nodes.browserAutomation.monitorCdpFilterExpr')}
+                                </label>
+                                <Input
+                                  value={item.cdpFilterExpr}
+                                  placeholder="response.url contains '/api/price'"
+                                  onChange={(val) => updateAt(i, 'cdpFilterExpr', String(val))}
+                                  size="small"
+                                />
+                              </div>
+                            </>
+                          )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div>
+                      <Button size="small" onClick={addOne}>
+                        {t('nodes.browserAutomation.addMonitor')}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              }}
+            </Field>
+          </div>
+        )}
+
         {/* System Prompt with Selector */}
         <Divider />
         <PromptInputWithSelector
@@ -619,6 +1251,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'flashMode',
               'maxSteps',
               'maxActionsPerStep',
+              'eventMonitors',
             ];
             
             return (

@@ -26,6 +26,98 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _extract_browser_event_patch(msg: Any) -> Dict[str, Any]:
+    """Build a state patch for browser_event messages in fresh message-triggered runs."""
+    try:
+        if not isinstance(msg, dict) or msg.get("type") != "browser_event":
+            return {}
+
+        normalized_event = msg.get("event") if isinstance(msg.get("event"), dict) else {}
+
+        params = msg.get("params")
+        if not isinstance(params, dict):
+            params = {}
+
+        body = {}
+        if isinstance(normalized_event.get("payload"), dict):
+            body = dict(normalized_event.get("payload") or {})
+        else:
+            for key in ("body", "responseBody", "payload", "data"):
+                raw = params.get(key)
+                if isinstance(raw, dict):
+                    body = dict(raw)
+                    break
+                if isinstance(raw, str):
+                    s = raw.strip()
+                    if not s:
+                        continue
+                    try:
+                        parsed = json.loads(s)
+                        if isinstance(parsed, dict):
+                            body = parsed
+                            break
+                    except Exception:
+                        continue
+
+        payload = {
+            "type": "browser_event",
+            "sub_type": str(msg.get("sub_type") or normalized_event.get("label") or ""),
+            "sub_id": str(msg.get("sub_id") or normalized_event.get("event_id") or ""),
+            "source": str(msg.get("source") or ""),
+            "body": body if isinstance(body, dict) else {},
+        }
+        if normalized_event:
+            payload["normalized_event"] = normalized_event
+
+        customers = payload["body"].get("customers")
+        if not isinstance(customers, list):
+            customers = []
+
+        session_ids = []
+        for customer in customers:
+            if not isinstance(customer, dict):
+                continue
+            sid = (
+                customer.get("session_id")
+                or customer.get("sessionId")
+                or customer.get("session")
+            )
+            if isinstance(sid, str) and sid and sid not in session_ids:
+                session_ids.append(sid)
+
+        # Also support polling new_chat_msg payload shape with a single session_id.
+        body_session_id = payload["body"].get("session_id") if isinstance(payload["body"], dict) else None
+        if isinstance(body_session_id, str) and body_session_id and body_session_id not in session_ids:
+            session_ids.append(body_session_id)
+
+        body_items = payload["body"].get("items") if isinstance(payload["body"], dict) else None
+        if isinstance(body_items, list):
+            for item in body_items:
+                if not isinstance(item, dict):
+                    continue
+                sid = item.get("session_id") or item.get("sessionId") or item.get("session")
+                if isinstance(sid, str) and sid and sid not in session_ids:
+                    session_ids.append(sid)
+
+        patch = {
+            "attributes": {
+                "browser_event": payload,
+                "browser_event_sub_type": payload["sub_type"],
+                "browser_event_sub_id": payload["sub_id"],
+                "debug": {
+                    "last_browser_event": payload,
+                },
+            }
+        }
+        if session_ids:
+            patch["attributes"]["pending_customer_sessions"] = session_ids
+        if customers:
+            patch["attributes"]["pending_customers"] = customers
+        return patch
+    except Exception:
+        return {}
+
+
 def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, Any]] = None) -> "NodeState":
     """Provide a NodeState-shaped baseline for a new run.
     
@@ -322,6 +414,10 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
         _resume, state_patch = build_resume_from_mapping(event=event, state=node_state, node_output=None, mapping=mapping)
         logger.debug("[prep_skills_run] resume: ", _resume)
         logger.debug("[prep_skills_run] state_patch: ", state_patch)
+        browser_event_patch = _extract_browser_event_patch(msg)
+        if browser_event_patch:
+            state_patch = _deep_merge(state_patch or {}, browser_event_patch)
+            logger.debug("[prep_skills_run] browser_event_patch: ", browser_event_patch)
         # 5) Merge mapping outputs into NodeState fields
         # Write to known sections if present in patch
         if isinstance(state_patch, dict):

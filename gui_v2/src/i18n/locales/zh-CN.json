@@ -596,7 +596,9 @@
       "invalid_tasks": "无效的任务",
       "validation_hint": "这些项在数据库中不存在，请移除它们后重试。",
       "save_failed": "保存失败",
-      "startChat": "开始对话"
+      "startChat": "开始对话",
+      "tasks": "任务",
+      "noTaskAssigned": "暂无分配任务"
     },
     "analytics": {
       "activeAgents": "活跃代理",
