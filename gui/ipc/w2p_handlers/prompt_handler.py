@@ -17,7 +17,14 @@ from utils.logger_helper import logger_helper as logger
 from utils.user_path_helper import get_user_data_dir
 # Cloud sync import - guarded to prevent import failures from breaking IPC
 try:
-    from gui.ipc.w2p_handlers.prompt_cloud_sync import sync_prompt_to_cloud, delete_prompt_from_cloud, sync_all_prompts_to_cloud, fetch_cloud_prompts, invalidate_cloud_prompts_cache
+    from gui.ipc.w2p_handlers.prompt_cloud_sync import (
+        sync_prompt_to_cloud,
+        delete_prompt_from_cloud,
+        delete_prompt_from_cloud_sync,
+        sync_all_prompts_to_cloud,
+        fetch_cloud_prompts,
+        invalidate_cloud_prompts_cache,
+    )
     _CLOUD_SYNC_AVAILABLE = True
 except Exception as _sync_import_err:
     import logging as _logging
@@ -25,6 +32,8 @@ except Exception as _sync_import_err:
     _CLOUD_SYNC_AVAILABLE = False
     def sync_prompt_to_cloud(*a, **kw): pass
     def delete_prompt_from_cloud(*a, **kw): pass
+
+    def delete_prompt_from_cloud_sync(*a, **kw): return False
     def sync_all_prompts_to_cloud(*a, **kw): pass
     def fetch_cloud_prompts() -> list: return []
     def invalidate_cloud_prompts_cache(*a, **kw): pass
@@ -754,10 +763,18 @@ def handle_delete_prompt(request: IPCRequest, params: Optional[dict]) -> IPCResp
             return create_error_response(request, 'READ_ONLY', 'Cannot delete read-only prompt')
 
         deleted = _delete_prompt_file(str(pid))
-        invalidate_cloud_prompts_cache(prompt_meta.get('owner') if prompt_meta else None)
-        # NOTE: Do NOT propagate local delete to cloud (superset policy).
-        # Cloud keeps the prompt so other devices / the web app can still see it.
-        return create_success_response(request, {"deleted": deleted})
+        cloud_deleted = False
+        if _CLOUD_SYNC_AVAILABLE:
+            cloud_deleted = delete_prompt_from_cloud_sync(str(pid))
+        owner = prompt_meta.get('owner') if prompt_meta else None
+        if owner:
+            invalidate_cloud_prompts_cache(owner)
+        else:
+            invalidate_cloud_prompts_cache(None)
+        return create_success_response(
+            request,
+            {"deleted": deleted, "cloudDeleted": cloud_deleted},
+        )
     except Exception as e:
         logger.error(f"[prompts] delete_prompt error: {e}")
         return create_error_response(request, 'DELETE_PROMPT_ERROR', str(e))
