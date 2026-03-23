@@ -2182,6 +2182,8 @@ class MainWindow:
         Prefer Cognito IdToken; fall back to AccessToken. Support multiple token shapes.
         """
         try:
+            if hasattr(self, 'auth_manager') and self.auth_manager:
+                self.auth_manager.ensure_valid_tokens()
             tokens = self.auth_manager.get_tokens()
             if not tokens or not isinstance(tokens, dict):
                 return None

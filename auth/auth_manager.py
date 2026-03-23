@@ -3,6 +3,7 @@
 import webbrowser
 import traceback
 import asyncio
+import time
 import keyring
 import json
 import os
@@ -85,6 +86,95 @@ class AuthManager:
 
     def get_tokens(self):
         return self.tokens
+
+    @staticmethod
+    def _decode_token_expiry_unsafe(token: str) -> int | None:
+        try:
+            claims = AuthManager._decode_jwt_payload_unsafe(token)
+            exp = claims.get('exp') if isinstance(claims, dict) else None
+            if exp is None:
+                return None
+            return int(exp)
+        except Exception:
+            return None
+
+    def _get_best_id_token(self) -> str | None:
+        tokens = self.tokens
+        if not tokens or not isinstance(tokens, dict):
+            return None
+
+        for k in ('IdToken', 'id_token'):
+            value = tokens.get(k)
+            if isinstance(value, str) and value:
+                return value
+
+        auth_result = tokens.get('AuthenticationResult') if isinstance(tokens, dict) else None
+        if isinstance(auth_result, dict):
+            value = auth_result.get('IdToken')
+            if isinstance(value, str) and value:
+                return value
+
+        return None
+
+    def _get_best_access_token(self) -> str | None:
+        tokens = self.tokens
+        if not tokens or not isinstance(tokens, dict):
+            return None
+
+        for k in ('AccessToken', 'access_token'):
+            value = tokens.get(k)
+            if isinstance(value, str) and value:
+                return value
+
+        auth_result = tokens.get('AuthenticationResult') if isinstance(tokens, dict) else None
+        if isinstance(auth_result, dict):
+            value = auth_result.get('AccessToken')
+            if isinstance(value, str) and value:
+                return value
+
+        return None
+
+    def ensure_valid_tokens(self, min_validity_seconds: int = 120) -> bool:
+        try:
+            if not self.tokens or not isinstance(self.tokens, dict):
+                return False
+
+            id_token = self._get_best_id_token()
+            access_token = self._get_best_access_token()
+            candidate_token = id_token or access_token
+            if not candidate_token:
+                return False
+
+            exp = self._decode_token_expiry_unsafe(candidate_token)
+            if exp is None:
+                return True
+
+            now = int(time.time())
+            remaining = exp - now
+            if remaining > min_validity_seconds:
+                return True
+
+            refresh_token = self.tokens.get('RefreshToken') or self.tokens.get('refresh_token')
+            if not refresh_token:
+                logger.warning("AuthManager: Token is expiring/expired but no refresh token is available")
+                return False
+
+            logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")
+            result = self.cognito_service.refresh_tokens(refresh_token)
+            if not result.get('success'):
+                logger.error(f"AuthManager: On-demand token refresh failed: {result.get('error')}")
+                self.signed_in = False
+                return False
+
+            refreshed_tokens = result.get('data') or {}
+            refreshed_tokens['RefreshToken'] = refresh_token
+            self.tokens.update(refreshed_tokens)
+            self.signed_in = True
+            logger.info("AuthManager: Tokens refreshed successfully on demand")
+            return True
+        except Exception as e:
+            logger.error(f"AuthManager: Failed to ensure valid tokens: {e}")
+            return False
 
     def get_role(self):
         return self.machine_role

@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 import re
 import statistics
+import math
 from utils.logger_helper import logger_helper as logger
 
 
@@ -162,33 +163,28 @@ class LightRAGConfidenceScorer:
             logger.debug(f"Filtered references: {len(valid_references)} unique valid out of {len(response_data.get('references', []))} total")
 
             # Extract retrieval scores from multiple sources:
-            # Priority: rerank_score (most accurate) > reference score > similarity
+            # Priority: rerank_score (most accurate) > reference score/similarity/distance
             scores: List[float] = []
+            score_source = "none"
             
             # PRIORITY 1: Try to get rerank_score from chunks (most accurate, normalized)
             if chunks:
                 for chunk in chunks:
-                    if isinstance(chunk, dict):
-                        rerank_score = chunk.get('rerank_score')
-                        if rerank_score is not None:
-                            try:
-                                scores.append(float(rerank_score))
-                            except (ValueError, TypeError):
-                                pass
+                    normalized_score = self._extract_normalized_retrieval_score(chunk, prefer_rerank=True)
+                    if normalized_score is not None:
+                        scores.append(normalized_score)
                 if scores:
+                    score_source = "rerank"
                     logger.debug(f"✅ Using {len(scores)} rerank_score values from chunks (normalized, high quality)")
             
             # PRIORITY 2: If no rerank scores, try references
             if not scores:
                 for ref in references:
-                    if isinstance(ref, dict):
-                        score_val = ref.get('score') or ref.get('similarity') or ref.get('relevance')
-                        if score_val is not None:
-                            try:
-                                scores.append(float(score_val))
-                            except (ValueError, TypeError):
-                                pass
+                    normalized_score = self._extract_normalized_retrieval_score(ref, prefer_rerank=False)
+                    if normalized_score is not None:
+                        scores.append(normalized_score)
                 if scores:
+                    score_source = "reference"
                     logger.debug(f"Using {len(scores)} scores from references (fallback)")
 
             scores_sorted = sorted(scores, reverse=True)
@@ -203,11 +199,12 @@ class LightRAGConfidenceScorer:
                 except Exception:
                     std = None
 
-            # Rerank score threshold - lowered from 0.60 to 0.50 for better recall
-            # Rerank scores are typically lower than embedding similarity scores
-            retrieval_threshold = 0.50
+            # Threshold is source-aware: rerank scores are typically lower than
+            # embedding similarity derived signals.
+            retrieval_threshold = 0.50 if score_source == "rerank" else 0.60
             supporting_refs = sum(1 for s in scores_sorted if s >= retrieval_threshold)
             retrieval_signal: Dict[str, Any] = {
+                "score_source": score_source,
                 "threshold": retrieval_threshold,
                 "top1": round(top1, 4) if top1 is not None else None,
                 "top2": round(top2, 4) if top2 is not None else None,
@@ -217,40 +214,67 @@ class LightRAGConfidenceScorer:
                 "supporting_refs": int(supporting_refs),
                 "scored_refs": int(len(scores_sorted)),
             }
+
+            # Improved retrieval modeling (evidence-first):
+            # - use top-k weighted quality rather than plain average
+            # - include evidence coverage and score consistency
+            # - produce an evidence gate to suppress fluent-but-unsupported answers
+            retrieval_quality = self._calculate_retrieval_quality(
+                scores_sorted,
+                len(references),
+                retrieval_threshold,
+            )
+            retrieval_signal.update({
+                "retrieval_strength": round(retrieval_quality["retrieval_strength"], 4),
+                "coverage": round(retrieval_quality["coverage"], 4),
+                "consistency": round(retrieval_quality["consistency"], 4),
+                "evidence_gate": round(retrieval_quality["evidence_gate"], 4),
+            })
             
             # Calculate individual scores
-            # Pass scores_sorted to _calculate_reference_score as external_scores
-            # This allows using rerank_score from chunks when references don't have score fields
-            ref_score = self._calculate_reference_score(references, external_scores=scores_sorted)
+            # Reference score now comes from the improved retrieval-quality model.
+            ref_score = retrieval_quality["reference_score"]
             quality_score = self._calculate_content_quality_score(response_text)
             relevance_score = self._calculate_relevance_score(query, response_text)
             completeness_score = self._calculate_completeness_score(
                 response_text, query, query_options
             )
             
-            # Calculate weighted overall score
-            overall = (
+            # Base score from quality dimensions
+            base_overall = (
                 ref_score * self.reference_weight +
                 quality_score * self.content_quality_weight +
                 relevance_score * self.relevance_weight +
                 completeness_score * self.completeness_weight
             )
 
+            # Anti-overconfidence: if evidence/relevance are weak but answer looks fluent,
+            # confidence should be suppressed to avoid misleading users.
+            fluency_score = (quality_score + completeness_score) / 2.0
+            weak_evidence = retrieval_quality["retrieval_strength"] < 0.35
+            weak_relevance = relevance_score < 0.35
+            hallucination_risk = 0.0
+            if weak_evidence and weak_relevance:
+                hallucination_risk = 0.25 + max(0.0, fluency_score - 0.7) * 0.5
+                hallucination_risk = min(hallucination_risk, 0.45)
+
+            overall = base_overall * retrieval_quality["evidence_gate"] * (1.0 - hallucination_risk)
+            overall = self._clamp(overall, 0.0, 1.0)
+            retrieval_signal["hallucination_risk"] = round(hallucination_risk, 4)
+
             # Decision: should we answer or decline due to weak retrieval?
-            # Optimized logic: focus on overall score and reference count, not just retrieval threshold
+            # Optimized logic: combine evidence strength + overall confidence.
             should_answer = True
             no_answer_reason = None
             if len(references) == 0:
                 should_answer = False
                 no_answer_reason = "no_references"
-            elif overall < 0.20:
-                # Lower threshold to 0.20 to allow single high-quality document answers
-                # Single doc with rerank=1.0 gives: 0.8*0.3 = 0.24 > 0.20
+            elif retrieval_quality["retrieval_strength"] < 0.22 and relevance_score < 0.35:
+                should_answer = False
+                no_answer_reason = "weak_retrieval_evidence"
+            elif overall < 0.24:
                 should_answer = False
                 no_answer_reason = "overall_too_low"
-            # Note: Removed strict retrieval_below_threshold check
-            # If we have references and reasonable overall score, we should answer
-            # The confidence score itself will indicate quality to the user
 
             decision: Dict[str, Any] = {
                 "should_answer": bool(should_answer),
@@ -260,7 +284,8 @@ class LightRAGConfidenceScorer:
             # Log decision for debugging
             logger.info(
                 f"📊 Confidence Decision: should_answer={should_answer}, "
-                f"overall={overall:.2f}, threshold=0.20, "
+                f"overall={overall:.2f}, retrieval_strength={retrieval_quality['retrieval_strength']:.2f}, "
+                f"threshold=0.24, "
                 f"reason={no_answer_reason or 'pass'}"
             )
             
@@ -310,6 +335,63 @@ class LightRAGConfidenceScorer:
                 decision={"should_answer": False, "no_answer_reason": "scoring_error"}
             )
     
+    def _extract_normalized_retrieval_score(
+        self,
+        item: Any,
+        prefer_rerank: bool = False,
+    ) -> Optional[float]:
+        """Extract and normalize retrieval score into [0, 1]."""
+        if not isinstance(item, dict):
+            return None
+
+        candidates: List[tuple[str, Any]] = []
+        if prefer_rerank and "rerank_score" in item:
+            candidates.append(("rerank_score", item.get("rerank_score")))
+
+        for key in ("score", "similarity", "relevance", "distance"):
+            if key in item:
+                candidates.append((key, item.get(key)))
+
+        if not prefer_rerank and "rerank_score" in item:
+            candidates.append(("rerank_score", item.get("rerank_score")))
+
+        for key, raw_value in candidates:
+            normalized = self._normalize_retrieval_score(raw_value, key)
+            if normalized is not None:
+                return normalized
+
+        return None
+
+    def _normalize_retrieval_score(self, raw_value: Any, score_type: str) -> Optional[float]:
+        """Normalize various retrieval score formats into [0, 1]."""
+        if raw_value is None:
+            return None
+
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            return None
+
+        if score_type == "distance":
+            if value < 0:
+                return None
+            if value <= 1.0:
+                return self._clamp(1.0 - value)
+            return self._clamp(1.0 / (1.0 + value))
+
+        if value < 0:
+            if value >= -1.0:
+                return self._clamp((value + 1.0) / 2.0)
+            return None
+
+        if value <= 1.0:
+            return self._clamp(value)
+
+        if value <= 100.0:
+            return self._clamp(value / 100.0)
+
+        return 1.0
+
     def _calculate_reference_score(self, references: List[Dict[str, Any]], external_scores: List[float] = None) -> float:
         """
         Calculate score based on references.
@@ -348,18 +430,12 @@ class LightRAGConfidenceScorer:
         else:
             count_score = 1.0
         
-        # Check if references have similarity/score fields
-        # Common field names: 'score', 'similarity', 'relevance', 'distance'
+        # Check if references have score fields, including distance values.
         scores = []
         for ref in references:
-            if isinstance(ref, dict):
-                # Try common score field names
-                score = ref.get('score') or ref.get('similarity') or ref.get('relevance')
-                if score is not None:
-                    try:
-                        scores.append(float(score))
-                    except (ValueError, TypeError):
-                        pass
+            score = self._extract_normalized_retrieval_score(ref, prefer_rerank=False)
+            if score is not None:
+                scores.append(score)
         
         # If no scores from references, use external scores (from chunks rerank_score)
         if not scores and external_scores:
@@ -402,6 +478,100 @@ class LightRAGConfidenceScorer:
         
         # Fallback to count-only score if no similarity data
         return count_score
+
+    def _calculate_retrieval_quality(
+        self,
+        scores_sorted: List[float],
+        reference_count: int,
+        retrieval_threshold: float,
+    ) -> Dict[str, float]:
+        """
+        Calculate evidence-centric retrieval quality.
+
+        Returns:
+            {
+                "reference_score": 0-1,
+                "retrieval_strength": 0-1,
+                "coverage": 0-1,
+                "consistency": 0-1,
+                "evidence_gate": 0-1,
+            }
+        """
+        if reference_count <= 0:
+            return {
+                "reference_score": 0.0,
+                "retrieval_strength": 0.0,
+                "coverage": 0.0,
+                "consistency": 0.0,
+                "evidence_gate": 0.12,
+            }
+
+        # Diminishing returns for count: avoid blindly rewarding many references.
+        count_confidence = 1.0 - math.exp(-reference_count / 3.5)
+
+        # If we do not have score signals, rely on count but keep conservative gate.
+        if not scores_sorted:
+            reference_score = 0.35 + 0.45 * count_confidence
+            return {
+                "reference_score": self._clamp(reference_score),
+                "retrieval_strength": self._clamp(reference_score * 0.8),
+                "coverage": 0.0,
+                "consistency": 0.0,
+                "evidence_gate": self._clamp(0.35 + reference_score * 0.5),
+            }
+
+        # Robust score summary: top-k weighted average + top1 evidence.
+        top_k = scores_sorted[: min(5, len(scores_sorted))]
+        # Weights decay with rank: 1, 1/2, 1/3...
+        rank_weights = [1.0 / (idx + 1) for idx in range(len(top_k))]
+        weight_sum = sum(rank_weights)
+        weighted_avg = sum(s * w for s, w in zip(top_k, rank_weights)) / weight_sum
+        top1 = top_k[0]
+
+        # Coverage = share of references above threshold.
+        supporting_refs = sum(1 for s in scores_sorted if s >= retrieval_threshold)
+        coverage = supporting_refs / max(reference_count, 1)
+
+        # Consistency = lower std means more coherent evidence.
+        if len(top_k) >= 2:
+            stdev = statistics.pstdev(top_k)
+            consistency = self._clamp(1.0 - stdev / 0.35)
+        else:
+            consistency = 1.0
+
+        # Retrieval strength emphasizes top evidence, but keeps breadth and consistency.
+        retrieval_strength = (
+            0.45 * top1 +
+            0.30 * weighted_avg +
+            0.15 * coverage +
+            0.10 * consistency
+        )
+        retrieval_strength = self._clamp(retrieval_strength)
+
+        # Reference score combines count confidence + retrieval strength.
+        reference_score = 0.40 * count_confidence + 0.60 * retrieval_strength
+        reference_score = self._clamp(reference_score)
+
+        # Evidence gate: conservative floor + stronger unlock from retrieval strength.
+        evidence_gate = 0.18 + 0.82 * retrieval_strength
+        evidence_gate = self._clamp(evidence_gate)
+
+        return {
+            "reference_score": reference_score,
+            "retrieval_strength": retrieval_strength,
+            "coverage": coverage,
+            "consistency": consistency,
+            "evidence_gate": evidence_gate,
+        }
+
+    @staticmethod
+    def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+        """Clamp value into [low, high]."""
+        if value < low:
+            return low
+        if value > high:
+            return high
+        return value
     
     def _calculate_content_quality_score(self, response: str) -> float:
         """
