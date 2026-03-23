@@ -724,6 +724,15 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         except (TypeError, ValueError):
             pass
         _config = skill_info.get('config') or {}
+        if isinstance(_config, str):
+            try:
+                parsed_config = json.loads(_config)
+                _config = parsed_config if isinstance(parsed_config, dict) else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                _config = {}
+        elif not isinstance(_config, dict):
+            _config = {}
+        skill_info['config'] = _config
         _ric = bool(skill_info.get('run_in_cloud', _config.get('run_in_cloud', False)))
         _hcm = bool(skill_info.get('hybrid_cloud_mode', _config.get('hybrid_cloud_mode', False)))
         if _price > 0 and not _ric and not _hcm:

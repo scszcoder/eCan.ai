@@ -654,13 +654,38 @@ class BrowserManager:
                 if not final_cdp_url:
                     final_cdp_url = f"http://127.0.0.1:{cdp_port}"
                     final_cdp_port = cdp_port
+
+                chrome_user_data_dir = None
+                chrome_profile_directory = None
+                if profile:
+                    try:
+                        from gui.ipc.w2p_handlers.browser_use_handler import get_profile_by_name
+                        from utils.user_path_helper import ensure_user_data_dir
+                        import re as _re
+
+                        profile_settings = get_profile_by_name(profile) or {}
+                        if profile_settings.get('user_data_dir'):
+                            chrome_user_data_dir = profile_settings['user_data_dir']
+                        else:
+                            _profile_id = profile_settings.get('id') or profile_settings.get('name') or profile or 'default'
+                            _safe_id = _re.sub(r'[^\w\-]', '_', str(_profile_id))
+                            chrome_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _safe_id))
+
+                        chrome_profile_directory = profile_settings.get('profile_directory') or 'Default'
+                    except Exception as e:
+                        logger.warning(f"[BrowserManager] Failed to resolve persistent Chrome profile settings: {e}")
                 
                 # Auto-start Chrome if not running
                 from gui.unified_browser_manager import _is_port_in_use, _start_chrome_with_cdp
                 if not _is_port_in_use(final_cdp_port):
                     logger.info(f"[BrowserManager] Chrome not detected on port {final_cdp_port}, auto-starting...")
                     headless = False  # Default to non-headless for better debugging
-                    if not _start_chrome_with_cdp(final_cdp_port, headless):
+                    if not _start_chrome_with_cdp(
+                        final_cdp_port,
+                        headless,
+                        user_data_dir=chrome_user_data_dir,
+                        profile_directory=chrome_profile_directory,
+                    ):
                         logger.warning(f"[BrowserManager] Failed to auto-start Chrome on port {final_cdp_port}")
                         logger.warning(f"[BrowserManager] Please manually start Chrome with: chrome --remote-debugging-port={final_cdp_port}")
                     else:

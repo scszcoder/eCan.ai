@@ -87,13 +87,20 @@ def _is_port_in_use(port: int) -> bool:
             return False
 
 
-def _start_chrome_with_cdp(port: int = 9228, headless: bool = False) -> bool:
+def _start_chrome_with_cdp(
+    port: int = 9228,
+    headless: bool = False,
+    user_data_dir: str | None = None,
+    profile_directory: str | None = None,
+) -> bool:
     """
     Start Chrome with remote debugging enabled.
     
     Args:
         port: CDP port number
         headless: Whether to run in headless mode
+        user_data_dir: Persistent Chrome user data directory
+        profile_directory: Chrome profile directory name (e.g. Default)
         
     Returns:
         True if Chrome started successfully, False otherwise
@@ -156,14 +163,24 @@ def _start_chrome_with_cdp(port: int = 9228, headless: bool = False) -> bool:
     logger.info(f"[BrowserManager] Found Chrome at: {chrome_path}")
     
     # Prepare Chrome arguments
-    if system == "Windows":
-        user_data_dir = os.path.expandvars("%TEMP%\\chrome-cdp-profile")
-    else:
-        user_data_dir = "/tmp/chrome-cdp-profile"
+    if not user_data_dir:
+        try:
+            from utils.user_path_helper import ensure_user_data_dir
+            user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', 'default'))
+        except Exception:
+            if system == "Windows":
+                user_data_dir = os.path.expandvars("%TEMP%\\chrome-cdp-profile")
+            else:
+                user_data_dir = "/tmp/chrome-cdp-profile"
+
+    if not profile_directory:
+        profile_directory = "Default"
+
     args = [
         chrome_path,
         f"--remote-debugging-port={port}",
         f"--user-data-dir={user_data_dir}",
+        f"--profile-directory={profile_directory}",
         "--no-first-run",
         "--no-default-browser-check",
     ]
@@ -173,7 +190,10 @@ def _start_chrome_with_cdp(port: int = 9228, headless: bool = False) -> bool:
     
     try:
         # Start Chrome process
-        logger.info(f"[BrowserManager] Starting Chrome with CDP on port {port}")
+        logger.info(
+            f"[BrowserManager] Starting Chrome with CDP on port {port}, "
+            f"user_data_dir={user_data_dir}, profile_directory={profile_directory}"
+        )
         _chrome_process = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
@@ -240,7 +260,24 @@ def _build_browser_session(br_type="existing_chrome", adspower_profile="", port=
     # Auto-start Chrome if not running
     if not _is_port_in_use(cdp_port):
         logger.info(f"[BrowserManager] Chrome not detected on port {cdp_port}, auto-starting...")
-        if not _start_chrome_with_cdp(cdp_port, headless):
+        
+        # Ensure persistent user data directory for cookie persistence
+        try:
+            from utils.user_path_helper import ensure_user_data_dir
+            persistent_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', 'default'))
+            persistent_profile_dir = "Default"
+            logger.info(f"[BrowserManager] Using persistent profile: {persistent_user_data_dir}/{persistent_profile_dir}")
+        except Exception as e:
+            logger.warning(f"[BrowserManager] Failed to get persistent profile: {e}, using defaults")
+            persistent_user_data_dir = None
+            persistent_profile_dir = None
+        
+        if not _start_chrome_with_cdp(
+            cdp_port,
+            headless,
+            user_data_dir=persistent_user_data_dir,
+            profile_directory=persistent_profile_dir,
+        ):
             logger.warning(f"[BrowserManager] Failed to auto-start Chrome, will attempt to connect anyway")
     
     logger.info(f"[BrowserManager] Using Native (CDP) mode, cdp_url: {cdp_url}")
