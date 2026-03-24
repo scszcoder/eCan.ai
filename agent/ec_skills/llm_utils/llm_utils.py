@@ -6,6 +6,7 @@ import re
 import sys
 import time
 import uuid
+import threading
 from threading import Thread
 from typing import Any, Dict, Tuple, TYPE_CHECKING
 
@@ -2754,6 +2755,121 @@ def run_async_in_worker_thread(awaitable_or_factory):
     if "error" in error_holder:
         raise error_holder["error"]
     return result_holder.get("result")
+
+
+_persistent_worker_runners: dict[str, "_PersistentAsyncWorkerThread"] = {}
+_persistent_worker_runners_lock = threading.Lock()
+
+
+class _PersistentAsyncWorkerThread:
+    """Dedicated background thread with a long-lived asyncio loop."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self._thread: Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._ready = threading.Event()
+        self._closed = False
+
+    def _create_loop(self) -> asyncio.AbstractEventLoop:
+        if sys.platform.startswith("win"):
+            try:
+                current_policy = asyncio.get_event_loop_policy()
+                if hasattr(asyncio, "WindowsProactorEventLoopPolicy") and not isinstance(
+                    current_policy, asyncio.WindowsProactorEventLoopPolicy
+                ):
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            except Exception:
+                pass
+        try:
+            return asyncio.get_event_loop_policy().new_event_loop()
+        except Exception:
+            try:
+                if sys.platform.startswith("win") and hasattr(asyncio, "ProactorEventLoop"):
+                    return asyncio.ProactorEventLoop()
+            except Exception:
+                pass
+            return asyncio.new_event_loop()
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive() and self._loop and not self._loop.is_closed():
+            return
+
+        self._ready.clear()
+        self._closed = False
+
+        def _worker() -> None:
+            loop = self._create_loop()
+            self._loop = loop
+            asyncio.set_event_loop(loop)
+            logger.info(
+                f"[PersistentAsyncWorker] Started thread={threading.current_thread().name}, "
+                f"loop={type(loop).__name__}, name={self.name}"
+            )
+            self._ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                try:
+                    pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                    for t in pending_tasks:
+                        t.cancel()
+                    if pending_tasks:
+                        loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                    if hasattr(loop, "shutdown_asyncgens"):
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+                    if hasattr(loop, "shutdown_default_executor"):
+                        loop.run_until_complete(loop.shutdown_default_executor())
+                except Exception:
+                    pass
+                loop.close()
+                self._closed = True
+                logger.info(f"[PersistentAsyncWorker] Stopped name={self.name}")
+
+        self._thread = Thread(target=_worker, name=self.name, daemon=True)
+        self._thread.start()
+        self._ready.wait(timeout=10.0)
+        if not self._loop:
+            raise RuntimeError(f"Persistent worker loop failed to start: {self.name}")
+
+    def submit(self, awaitable_or_factory):
+        self.start()
+        loop = self._loop
+        if loop is None:
+            raise RuntimeError(f"Persistent worker loop is unavailable: {self.name}")
+
+        async def _invoke():
+            if callable(awaitable_or_factory):
+                return await awaitable_or_factory()
+            return await awaitable_or_factory
+
+        future = asyncio.run_coroutine_threadsafe(_invoke(), loop)
+        return future.result()
+
+    def stop(self) -> None:
+        loop = self._loop
+        if not loop or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(loop.stop)
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=5.0)
+
+
+def run_async_in_persistent_worker_thread(awaitable_or_factory, worker_name: str = "browser-use-persistent-worker"):
+    """Run an async awaitable on a long-lived worker thread/loop.
+
+    Unlike run_async_in_worker_thread(), this keeps the event loop alive after the
+    submitted coroutine completes. Use this for workloads that intentionally spawn
+    background asyncio tasks that must survive the caller's completion.
+    """
+    with _persistent_worker_runners_lock:
+        runner = _persistent_worker_runners.get(worker_name)
+        if runner is None or runner._closed:
+            runner = _PersistentAsyncWorkerThread(name=worker_name)
+            _persistent_worker_runners[worker_name] = runner
+
+    logger.debug(f"[run_async_in_persistent_worker_thread] worker={worker_name}")
+    return runner.submit(awaitable_or_factory)
 
 
 def try_parse_json(s: str):

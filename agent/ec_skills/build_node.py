@@ -2,6 +2,7 @@ import re
 import os
 import json
 import time
+import traceback
 import string
 import importlib.util
 import httpx
@@ -4750,6 +4751,77 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     _cached_browser_session = None
     _last_known_focus_target_id: str | None = None  # survives session recreation
 
+    def _patch_browser_session_lifecycle_debug(session, source: str) -> None:
+        """Attach one-time debug hooks to the live BrowserSession/CDP client."""
+        try:
+            if session is None:
+                return
+
+            logger.info(
+                f"[BrowserAutomation][LifecycleDebug] Patch attempt source={source} "
+                f"session_obj={id(session)} cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
+                f"same_as_cached={session is _cached_browser_session}"
+            )
+
+            if not getattr(session, "_ecan_lifecycle_debug_patched", False):
+                _orig_reset = getattr(session, "reset", None)
+                if _orig_reset:
+                    async def _debug_reset(*a, **kw):
+                        logger.warning(
+                            "[BrowserAutomation][LifecycleDebug] BrowserSession.reset() called.\n"
+                            + "".join(traceback.format_stack(limit=20))
+                        )
+                        return await _orig_reset(*a, **kw)
+                    session.reset = _debug_reset
+
+                _orig_reconnect = getattr(session, "reconnect", None)
+                if _orig_reconnect:
+                    async def _debug_reconnect(*a, **kw):
+                        logger.warning(
+                            "[BrowserAutomation][LifecycleDebug] BrowserSession.reconnect() called.\n"
+                            + "".join(traceback.format_stack(limit=20))
+                        )
+                        return await _orig_reconnect(*a, **kw)
+                    session.reconnect = _debug_reconnect
+
+                _orig_auto_reconnect = getattr(session, "_auto_reconnect", None)
+                if _orig_auto_reconnect:
+                    async def _debug_auto_reconnect(*a, **kw):
+                        logger.warning(
+                            "[BrowserAutomation][LifecycleDebug] BrowserSession._auto_reconnect() called.\n"
+                            + "".join(traceback.format_stack(limit=20))
+                        )
+                        return await _orig_auto_reconnect(*a, **kw)
+                    session._auto_reconnect = _debug_auto_reconnect
+
+                setattr(session, "_ecan_lifecycle_debug_patched", True)
+                logger.info("[BrowserAutomation] Patched browser session lifecycle debug hooks")
+
+            _cdp_root = getattr(session, "_cdp_client_root", None)
+            if _cdp_root is not None:
+                logger.info(
+                    f"[BrowserAutomation][LifecycleDebug] CDP root present source={source} "
+                    f"cdp_obj={id(_cdp_root)} patched={getattr(_cdp_root, '_ecan_debug_patched', False)}"
+                )
+            else:
+                logger.info(f"[BrowserAutomation][LifecycleDebug] No CDP root yet source={source}")
+
+            if _cdp_root and hasattr(_cdp_root, "stop") and not getattr(_cdp_root, "_ecan_debug_patched", False):
+                _orig_cdp_stop = _cdp_root.stop
+
+                async def _debug_cdp_stop(*a, **kw):
+                    logger.warning(
+                        "[BrowserAutomation][LifecycleDebug] CDPClient.stop() called.\n"
+                        + "".join(traceback.format_stack(limit=20))
+                    )
+                    return await _orig_cdp_stop(*a, **kw)
+
+                _cdp_root.stop = _debug_cdp_stop
+                setattr(_cdp_root, "_ecan_debug_patched", True)
+                logger.info("[BrowserAutomation] Patched CDPClient.stop lifecycle debug hook")
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] Failed to patch browser lifecycle debug hooks: {exc}")
+
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
         nonlocal _cached_browser_session, _last_known_focus_target_id
@@ -5844,10 +5916,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             f"[BrowserAutomation] Failed to apply keep_alive to reused browser session: "
                             f"{_keep_alive_err}"
                         )
+                    if keep_browser_alive:
+                        _patch_browser_session_lifecycle_debug(browser_session, source="pre_start")
                     
                     # Start the browser session
                     if not _is_session_started(browser_session):
                         await browser_session.start()
+                    if keep_browser_alive:
+                        _patch_browser_session_lifecycle_debug(browser_session, source="post_start")
 
                     # Focus/session preflight for CDP mode:
                     # If agent_focus_target_id is missing/invalid (common after target detach),
@@ -5944,12 +6020,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # Defensive second application after agent construction. Some agent
                 # constructors may replace/wrap the session reference.
                 _agent_session = getattr(agent, "browser_session", None)
+                logger.info(
+                    f"[BrowserAutomation][LifecycleDebug] Agent/browser session identity: "
+                    f"agent_session_obj={id(_agent_session) if _agent_session else 'none'} "
+                    f"cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
+                    f"same_as_cached={_agent_session is _cached_browser_session}"
+                )
                 if _agent_session and hasattr(_agent_session, "browser_profile") and _agent_session.browser_profile:
                     _agent_session.browser_profile.keep_alive = bool(keep_browser_alive)
                     logger.info(
                         f"[BrowserAutomation] Agent session keep_alive="
                         f"{_agent_session.browser_profile.keep_alive}"
                     )
+                if keep_browser_alive:
+                    _patch_browser_session_lifecycle_debug(_agent_session, source="post_agent_create")
             except Exception as _agent_keep_alive_err:
                 logger.warning(
                     f"[BrowserAutomation] Failed to apply keep_alive on agent session: "
@@ -5960,6 +6044,65 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 set_current_agent(agent)
             except Exception as _set_agent_err:
                 logger.debug(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_err}")
+
+            # browser-use always calls agent.close() at the end of run(). Even for
+            # keep_alive=True it stops the browser_session event bus, which tears
+            # down the CDP/session plumbing our long-lived event monitors depend on.
+            # For monitor-driven loop workflows, preserve the browser session fully.
+            if keep_browser_alive and _event_monitor_configs and hasattr(agent, "close"):
+                try:
+                    _agent_eventbus = getattr(agent, "eventbus", None)
+                    if _agent_eventbus and hasattr(_agent_eventbus, "stop") and not getattr(_agent_eventbus, "_ecan_preserve_patched", False):
+                        _orig_agent_eventbus_stop = _agent_eventbus.stop
+
+                        async def _preserve_agent_eventbus_stop(*a, **kw):
+                            logger.info(
+                                f"[BrowserAutomation] Preserving agent event bus on monitored keep_alive run end: "
+                                f"args={a}, kwargs={kw}"
+                            )
+                            return None
+
+                        _agent_eventbus.stop = _preserve_agent_eventbus_stop
+                        setattr(_agent_eventbus, "_ecan_preserve_patched", True)
+                        setattr(_agent_eventbus, "_ecan_orig_stop", _orig_agent_eventbus_stop)
+                        logger.info("[BrowserAutomation] Patched agent.eventbus.stop to preserve monitored keep_alive session")
+                except Exception as _eventbus_patch_err:
+                    logger.warning(
+                        f"[BrowserAutomation] Failed to patch agent eventbus stop for monitored keep_alive session: "
+                        f"{_eventbus_patch_err}"
+                    )
+
+                _orig_agent_close = agent.close
+
+                async def _close_preserving_monitored_session():
+                    try:
+                        _bs = getattr(agent, "browser_session", None)
+                        _has_active_monitor_set = False
+                        try:
+                            from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+                            _cap = get_event_monitor_capability(_bs, create=False) if _bs else None
+                            _active = _cap.get_active_monitor_set() if _cap else None
+                            _has_active_monitor_set = bool(_active and getattr(_active, "monitors", None))
+                        except Exception:
+                            _has_active_monitor_set = False
+
+                        if _bs and _has_active_monitor_set:
+                            logger.info(
+                                "[BrowserAutomation] Preserving monitored keep_alive browser session on agent.close()"
+                            )
+                            # Preserve aggressively: do not let browser-use tear down
+                            # any more process/session state at the run boundary.
+                            return
+                    except Exception as _preserve_close_err:
+                        logger.warning(
+                            f"[BrowserAutomation] Preserved close path failed, falling back to original close: "
+                            f"{_preserve_close_err}"
+                        )
+                    await _orig_agent_close()
+
+                agent.close = _close_preserving_monitored_session
+                logger.info("[BrowserAutomation] Patched agent.close to preserve monitored keep_alive session")
 
             # Auto-start event monitors on the browser session (Phase 1: HTTP polling)
             _active_monitor_set = None
@@ -6293,8 +6436,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _run_browser_use(combined_task, mainwin, state, agent_id),
                                 timeout=effective_timeout
                             )
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                        info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
+                        if _event_monitor_configs:
+                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                            _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}")
+                            logger.info(
+                                f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                                f"{_worker_suffix}"
+                            )
+                            info = run_async_in_persistent_worker_thread(
+                                _run_with_hard_timeout,
+                                worker_name=f"browser-use-persistent-{_worker_suffix}",
+                            ) or {}
+                        else:
+                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                            info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
                     except asyncio.TimeoutError:
                         error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
@@ -6310,8 +6465,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             pass
                         info = {"error": error_msg, "timed_out": True}
                 else:
-                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                    info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
+                    if _event_monitor_configs:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}")
+                        logger.info(
+                            f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                            f"{_worker_suffix}"
+                        )
+                        info = run_async_in_persistent_worker_thread(
+                            lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
+                            worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        ) or {}
+                    else:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                        info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
                 
                 # Cancel guardrail timer on success
                 if correlation_id:

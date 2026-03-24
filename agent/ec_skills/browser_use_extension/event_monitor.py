@@ -197,7 +197,7 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
 def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
     cfg_json = json.dumps(extractor_cfg)
     return f"""
-        (function() {{
+        (async function() {{
             const cfg = {cfg_json};
             const currentUrl = String((window && window.location && window.location.href) || '');
 
@@ -259,6 +259,59 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                 if (!pageOk) {{
                     return JSON.stringify({{status: 'page_mismatch', currentUrl}});
                 }}
+            }}
+
+            if (cfg.state_fetch && typeof cfg.state_fetch === 'object') {{
+                try {{
+                    const stateUrl = String(cfg.state_fetch.url || '').trim();
+                    const adapter = String(cfg.state_fetch.adapter || '').trim();
+                    if (stateUrl && adapter) {{
+                        const resp = await fetch(stateUrl, {{ credentials: 'include' }});
+                        const data = await resp.json();
+                        if (adapter === 'test_rig_control_customers_v1') {{
+                            const customersMap = (data && typeof data === 'object' && data.customers && typeof data.customers === 'object')
+                                ? data.customers
+                                : {{}};
+                            const items = Object.values(customersMap).map(c => {{
+                                const session = normalizeText((c && c.session_id) || '');
+                                const name = normalizeText((c && c.name) || '');
+                                return {{
+                                    session,
+                                    name,
+                                    chatUrl: session ? `/chat?session=${{session}}` : '',
+                                    identity_key: session,
+                                }};
+                            }}).filter(item => item.session);
+                            if (items.length === 0) {{
+                                return JSON.stringify({{
+                                    status: 'empty',
+                                    currentUrl,
+                                    count: 0,
+                                    items: [],
+                                    key_field: 'session',
+                                    key_fields: ['session'],
+                                }});
+                            }}
+                            return JSON.stringify({{
+                                status: 'ok',
+                                currentUrl,
+                                count: items.length,
+                                items,
+                                key_field: 'session',
+                                key_fields: ['session'],
+                            }});
+                        }}
+                    }}
+                }} catch (e) {{}}
+            }}
+
+            if (cfg.before_extract_js) {{
+                try {{
+                    const maybePromise = (0, eval)(String(cfg.before_extract_js));
+                    if (maybePromise && typeof maybePromise.then === 'function') {{
+                        await maybePromise;
+                    }}
+                }} catch (e) {{}}
             }}
 
             const roots = [];
@@ -393,6 +446,12 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
     for item in raw:
         if not isinstance(item, dict):
             continue
+        def _pick(*keys: str, default: Any = None) -> Any:
+            for key in keys:
+                if key in item and item.get(key) is not None:
+                    return item.get(key)
+            return default
+
         enabled = item.get("enabled", True)
         if isinstance(enabled, str):
             enabled = enabled.lower() in ("true", "1", "yes", "on")
@@ -404,7 +463,7 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
             logger.warning("[EventMonitor] Skipping monitor with empty label")
             continue
 
-        source_type = (item.get("sourceType") or "http_polling").strip()
+        source_type = str(_pick("sourceType", "source_type", default="http_polling") or "http_polling").strip()
 
         # Parse comma-separated strings into lists
         def _csv(val: Any) -> List[str]:
@@ -415,24 +474,24 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
             return []
 
         cfg = EventMonitorConfig(
-            id=(item.get("id") or f"monitor_{len(configs) + 1}").strip(),
+            id=str(_pick("id", default=f"monitor_{len(configs) + 1}") or f"monitor_{len(configs) + 1}").strip(),
             label=label,
             enabled=True,
             source_type=source_type,
-            url_patterns=_csv(item.get("urlPatterns")),
-            methods=_csv(item.get("methods")) or ["GET", "POST"],
-            content_filters=_csv(item.get("contentFilters")),
-            min_body_length=int(item.get("minBodyLength") or 10),
-            frame_direction=(item.get("frameDirection") or "incoming").strip(),
-            sse_event_types=_csv(item.get("sseEventTypes")),
-            dom_selector=(item.get("domSelector") or "").strip(),
-            dom_attributes=bool(item.get("domAttributes")),
-            dom_child_list=bool(item.get("domChildList", True)),
-            dom_subtree=bool(item.get("domSubtree", True)),
-            dom_check_interval_ms=max(50, int(item.get("domCheckIntervalMs") or 250)),
-            cdp_domain=(item.get("cdpDomain") or "").strip(),
-            cdp_event_method=(item.get("cdpEventMethod") or "").strip(),
-            cdp_filter_expr=(item.get("cdpFilterExpr") or "").strip(),
+            url_patterns=_csv(_pick("urlPatterns", "url_patterns")),
+            methods=_csv(_pick("methods")) or ["GET", "POST"],
+            content_filters=_csv(_pick("contentFilters", "content_filters")),
+            min_body_length=int(_pick("minBodyLength", "min_body_length", default=10) or 10),
+            frame_direction=str(_pick("frameDirection", "frame_direction", default="incoming") or "incoming").strip(),
+            sse_event_types=_csv(_pick("sseEventTypes", "sse_event_types")),
+            dom_selector=str(_pick("domSelector", "dom_selector", default="") or "").strip(),
+            dom_attributes=bool(_pick("domAttributes", "dom_attributes", default=False)),
+            dom_child_list=bool(_pick("domChildList", "dom_child_list", default=True)),
+            dom_subtree=bool(_pick("domSubtree", "dom_subtree", default=True)),
+            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=250) or 250)),
+            cdp_domain=str(_pick("cdpDomain", "cdp_domain", default="") or "").strip(),
+            cdp_event_method=str(_pick("cdpEventMethod", "cdp_event_method", default="") or "").strip(),
+            cdp_filter_expr=str(_pick("cdpFilterExpr", "cdp_filter_expr", default="") or "").strip(),
         )
         configs.append(cfg)
         logger.info(
@@ -1071,13 +1130,13 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 if session_id:
                     await cdp_client.send.Runtime.enable(session_id=session_id)
                     result = await cdp_client.send.Runtime.evaluate(
-                        params={"expression": runtime_expr},
+                        params={"expression": runtime_expr, "awaitPromise": True},
                         session_id=session_id
                     )
                 else:
                     await cdp_client.send.Runtime.enable()
                     result = await cdp_client.send.Runtime.evaluate(
-                        params={"expression": runtime_expr}
+                        params={"expression": runtime_expr, "awaitPromise": True}
                     )
                 dom_content = result.get("result", {}).get("value", "")
                 logger.debug(f"[EventMonitor] DOM query result via Runtime: {dom_content[:100]}...")
