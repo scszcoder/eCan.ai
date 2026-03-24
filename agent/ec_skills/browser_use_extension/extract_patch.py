@@ -69,6 +69,7 @@ TECHNICAL DETAILS
 """
 
 import types
+import traceback
 from utils.logger_helper import logger_helper as logger
 
 # ==================== Global State ====================
@@ -323,7 +324,25 @@ def patch_extract_max_char_limit(max_input_tokens: int) -> bool:
                                             patched_cache[current_limit] = original_extract_func
                                     
                                     # Call the cached patched function (zero overhead after first call)
-                                    return patched_cache[current_limit](*args, **kwargs)
+                                    # Log rich diagnostics for empty-message failures from browser-use extract.
+                                    try:
+                                        return patched_cache[current_limit](*args, **kwargs)
+                                    except Exception as exc:
+                                        _exc_type = type(exc).__name__
+                                        _exc_args = getattr(exc, "args", ())
+                                        logger.error(
+                                            "[ExtractPatch] ❌ extract execution failed "
+                                            "(limit=%s, exc_type=%s, exc_args=%s, exc_repr=%r)",
+                                            current_limit,
+                                            _exc_type,
+                                            _exc_args,
+                                            exc,
+                                        )
+                                        logger.error(
+                                            "[ExtractPatch] ❌ extract traceback:\n%s",
+                                            traceback.format_exc(),
+                                        )
+                                        raise
                                 
                                 # Replace the extract function with our dynamic wrapper
                                 extract_action['function'] = dynamic_extract_wrapper

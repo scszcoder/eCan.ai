@@ -478,7 +478,15 @@ class AppSyncPassiveClient:
                     pass
 
         def on_close(ws, close_status_code, close_msg) -> None:
-            logger.warning(f"[AppSyncPassiveClient] WebSocket closed: status={close_status_code}, msg={close_msg}")
+            # status=1000 is a normal close and expected in reconnect flows; keep logs quieter.
+            if close_status_code == 1000:
+                logger.info(
+                    f"[AppSyncPassiveClient] WebSocket closed normally: status={close_status_code}, msg={close_msg}"
+                )
+            else:
+                logger.warning(
+                    f"[AppSyncPassiveClient] WebSocket closed: status={close_status_code}, msg={close_msg}"
+                )
             if not self._stopped:
                 self._schedule_reconnect()
 

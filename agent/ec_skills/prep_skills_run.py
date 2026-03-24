@@ -301,7 +301,20 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
         # 1a) Inject node-level mapping rules from the skill's data_mapping.json
         try:
             rules = getattr(skill, "mapping_rules", {}) or {}
-            node_transfers = rules.get("node_transfers", {}) if isinstance(rules, dict) else {}
+            node_transfers = {}
+            if isinstance(rules, dict):
+                # Preferred: top-level node_transfers (data_mapping.json current format)
+                top_level = rules.get("node_transfers", {})
+                if isinstance(top_level, dict) and top_level:
+                    node_transfers = top_level
+                else:
+                    # Backward-compatible fallback: run_mode-scoped node_transfers
+                    run_mode = getattr(skill, "run_mode", None) or "released"
+                    mode_rules = rules.get(run_mode, {})
+                    if isinstance(mode_rules, dict):
+                        mode_level = mode_rules.get("node_transfers", {})
+                        if isinstance(mode_level, dict) and mode_level:
+                            node_transfers = mode_level
             if not isinstance(node_state.get("attributes"), dict):
                 node_state["attributes"] = {}
             node_state["attributes"]["node_transfer_rules"] = node_transfers if isinstance(node_transfers, dict) else {}
