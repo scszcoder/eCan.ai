@@ -5,6 +5,8 @@
 > This file is the **authoritative runtime reference** for the mapping DSL,
 > the template `data_mapping.json`, and the per-event-type data schemas that
 > feed into it.
+>
+> For browser-event monitor architecture, source types, lifecycle semantics, and browser monitor config examples, see [Browser Event Monitor Design](C:\Users\songc\PycharmProjects\eCan.ai\docs\BROWSER_EVENT_MONITOR.md).
 
 ---
 

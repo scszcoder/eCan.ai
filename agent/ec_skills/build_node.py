@@ -2,6 +2,7 @@ import re
 import os
 import json
 import time
+import traceback
 import string
 import importlib.util
 import httpx
@@ -4117,12 +4118,18 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "timer_name": timer_name,
             "browser_event_label": browser_event_label,
         }
+        log_msg = f"[pend_event_node] Waiting for event: type={main_event}, browser_label={browser_event_label}, timer={timer_name}, node={node_name}"
+        logger.info(log_msg)
+        send_skill_editor_log("log", log_msg)
+
         resume_payload = interrupt(info)
 
         from agent.ec_skills.llm_utils.llm_utils import try_parse_json
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
-        log_msg = f"[pend_event_node] resume payload immediately after resuming: {resume_payload}"
-        logger.debug(log_msg)
+        _rp_event_type = resume_payload.get("event_type", "") if isinstance(resume_payload, dict) else ""
+        log_msg = f"[pend_event_node] RESUMED: event_type={_rp_event_type}, node={node_name}, payload_keys={list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
+        logger.info(log_msg)
+        send_skill_editor_log("log", log_msg)
         # send_skill_editor_log("log", log_msg)
 
         # --- Append full event envelope to state["events"] ---
@@ -4496,6 +4503,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
     task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
 
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+
+    # Parse event monitor configs from node editor (Phase 1: HTTP polling)
+    _event_monitor_configs = []
+    event_monitor_done_policy = "keep"
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor import parse_monitor_configs
+        _event_monitor_configs = parse_monitor_configs(inputs)
+        event_monitor_done_policy = (
+            ((inputs.get("eventMonitorDonePolicy") or {}).get("content") or "keep").strip().lower() or "keep"
+        )
+        if event_monitor_done_policy == "teardown":
+            event_monitor_done_policy = "stop"
+        if _event_monitor_configs:
+            logger.info(
+                f"[BrowserAutomation] Parsed {len(_event_monitor_configs)} event monitor config(s): "
+                f"{[c.label for c in _event_monitor_configs]}"
+            )
+            send_skill_editor_log("log", f"[BrowserAutomation] {len(_event_monitor_configs)} event monitor(s) configured")
+    except Exception as _em_parse_err:
+        logger.warning(f"[BrowserAutomation] Failed to parse event monitor configs: {_em_parse_err}")
+
     # Extract browser settings from node editor
     browser_type_setting = ((inputs.get("browser") or {}).get("content") or "new chromium").lower().strip()
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
@@ -4747,6 +4776,77 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     _cached_browser_session = None
     _last_known_focus_target_id: str | None = None  # survives session recreation
 
+    def _patch_browser_session_lifecycle_debug(session, source: str) -> None:
+        """Attach one-time debug hooks to the live BrowserSession/CDP client."""
+        try:
+            if session is None:
+                return
+
+            logger.info(
+                f"[BrowserAutomation][LifecycleDebug] Patch attempt source={source} "
+                f"session_obj={id(session)} cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
+                f"same_as_cached={session is _cached_browser_session}"
+            )
+
+            if not getattr(session, "_ecan_lifecycle_debug_patched", False):
+                _orig_reset = getattr(session, "reset", None)
+                if _orig_reset:
+                    async def _debug_reset(*a, **kw):
+                        logger.warning(
+                            "[BrowserAutomation][LifecycleDebug] BrowserSession.reset() called.\n"
+                            + "".join(traceback.format_stack(limit=20))
+                        )
+                        return await _orig_reset(*a, **kw)
+                    session.reset = _debug_reset
+
+                _orig_reconnect = getattr(session, "reconnect", None)
+                if _orig_reconnect:
+                    async def _debug_reconnect(*a, **kw):
+                        logger.warning(
+                            "[BrowserAutomation][LifecycleDebug] BrowserSession.reconnect() called.\n"
+                            + "".join(traceback.format_stack(limit=20))
+                        )
+                        return await _orig_reconnect(*a, **kw)
+                    session.reconnect = _debug_reconnect
+
+                _orig_auto_reconnect = getattr(session, "_auto_reconnect", None)
+                if _orig_auto_reconnect:
+                    async def _debug_auto_reconnect(*a, **kw):
+                        logger.warning(
+                            "[BrowserAutomation][LifecycleDebug] BrowserSession._auto_reconnect() called.\n"
+                            + "".join(traceback.format_stack(limit=20))
+                        )
+                        return await _orig_auto_reconnect(*a, **kw)
+                    session._auto_reconnect = _debug_auto_reconnect
+
+                setattr(session, "_ecan_lifecycle_debug_patched", True)
+                logger.info("[BrowserAutomation] Patched browser session lifecycle debug hooks")
+
+            _cdp_root = getattr(session, "_cdp_client_root", None)
+            if _cdp_root is not None:
+                logger.info(
+                    f"[BrowserAutomation][LifecycleDebug] CDP root present source={source} "
+                    f"cdp_obj={id(_cdp_root)} patched={getattr(_cdp_root, '_ecan_debug_patched', False)}"
+                )
+            else:
+                logger.info(f"[BrowserAutomation][LifecycleDebug] No CDP root yet source={source}")
+
+            if _cdp_root and hasattr(_cdp_root, "stop") and not getattr(_cdp_root, "_ecan_debug_patched", False):
+                _orig_cdp_stop = _cdp_root.stop
+
+                async def _debug_cdp_stop(*a, **kw):
+                    logger.warning(
+                        "[BrowserAutomation][LifecycleDebug] CDPClient.stop() called.\n"
+                        + "".join(traceback.format_stack(limit=20))
+                    )
+                    return await _orig_cdp_stop(*a, **kw)
+
+                _cdp_root.stop = _debug_cdp_stop
+                setattr(_cdp_root, "_ecan_debug_patched", True)
+                logger.info("[BrowserAutomation] Patched CDPClient.stop lifecycle debug hook")
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] Failed to patch browser lifecycle debug hooks: {exc}")
+
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
         nonlocal _cached_browser_session, _last_known_focus_target_id
@@ -4882,6 +4982,44 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
+
+            def _extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> str | None:
+                """Pull a deterministic startup URL from task/state for control-page workflows."""
+                pattern = r'https?://(?:127\.0\.0\.1|localhost):9877/control[^\s\'"]*'
+                candidates = [task_text]
+                if isinstance(workflow_state, dict):
+                    try:
+                        candidates.append(json.dumps(workflow_state, ensure_ascii=False))
+                    except Exception:
+                        pass
+
+                for candidate in candidates:
+                    if not candidate:
+                        continue
+                    match = re.search(pattern, candidate, re.IGNORECASE)
+                    if match:
+                        return match.group(0)
+                return None
+
+            def _is_matching_control_url(actual_url: str, preferred_url: str) -> bool:
+                """Treat localhost and 127.0.0.1 control-panel URLs as equivalent."""
+                if not actual_url or not preferred_url:
+                    return False
+                try:
+                    actual = urlparse(actual_url)
+                    preferred = urlparse(preferred_url)
+                    actual_host = (actual.hostname or "").lower()
+                    preferred_host = (preferred.hostname or "").lower()
+                    local_hosts = {"127.0.0.1", "localhost"}
+                    if actual_host not in local_hosts or preferred_host not in local_hosts:
+                        return actual_url.rstrip("/") == preferred_url.rstrip("/")
+                    return (
+                        (actual.port or 80) == (preferred.port or 80)
+                        and actual.path.rstrip("/").startswith("/control")
+                        and preferred.path.rstrip("/").startswith("/control")
+                    )
+                except Exception:
+                    return actual_url.rstrip("/") == preferred_url.rstrip("/")
 
             # Determine run mode based on node editor setting (run_environment_setting)
             # Options: full_local, passive_local, hybrid_cloud, full_cloud
@@ -5453,6 +5591,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         node_id=node_name,
                         **agent_kwargs,
                     )
+
+                    try:
+                        setattr(agent, "_ecan_skill_name", skill_name)
+                        setattr(agent, "_ecan_node_id", node_name)
+                        setattr(agent, "_ecan_owner", owner)
+                    except Exception:
+                        pass
                     
                     # Register agent instance for extension tools
                     from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
@@ -5652,9 +5797,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             ensure_profile_unlocked(_bp_user_data_dir, auto_clean=True)
             
             # Create browser profile with persistent storage for all modes
+            keep_browser_alive = bool(_event_monitor_configs)
             browser_profile = BrowserProfile(
                 enable_default_extensions=not disable_extensions,
                 user_data_dir=_bp_user_data_dir,
+                keep_alive=keep_browser_alive or None,
             )
             
             if browser_type_setting == 'new chromium':
@@ -5662,11 +5809,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             else:
                 logger.info("[BrowserAutomation] Using persistent profile for existing-browser/CDP mode")
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
+            if keep_browser_alive:
+                logger.info("[BrowserAutomation] Browser profile keep_alive enabled for event-monitored workflow")
            
             if browser_profile:
                 agent_kwargs['browser_profile'] = browser_profile
-            
-            
+
+            _agent_ref: dict[str, Any] = {}
+            if _event_monitor_configs and event_monitor_done_policy == "stop":
+                async def _on_browser_done(_history):
+                    try:
+                        agent_obj = _agent_ref.get("agent")
+                        session_obj = getattr(agent_obj, "browser_session", None) if agent_obj else None
+                        if not session_obj:
+                            return
+                        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+                        capability = get_event_monitor_capability(session_obj, create=False)
+                        if capability:
+                            await capability.stop()
+                            logger.info("[BrowserAutomation] Stopped session event monitors on done()")
+                    except Exception as _done_monitor_err:
+                        logger.warning(f"[BrowserAutomation] Failed to stop monitors on done(): {_done_monitor_err}")
+
+                agent_kwargs["register_done_callback"] = _on_browser_done
+
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
 
@@ -5762,6 +5928,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # Mode 1: Let browser-use create and manage its own Chromium browser
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
                 agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                _agent_ref["agent"] = agent
                 
             else:
                 # Mode 2: Connect to existing browser via CDP
@@ -5775,16 +5942,38 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     log_msg = f"[BrowserAutomation] Connected to browser session: {getattr(browser_session, 'id', 'unknown')}"
                     logger.info(log_msg)
                     send_skill_editor_log("log", log_msg)
+
+                    # IMPORTANT: browser-use decides whether to reset/kill the session
+                    # on agent.close() from browser_session.browser_profile.keep_alive,
+                    # not from the separate BrowserProfile object we built above.
+                    # For event-monitored loop workflows, propagate keep_alive onto the
+                    # actual reused session so monitors survive done() -> pend_event.
+                    try:
+                        if hasattr(browser_session, "browser_profile") and browser_session.browser_profile:
+                            browser_session.browser_profile.keep_alive = bool(keep_browser_alive)
+                            logger.info(
+                                f"[BrowserAutomation] Applied keep_alive={bool(keep_browser_alive)} "
+                                f"to reused browser session profile"
+                            )
+                    except Exception as _keep_alive_err:
+                        logger.warning(
+                            f"[BrowserAutomation] Failed to apply keep_alive to reused browser session: "
+                            f"{_keep_alive_err}"
+                        )
+                    if keep_browser_alive:
+                        _patch_browser_session_lifecycle_debug(browser_session, source="pre_start")
                     
                     # Start the browser session
                     if not _is_session_started(browser_session):
                         await browser_session.start()
+                    if keep_browser_alive:
+                        _patch_browser_session_lifecycle_debug(browser_session, source="post_start")
 
                     # Focus/session preflight for CDP mode:
                     # If agent_focus_target_id is missing/invalid (common after target detach),
                     # re-bind to a valid page target before running browser-use Agent.
                     try:
-                        from browser_use.browser.events import SwitchTabEvent
+                        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
 
                         sm = getattr(browser_session, 'session_manager', None)
                         all_targets = sm.get_all_targets() if sm else {}
@@ -5818,15 +6007,167 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             await browser_session.get_browser_state_summary(include_screenshot=False)
                         else:
                             logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
+
+                        preferred_start_url = _extract_preferred_start_url(task, state)
+                        if preferred_start_url and sm:
+                            latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                            all_targets = sm.get_all_targets() if sm else {}
+                            preferred_target_id = None
+                            current_target = sm.get_target(latest_focus) if latest_focus else None
+                            current_url = getattr(current_target, 'url', '') if current_target else ''
+
+                            for tid, target in (all_targets or {}).items():
+                                if getattr(target, 'target_type', '') not in ('page', 'tab'):
+                                    continue
+                                target_url = getattr(target, 'url', '') or ''
+                                if _is_matching_control_url(target_url, preferred_start_url):
+                                    preferred_target_id = tid
+                                    break
+
+                            if preferred_target_id and preferred_target_id != latest_focus:
+                                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=preferred_target_id))
+                                _last_known_focus_target_id = preferred_target_id
+                                logger.info(
+                                    f"[BrowserAutomation] Switched to preferred control tab: "
+                                    f"...{preferred_target_id[-4:]} url={preferred_start_url}"
+                                )
+                                await browser_session.get_browser_state_summary(include_screenshot=False)
+                            elif not _is_matching_control_url(current_url, preferred_start_url):
+                                await browser_session.event_bus.dispatch(
+                                    NavigateToUrlEvent(url=preferred_start_url, new_tab=False)
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] Pre-navigated focused tab to preferred startup URL: "
+                                    f"{preferred_start_url}"
+                                )
+                                await asyncio.sleep(0.8)
+                                await browser_session.get_browser_state_summary(include_screenshot=False)
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
-                    
+
                     # Create agent with existing browser session
                     agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                    _agent_ref["agent"] = agent
                 else:
                     # Fallback: browser session creation failed or unsupported driver
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                    _agent_ref["agent"] = agent
+
+            try:
+                setattr(agent, "_ecan_skill_name", skill_name)
+                setattr(agent, "_ecan_node_id", node_name)
+                setattr(agent, "_ecan_owner", owner)
+            except Exception:
+                pass
+            try:
+                # Defensive second application after agent construction. Some agent
+                # constructors may replace/wrap the session reference.
+                _agent_session = getattr(agent, "browser_session", None)
+                logger.info(
+                    f"[BrowserAutomation][LifecycleDebug] Agent/browser session identity: "
+                    f"agent_session_obj={id(_agent_session) if _agent_session else 'none'} "
+                    f"cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
+                    f"same_as_cached={_agent_session is _cached_browser_session}"
+                )
+                if _agent_session and hasattr(_agent_session, "browser_profile") and _agent_session.browser_profile:
+                    _agent_session.browser_profile.keep_alive = bool(keep_browser_alive)
+                    logger.info(
+                        f"[BrowserAutomation] Agent session keep_alive="
+                        f"{_agent_session.browser_profile.keep_alive}"
+                    )
+                if keep_browser_alive:
+                    _patch_browser_session_lifecycle_debug(_agent_session, source="post_agent_create")
+            except Exception as _agent_keep_alive_err:
+                logger.warning(
+                    f"[BrowserAutomation] Failed to apply keep_alive on agent session: "
+                    f"{_agent_keep_alive_err}"
+                )
+            try:
+                from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+                set_current_agent(agent)
+            except Exception as _set_agent_err:
+                logger.debug(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_err}")
+
+            # browser-use always calls agent.close() at the end of run(). Even for
+            # keep_alive=True it stops the browser_session event bus, which tears
+            # down the CDP/session plumbing our long-lived event monitors depend on.
+            # For monitor-driven loop workflows, preserve the browser session fully.
+            if keep_browser_alive and _event_monitor_configs and hasattr(agent, "close"):
+                try:
+                    _agent_eventbus = getattr(agent, "eventbus", None)
+                    if _agent_eventbus and hasattr(_agent_eventbus, "stop") and not getattr(_agent_eventbus, "_ecan_preserve_patched", False):
+                        _orig_agent_eventbus_stop = _agent_eventbus.stop
+
+                        async def _preserve_agent_eventbus_stop(*a, **kw):
+                            logger.info(
+                                f"[BrowserAutomation] Preserving agent event bus on monitored keep_alive run end: "
+                                f"args={a}, kwargs={kw}"
+                            )
+                            return None
+
+                        _agent_eventbus.stop = _preserve_agent_eventbus_stop
+                        setattr(_agent_eventbus, "_ecan_preserve_patched", True)
+                        setattr(_agent_eventbus, "_ecan_orig_stop", _orig_agent_eventbus_stop)
+                        logger.info("[BrowserAutomation] Patched agent.eventbus.stop to preserve monitored keep_alive session")
+                except Exception as _eventbus_patch_err:
+                    logger.warning(
+                        f"[BrowserAutomation] Failed to patch agent eventbus stop for monitored keep_alive session: "
+                        f"{_eventbus_patch_err}"
+                    )
+
+                _orig_agent_close = agent.close
+
+                async def _close_preserving_monitored_session():
+                    try:
+                        _bs = getattr(agent, "browser_session", None)
+                        _has_active_monitor_set = False
+                        try:
+                            from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+                            _cap = get_event_monitor_capability(_bs, create=False) if _bs else None
+                            _active = _cap.get_active_monitor_set() if _cap else None
+                            _has_active_monitor_set = bool(_active and getattr(_active, "monitors", None))
+                        except Exception:
+                            _has_active_monitor_set = False
+
+                        if _bs and _has_active_monitor_set:
+                            logger.info(
+                                "[BrowserAutomation] Preserving monitored keep_alive browser session on agent.close()"
+                            )
+                            # Preserve aggressively: do not let browser-use tear down
+                            # any more process/session state at the run boundary.
+                            return
+                    except Exception as _preserve_close_err:
+                        logger.warning(
+                            f"[BrowserAutomation] Preserved close path failed, falling back to original close: "
+                            f"{_preserve_close_err}"
+                        )
+                    await _orig_agent_close()
+
+                agent.close = _close_preserving_monitored_session
+                logger.info("[BrowserAutomation] Patched agent.close to preserve monitored keep_alive session")
+
+            # Auto-start event monitors on the browser session (Phase 1: HTTP polling)
+            _active_monitor_set = None
+            if _event_monitor_configs and hasattr(agent, 'browser_session') and agent.browser_session:
+                try:
+                    from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+                    capability = get_event_monitor_capability(agent.browser_session, create=True)
+                    _active_monitor_set = await capability.ensure_started(
+                        configs=_event_monitor_configs,
+                        agent_id=calling_agent_id or "",
+                    ) if capability else None
+                    if _active_monitor_set:
+                        log_msg = (
+                            f"[BrowserAutomation] Event monitors started: "
+                            f"{len(_active_monitor_set.monitors)} active "
+                            f"(set_id={_active_monitor_set.monitor_set_id})"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                except Exception as _em_start_err:
+                    logger.warning(f"[BrowserAutomation] Failed to start event monitors: {_em_start_err}")
 
             # Register current agent instance so extension tools (e.g. list_files)
             # can auto-authorize discovered file paths for later read_long_content/read_file calls.
@@ -5855,7 +6196,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     return await run_coro
 
                 # Pass cancellation_event to agents that support it natively;
-                # for native browser-use Agent, patch its step method inline.
+                # for native browser-use Agent, patch its step method inline for cancellation only.
                 agent_class_name = agent.__class__.__name__
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
                     history = await _run_agent_call(cancellation_event=cancellation_event)
@@ -5863,16 +6204,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _orig_step = agent.step
                     async def _step_with_cancel(*a, **kw):
                         if cancellation_event.is_set():
-                            logger.info(f"[BrowserAutomation] 🛑 Cancellation requested, stopping")
+                            logger.info(f"[BrowserAutomation] Cancellation requested, stopping")
                             raise asyncio.CancelledError("Task cancelled by user")
                         return await _orig_step(*a, **kw)
                     agent.step = _step_with_cancel
+                    logger.info(f"[BrowserAutomation] Modified agent.step to include cancellation checks")
                     try:
                         history = await _run_agent_call()
                     finally:
                         agent.step = _orig_step
                 else:
                     history = await _run_agent_call()
+
 
                 # Persist focus target across node iterations to survive session churn.
                 try:
@@ -5959,6 +6302,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.error(f"[BrowserAutomation] {timeout_msg}")
                 raise RuntimeError(timeout_msg) from e
             finally:
+                # NOTE: Event monitors are NOT stopped here intentionally.
+                # They persist across the loop for pend_event nodes to receive events.
+                # Global cleanup happens when runner shuts down (see runner.py).
+                # To manually stop monitors early, call stop_monitors(session._ecan_event_monitors, session).
+                pass
+
                 # Clean up browser session if not cached
                 # Only close non-cached sessions to prevent resource leaks
                 if hasattr(agent, 'browser_session') and agent.browser_session:
@@ -6529,8 +6878,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _run_browser_use(combined_task, mainwin, state, agent_id),
                                 timeout=effective_timeout
                             )
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                        info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
+                        if _event_monitor_configs:
+                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                            _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}")
+                            logger.info(
+                                f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                                f"{_worker_suffix}"
+                            )
+                            info = run_async_in_persistent_worker_thread(
+                                _run_with_hard_timeout,
+                                worker_name=f"browser-use-persistent-{_worker_suffix}",
+                            ) or {}
+                        else:
+                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                            info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
                     except asyncio.TimeoutError:
                         error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
@@ -6546,8 +6907,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             pass
                         info = {"error": error_msg, "timed_out": True}
                 else:
-                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                    info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
+                    if _event_monitor_configs:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}")
+                        logger.info(
+                            f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                            f"{_worker_suffix}"
+                        )
+                        info = run_async_in_persistent_worker_thread(
+                            lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
+                            worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        ) or {}
+                    else:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                        info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
                 
                 # Cancel guardrail timer on success
                 if correlation_id:
