@@ -500,14 +500,14 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     return out
 
                 if isinstance(patch, dict) and patch:
-                    # Deep-merge common sections
-                    for sec in ("attributes", "metadata", "tool_input"):
+                    # Deep-merge common sections (prompt_refs: node transfers must not wipe inputsValues-injected keys)
+                    for sec in ("attributes", "metadata", "tool_input", "prompt_refs"):
                         if sec in patch:
                             base = state.get(sec) if isinstance(state.get(sec), dict) else {}
                             state[sec] = _deep_merge(base, patch[sec])
                     # Handle other keys conservatively
                     for k, v in patch.items():
-                        if k in ("attributes", "metadata", "tool_input"):
+                        if k in ("attributes", "metadata", "tool_input", "prompt_refs"):
                             continue
                         if k == "messages" and isinstance(v, list):
                             if isinstance(state.get("messages"), list):
@@ -826,14 +826,20 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         pass
                     raise e
 
+                _err_text = str(e or "")
+                non_retryable = "[NON_RETRYABLE]" in _err_text
+
                 attempts += 1
+                if non_retryable:
+                    # Stop retry loop immediately for deterministic failures.
+                    attempts = retries
                 last_exc = e
                 error_type = type(e).__name__
-                error_msg = str(e)
+                error_msg = _err_text.replace("[NON_RETRYABLE]", "").strip() or _err_text
                 logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {error_type}: {error_msg}")
                 import traceback
                 logger.debug(f"[{node_name}] Traceback: {traceback.format_exc()}")
-                if attempts < retries:
+                if attempts < retries and not non_retryable:
                     delay = base_delay * (2 ** (attempts - 1)) + random.uniform(0, jitter)
                     time.sleep(delay)
 

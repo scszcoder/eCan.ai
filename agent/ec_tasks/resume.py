@@ -732,9 +732,9 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
     """Build a state patch for a specific node using the same mapping DSL.
 
     Args:
-        node_id: The id/name of the node we are resuming from.
-        state_snapshot: A safe snapshot of the current state (typically checkpoint.values).
-        node_transfer_rules: Dict keyed by node_id -> mapping spec ({mappings:[], options:{}}).
+        node_id: Target node id being entered (matches node_transfers keys in data_mapping.json).
+        state_snapshot: Current LangGraph state (sources are typically state.tool_result.*).
+        node_transfer_rules: Dict keyed by target node_id -> mapping spec ({mappings:[], options:{}}).
 
     Returns:
         A dict patch intended to be merged into the resume payload/state before continuing.

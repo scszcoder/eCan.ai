@@ -516,19 +516,22 @@ class BrowserManager:
         self,
         browser_type: Optional[BrowserType] = None,
         cdp_port: Optional[int] = None,
-        adspower_profile_id: Optional[str] = None
+        adspower_profile_id: Optional[str] = None,
+        profile: Optional[str] = None,
     ) -> Optional[AutoBrowser]:
         """
         Find an available browser matching the criteria.
         
         Matching rules:
         - AdsPower: Only 1 instance per machine, so just match type (ignore port/profile)
-        - Chrome/Chromium: Match type and port (profile not required)
+        - Chrome/Chromium: Match type and port; if profile is requested,
+          require profile consistency as well
         
         Args:
             browser_type: Required browser type (chrome, adspower, chromium)
             cdp_port: Specific CDP port to match (ignored for adspower)
             adspower_profile_id: Specific AdsPower profile to match (ignored - only 1 instance)
+            profile: Browser profile name to match for Chrome/Chromium (optional)
             
         Returns:
             An available AutoBrowser instance or None if not found
@@ -549,6 +552,14 @@ class BrowserManager:
                 # Chrome/Chromium: Match CDP port if specified (profile not required)
                 if cdp_port and browser.cdp_port != cdp_port:
                     continue
+
+                # If caller requested a specific profile, only reuse a browser
+                # with the same profile to avoid cross-profile login-state leakage.
+                if profile:
+                    existing_profile = str(browser.profile or "")
+                    requested_profile = str(profile)
+                    if existing_profile != requested_profile:
+                        continue
                 
                 return browser
         
@@ -799,11 +810,14 @@ class BrowserManager:
         Returns:
             Acquired AutoBrowser instance or None
         """
+        effective_cdp_port = cdp_port or 9228
+
         # Try to find an available browser
         browser = self.find_available_browser(
             browser_type=browser_type,
-            cdp_port=cdp_port,
-            adspower_profile_id=adspower_profile_id
+            cdp_port=effective_cdp_port,
+            adspower_profile_id=adspower_profile_id,
+            profile=profile,
         )
         
         if browser:
@@ -817,14 +831,17 @@ class BrowserManager:
                 except Exception as e:
                     logger.warning(f"[BrowserManager] Failed to update downloads_path on browser {browser.id}: {e}")
             browser.mark_in_use(agent_id, task)
-            logger.info(f"[BrowserManager] Agent {agent_id} acquired existing browser {browser.id}")
+            logger.info(
+                f"[BrowserManager] Agent {agent_id} acquired existing browser {browser.id} "
+                f"(profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
+            )
             return browser
         
         # Create new browser if allowed
         if create_if_not_found:
             browser = self.create_browser(
                 browser_type=browser_type or BrowserType.CHROME,
-                cdp_port=cdp_port or 9228,
+                cdp_port=effective_cdp_port,
                 adspower_profile_id=adspower_profile_id,
                 adspower_api_key=adspower_api_key,
                 webdriver_path=webdriver_path,
@@ -835,7 +852,10 @@ class BrowserManager:
             # Only mark in use if browser was created successfully
             if browser.status != BrowserStatus.ERROR:
                 browser.mark_in_use(agent_id, task)
-                logger.info(f"[BrowserManager] Agent {agent_id} created and acquired new browser {browser.id}")
+                logger.info(
+                    f"[BrowserManager] Agent {agent_id} created and acquired new browser {browser.id} "
+                    f"(profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
+                )
             else:
                 logger.error(f"[BrowserManager] Agent {agent_id} failed to create browser: {browser.last_error}")
             

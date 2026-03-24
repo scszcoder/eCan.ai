@@ -321,7 +321,27 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
                 <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
                   {t('nodeState.nodeTransferMappingDesc')}
                 </div>
+                <div style={{ marginBottom: 8, padding: 8, borderRadius: 6, background: '#f7f9fc', border: '1px solid #e5ebf5' }}>
+                  <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, color: '#2f3a4f' }}>
+                    {t('nodeState.autoPromptVarsTitle')}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#5b6475', lineHeight: 1.5 }}>
+                    {t('nodeState.autoPromptVarsDesc')}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 6, color: '#2f3a4f', lineHeight: 1.6 }}>
+                    <div><code>{'{{previous_node_output}}'}</code> - {t('nodeState.autoVarPreviousOutput')}</div>
+                    <div><code>{'{{previous_node_id}}'}</code> - {t('nodeState.autoVarPreviousNodeId')}</div>
+                    <div><code>{'{{upstream_outputs}}'}</code> - {t('nodeState.autoVarUpstreamOutputs')}</div>
+                    <div><code>{'{{upstream_node_ids}}'}</code> - {t('nodeState.autoVarUpstreamNodeIds')}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                  {t('nodeState.nodeTransferMappingOptionalDesc')}
+                </div>
                 <MappingEditor value={getMappingRules()} onChange={setMappingRules} />
+                <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
+                  {t('nodeState.nodeTransferMappingExample')}
+                </div>
               </>
             )}
           </div>
