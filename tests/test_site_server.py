@@ -49,6 +49,7 @@ import string
 import sys
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
@@ -517,128 +518,144 @@ class TestSiteHandler(BaseHTTPRequestHandler):
     """Handles all routes for the test rig."""
 
     def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        params = parse_qs(parsed.query)
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            params = parse_qs(parsed.query)
 
-        if path == "/" or path == "/control":
-            self._html_response(200, CONTROL_PANEL_HTML)
+            if path == "/" or path == "/control":
+                self._html_response(200, CONTROL_PANEL_HTML)
 
-        elif path == "/chat":
-            session_id = params.get("session", ["default"])[0]
-            customer = _CUSTOMERS.get(session_id, {})
-            name = customer.get("name", session_id)
-            html = CHAT_PAGE_HTML
-            html = html.replace("{{SESSION_ID}}", session_id)
-            html = html.replace("{{CUSTOMER_NAME}}", name)
-            self._html_response(200, html)
+            elif path == "/chat":
+                session_id = params.get("session", ["default"])[0]
+                customer = _CUSTOMERS.get(session_id, {})
+                name = customer.get("name", session_id)
+                html = CHAT_PAGE_HTML
+                html = html.replace("{{SESSION_ID}}", session_id)
+                html = html.replace("{{CUSTOMER_NAME}}", name)
+                self._html_response(200, html)
 
-        elif path == "/api/state":
-            state = {
-                "customers": _CUSTOMERS,
-                "sessions": {sid: msgs for sid, msgs in _CHAT_STORES.items()},
-                "poll_counts": _POLL_COUNTS,
-                "event_log": _EVENT_LOG[-50:],
-            }
-            self._json_response(200, json.dumps(state, default=str))
+            elif path == "/api/state":
+                state = {
+                    "customers": _CUSTOMERS,
+                    "sessions": {sid: msgs for sid, msgs in _CHAT_STORES.items()},
+                    "poll_counts": _POLL_COUNTS,
+                    "event_log": _EVENT_LOG[-50:],
+                }
+                self._json_response(200, json.dumps(state, default=str))
 
-        else:
-            self.send_error(404, "Not found")
+            else:
+                self.send_error(404, "Not found")
+        except Exception as exc:
+            sys.stderr.write(f"[test_rig] GET {self.path} failed: {exc}\n")
+            sys.stderr.write(traceback.format_exc())
+            try:
+                self._html_response(500, "<html><body><h1>500 Internal Server Error</h1></body></html>")
+            except Exception:
+                pass
 
     def do_POST(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-
-        content_length = int(self.headers.get("Content-Length", 0))
-        raw_body = self.rfile.read(content_length).decode("utf-8") if content_length else ""
         try:
-            body_json = json.loads(raw_body) if raw_body else {}
-        except json.JSONDecodeError:
-            body_json = {}
+            parsed = urlparse(self.path)
+            path = parsed.path
 
-        # --- Polling endpoint (used by chat pages) ---
-        if "/batch_get_params" in path:
-            session_id = body_json.get("session_id", "default")
-            if session_id not in _POLL_COUNTS:
-                _POLL_COUNTS[session_id] = 0
-            _POLL_COUNTS[session_id] += 1
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length).decode("utf-8") if content_length else ""
+            try:
+                body_json = json.loads(raw_body) if raw_body else {}
+            except json.JSONDecodeError:
+                body_json = {}
 
-            messages = _get_store(session_id)
-            response = json.dumps({
-                "status": "ok",
-                "poll_seq": _POLL_COUNTS[session_id],
-                "messages": messages,
-                "has_new": len(messages) > 0,
-                "session_id": session_id,
-            })
-            self._json_response(200, response)
+            # --- Polling endpoint (used by chat pages) ---
+            if "/batch_get_params" in path:
+                session_id = body_json.get("session_id", "default")
+                if session_id not in _POLL_COUNTS:
+                    _POLL_COUNTS[session_id] = 0
+                _POLL_COUNTS[session_id] += 1
 
-        # --- Agent reply endpoint ---
-        elif "/send_msg" in path:
-            session_id = body_json.get("session_id", "default")
-            text = body_json.get("text", "")
-            msg = {
-                "msg_id": body_json.get("msg_id", str(int(time.time() * 1000))),
-                "from": "agent",
-                "text": text,
-                "timestamp": int(time.time() * 1000),
-            }
-            _add_message(session_id, msg)
-            self._json_response(200, json.dumps({"status": "sent", "msg_id": msg["msg_id"]}))
+                messages = _get_store(session_id)
+                response = json.dumps({
+                    "status": "ok",
+                    "poll_seq": _POLL_COUNTS[session_id],
+                    "messages": messages,
+                    "has_new": len(messages) > 0,
+                    "session_id": session_id,
+                })
+                self._json_response(200, response)
 
-        # --- Simulation: new customers ---
-        elif path == "/api/sim/new_customers":
-            count = body_json.get("count", 3)
-            count = max(1, min(count, 20))  # clamp 1-20
-            customers = []
-            for i in range(count):
-                # Stagger slightly within ~1 second
-                if i > 0:
-                    time.sleep(random.uniform(0.1, 0.3))
-                c = _create_new_customer()
-                customers.append(c)
-            _log_event("sim", {"message": f"Created {count} new customers"})
-            self._json_response(200, json.dumps({"success": True, "customers": customers}))
+            # --- Agent reply endpoint ---
+            elif "/send_msg" in path:
+                session_id = body_json.get("session_id", "default")
+                text = body_json.get("text", "")
+                msg = {
+                    "msg_id": body_json.get("msg_id", str(int(time.time() * 1000))),
+                    "from": "agent",
+                    "text": text,
+                    "timestamp": int(time.time() * 1000),
+                }
+                _add_message(session_id, msg)
+                self._json_response(200, json.dumps({"status": "sent", "msg_id": msg["msg_id"]}))
 
-        # --- Simulation: follow-up messages ---
-        elif path == "/api/sim/followup":
-            count = body_json.get("count", 3)
-            count = max(1, min(count, 20))
-            existing = list(_CUSTOMERS.keys())
-            if not existing:
-                self._json_response(200, json.dumps({
-                    "success": False,
-                    "error": "No existing customers. Create some first.",
-                    "messages": [],
-                }))
-                return
-            messages = []
-            selected = random.sample(existing, min(count, len(existing)))
-            for sid in selected:
-                if len(messages) > 0:
-                    time.sleep(random.uniform(0.1, 0.3))
-                result = _send_followup(sid)
-                if result:
-                    messages.append(result)
-            _log_event("sim", {"message": f"Sent {len(messages)} follow-up messages"})
-            self._json_response(200, json.dumps({"success": True, "messages": messages}))
+            # --- Simulation: new customers ---
+            elif path == "/api/sim/new_customers":
+                count = body_json.get("count", 3)
+                count = max(1, min(count, 20))  # clamp 1-20
+                customers = []
+                for i in range(count):
+                    # Stagger slightly within ~1 second
+                    if i > 0:
+                        time.sleep(random.uniform(0.1, 0.3))
+                    c = _create_new_customer()
+                    customers.append(c)
+                _log_event("sim", {"message": f"Created {count} new customers"})
+                self._json_response(200, json.dumps({"success": True, "customers": customers}))
 
-        # --- Reset ---
-        elif path == "/api/reset":
-            _reset_all()
-            self._json_response(200, json.dumps({"success": True, "message": "State cleared"}))
+            # --- Simulation: follow-up messages ---
+            elif path == "/api/sim/followup":
+                count = body_json.get("count", 3)
+                count = max(1, min(count, 20))
+                existing = list(_CUSTOMERS.keys())
+                if not existing:
+                    self._json_response(200, json.dumps({
+                        "success": False,
+                        "error": "No existing customers. Create some first.",
+                        "messages": [],
+                    }))
+                    return
+                messages = []
+                selected = random.sample(existing, min(count, len(existing)))
+                for sid in selected:
+                    if len(messages) > 0:
+                        time.sleep(random.uniform(0.1, 0.3))
+                    result = _send_followup(sid)
+                    if result:
+                        messages.append(result)
+                _log_event("sim", {"message": f"Sent {len(messages)} follow-up messages"})
+                self._json_response(200, json.dumps({"success": True, "messages": messages}))
 
-        # --- Telemetry (no-op) ---
-        elif "/report_frontend" in path:
-            self._json_response(200, json.dumps({"status": "ok"}))
+            # --- Reset ---
+            elif path == "/api/reset":
+                _reset_all()
+                self._json_response(200, json.dumps({"success": True, "message": "State cleared"}))
 
-        else:
-            self.send_error(404, "Not found")
+            # --- Telemetry (no-op) ---
+            elif "/report_frontend" in path:
+                self._json_response(200, json.dumps({"status": "ok"}))
+
+            else:
+                self.send_error(404, "Not found")
+        except Exception as exc:
+            sys.stderr.write(f"[test_rig] POST {self.path} failed: {exc}\n")
+            sys.stderr.write(traceback.format_exc())
+            try:
+                self._json_response(500, json.dumps({"success": False, "error": str(exc)}))
+            except Exception:
+                pass
 
     # --- Response helpers ---
 
     def _json_response(self, code: int, body: str):
-        content = body.encode("utf-8")
+        content = body.encode("utf-8", errors="replace")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(content)))
@@ -647,7 +664,7 @@ class TestSiteHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def _html_response(self, code: int, body: str):
-        content = body.encode("utf-8")
+        content = body.encode("utf-8", errors="replace")
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))

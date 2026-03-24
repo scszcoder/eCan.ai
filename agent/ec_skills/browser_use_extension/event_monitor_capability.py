@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import json
 from typing import Any, List, Optional
 
 from utils.logger_helper import logger_helper as logger
@@ -68,10 +69,44 @@ class EventMonitorCapability:
     def get_configs(self) -> List[dict]:
         return [asdict(item) for item in self.state.monitor_configs]
 
+    def _config_signature(self, configs: List[Any]) -> str:
+        normalized = []
+        for cfg in configs or []:
+            raw = getattr(cfg, "__dict__", {}).copy() if hasattr(cfg, "__dict__") else {}
+            normalized.append(raw)
+        try:
+            return json.dumps(normalized, sort_keys=True, default=str)
+        except Exception:
+            return str(normalized)
+
     async def ensure_started(self, configs: List[Any], agent_id: str = "") -> Any:
         self.configure(configs)
         current = self.get_active_monitor_set()
+        desired_sig = self._config_signature(configs)
+        current_sig = self._config_signature(list(getattr(current, "configs", []) or [])) if current else ""
         if current and getattr(current, "monitors", None):
+            logger.info(
+                f"[EventMonitorCapability] Active monitor set present: "
+                f"set_id={getattr(current, 'monitor_set_id', '')} "
+                f"active_count={len(getattr(current, 'monitors', []) or [])} "
+                f"config_changed={desired_sig != current_sig}"
+            )
+            try:
+                for idx, cfg in enumerate(list(getattr(current, "configs", []) or []), start=1):
+                    logger.info(
+                        f"[EventMonitorCapability] Active cfg[{idx}]: "
+                        f"id={getattr(cfg, 'id', '')} "
+                        f"label={getattr(cfg, 'label', '')} "
+                        f"source_type={getattr(cfg, 'source_type', '')} "
+                        f"dom_check_interval_ms={getattr(cfg, 'dom_check_interval_ms', '')} "
+                        f"url_patterns={list(getattr(cfg, 'url_patterns', []) or [])} "
+                        f"cdp_filter_expr={str(getattr(cfg, 'cdp_filter_expr', '') or '')[:400]}"
+                    )
+            except Exception:
+                pass
+            if desired_sig != current_sig:
+                logger.info("[EventMonitorCapability] Desired monitor config differs from active set; replacing monitors")
+                return await self.replace_monitors(configs, agent_id=agent_id)
             self.state.enabled = True
             self.state.status = "running"
             return current
