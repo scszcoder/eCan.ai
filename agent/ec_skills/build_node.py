@@ -43,7 +43,6 @@ Answer concisely.
 - If you need to think, do it silently and only provide the final answer.
 """
 
-
 # ==================== Cloud-Direct Tool Registry ====================
 # Maps MCP tool names -> (module_path, function_name) for tools that can be
 # imported without triggering GUI dependencies (pyautogui, pynput, PyGetWindow)
@@ -4487,12 +4486,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         pass
     
     provider = ((config_metadata or {}).get("provider") or "browser-use").lower()
+    # GUI stores automation backend under inputsValues.tool.content (browser-use | crawl4ai | browsebase)
+    _tool_sel = ((inputs.get("tool") or {}).get("content") or "").strip().lower()
+    if _tool_sel in ("browser-use", "crawl4ai", "browsebase"):
+        provider = _tool_sel
+
     action = (config_metadata or {}).get("action") or "open_page"
     params = (config_metadata or {}).get("params") or {}
     wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
     task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
-
-    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
     # Extract browser settings from node editor
     browser_type_setting = ((inputs.get("browser") or {}).get("content") or "new chromium").lower().strip()
@@ -4562,9 +4564,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             node_max_actions_per_step = int(max_actions_val)
     except Exception:
         node_max_actions_per_step = None
+
+    # DOM pruning patch switch (default: "on").
+    # Node input: domPrune = "on" | "off"
+    dom_prune_mode = str(((inputs.get("domPrune") or {}).get("content") or "on")).strip().lower()
+    node_enable_dom_prune = dom_prune_mode != "off"
+
+    # Optional node-level hard timeout for browser automation runtime (seconds).
+    # Keep this separate from LLM request timeout so we can cap the whole node duration.
+    node_timeout_seconds = None
+    try:
+        timeout_val = ((inputs.get("nodeTimeoutSeconds") or {}).get("content")
+                       or (inputs.get("timeoutSeconds") or {}).get("content"))
+        if timeout_val not in (None, ""):
+            _timeout = float(timeout_val)
+            node_timeout_seconds = _timeout if _timeout > 0 else None
+    except Exception:
+        node_timeout_seconds = None
     
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
-    logger.info(f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, max_steps={node_max_steps}, max_actions_per_step={node_max_actions_per_step}")
+    logger.info(
+        f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
+        f"max_steps={node_max_steps}, max_actions_per_step={node_max_actions_per_step}, "
+        f"node_timeout_seconds={node_timeout_seconds}, dom_prune={dom_prune_mode}"
+    )
     send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
     # Extract shop_name and build downloads_path
@@ -5588,7 +5611,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 llm=llm,  # Pass LLM to auto-detect context_length for adaptive compaction
                 max_actions_per_step=node_max_actions_per_step,  # Performance optimization
             )
-            
+
             # Debug: Log the actual message_compaction settings
             if 'message_compaction' in agent_kwargs:
                 mc = agent_kwargs['message_compaction']
@@ -5676,6 +5699,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         
                 except Exception as e:
                     logger.error(f"[BrowserAutomation] ❌ Failed to apply extract patch: {e}", exc_info=True)
+
+            # Apply DOM pruning patch to reduce noisy browser-state payload per step.
+            # Message compaction only compresses history, not current step DOM.
+            if node_enable_dom_prune:
+                try:
+                    from agent.ec_skills.browser_use_extension.dom_prune_patch import patch_dom_llm_representation
+
+                    # dom_chars_limit is a character count, distinct from
+                    # max_clickable_elements_length which is an element count.
+                    _dom_chars_limit = int(agent_kwargs.get('dom_chars_limit') or 8000)
+                    patch_dom_llm_representation(max_chars=_dom_chars_limit)
+                    logger.debug(
+                        "[BrowserAutomation] ✅ DOM prune patch applied (dom_chars_limit=%s)",
+                        _dom_chars_limit,
+                    )
+                except Exception as e:
+                    logger.error(f"[BrowserAutomation] ❌ Failed to apply DOM prune patch: {e}", exc_info=True)
+            else:
+                logger.info("[BrowserAutomation] DOM prune patch disabled by configuration")
 
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
             # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
@@ -5786,6 +5828,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
 
+            # Register current agent instance so extension tools (e.g. list_files)
+            # can auto-authorize discovered file paths for later read_long_content/read_file calls.
+            try:
+                from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+
+                set_current_agent(agent)
+            except Exception as _set_agent_exc:
+                logger.warning(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_exc}")
+
             # Look up cancellation_event from global registry by task_id
             from agent.ec_tasks import cancellation_registry
             task_id = state.get('attributes', {}).get('task_id') if isinstance(state, dict) else None
@@ -5794,14 +5845,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.info(f"[BrowserAutomation] ✅ Got cancellation_event for task_id={task_id}")
 
             try:
+                async def _run_agent_call(**run_kwargs):
+                    """Run agent with node-level limits (max_steps + optional hard timeout)."""
+                    if node_max_steps:
+                        run_kwargs.setdefault("max_steps", node_max_steps)
+                    run_coro = agent.run(**run_kwargs)
+                    if node_timeout_seconds:
+                        return await asyncio.wait_for(run_coro, timeout=node_timeout_seconds)
+                    return await run_coro
+
                 # Pass cancellation_event to agents that support it natively;
                 # for native browser-use Agent, patch its step method inline.
                 agent_class_name = agent.__class__.__name__
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
-                    if node_max_steps:
-                        history = await agent.run(max_steps=node_max_steps, cancellation_event=cancellation_event)
-                    else:
-                        history = await agent.run(cancellation_event=cancellation_event)
+                    history = await _run_agent_call(cancellation_event=cancellation_event)
                 elif cancellation_event and hasattr(agent, 'step'):
                     _orig_step = agent.step
                     async def _step_with_cancel(*a, **kw):
@@ -5811,17 +5868,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         return await _orig_step(*a, **kw)
                     agent.step = _step_with_cancel
                     try:
-                        if node_max_steps:
-                            history = await agent.run(max_steps=node_max_steps)
-                        else:
-                            history = await agent.run()
+                        history = await _run_agent_call()
                     finally:
                         agent.step = _orig_step
                 else:
-                    if node_max_steps:
-                        history = await agent.run(max_steps=node_max_steps)
-                    else:
-                        history = await agent.run()
+                    history = await _run_agent_call()
 
                 # Persist focus target across node iterations to survive session churn.
                 try:
@@ -5899,6 +5950,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
 
                 return {"final": final, "history": str(history)}
+            except asyncio.TimeoutError as e:
+                timeout_msg = (
+                    f"Browser automation node timed out after {node_timeout_seconds}s"
+                    if node_timeout_seconds
+                    else "Browser automation node timed out"
+                )
+                logger.error(f"[BrowserAutomation] {timeout_msg}")
+                raise RuntimeError(timeout_msg) from e
             finally:
                 # Clean up browser session if not cached
                 # Only close non-cached sessions to prevent resource leaks
@@ -5918,7 +5977,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
             # Re-raise the exception so LangGraph can mark the node as failed
-            raise RuntimeError(f"Browser automation failed: {str(e)}") from e
+            _err_text = str(e).strip() or repr(e)
+            raise RuntimeError(f"Browser automation failed: {_err_text}") from e
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
         # Use the pre-resolved prompts from build time (when cloud context was available)
@@ -5936,6 +5996,338 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _ba_mainwin = AppContext.get_main_window()
         except Exception:
             pass
+
+        # Copy scalar browser node inputsValues into state["prompt_refs"] under the same key name.
+        # Any workflow can add arbitrary keys (e.g. region_code, locale); prompts use {{key}} matching
+        # the placeholder name — there are no reserved keys like site_name/home_url at runtime.
+        try:
+            if isinstance(state, dict):
+                prompt_refs = state.setdefault("prompt_refs", {})
+                if not isinstance(prompt_refs, dict):
+                    prompt_refs = {}
+                    state["prompt_refs"] = prompt_refs
+
+                for _key, _raw in (inputs or {}).items():
+                    if not isinstance(_raw, dict) or "content" not in _raw:
+                        continue
+                    _val = _raw.get("content")
+                    if isinstance(_val, (str, int, float, bool)):
+                        prompt_refs[_key] = _val
+
+                def _compact_upstream_outputs_for_prompt(_state: dict) -> str:
+                    import json
+                    import re
+                    from urllib.parse import urlsplit, parse_qs
+
+                    tr = _state.get("tool_result")
+                    if not isinstance(tr, dict):
+                        return "{}"
+
+                    keep_keys = {
+                        "status",
+                        "reason",
+                        "price_range",
+                        "links",
+                        "downloaded_images",
+                        "download_count",
+                        "image_urls",
+                        "image_descriptions",
+                        "listing_url",
+                        "title",
+                        "description",
+                        "price",
+                        "product_keyword",
+                        "brand",
+                        "model",
+                        "category",
+                        "condition",
+                        "original_images",
+                        "products",
+                        "highlights_summary",
+                        "target_audience",
+                        "notes",
+                    }
+
+                    # Generic noise keys to avoid prompt bloat and scenario-specific internals.
+                    drop_keys = {
+                        "provider",
+                        "task",
+                        "systemPrompt",
+                        "history",
+                        "prompts",
+                        "prompt_refs",
+                        "messages",
+                        "threads",
+                        "events",
+                        "attachments",
+                        "http_response",
+                        "cli_input",
+                        "cli_results",
+                        "attributes",
+                    }
+
+                    def _extract_links(*texts):
+                        links = []
+                        for txt in texts:
+                            if not txt:
+                                continue
+                            s = str(txt)
+                            links.extend(re.findall(r'https?://[^\s\]\"\'\)]+', s))
+                            for m in re.findall(r'//[^\s\]\"\'\)]+', s):
+                                links.append(f"https:{m}")
+                        dedup = []
+                        seen = set()
+                        for u in links:
+                            if u in seen:
+                                continue
+                            seen.add(u)
+                            dedup.append(u)
+                        return dedup
+
+                    def _extract_json_object_from_text(text):
+                        """
+                        Best-effort JSON object extractor for node outputs.
+                        Supports plain JSON and fenced code blocks.
+                        """
+                        if not isinstance(text, str):
+                            return None
+                        s = text.strip()
+                        if not s:
+                            return None
+
+                        # Strip fenced code block wrappers when present.
+                        if s.startswith("```"):
+                            s = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", s)
+                            s = re.sub(r"\n?```$", "", s).strip()
+
+                        # Fast path: whole string is a JSON object/array.
+                        for candidate in (s,):
+                            try:
+                                parsed = json.loads(candidate)
+                                if isinstance(parsed, dict):
+                                    return parsed
+                            except Exception:
+                                pass
+
+                        # Fallback: capture the largest {...} block.
+                        m = re.search(r"\{[\s\S]*\}", s)
+                        if m:
+                            block = m.group(0)
+                            try:
+                                parsed = json.loads(block)
+                                if isinstance(parsed, dict):
+                                    return parsed
+                            except Exception:
+                                return None
+                        return None
+
+                    def _merge_keep_keys_from_dict(dst: dict, src: dict):
+                        if not isinstance(src, dict):
+                            return
+                        for k in keep_keys:
+                            v = src.get(k)
+                            if v in (None, "", [], {}):
+                                continue
+                            dst[k] = v
+
+                    def _is_small_scalar(v):
+                        return isinstance(v, (str, int, float, bool)) and len(str(v)) <= 200
+
+                    def _is_small_scalar_list(v):
+                        return (
+                            isinstance(v, list)
+                            and len(v) <= 20
+                            and all(_is_small_scalar(i) for i in v)
+                        )
+
+                    def _merge_generic_fields_from_dict(dst: dict, src: dict, depth: int = 0):
+                        """
+                        Scenario-agnostic field extraction:
+                        keep compact, actionable keys from arbitrary JSON-like outputs.
+                        """
+                        if not isinstance(src, dict) or depth > 1:
+                            return
+                        for k, v in src.items():
+                            if not isinstance(k, str):
+                                continue
+                            kl = k.lower()
+                            if (
+                                k in drop_keys
+                                or kl.startswith("_")
+                                or any(tok in kl for tok in ("prompt", "history", "message", "thread", "event", "attachment", "screenshot", "dom", "html", "markdown"))
+                            ):
+                                continue
+                            if v in (None, "", [], {}):
+                                continue
+
+                            # Preserve explicit keep_keys precedence.
+                            if k in dst:
+                                continue
+
+                            if _is_small_scalar(v) or _is_small_scalar_list(v):
+                                dst[k] = v
+                                continue
+
+                            # Keep compact nested dicts with scalar values only.
+                            if isinstance(v, dict) and len(v) <= 20:
+                                if all(_is_small_scalar(sv) for sv in v.values()):
+                                    dst[k] = v
+                                # Also recurse one level to collect commonly useful nested keys.
+                                _merge_generic_fields_from_dict(dst, v, depth + 1)
+
+                    def _is_actionable_detail_link(url: str) -> bool:
+                        """Generic heuristic to keep likely detail pages, drop home/search/list pages."""
+                        try:
+                            s = str(url or "").strip()
+                            if not s.startswith(("http://", "https://")):
+                                return False
+                            p = urlsplit(s)
+                            if not p.netloc:
+                                return False
+
+                            path = (p.path or "").strip().lower()
+                            query = (p.query or "").lower()
+                            query_map = parse_qs(p.query or "", keep_blank_values=True)
+
+                            # Home/landing pages are not actionable detail links.
+                            if path in ("", "/"):
+                                return False
+
+                            # Drop obvious search/listing URLs.
+                            text = f"{path}?{query}"
+                            if any(k in text for k in ("/search", "search?", "keyword=", "query=", "q=", "wd=", "/list", "list?")):
+                                return False
+
+                            # Keep links with common detail id parameters.
+                            id_keys = ("id", "itemid", "item_id", "sku", "sku_id", "productid", "product_id", "pid")
+                            if any(k in query_map and any(str(v).strip() for v in query_map.get(k, [])) for k in id_keys):
+                                return True
+
+                            # Keep paths that look like detail pages (have a long numeric token).
+                            if re.search(r"\d{5,}", path):
+                                return True
+
+                            # Keep deeper paths unless they look like generic landing sections.
+                            segments = [seg for seg in path.split("/") if seg]
+                            if len(segments) >= 2 and segments[-1] not in ("home", "index", "category", "categories", "catalog", "list", "search"):
+                                return True
+
+                            return False
+                        except Exception:
+                            return False
+
+                    compact = {}
+                    for _nid, _val in tr.items():
+                        # Exclude current node output to avoid self-feedback loops on retries.
+                        # Example: download_images retry should not consume prior
+                        # {"download_images": {"status":"blocked", ...}} as upstream input.
+                        if _nid == node_name:
+                            continue
+                        if not isinstance(_val, dict):
+                            continue
+                        row = {}
+
+                        # 1) Direct extraction from node output dict.
+                        _merge_keep_keys_from_dict(row, _val)
+                        _merge_generic_fields_from_dict(row, _val)
+
+                        # 2) Generic extraction from nested dict/string payloads.
+                        #    This keeps behavior generic across browser/llm nodes.
+                        candidate_payloads = [
+                            _val.get("final"),
+                            _val.get("result"),
+                            _val.get("llm_result"),
+                            _val.get("response"),
+                            _val.get("output"),
+                            _val.get("text"),
+                            _val.get("history"),
+                        ]
+                        for payload in candidate_payloads:
+                            if isinstance(payload, dict):
+                                _merge_keep_keys_from_dict(row, payload)
+                                _merge_generic_fields_from_dict(row, payload)
+                                nested = payload.get("result")
+                                if isinstance(nested, dict):
+                                    _merge_keep_keys_from_dict(row, nested)
+                                    _merge_generic_fields_from_dict(row, nested)
+                            elif isinstance(payload, str):
+                                parsed = _extract_json_object_from_text(payload)
+                                if isinstance(parsed, dict):
+                                    _merge_keep_keys_from_dict(row, parsed)
+                                    _merge_generic_fields_from_dict(row, parsed)
+                                    nested = parsed.get("result")
+                                    if isinstance(nested, dict):
+                                        _merge_keep_keys_from_dict(row, nested)
+                                        _merge_generic_fields_from_dict(row, nested)
+
+                        # Extract links from products array for backward compat.
+                        if "products" in row and "links" not in row:
+                            prods = row.get("products")
+                            if isinstance(prods, list):
+                                prod_links = [p.get("link") for p in prods if isinstance(p, dict) and p.get("link")]
+                                if prod_links:
+                                    row["links"] = prod_links
+
+                        # Normalize and filter links with generic detail-page heuristics.
+                        if "links" in row:
+                            raw_links = row.get("links")
+                            if isinstance(raw_links, str):
+                                raw_links = [raw_links]
+                            if isinstance(raw_links, list):
+                                filtered_links = []
+                                seen_links = set()
+                                for u in raw_links:
+                                    su = str(u or "").strip()
+                                    if not su or su in seen_links:
+                                        continue
+                                    seen_links.add(su)
+                                    if _is_actionable_detail_link(su):
+                                        filtered_links.append(su)
+                                if filtered_links:
+                                    row["links"] = filtered_links
+                                else:
+                                    row.pop("links", None)
+
+                        if "links" not in row:
+                            links = _extract_links(_val.get("final"), _val.get("error"), _val.get("task"))
+                            if links:
+                                links = [u for u in links if _is_actionable_detail_link(u)]
+                                if links:
+                                    row["links"] = links[:8]
+
+                        # Skip rows that only contain status/reason with no actionable payload.
+                        actionable_keys = set(row.keys()) - {"status", "reason"}
+                        if not actionable_keys:
+                            continue
+
+                        if row:
+                            compact[_nid] = row
+
+                    payload = json.dumps(compact, ensure_ascii=False)
+                    try:
+                        key_summary = {
+                            nid: sorted(list(val.keys()))[:15]
+                            for nid, val in compact.items()
+                            if isinstance(val, dict)
+                        }
+                        logger.info(
+                            f"[UpstreamCompact] node={node_name} "
+                            f"upstream_nodes={list(compact.keys())} "
+                            f"key_summary={key_summary} "
+                            f"payload_chars={len(payload)}"
+                        )
+                    except Exception:
+                        pass
+                    if len(payload) > 12000:
+                        payload = payload[:12000] + "...(truncated)"
+                    return payload
+
+                # Prevent prompt bloat when upstream_outputs is requested.
+                if "upstream_outputs" in variables:
+                    prompt_refs["upstream_outputs"] = _compact_upstream_outputs_for_prompt(state)
+        except Exception as _inject_prompt_ref_err:
+            logger.debug(f"[BrowserAutomation] Failed injecting node inputsValues into prompt_refs: {_inject_prompt_ref_err}")
+
         from agent.ec_skills.prompt_variable_providers import resolve_prompt_variables
         format_context = resolve_prompt_variables(
             variable_names=variables,
@@ -5943,6 +6335,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             mainwin=_ba_mainwin,
             prompt_variables=_browser_prompt_vars,
         )
+
+        # Diagnostic: template placeholder resolution (generic — no assumption about key names).
+        try:
+            if variables:
+                _lens = {v: len(str(format_context.get(v) or "")) for v in variables}
+                logger.info(
+                    f"[BrowserAutomation][PromptTemplateCheck] node={node_name} "
+                    f"placeholders={variables} value_lens={_lens}"
+                )
+        except Exception:
+            pass
 
         # Substitute {{var_name}} with values from format_context
         try:
@@ -5977,10 +6380,47 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         else:
             combined_task = task_instructions
 
+        # Global anti-risk guardrails for browser automation.
+        # This keeps prompts user-friendly while enforcing a consistent low-risk behavior
+        # across different skills/sites (instead of requiring each prompt to repeat it).
+        def _append_anti_risk_guardrails(task_text_raw: str) -> str:
+            try:
+                if not isinstance(task_text_raw, str) or not task_text_raw.strip():
+                    return task_text_raw
+
+                # Avoid duplicate injection if already present in task text.
+                marker = "[GLOBAL ANTI-RISK GUARDRAILS]"
+                if marker in task_text_raw:
+                    return task_text_raw
+
+                guardrail_text = (
+                    "\n\n[GLOBAL ANTI-RISK GUARDRAILS]\n"
+                    "1) Anti-bot handling: if the page shows any rate-limit, captcha, "
+                    "human-verification, access-denied, or unusual-traffic warning (in any language), "
+                    "perform at most one low-risk recovery attempt (for example: refresh once or navigate "
+                    "to site home then continue with the same intent). If still blocked, return "
+                    "blocked(reason=risk_control).\n"
+                    "2) Never use switch_tab. Always stay in the current active tab and use navigate "
+                    "to load any new URL. Do not switch to any stale tab from a previous run.\n"
+                    "3) Low-frequency behavior: avoid repeated clicks on the same element and "
+                    "unnecessary refresh loops. Retry the same failed action at most once.\n"
+                    "4) Fast convergence: if 2-3 consecutive actions produce no meaningful state change, "
+                    "stop and return blocked(reason=navigation_deadlock).\n"
+                    "5) Minimum-necessary actions: prefer direct navigation to target pages and extract "
+                    "required data with the shortest path. End as soon as success criteria are met.\n"
+                    "6) Cooldown policy: after blocked(reason=risk_control), treat the site as cooling down "
+                    "for this run and continue with alternative paths or downstream steps."
+                )
+                return f"{task_text_raw}{guardrail_text}"
+            except Exception:
+                return task_text_raw
+
+        combined_task = _append_anti_risk_guardrails(combined_task)
+
         # print("final_system_prompt:", final_system_prompt)
         # print("final_user_prompt:", final_user_prompt)
         logger.debug("combined_task:", combined_task)
-        if provider == 'browser-use':
+        if provider in ("browser-use", "crawl4ai"):
             # Check if we're in cloud mode (hybrid_cloud or full_cloud)
             # In cloud mode, mainwin is not required
             is_cloud_mode = run_environment_setting in ('hybrid_cloud', 'full_cloud')
@@ -6030,7 +6470,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 add_to_history(state, ActionMessage(content=f"action: browser-use {task_text}; result: {err_msg}"))
 
                 return state
-            
+
             info = {}
             correlation_id = None
             full_node_name = f"{owner}:{skill_name}:{node_name}"
@@ -6135,19 +6575,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         pass
                 
                 # Log error and push to frontend
-                error_msg = f"browser-use run failed: {e}"
+                import traceback as _traceback
+                _err_text = str(e).strip() or repr(e)
+                _err_type = type(e).__name__
+                _tb = _traceback.format_exc()
+                error_msg = f"browser-use run failed: {_err_text}"
                 logger.error(f"[BrowserAutomation] {error_msg}")
+                logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
+                logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
                 send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
                 
-                info = {"error": error_msg}
+                info = {
+                    "error": error_msg,
+                    "error_type": _err_type,
+                    "error_repr": repr(e),
+                    "traceback": _tb,
+                }
             state.setdefault("tool_result", {})
-            # state["tool_result"][node_name] = {
-            state["tool_result"] = {
+            tr = state.get("tool_result")
+            if not isinstance(tr, dict):
+                tr = {}
+                state["tool_result"] = tr
+            tr[node_name] = {
                 "provider": provider,
                 "task": task_instructions,
                 "systemPrompt": final_system_prompt,
                 **info,
             }
+
             # Optionally interrupt if downstream needs human check
             if wait_for_done and info.get("error"):
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
@@ -6159,7 +6614,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Truncate info for history to avoid huge screenshot_base64 in logs
             from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             info_for_history = truncate_screenshot_for_logging(info)
-            add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info_for_history}"))
+            add_to_history(state, ActionMessage(content=f"action: {provider} {task_instructions}; result: {info_for_history}"))
 
             return state
 

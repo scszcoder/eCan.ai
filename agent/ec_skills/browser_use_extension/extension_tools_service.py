@@ -1,10 +1,15 @@
 import os
-from typing import Any, Dict
+import shutil
+import subprocess
+import urllib.request
+from typing import Any, Dict, Optional
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
 from agent.mcp.server.code_utils.code_tools import run_code, run_shell_script
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
+    ConvertFileFormatAction,
+    DownloadFileAction,
     ExtractDomAction,
     FileRenameAction,
     FilesPrintAction,
@@ -36,6 +41,196 @@ def set_current_agent(agent):
 def get_current_agent():
     """Get the current agent instance."""
     return _current_agent_instance
+
+
+def _authorize_output_files_for_upload(file_paths: list[str]) -> None:
+    """Allow converted files to be uploaded by browser-use upload tools."""
+    if not file_paths:
+        return
+    agent = get_current_agent()
+    if not agent or not hasattr(agent, "available_file_paths"):
+        return
+    if agent.available_file_paths is None:
+        agent.available_file_paths = []
+    for path in file_paths:
+        if path not in agent.available_file_paths:
+            agent.available_file_paths.append(path)
+
+
+@custom_controller.action(
+    "Download a remote file to a local path. Use for saving images or assets from URLs.",
+    param_model=DownloadFileAction,
+)
+async def download_file(params: DownloadFileAction) -> ActionResult:
+    url = (params.url or "").strip()
+    path = (params.path or "").strip()
+    if not url:
+        return ActionResult(error="download_file: url is required")
+    if not path:
+        return ActionResult(error="download_file: path is required")
+
+    try:
+        out_dir = os.path.dirname(path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+        # Some sources block requests without UA.
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 eCan-AI downloader"},
+        )
+        with urllib.request.urlopen(req, timeout=float(params.timeout or 30.0)) as r:
+            data = r.read()
+        with open(path, "wb") as wf:
+            wf.write(data)
+
+        _authorize_output_files_for_upload([path])
+        return ActionResult(
+            extracted_content=f"Downloaded file successfully: {url} -> {path} ({len(data)} bytes)"
+        )
+    except Exception as e:
+        return ActionResult(error=f"download_file failed: {e}")
+
+
+def _build_target_path(src: str, target_format: str, output_dir: Optional[str]) -> str:
+    base_name = os.path.splitext(os.path.basename(src))[0]
+    out_dir = output_dir or os.path.dirname(src)
+    os.makedirs(out_dir, exist_ok=True)
+    return os.path.join(out_dir, f"{base_name}_converted.{target_format.lower()}")
+
+
+def _normalize_ext(ext: str) -> str:
+    e = (ext or "").strip().lower().lstrip(".")
+    aliases = {
+        "jpeg": "jpg",
+        "markdown": "md",
+    }
+    return aliases.get(e, e)
+
+
+def _collect_source_files(directory: str, source_format: str) -> list[str]:
+    src_files: list[str] = []
+    sf = _normalize_ext(source_format)
+    for root, _, files in os.walk(directory):
+        for name in files:
+            ext = _normalize_ext(os.path.splitext(name)[1])
+            if ext == sf:
+                src_files.append(os.path.join(root, name))
+    return src_files
+
+
+def _convert_image_with_pillow(src: str, dst: str, target_format: str, quality: int) -> None:
+    from PIL import Image  # type: ignore
+
+    img = Image.open(src)
+    fmt = target_format.upper()
+    if fmt in ("JPG", "JPEG"):
+        # JPEG cannot store alpha channel
+        img = img.convert("RGB")
+        img.save(dst, "JPEG", quality=quality)
+        return
+    if fmt == "PNG":
+        img.save(dst, "PNG")
+        return
+    if fmt == "WEBP":
+        img.save(dst, "WEBP", quality=quality)
+        return
+    raise ValueError(f"Unsupported image target format with Pillow: {target_format}")
+
+
+def _convert_image_with_sips(src: str, dst: str, target_format: str) -> None:
+    # macOS fallback converter when Pillow is unavailable.
+    # sips supports common image conversions.
+    cmd = ["sips", "-s", "format", target_format.lower(), src, "--out", dst]
+    completed = subprocess.run(cmd, capture_output=True, text=True)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "sips conversion failed")
+
+
+@custom_controller.action(
+    "Convert one or more files to a target format. Use this when user asks things like "
+    "'convert webp to jpg', 'turn png into jpg', 'convert all webp in a folder', "
+    "or 'change file format'.",
+    param_model=ConvertFileFormatAction,
+)
+async def convert_file_format(params: ConvertFileFormatAction) -> ActionResult:
+    target_format = _normalize_ext(params.target_format or "")
+    if not target_format:
+        return ActionResult(error="target_format is required")
+
+    source_files = list(params.source_files or [])
+    if not source_files and params.directory and params.source_format:
+        source_files = _collect_source_files(params.directory, params.source_format)
+    if not source_files:
+        return ActionResult(
+            error=(
+                "No source files provided. "
+                "Pass source_files, or pass both directory and source_format."
+            )
+        )
+
+    quality = max(1, min(100, int(params.quality or 90)))
+    success_rows: list[str] = []
+    error_rows: list[str] = []
+    produced_files: list[str] = []
+
+    image_exts = {"jpg", "jpeg", "png", "webp", "bmp", "gif", "tiff", "heic"}
+
+    for src in source_files:
+        try:
+            if not os.path.exists(src):
+                error_rows.append(f"{src} -> NOT_FOUND")
+                continue
+
+            src_ext = _normalize_ext(os.path.splitext(src)[1])
+            dst = _build_target_path(src, target_format, params.output_dir)
+
+            if src_ext in image_exts and target_format in {"jpg", "jpeg", "png", "webp"}:
+                try:
+                    _convert_image_with_pillow(src, dst, target_format, quality)
+                except Exception:
+                    # Fallback for environments without Pillow.
+                    _convert_image_with_sips(src, dst, target_format)
+            elif src_ext in {"txt", "md"} and target_format in {"txt", "md"}:
+                # Plain-text conversions (txt<->md) are content-preserving.
+                with open(src, "r", encoding="utf-8", errors="ignore") as rf:
+                    content = rf.read()
+                with open(dst, "w", encoding="utf-8") as wf:
+                    wf.write(content)
+            else:
+                # Generic fallback: copy when same format was requested.
+                # Keeps the extension API generic while clearly reporting unsupported transforms.
+                if src_ext == target_format:
+                    shutil.copy2(src, dst)
+                else:
+                    raise ValueError(f"Unsupported conversion: {src_ext} -> {target_format}")
+
+            if not params.keep_original and src != dst:
+                try:
+                    os.remove(src)
+                except Exception:
+                    pass
+
+            produced_files.append(dst)
+            success_rows.append(f"{src} -> {dst}")
+        except Exception as e:
+            error_rows.append(f"{src} -> ERROR: {e}")
+
+    _authorize_output_files_for_upload(produced_files)
+
+    if success_rows and not error_rows:
+        return ActionResult(
+            extracted_content="Conversion completed:\n" + "\n".join(success_rows)
+        )
+    if success_rows and error_rows:
+        return ActionResult(
+            extracted_content=(
+                "Conversion partially completed.\n"
+                "Succeeded:\n" + "\n".join(success_rows) + "\n\n"
+                "Failed:\n" + "\n".join(error_rows)
+            )
+        )
+    return ActionResult(error="All conversions failed:\n" + "\n".join(error_rows))
 
 @custom_controller.action(
     "Execute Python code in a sandboxed environment. Use 'result' variable to return a value.",
@@ -389,6 +584,22 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
 try:
     # Access the actions dict from registry.registry.actions (current browser-use API)
     action_registry = custom_controller.registry.registry.actions
-    logger.info(f"[Browser-Use Extension] Registered {len(action_registry)} custom actions: {list(action_registry.keys())}")
+    action_names = list(action_registry.keys())
+    logger.info(f"[Browser-Use Extension] Registered {len(action_registry)} custom actions: {action_names}")
+
+    # Startup self-check: ensure critical actions are loaded in current process.
+    required_actions = ["download_file", "convert_file_format"]
+    missing_actions = [a for a in required_actions if a not in action_names]
+    if missing_actions:
+        logger.error(
+            "[Browser-Use Extension] Startup self-check FAILED. "
+            f"Missing actions: {missing_actions}. "
+            "Please restart main.py to load latest extension actions."
+        )
+    else:
+        logger.info(
+            "[Browser-Use Extension] Startup self-check OK. "
+            f"Critical actions loaded: {required_actions}"
+        )
 except AttributeError:
     logger.warning("[Browser-Use Extension] Could not access registry actions - API may have changed")

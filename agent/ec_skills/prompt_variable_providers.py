@@ -390,11 +390,160 @@ def resolve_prompt_variables(
     prompt_variables = prompt_variables or {}
     skill_prompt_variables = skill_prompt_variables or {}
 
+    def _ordered_tool_result_items(st: dict) -> List[tuple[str, Any]]:
+        """Return tool_result items in a stable recency-aware order."""
+        tr = st.get("tool_result", {}) if isinstance(st, dict) else {}
+        if not isinstance(tr, dict) or not tr:
+            return []
+
+        # Start with insertion order from dict (Py3.7+).
+        ordered_keys = list(tr.keys())
+
+        # If node timings exist, reorder by completion recency.
+        try:
+            attrs = st.get("attributes", {}) if isinstance(st, dict) else {}
+            timings = attrs.get("__node_timings__", []) if isinstance(attrs, dict) else []
+            if isinstance(timings, list) and timings:
+                seen = set()
+                timeline = []
+                for rec in timings:
+                    if not isinstance(rec, dict):
+                        continue
+                    if rec.get("status") != "completed":
+                        continue
+                    node = rec.get("node")
+                    if isinstance(node, str) and node in tr:
+                        timeline.append(node)
+                # Keep latest occurrence of each node, preserving recency.
+                recency_desc = []
+                for node in reversed(timeline):
+                    if node in seen:
+                        continue
+                    seen.add(node)
+                    recency_desc.append(node)
+                if recency_desc:
+                    ordered_keys = list(reversed(recency_desc))
+                    # Append any keys that did not appear in timings.
+                    for k in tr.keys():
+                        if k not in seen:
+                            ordered_keys.append(k)
+        except Exception:
+            pass
+
+        return [(k, tr.get(k)) for k in ordered_keys]
+
+    def _implicit_var_from_tool_result(var: str, st: dict) -> Any:
+        """Zero-config variable resolution from previous node outputs.
+
+        Supports:
+        - previous_node_output / latest_output: latest completed node output
+        - upstream_outputs: all previous outputs keyed by node id
+        - upstream_node_ids: ordered node id list
+        - arbitrary business fields (e.g. product_keyword, brand, model):
+          first checks latest output top-level key, then falls back to other
+          previous outputs by recency.
+        """
+        items = _ordered_tool_result_items(st)
+        if not items:
+            return None
+
+        def _try_parse_json_text(text: Any) -> Any:
+            if not isinstance(text, str):
+                return None
+            s = text.strip()
+            if not s:
+                return None
+            if not (s.startswith("{") or s.startswith("[")):
+                return None
+            try:
+                return json.loads(s)
+            except Exception:
+                return None
+
+        def _candidate_dicts(output: Any) -> List[dict]:
+            """Collect possible business-payload dicts from a node output."""
+            out: List[dict] = []
+            if isinstance(output, dict):
+                out.append(output)
+                # Common wrappers that may carry JSON-encoded business payload.
+                for key in ("final", "result", "extracted_content", "content", "data"):
+                    if key not in output:
+                        continue
+                    parsed = _try_parse_json_text(output.get(key))
+                    if isinstance(parsed, dict):
+                        out.append(parsed)
+            else:
+                parsed = _try_parse_json_text(output)
+                if isinstance(parsed, dict):
+                    out.append(parsed)
+            return out
+
+        def _compose_search_keyword(payload: dict) -> str:
+            """Resolve explicit search keyword from upstream output only."""
+            if not isinstance(payload, dict):
+                return ""
+            direct = payload.get("search_keyword") or payload.get("product_keyword")
+            if isinstance(direct, str) and direct.strip():
+                return direct.strip()
+            return ""
+
+        latest_key, latest_val = items[-1]
+        upstream_map = {k: v for k, v in items}
+        upstream_ids = [k for k, _ in items]
+
+        if var in ("previous_node_output", "latest_output"):
+            return latest_val
+        if var == "previous_node_id":
+            return latest_key
+        if var == "upstream_outputs":
+            return upstream_map
+        if var == "upstream_node_ids":
+            return upstream_ids
+        if var == "search_keyword":
+            # Prefer latest upstream payload; then fallback by recency.
+            for d in _candidate_dicts(latest_val):
+                kw = _compose_search_keyword(d)
+                if kw:
+                    return kw
+            for _, output in reversed(items):
+                for d in _candidate_dicts(output):
+                    kw = _compose_search_keyword(d)
+                    if kw:
+                        return kw
+
+        # Prefer direct top-level business keys from latest node output.
+        for d in _candidate_dicts(latest_val):
+            if var in d and d.get(var) is not None:
+                return d.get(var)
+
+        # Fallback: search older outputs by recency (latest -> oldest).
+        for _, output in reversed(items):
+            for d in _candidate_dicts(output):
+                if var in d and d.get(var) is not None:
+                    return d.get(var)
+        return None
+
+    def _ref_val_to_str(val: Any) -> str:
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, indent=2, ensure_ascii=False)
+        if val is None:
+            return ""
+        return str(val)
+
     resolved = {}
     for var in variable_names:
         # 1. Explicit from state["prompt_refs"]
         if var in prompt_refs:
-            resolved[var] = str(prompt_refs[var])
+            resolved[var] = _ref_val_to_str(prompt_refs[var])
+            continue
+
+        # 1.5 Implicit zero-config variables from previous node outputs.
+        # This lowers prompt authoring cost:
+        # - {{product_keyword}} can come directly from upstream JSON output.
+        # - {{upstream_outputs}} is available for multi-incoming-edge scenarios.
+        implicit_val = _implicit_var_from_tool_result(var, state)
+        if implicit_val is not None:
+            resolved[var] = _ref_val_to_str(implicit_val)
             continue
 
         # 2. Prompt-level variable declaration
