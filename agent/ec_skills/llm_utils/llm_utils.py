@@ -1575,7 +1575,14 @@ def _get_logging_browser_use_class():
                     # Extract request info for logging
                     model = kwargs.get('model', 'unknown')
                     base_url = getattr(client, 'base_url', 'unknown')
-                    timeout = kwargs.get('timeout', 'default')
+                    timeout = kwargs.get('timeout')
+                    if timeout is None:
+                        timeout = (
+                            getattr(self, 'timeout', None)
+                            or getattr(self, 'request_timeout', None)
+                            or getattr(self, 'default_timeout', None)
+                            or 'default'
+                        )
                     
                     # Calculate request data size
                     messages = kwargs.get('messages', [])
@@ -1856,6 +1863,70 @@ def create_browser_use_llm_by_provider_type(
         ... )
     """
     import os
+    from urllib.parse import urlparse
+
+    def _is_local_base_url(url: str | None) -> bool:
+        """Best-effort detection for localhost/LAN/self-hosted endpoints."""
+        if not url:
+            return False
+        try:
+            parsed = urlparse(str(url).strip())
+            host = (parsed.hostname or "").lower()
+            if not host:
+                return False
+
+            if host in {"localhost", "127.0.0.1", "::1"}:
+                return True
+            if host.endswith(".local"):
+                return True
+            if host.startswith("10.") or host.startswith("192.168."):
+                return True
+            # 172.16.0.0 - 172.31.255.255
+            if host.startswith("172."):
+                parts = host.split(".")
+                if len(parts) >= 2 and parts[1].isdigit():
+                    second_octet = int(parts[1])
+                    if 16 <= second_octet <= 31:
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _resolve_browser_use_timeout_seconds(
+        provider_type_id_val: str,
+        model_name_val: str | None,
+        base_url_val: str | None,
+    ) -> tuple[float, bool]:
+        """
+        Resolve timeout with sensible defaults:
+        - Cloud API: shorter timeout for quick convergence
+        - Local/LAN model: longer timeout to tolerate slower inference
+        Supports env override: EC_BROWSER_USE_LLM_TIMEOUT_SECONDS
+        """
+        env_override = os.getenv("EC_BROWSER_USE_LLM_TIMEOUT_SECONDS", "").strip()
+        if env_override:
+            try:
+                val = float(env_override)
+                if val > 0:
+                    return val, _is_local_base_url(base_url_val)
+            except Exception:
+                logger.warning(
+                    f"[create_browser_use_llm_by_provider_type] Invalid EC_BROWSER_USE_LLM_TIMEOUT_SECONDS={env_override}, "
+                    f"falling back to auto timeout"
+                )
+
+        is_local_endpoint = provider_type_id_val in {"ollama", "ryoais"} or _is_local_base_url(base_url_val)
+        timeout_seconds = 300.0 if is_local_endpoint else 150.0
+
+        # Slow/large/reasoning models often need more wall-clock time.
+        model_lower = (model_name_val or "").lower()
+        slow_markers = ("32b", "70b", "72b", "110b", "405b", "671b", "reason", "thinking", "r1")
+        if any(marker in model_lower for marker in slow_markers):
+            timeout_seconds += 90.0
+
+        # Safety bounds: avoid too small or unboundedly large values.
+        timeout_seconds = max(60.0, min(timeout_seconds, 480.0))
+        return timeout_seconds, is_local_endpoint
     
     # Try to import BrowserUseChatOpenAI
     try:
@@ -1916,10 +1987,19 @@ def create_browser_use_llm_by_provider_type(
     
     # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, RyoAIS, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
     elif provider_type_id in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
+        resolved_timeout_s, is_local_endpoint = _resolve_browser_use_timeout_seconds(
+            provider_type_id_val=provider_type_id,
+            model_name_val=model_name,
+            base_url_val=base_url,
+        )
+        # Local slow models should avoid long double-waits on retries.
+        resolved_retries = 0 if is_local_endpoint else 1
+
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key',
-            'timeout': 180.0,  # 3 minutes timeout for slow inference (especially for Ollama/local models)
+            'timeout': resolved_timeout_s,
+            'max_retries': resolved_retries,
             'provider_type_id': provider_type_id,
         }
         
@@ -1960,7 +2040,11 @@ def create_browser_use_llm_by_provider_type(
             # Store provider_type_id for guided_json detection
             bu_config['provider_type_id'] = provider_type_id
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama adapter (post-process to filter invalid actions)")
-            logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type_id} (slow inference support)")
+            logger.info(
+                f"[create_browser_use_llm_by_provider_type] Timeout strategy for {provider_type_id}: "
+                f"timeout={resolved_timeout_s:.1f}s, max_retries={resolved_retries}, "
+                f"endpoint={'local' if is_local_endpoint else 'cloud'}"
+            )
                 
         if base_url:
             logger.debug(f"[create_browser_use_llm_by_provider_type] Before conversion: provider_type_id={provider_type_id}, base_url={base_url}")
@@ -2684,32 +2768,18 @@ def run_async_in_sync(awaitable):
         loop.close()
 
 
-def run_async_in_worker_thread(awaitable_or_factory):
-    """Run an async awaitable in a dedicated worker thread with its own Selector event loop.
-
-    Accepts either:
-    - a zero-arg callable that returns a coroutine (preferred), or
-    - a coroutine object (will still work, but may be created on the caller thread).
-
-    Use a factory when possible so the coroutine is created inside the worker thread,
-    ensuring no binding to a GUI/qasync loop on Windows.
-    """
+def _run_async_in_worker_thread_once(awaitable_or_factory):
+    """Legacy per-call thread fallback (used when persistent loop is unavailable)."""
     result_holder = {}
     error_holder = {}
 
     def _worker():
-        # On Windows, check current policy and set ProactorEventLoop for subprocess support in worker thread
         if sys.platform.startswith("win"):
             try:
-                current_policy = asyncio.get_event_loop_policy()
-                # In worker thread, we may need ProactorEventLoop for subprocess support
-                if hasattr(asyncio, "WindowsProactorEventLoopPolicy") and \
-                   not isinstance(current_policy, asyncio.WindowsProactorEventLoopPolicy):
+                if hasattr(asyncio, "WindowsProactorEventLoopPolicy"):
                     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
             except Exception:
                 pass
-
-        # Create loop using current policy (Proactor on Windows)
         try:
             loop = asyncio.get_event_loop_policy().new_event_loop()
         except Exception:
@@ -2722,23 +2792,17 @@ def run_async_in_worker_thread(awaitable_or_factory):
                 loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            logger.debug(f"[run_async_in_worker_thread] thread={__import__('threading').current_thread().name}, policy={type(asyncio.get_event_loop_policy()).__name__}, loop={type(loop).__name__}")
-            # Create the coroutine inside the worker thread if a factory is provided
-            if callable(awaitable_or_factory):
-                coro = awaitable_or_factory()
-            else:
-                coro = awaitable_or_factory
-            res = loop.run_until_complete(loop.create_task(coro))
-            result_holder["result"] = res
+            coro = awaitable_or_factory() if callable(awaitable_or_factory) else awaitable_or_factory
+            result_holder["result"] = loop.run_until_complete(loop.create_task(coro))
         except Exception as e:
             error_holder["error"] = e
         finally:
             try:
-                pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                for t in pending_tasks:
+                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                for t in pending:
                     t.cancel()
-                if pending_tasks:
-                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                 if hasattr(loop, "shutdown_asyncgens"):
                     loop.run_until_complete(loop.shutdown_asyncgens())
                 if hasattr(loop, "shutdown_default_executor"):
@@ -2750,10 +2814,14 @@ def run_async_in_worker_thread(awaitable_or_factory):
     t = Thread(target=_worker, name="playwright-worker", daemon=True)
     t.start()
     t.join()
-
     if "error" in error_holder:
         raise error_holder["error"]
     return result_holder.get("result")
+
+
+def run_async_in_worker_thread(awaitable_or_factory):
+    """Run an async awaitable in a dedicated worker thread."""
+    return _run_async_in_worker_thread_once(awaitable_or_factory)
 
 
 def try_parse_json(s: str):
