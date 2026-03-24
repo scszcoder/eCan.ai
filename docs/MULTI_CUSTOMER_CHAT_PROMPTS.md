@@ -2,6 +2,8 @@
 
 This document describes eCan.ai's event-driven multi-customer chat orchestration system that uses platform profiles, CDP events, and intelligent polling to achieve near-instant response times (<100ms for event-driven platforms, 2-3s for polling-based platforms).
 
+> See also: [Browser Event Monitor Design](C:\Users\songc\PycharmProjects\eCan.ai\docs\BROWSER_EVENT_MONITOR.md) for the current session-scoped monitor architecture, parameter reference, lifecycle semantics, and sample monitor JSON.
+
 ## Architecture Overview
 
 The system uses a **hybrid detection approach** that combines:

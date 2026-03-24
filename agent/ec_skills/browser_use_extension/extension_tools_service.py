@@ -1,8 +1,11 @@
+import hashlib
+import json
 import os
 import shutil
 import subprocess
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
+from pathlib import Path
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
@@ -10,14 +13,26 @@ from agent.mcp.server.code_utils.code_tools import run_code, run_shell_script
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ConvertFileFormatAction,
     DownloadFileAction,
+    DiffNormalizedStateAction,
+    DiscoverChatAdapterAction,
     ExtractDomAction,
     FileRenameAction,
     FilesPrintAction,
+    GetSessionMonitorSnapshotAction,
+    InspectDomRegionsAction,
     LabelInputFile,
     LabelsReformatAction,
+    ListSessionMonitorsAction,
+    ListChatAgentsAction,
+    NormalizePageStateAction,
+    PersistSessionMonitorsToSkillAction,
     RagQueryAction,
+    RemoveSessionMonitorAction,
+    ReconfigureEventMonitorAction,
     RunCodeAction,
     RunShellScriptAction,
+    SendChatAction,
+    UpsertSessionMonitorAction,
 )
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
@@ -33,7 +48,8 @@ custom_controller = Controller()
 _current_agent_instance = None
 
 def set_current_agent(agent):
-    """Set the current agent instance for file path authorization."""
+    """Set the current agent instance for fi
+    le path authorization."""
     global _current_agent_instance
     _current_agent_instance = agent
     logger.debug(f"[ExtensionTools] Set current agent instance: {type(agent).__name__}")
@@ -231,6 +247,490 @@ async def convert_file_format(params: ConvertFileFormatAction) -> ActionResult:
             )
         )
     return ActionResult(error="All conversions failed:\n" + "\n".join(error_rows))
+def _json_result(data: Any) -> ActionResult:
+    return ActionResult(extracted_content=json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _compact_monitor_summary_line(raw: Dict[str, Any]) -> str:
+    item_id = str(raw.get("id") or raw.get("label") or "").strip() or "<unnamed>"
+    label = str(raw.get("label") or "").strip() or "<no-label>"
+    source_type = str(raw.get("sourceType") or raw.get("source_type") or "").strip() or "<unknown>"
+    url_patterns = raw.get("urlPatterns") or raw.get("url_patterns") or []
+    if isinstance(url_patterns, str):
+        url_patterns = [v.strip() for v in url_patterns.split(",") if v.strip()]
+    methods = raw.get("methods") or []
+    if isinstance(methods, str):
+        methods = [v.strip() for v in methods.split(",") if v.strip()]
+    dom_selector = str(raw.get("domSelector") or "").strip()
+    dom_interval = raw.get("domCheckIntervalMs")
+
+    detail_bits = []
+    if url_patterns:
+        detail_bits.append(f"url_patterns={url_patterns}")
+    if methods:
+        detail_bits.append(f"methods={methods}")
+    if dom_selector:
+        detail_bits.append(f"dom_selector={dom_selector}")
+    if dom_interval not in (None, ""):
+        detail_bits.append(f"dom_interval_ms={dom_interval}")
+
+    cdp_expr = str(raw.get("cdpFilterExpr") or raw.get("cdp_filter_expr") or "").strip()
+    if cdp_expr:
+        try:
+            expr = json.loads(cdp_expr)
+            page_url_patterns = expr.get("page_url_patterns") or []
+            roots = expr.get("roots") or []
+            item_selector = ""
+            items = expr.get("items") or []
+            if items and isinstance(items[0], dict):
+                item_selector = str(items[0].get("selector") or "").strip()
+            key_field = str(expr.get("key_field") or "").strip()
+            identity = expr.get("identity") or {}
+            key_fields = identity.get("key_fields") if isinstance(identity, dict) else None
+            emit_on = str(expr.get("emit_on") or "").strip()
+            if page_url_patterns:
+                detail_bits.append(f"page_url_patterns={page_url_patterns}")
+            if roots:
+                detail_bits.append(f"roots={roots}")
+            if item_selector:
+                detail_bits.append(f"item_selector={item_selector}")
+            if key_fields:
+                detail_bits.append(f"key_fields={key_fields}")
+            elif key_field:
+                detail_bits.append(f"key_field={key_field}")
+            if emit_on:
+                detail_bits.append(f"emit_on={emit_on}")
+        except Exception:
+            detail_bits.append("extractor_json=<unparseable>")
+
+    return f"- id={item_id}, label={label}, source_type={source_type}" + (
+        f", {'; '.join(detail_bits)}" if detail_bits else ""
+    )
+
+
+def _compact_monitor_summary_text(snapshot: Dict[str, Any], include_configs: bool = True) -> str:
+    lines = [
+        "Session monitor summary:",
+        f"- status={snapshot.get('status', 'unknown')}",
+        f"- configured_count={snapshot.get('configured_count', 0)}",
+        f"- active_count={snapshot.get('active_count', 0)}",
+    ]
+    if snapshot.get("queued_event_count") is not None:
+        lines.append(f"- queued_event_count={snapshot.get('queued_event_count', 0)}")
+
+    if include_configs:
+        configs = snapshot.get("monitor_configs") or []
+        if configs:
+            lines.append("Configured monitors:")
+            for cfg in configs:
+                raw = (cfg or {}).get("raw") or cfg or {}
+                if isinstance(raw, dict):
+                    lines.append(_compact_monitor_summary_line(raw))
+        else:
+            lines.append("Configured monitors:\n- none")
+
+    runtime = snapshot.get("instances") or {}
+    if isinstance(runtime, dict) and runtime:
+        lines.append("Runtime instances:")
+        for monitor_id, instance in runtime.items():
+            if not isinstance(instance, dict):
+                continue
+            rt_bits = [
+                f"id={monitor_id}",
+                f"label={instance.get('label', '')}",
+                f"source_type={instance.get('source_type', '')}",
+                f"status={instance.get('status', 'unknown')}",
+            ]
+            current_url = instance.get("current_url") or ""
+            if current_url:
+                rt_bits.append(f"current_url={current_url}")
+            if instance.get("check_interval_ms") not in (None, 0, ""):
+                rt_bits.append(f"check_interval_ms={instance.get('check_interval_ms')}")
+            rt_bits.append(f"last_customer_count={instance.get('last_customer_count', 0)}")
+            rt_bits.append(f"last_keys_count={instance.get('last_keys_count', 0)}")
+            rt_bits.append(f"last_removed_count={instance.get('last_removed_count', 0)}")
+            rt_bits.append(f"last_reordered_count={instance.get('last_reordered_count', 0)}")
+            rt_bits.append(f"last_top_changed={instance.get('last_top_changed', False)}")
+            lines.append("- " + ", ".join(rt_bits))
+
+    return "\n".join(lines)
+
+
+def _clip_text(value: str, limit: int) -> str:
+    value = str(value or "").strip().replace("\r", " ").replace("\n", " ")
+    return value if len(value) <= limit else (value[: limit - 3] + "...")
+
+
+def _compact_dom_region_summary_text(summary: Dict[str, Any], max_regions: int = 8) -> str:
+    """Return a compact DOM-region summary suitable for LLM context.
+
+    Raw JSON with html snippets is expensive and caused large browser-use inputs.
+    Keep only the structural hints the model actually uses for page reasoning.
+    """
+    if not isinstance(summary, dict):
+        return json.dumps(summary, ensure_ascii=False)
+
+    url = str(summary.get("url") or "")
+    title = str(summary.get("title") or "")
+    regions = summary.get("regions") or []
+    if not isinstance(regions, list):
+        regions = []
+
+    lines = [
+        "DOM region summary:",
+        f"- url={url}",
+        f"- title={title}",
+        f"- region_count={len(regions)}",
+    ]
+
+    for idx, region in enumerate(regions[: max(1, min(max_regions, 8))]):
+        if not isinstance(region, dict):
+            continue
+        bits = [
+            f"path={region.get('path', '')}",
+            f"tag={region.get('tag', '')}",
+            f"score={region.get('score', 0)}",
+            f"children={region.get('child_count', 0)}",
+            f"clickable={region.get('clickable_children', 0)}",
+            f"repeated={region.get('repeated_groups', 0)}",
+            f"timestamps={region.get('timestamps', 0)}",
+            f"avatars={region.get('avatars', 0)}",
+            f"text={_clip_text(region.get('text_sample', ''), 140)}",
+        ]
+        html_hint = _clip_text(region.get("html_hint", ""), 100)
+        if html_hint:
+            bits.append(f"html_hint={html_hint}")
+        lines.append(f"- [{idx}] " + "; ".join(bits))
+
+    return "\n".join(lines)
+
+
+def _read_json_file(path: Path) -> Dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json_file(path: Path, payload: Dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _iter_workflow_nodes(nodes: List[Dict[str, Any]]):
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        yield node
+        for child in _iter_workflow_nodes(node.get("blocks") or []):
+            yield child
+
+
+def _find_node_by_id(nodes: List[Dict[str, Any]], node_id: str) -> Dict[str, Any] | None:
+    for node in _iter_workflow_nodes(nodes):
+        if str(node.get("id") or "") == str(node_id):
+            return node
+    return None
+
+
+def _resolve_skill_file_paths(skill_name: str) -> tuple[Path, Path | None]:
+    skill_dir = Path("my_skills") / f"{skill_name}_skill" / "diagram_dir"
+    core_candidates = [
+        skill_dir / f"{skill_name}_skill.json",
+        skill_dir / f"{skill_name}.json",
+    ]
+    bundle_candidates = [
+        skill_dir / f"{skill_name}_skill_bundle.json",
+        skill_dir / f"{skill_name}_bundle.json",
+    ]
+    core_path = next((p for p in core_candidates if p.exists()), None)
+    if core_path is None and skill_dir.exists():
+        core_path = next(iter(skill_dir.glob("*_skill.json")), None)
+        if core_path is None:
+            core_path = next(iter(skill_dir.glob("*.json")), None)
+    if core_path is None:
+        raise FileNotFoundError(f"Could not locate skill JSON for skill '{skill_name}' under {skill_dir}")
+    bundle_path = next((p for p in bundle_candidates if p.exists()), None)
+    return core_path, bundle_path
+
+
+def _normalize_monitor_raw_for_skill(record_raw: Dict[str, Any]) -> Dict[str, Any]:
+    raw = dict(record_raw or {})
+    cleaned = {k: v for k, v in raw.items() if v not in (None, "")}
+    if "source_type" in cleaned and "sourceType" not in cleaned:
+        cleaned["sourceType"] = cleaned.pop("source_type")
+    return cleaned
+
+
+def _update_skill_node_monitors(payload: Dict[str, Any], node_id: str, monitor_raws: List[Dict[str, Any]]) -> bool:
+    workflow = payload.get("workFlow") if isinstance(payload, dict) else None
+    if not isinstance(workflow, dict):
+        return False
+    node = _find_node_by_id(workflow.get("nodes") or [], node_id)
+    if not node:
+        return False
+    data = node.setdefault("data", {})
+    inputs_values = data.setdefault("inputsValues", {})
+    inputs_values["eventMonitors"] = {"type": "constant", "content": monitor_raws}
+    return True
+
+
+def _update_bundle_node_monitors(bundle_payload: Dict[str, Any], node_id: str, monitor_raws: List[Dict[str, Any]]) -> bool:
+    updated = False
+    for sheet in bundle_payload.get("sheets") or []:
+        document = (sheet or {}).get("document") or {}
+        node = _find_node_by_id(document.get("nodes") or [], node_id)
+        if not node:
+            continue
+        data = node.setdefault("data", {})
+        inputs_values = data.setdefault("inputsValues", {})
+        inputs_values["eventMonitors"] = {"type": "constant", "content": monitor_raws}
+        updated = True
+    return updated
+
+
+def _build_monitor_raw_from_params(params: UpsertSessionMonitorAction) -> Dict[str, Any]:
+    return {
+        "id": (params.id or params.label or "").strip() or f"monitor_{params.source_type}",
+        "label": params.label,
+        "enabled": params.enabled,
+        "sourceType": params.source_type,
+        "urlPatterns": params.url_patterns,
+        "methods": params.methods,
+        "contentFilters": params.content_filters,
+        "minBodyLength": params.min_body_length,
+        "frameDirection": params.frame_direction,
+        "sseEventTypes": params.sse_event_types,
+        "domSelector": params.dom_selector,
+        "domAttributes": params.dom_attributes,
+        "domChildList": params.dom_child_list,
+        "domSubtree": params.dom_subtree,
+        "domCheckIntervalMs": params.dom_check_interval_ms,
+        "cdpDomain": params.cdp_domain,
+        "cdpEventMethod": params.cdp_event_method,
+        "cdpFilterExpr": params.extractor_json or "",
+    }
+
+
+def _stable_hash(parts: List[str]) -> str:
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
+    cdp_session = None
+    cdp_client = None
+    if hasattr(browser_session, "get_or_create_cdp_session"):
+        cdp_session = await browser_session.get_or_create_cdp_session()
+        cdp_client = cdp_session.cdp_client if cdp_session else None
+    elif hasattr(browser_session, "cdp_client"):
+        cdp_client = browser_session.cdp_client
+    if not cdp_client:
+        raise RuntimeError("No CDP client available")
+
+    session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
+    if session_id:
+        await cdp_client.send.Runtime.enable(session_id=session_id)
+        result = await cdp_client.send.Runtime.evaluate(
+            params={"expression": expression},
+            session_id=session_id,
+        )
+    else:
+        await cdp_client.send.Runtime.enable()
+        result = await cdp_client.send.Runtime.evaluate(params={"expression": expression})
+    value = result.get("result", {}).get("value", "")
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
+def _build_dom_region_inspection_expression(max_regions: int, max_text_length: int, include_html_hint: bool) -> str:
+    return f"""
+        (function() {{
+            function normText(v) {{
+                return String(v || '').replace(/\\s+/g, ' ').trim();
+            }}
+            function isVisible(el) {{
+                if (!el || !el.getBoundingClientRect) return false;
+                const style = window.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                const rect = el.getBoundingClientRect();
+                return rect.width > 8 && rect.height > 8;
+            }}
+            function cssPath(el) {{
+                if (!el || !el.tagName) return '';
+                const parts = [];
+                let cur = el;
+                while (cur && cur.nodeType === 1 && parts.length < 5) {{
+                    let part = cur.tagName.toLowerCase();
+                    if (cur.id) {{
+                        part += '#' + cur.id;
+                        parts.unshift(part);
+                        break;
+                    }}
+                    const cls = Array.from(cur.classList || []).slice(0, 2).join('.');
+                    if (cls) part += '.' + cls;
+                    parts.unshift(part);
+                    cur = cur.parentElement;
+                }}
+                return parts.join(' > ');
+            }}
+            const candidates = [];
+            const all = Array.from(document.querySelectorAll('body *')).filter(isVisible);
+            for (const el of all) {{
+                const children = Array.from(el.children || []).filter(isVisible);
+                if (children.length < 2) continue;
+                const rect = el.getBoundingClientRect();
+                const text = normText(el.innerText || el.textContent || '').slice(0, {max_text_length});
+                if (!text) continue;
+                const clickableChildren = children.filter(c => c.onclick || c.matches('a,button,[role="button"],[tabindex]')).length;
+                const repeatedClassCount = children.reduce((acc, child) => {{
+                    const cls = (child.className || '').toString().trim();
+                    if (cls) acc[cls] = (acc[cls] || 0) + 1;
+                    return acc;
+                }}, {{}});
+                const repeatedGroups = Object.values(repeatedClassCount).filter(v => Number(v) > 1).length;
+                const timestamps = (text.match(/\\b\\d{{1,2}}[:/]\\d{{1,2}}(?:[:/]\\d{{1,2}})?\\b/g) || []).length;
+                const avatars = el.querySelectorAll('img,svg').length;
+                let score = 0;
+                if (children.length >= 4) score += 2;
+                if (clickableChildren >= 2) score += 2;
+                if (repeatedGroups > 0) score += 2;
+                if (timestamps > 0) score += 1;
+                if (avatars > 0) score += 1;
+                candidates.push({{
+                    path: cssPath(el),
+                    tag: el.tagName.toLowerCase(),
+                    child_count: children.length,
+                    clickable_children: clickableChildren,
+                    repeated_groups: repeatedGroups,
+                    timestamps,
+                    avatars,
+                    text_sample: text,
+                    bounds: {{ x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) }},
+                    html_hint: {str(include_html_hint).lower()} ? String((el.outerHTML || '').slice(0, 220)) : '',
+                    score
+                }});
+            }}
+            candidates.sort((a, b) => b.score - a.score || a.bounds.y - b.bounds.y);
+            return JSON.stringify({{
+                url: window.location.href,
+                title: document.title,
+                regions: candidates.slice(0, {max_regions})
+            }});
+        }})()
+    """
+
+
+def _pick_chat_adapter_from_regions(summary: Dict[str, Any], prefer_selected_thread: bool = True) -> Dict[str, Any]:
+    regions = summary.get("regions") if isinstance(summary, dict) else []
+    if not isinstance(regions, list):
+        regions = []
+    conversation_region = None
+    thread_region = None
+    for region in regions:
+        if not isinstance(region, dict):
+            continue
+        text_sample = str(region.get("text_sample") or "")
+        path = str(region.get("path") or "")
+        if conversation_region is None and (
+            "conversation" in path.lower()
+            or "chat-item" in path.lower()
+            or region.get("clickable_children", 0) >= 2
+        ):
+            conversation_region = region
+        if thread_region is None and (
+            "message" in text_sample.lower()
+            or "workspace-chat" in path.lower()
+            or region.get("timestamps", 0) >= 2
+        ):
+            thread_region = region
+    conversation_region = conversation_region or (regions[0] if regions else {})
+    thread_region = thread_region or (regions[1] if len(regions) > 1 else conversation_region or {})
+    return {
+        "adapter_type": "generic_realtime_portal",
+        "url": summary.get("url", ""),
+        "conversation_region": {
+            "root_selector": conversation_region.get("path", ""),
+            "confidence": 0.75 if conversation_region else 0.0,
+            "evidence": conversation_region,
+        },
+        "thread_region": {
+            "root_selector": thread_region.get("path", ""),
+            "confidence": 0.65 if thread_region else 0.0,
+            "evidence": thread_region,
+        },
+        "identity": {
+            "key_fields": ["title", "timestamp", "preview"]
+        },
+        "notes": "Heuristic adapter proposal. Review selectors/paths before production use.",
+    }
+
+
+def _normalize_items_with_adapter(adapter: Dict[str, Any], page_summary: Dict[str, Any]) -> Dict[str, Any]:
+    regions = page_summary.get("regions") if isinstance(page_summary, dict) else []
+    if not isinstance(regions, list):
+        regions = []
+    conversations = []
+    for idx, region in enumerate(regions):
+        if not isinstance(region, dict):
+            continue
+        title = str(region.get("path") or "").split(" > ")[-1]
+        preview = str(region.get("text_sample") or "")
+        timestamp = str(region.get("timestamps") or "")
+        key = _stable_hash([title, timestamp, preview, str(idx)])
+        conversations.append({
+            "key": key,
+            "title": title,
+            "preview": preview,
+            "timestamp": timestamp,
+            "position": idx,
+            "score": region.get("score", 0),
+        })
+    return {
+        "adapter_type": adapter.get("adapter_type", "generic_realtime_portal"),
+        "url": page_summary.get("url", ""),
+        "conversations": conversations,
+        "region_count": len(regions),
+    }
+
+
+def _diff_normalized_states(previous_state: Dict[str, Any], current_state: Dict[str, Any]) -> Dict[str, Any]:
+    old_items = previous_state.get("conversations") if isinstance(previous_state, dict) else []
+    new_items = current_state.get("conversations") if isinstance(current_state, dict) else []
+    if not isinstance(old_items, list):
+        old_items = []
+    if not isinstance(new_items, list):
+        new_items = []
+    old_by_key = {str(item.get("key")): item for item in old_items if isinstance(item, dict) and item.get("key")}
+    new_by_key = {str(item.get("key")): item for item in new_items if isinstance(item, dict) and item.get("key")}
+    old_order = [str(item.get("key")) for item in old_items if isinstance(item, dict) and item.get("key")]
+    new_order = [str(item.get("key")) for item in new_items if isinstance(item, dict) and item.get("key")]
+    added_keys = [k for k in new_order if k not in old_by_key]
+    removed_keys = [k for k in old_order if k not in new_by_key]
+    reordered_keys = [k for k in new_order if k in old_by_key and old_order.index(k) != new_order.index(k)]
+    changed = []
+    for key in new_order:
+        if key in old_by_key and key in new_by_key:
+            if (
+                old_by_key[key].get("preview") != new_by_key[key].get("preview")
+                or old_by_key[key].get("timestamp") != new_by_key[key].get("timestamp")
+            ):
+                changed.append(key)
+    return {
+        "added_keys": added_keys,
+        "removed_keys": removed_keys,
+        "reordered_keys": reordered_keys,
+        "changed_keys": changed,
+        "top_changed": (old_order[:1] != new_order[:1]),
+        "event_types": [
+            event for event, cond in [
+                ("added", bool(added_keys)),
+                ("removed", bool(removed_keys)),
+                ("reordered", bool(reordered_keys)),
+                ("changed", bool(changed)),
+                ("top_changed", old_order[:1] != new_order[:1]),
+            ] if cond
+        ],
+    }
 
 @custom_controller.action(
     "Execute Python code in a sandboxed environment. Use 'result' variable to return a value.",
@@ -578,6 +1078,515 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
         include_in_memory=True,
         long_term_memory=f"Extracted raw markdown for query: {query}",
     )
+
+
+@custom_controller.action(
+    "Send a chat message to another agent via A2A protocol. "
+    "Use list_chat_agents first to discover available agents.",
+    param_model=SendChatAction,
+)
+async def bu_send_chat(params: SendChatAction) -> ActionResult:
+    from agent.mcp.server.chat_utils.chat_tools import send_chat
+
+    config: Dict[str, Any] = {
+        "sender_agent_id": params.sender_agent_id,
+        "message": params.message,
+    }
+    if params.recipient_agent_id is not None:
+        config["recipient_agent_id"] = params.recipient_agent_id
+    if params.recipient_agent_name is not None:
+        config["recipient_agent_name"] = params.recipient_agent_name
+    if params.chat_id is not None:
+        config["chat_id"] = params.chat_id
+    if params.message_type is not None:
+        config["message_type"] = params.message_type
+    if params.async_send is not None:
+        config["async_send"] = params.async_send
+
+    login = AppContext.login
+    result = send_chat(login.main_win, config)
+
+    if result.get("success"):
+        recipient = result.get("recipient_name") or result.get("recipient_id", "recipient")
+        msg = (
+            f"Message sent to {recipient}\n"
+            f"Chat ID: {result.get('chat_id')}\n"
+            f"Message ID: {result.get('message_id')}"
+        )
+        return ActionResult(extracted_content=msg)
+    else:
+        return ActionResult(error=f"Failed to send message: {result.get('error', 'Unknown error')}")
+
+
+@custom_controller.action(
+    "List all available agents that can receive chat messages. "
+    "Use this to discover agent IDs before calling send_chat.",
+    param_model=ListChatAgentsAction,
+)
+async def bu_list_chat_agents(params: ListChatAgentsAction) -> ActionResult:
+    from agent.mcp.server.chat_utils.chat_tools import list_chat_agents
+
+    config: Dict[str, Any] = {}
+    if params.exclude_self is not None:
+        config["exclude_self"] = params.exclude_self
+    if params.filter_name is not None:
+        config["filter_name"] = params.filter_name
+
+    login = AppContext.login
+    result = list_chat_agents(login.main_win, config)
+
+    if result.get("success"):
+        agents = result.get("agents", [])
+        if agents:
+            agent_lines = [f"- {a['name']} (ID: {a['id']})" for a in agents]
+            msg = f"Available agents ({result.get('count', 0)}):\n" + "\n".join(agent_lines)
+        else:
+            msg = "No agents available for chat."
+        return ActionResult(extracted_content=msg)
+    else:
+        return ActionResult(error=f"Failed to list agents: {result.get('error', 'Unknown error')}")
+
+
+@custom_controller.action(
+    "Reconfigure the active HTTP polling event monitor with new URL patterns, content filters, or HTTP methods. "
+    "Use this to change what browser events you're listening for without restarting the browser session.",
+    param_model=ReconfigureEventMonitorAction,
+)
+async def bu_reconfigure_event_monitor(params: ReconfigureEventMonitorAction, browser_session: BrowserSession) -> ActionResult:
+    """Reconfigure the active event monitor's settings."""
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+        capability = get_event_monitor_capability(browser_session, create=False)
+        monitor_set = capability.get_active_monitor_set() if capability else None
+        if not monitor_set or not monitor_set.monitors:
+            return ActionResult(error="No active event monitors found on this browser session. Start monitors first.")
+        
+        # Find the monitor to reconfigure (by label or first one)
+        target_monitor = None
+        for monitor in monitor_set.monitors:
+            if hasattr(monitor, "config"):
+                if params.label and getattr(monitor.config, "label", "") == params.label:
+                    target_monitor = monitor
+                    break
+                elif not params.label and not target_monitor:
+                    target_monitor = monitor
+        
+        if not target_monitor:
+            available = [getattr(m.config, "label", "unnamed") for m in monitor_set.monitors if hasattr(m, "config")]
+            return ActionResult(error=f"Monitor with label '{params.label}' not found. Available: {available}")
+        
+        # Get the config to update
+        if not hasattr(target_monitor, "config"):
+            return ActionResult(error="Monitor does not have a reconfigurable config")
+        
+        config = target_monitor.config
+        changes = []
+        
+        # Update URL patterns
+        if params.url_patterns is not None:
+            if params.append:
+                existing = getattr(config, "url_patterns", [])
+                new_patterns = list(set(existing + params.url_patterns))
+                config.url_patterns = new_patterns
+                changes.append(f"appended url_patterns: {params.url_patterns}")
+            else:
+                config.url_patterns = params.url_patterns
+                changes.append(f"replaced url_patterns with: {params.url_patterns}")
+        
+        # Update content filters
+        if params.content_filters is not None:
+            if params.append:
+                existing = getattr(config, "content_filters", [])
+                new_filters = list(set(existing + params.content_filters))
+                config.content_filters = new_filters
+                changes.append(f"appended content_filters: {params.content_filters}")
+            else:
+                config.content_filters = params.content_filters
+                changes.append(f"replaced content_filters with: {params.content_filters}")
+        
+        # Update methods
+        if params.methods is not None:
+            config.methods = params.methods
+            changes.append(f"updated methods to: {params.methods}")
+        
+        # Update min body length
+        if params.min_body_length is not None:
+            config.min_body_length = params.min_body_length
+            changes.append(f"updated min_body_length to: {params.min_body_length}")
+        
+        # Rebuild content filter functions if content filters changed
+        if params.content_filters is not None:
+            from typing import Callable, Optional, List
+            
+            def _make_filter(s: str):
+                def _filter(body: str) -> Optional[str]:
+                    return s if s in body else None
+                return _filter
+            
+            new_filter_fns: List[Callable[[str], Optional[str]]] = []
+            for substr in config.content_filters:
+                new_filter_fns.append(_make_filter(substr))
+            
+            # Update the filter functions on the capture instance
+            if hasattr(target_monitor, "_config") and hasattr(target_monitor._config, "content_filters"):
+                target_monitor._config.content_filters = new_filter_fns
+            changes.append(f"rebuilt {len(new_filter_fns)} content filter functions")
+        
+        logger.info(f"[ExtensionTools] Reconfigured event monitor: {', '.join(changes)}")
+        return ActionResult(
+            extracted_content=f"Event monitor reconfigured successfully:\n" + "\n".join(f"- {c}" for c in changes)
+        )
+        
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error reconfiguring event monitor: {e}")
+        return ActionResult(error=f"Failed to reconfigure event monitor: {str(e)}")
+
+
+@custom_controller.action(
+    "List the active session-scoped browser event monitors and their current capability status.",
+    param_model=ListSessionMonitorsAction,
+)
+async def bu_list_session_monitors(params: ListSessionMonitorsAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+        capability = get_event_monitor_capability(browser_session, create=True)
+        payload = capability.snapshot()
+        if not params.include_configs:
+            payload.pop("monitor_configs", None)
+        summary_text = _compact_monitor_summary_text(payload, include_configs=params.include_configs)
+        logger.info(
+            f"[ExtensionTools] Listed session monitors: "
+            f"configured_count={payload.get('configured_count', 0)}, "
+            f"active_count={payload.get('active_count', 0)}, "
+            f"status={payload.get('status', 'unknown')}"
+        )
+        return ActionResult(extracted_content=summary_text)
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error listing session monitors: {e}")
+        return ActionResult(error=f"Failed to list session monitors: {str(e)}")
+
+
+@custom_controller.action(
+    "Create or replace a session-scoped browser event monitor using the canonical monitor schema.",
+    param_model=UpsertSessionMonitorAction,
+)
+async def bu_upsert_session_monitor(params: UpsertSessionMonitorAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor import parse_monitor_configs
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+        capability = get_event_monitor_capability(browser_session, create=True)
+        raw_existing = [
+            _normalize_monitor_raw_for_skill(item.get("raw") or {})
+            for item in capability.get_configs()
+            if isinstance(item, dict)
+        ]
+
+        raw_item = _build_monitor_raw_from_params(params)
+        replaced = False
+        for idx, item in enumerate(raw_existing):
+            item_id = str(item.get("id") or item.get("label") or "")
+            if item_id == raw_item["id"] or item.get("label") == raw_item["label"]:
+                raw_existing[idx] = raw_item
+                replaced = True
+                break
+        if not replaced:
+            raw_existing.append(raw_item)
+
+        configs = parse_monitor_configs({"eventMonitors": {"content": raw_existing}})
+        if params.auto_start:
+            await capability.replace_monitors(configs, agent_id="")
+        else:
+            capability.configure(configs)
+        logger.info(
+            f"[ExtensionTools] Upserted session monitor: "
+            f"id={raw_item['id']}, label={raw_item['label']}, source={raw_item.get('sourceType')}, "
+            f"replaced={replaced}, auto_start={params.auto_start}, configured_count={len(configs)}"
+        )
+
+        return _json_result({
+            "success": True,
+            "replaced": replaced,
+            "monitor_id": raw_item["id"],
+            "label": raw_item["label"],
+            "auto_start": params.auto_start,
+            "configured_count": len(configs),
+        })
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error upserting session monitor: {e}")
+        return ActionResult(error=f"Failed to upsert session monitor: {str(e)}")
+
+
+@custom_controller.action(
+    "Remove a configured session browser event monitor by id or label.",
+    param_model=RemoveSessionMonitorAction,
+)
+async def bu_remove_session_monitor(params: RemoveSessionMonitorAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor import parse_monitor_configs
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+        capability = get_event_monitor_capability(browser_session, create=True)
+        raw_existing = []
+        removed = []
+        for cfg_item in capability.get_configs():
+            item = _normalize_monitor_raw_for_skill((cfg_item or {}).get("raw") or {})
+            item_id = str(item.get("id") or item.get("label") or "")
+            if item_id == params.id_or_label or item.get("label") == params.id_or_label:
+                removed.append(item_id)
+                continue
+            raw_existing.append(item)
+
+        configs = parse_monitor_configs({"eventMonitors": {"content": raw_existing}})
+        if params.auto_restart:
+            if raw_existing:
+                await capability.replace_monitors(configs, agent_id="")
+            else:
+                await capability.stop()
+                capability.configure([])
+        else:
+            capability.configure(configs)
+        logger.info(
+            f"[ExtensionTools] Removed session monitor(s): removed={removed}, "
+            f"remaining_count={len(configs)}, auto_restart={params.auto_restart}"
+        )
+
+        return _json_result({
+            "success": True,
+            "removed": removed,
+            "remaining_count": len(configs),
+        })
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error removing session monitor: {e}")
+        return ActionResult(error=f"Failed to remove session monitor: {str(e)}")
+
+
+@custom_controller.action(
+    "Return the current event-monitor capability snapshot for the active browser session.",
+    param_model=GetSessionMonitorSnapshotAction,
+)
+async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+        capability = get_event_monitor_capability(browser_session, create=True)
+        full_payload = capability.snapshot()
+        payload = dict(full_payload)
+        if not params.include_configs:
+            payload.pop("monitor_configs", None)
+        if not params.include_runtime:
+            payload = {
+                "configured_count": payload.get("configured_count", 0),
+                "monitor_configs": payload.get("monitor_configs", []),
+            }
+        summary_text = _compact_monitor_summary_text(
+            full_payload if params.include_runtime else payload,
+            include_configs=params.include_configs,
+        )
+        logger.info(
+            f"[ExtensionTools] Session monitor snapshot: "
+            f"configured_count={payload.get('configured_count', 0)}, "
+            f"status={payload.get('status', 'n/a')}, include_runtime={params.include_runtime}"
+        )
+        return ActionResult(extracted_content=summary_text)
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error getting session monitor snapshot: {e}")
+        return ActionResult(error=f"Failed to get session monitor snapshot: {str(e)}")
+
+
+@custom_controller.action(
+    "Persist configured session monitors back into the current browser-automation node's skill JSON and bundle JSON. "
+    "This saves self-discovered monitor configs for later runs without keeping monitors active after done().",
+    param_model=PersistSessionMonitorsToSkillAction,
+)
+async def bu_persist_session_monitors_to_skill(
+    params: PersistSessionMonitorsToSkillAction,
+    browser_session: BrowserSession,
+) -> ActionResult:
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+
+        capability = get_event_monitor_capability(browser_session, create=True)
+        configured = capability.get_configs()
+        raw_monitors = []
+        wanted = {str(v).strip() for v in params.monitor_ids_or_labels if str(v).strip()}
+        for item in configured:
+            if not isinstance(item, dict):
+                continue
+            raw = _normalize_monitor_raw_for_skill(item.get("raw") or {})
+            item_id = str(raw.get("id") or raw.get("label") or "")
+            label = str(raw.get("label") or "")
+            if wanted and item_id not in wanted and label not in wanted:
+                continue
+            raw_monitors.append(raw)
+
+        if not raw_monitors:
+            return ActionResult(error="No configured monitors matched the requested ids/labels.")
+
+        current_agent = get_current_agent()
+        skill_name = str(
+            getattr(current_agent, "_ecan_skill_name", None)
+            or getattr(current_agent, "skill_id", None)
+            or getattr(current_agent, "cloud_skill_id", None)
+            or ""
+        ).strip()
+        node_id = str(
+            getattr(current_agent, "_ecan_node_id", None)
+            or getattr(current_agent, "node_id", None)
+            or getattr(current_agent, "cloud_node_id", None)
+            or ""
+        ).strip()
+        if not skill_name or not node_id:
+            return ActionResult(error="Current agent is missing skill/node metadata, cannot persist monitor config.")
+
+        core_path, bundle_path = _resolve_skill_file_paths(skill_name)
+        logger.info(
+            f"[ExtensionTools] Persisting session monitors to skill: "
+            f"skill={skill_name}, node_id={node_id}, core_path={core_path}, bundle_path={bundle_path}"
+        )
+        core_payload = _read_json_file(core_path)
+        core_updated = _update_skill_node_monitors(core_payload, node_id, raw_monitors)
+        if not core_updated:
+            return ActionResult(error=f"Node '{node_id}' not found in {core_path}")
+        _write_json_file(core_path, core_payload)
+
+        bundle_updated = False
+        if bundle_path and bundle_path.exists():
+            bundle_payload = _read_json_file(bundle_path)
+            bundle_updated = _update_bundle_node_monitors(bundle_payload, node_id, raw_monitors)
+            if bundle_updated:
+                _write_json_file(bundle_path, bundle_payload)
+
+        if params.stop_after_persist:
+            await capability.stop()
+        logger.info(
+            f"[ExtensionTools] Persisted session monitors to skill: "
+            f"skill={skill_name}, node_id={node_id}, persisted_count={len(raw_monitors)}, "
+            f"bundle_updated={bundle_updated}, stopped_after_persist={bool(params.stop_after_persist)}"
+        )
+
+        return _json_result({
+            "success": True,
+            "skill_name": skill_name,
+            "node_id": node_id,
+            "core_path": str(core_path),
+            "bundle_path": str(bundle_path) if bundle_path else "",
+            "bundle_updated": bundle_updated,
+            "persisted_count": len(raw_monitors),
+            "stopped_after_persist": bool(params.stop_after_persist),
+        })
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error persisting session monitors to skill: {e}")
+        return ActionResult(error=f"Failed to persist session monitors to skill: {str(e)}")
+
+
+@custom_controller.action(
+    "Inspect visible DOM regions and summarize repeated/interactive areas for agentic page understanding.",
+    param_model=InspectDomRegionsAction,
+)
+async def bu_inspect_dom_regions(params: InspectDomRegionsAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        expression = _build_dom_region_inspection_expression(
+            max_regions=params.max_regions,
+            max_text_length=params.max_text_length,
+            include_html_hint=params.include_html_hint,
+        )
+        summary = await _evaluate_js(browser_session, expression)
+        logger.info(
+            f"[ExtensionTools] Inspected DOM regions: "
+            f"url={summary.get('url', '') if isinstance(summary, dict) else ''}, "
+            f"regions={len(summary.get('regions', []) if isinstance(summary, dict) else [])}, "
+            f"max_regions={params.max_regions}"
+        )
+        return ActionResult(
+            extracted_content=_compact_dom_region_summary_text(
+                summary,
+                max_regions=params.max_regions,
+            )
+        )
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error inspecting DOM regions: {e}")
+        return ActionResult(error=f"Failed to inspect DOM regions: {str(e)}")
+
+
+@custom_controller.action(
+    "Heuristically discover a generic chat adapter proposal from the current page structure.",
+    param_model=DiscoverChatAdapterAction,
+)
+async def bu_discover_chat_adapter(params: DiscoverChatAdapterAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        expression = _build_dom_region_inspection_expression(
+            max_regions=params.max_regions,
+            max_text_length=160,
+            include_html_hint=False,
+        )
+        summary = await _evaluate_js(browser_session, expression)
+        adapter = _pick_chat_adapter_from_regions(summary, prefer_selected_thread=params.prefer_selected_thread)
+        logger.info(
+            f"[ExtensionTools] Discovered chat adapter: "
+            f"url={summary.get('url', '') if isinstance(summary, dict) else ''}, "
+            f"conversation_root={((adapter.get('conversation_region') or {}).get('root_selector', ''))}, "
+            f"thread_root={((adapter.get('thread_region') or {}).get('root_selector', ''))}"
+        )
+        return _json_result({
+            "page_summary": summary,
+            "adapter_proposal": adapter,
+        })
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error discovering chat adapter: {e}")
+        return ActionResult(error=f"Failed to discover chat adapter: {str(e)}")
+
+
+@custom_controller.action(
+    "Normalize the current page into a semantic state using a provided adapter JSON.",
+    param_model=NormalizePageStateAction,
+)
+async def bu_normalize_page_state(params: NormalizePageStateAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        adapter = json.loads(params.adapter_json)
+        expression = _build_dom_region_inspection_expression(
+            max_regions=25,
+            max_text_length=200,
+            include_html_hint=False,
+        )
+        summary = await _evaluate_js(browser_session, expression)
+        normalized = _normalize_items_with_adapter(adapter, summary)
+        logger.info(
+            f"[ExtensionTools] Normalized page state: "
+            f"adapter_type={normalized.get('adapter_type', '')}, "
+            f"url={normalized.get('url', '')}, "
+            f"conversations={len(normalized.get('conversations', []) or [])}"
+        )
+        return _json_result(normalized)
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error normalizing page state: {e}")
+        return ActionResult(error=f"Failed to normalize page state: {str(e)}")
+
+
+@custom_controller.action(
+    "Diff two normalized page-state JSON blobs and return semantic change events.",
+    param_model=DiffNormalizedStateAction,
+)
+async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionResult:
+    try:
+        previous_state = json.loads(params.previous_state_json)
+        current_state = json.loads(params.current_state_json)
+        diff = _diff_normalized_states(previous_state, current_state)
+        logger.info(
+            f"[ExtensionTools] Diffed normalized state: "
+            f"events={diff.get('event_types', [])}, "
+            f"added={len(diff.get('added_keys', []) or [])}, "
+            f"removed={len(diff.get('removed_keys', []) or [])}, "
+            f"reordered={len(diff.get('reordered_keys', []) or [])}, "
+            f"changed={len(diff.get('changed_keys', []) or [])}, "
+            f"top_changed={diff.get('top_changed', False)}"
+        )
+        return _json_result(diff)
+    except Exception as e:
+        logger.error(f"[ExtensionTools] Error diffing normalized state: {e}")
+        return ActionResult(error=f"Failed to diff normalized state: {str(e)}")
 
 
 # Log registered custom actions at module load time for debugging

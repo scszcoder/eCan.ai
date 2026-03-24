@@ -278,6 +278,23 @@ class TaskRunner(Generic[Context]):
             # Notify agent tasks' queues
             self._notify_task_queues_shutdown()
             
+            # Cleanup browser event monitors
+            try:
+                import asyncio
+                from agent.ec_skills.browser_use_extension.event_monitor import cleanup_all_monitors
+                # Run async cleanup in a new event loop if needed
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in an async context, create a task
+                    asyncio.create_task(cleanup_all_monitors())
+                except RuntimeError:
+                    # No running loop, use run_until_complete
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(cleanup_all_monitors())
+                    loop.close()
+            except Exception as e:
+                logger.debug(f"[TaskRunner] Error cleaning up event monitors: {e}")
+            
         except Exception as e:
             logger.debug(f"[TaskRunner] Error in stop method: {e}")
     
@@ -1293,7 +1310,10 @@ class TaskRunner(Generic[Context]):
             async_response: If True, response via A2A; if False, via waiter.
         """
         try:
-            logger.debug(f"sync task waiting: {event_type}, {self.agent.card.name}")
+            _sub_type = ""
+            if event_type == "browser_event" and isinstance(request, dict):
+                _sub_type = request.get("sub_type", "")
+            logger.info(f"[QUEUE] sync_task_wait_in_line: event_type={event_type}{f', sub_type={_sub_type}' if _sub_type else ''}, agent={self.agent.card.name}")
             
             # Handle async callback events (from webhooks/SSE)
             if event_type == "async_callback":
@@ -1333,7 +1353,10 @@ class TaskRunner(Generic[Context]):
                             return
                         except Exception as e:
                             logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
-                logger.debug(f"[QUEUE] No target task for event: {event_type}")
+                if event_type == "browser_event":
+                    logger.warning(f"[QUEUE] No target task found for browser_event (sub_type={_sub_type}). Check pend_event browserEventLabel matches monitor label.")
+                else:
+                    logger.debug(f"[QUEUE] No target task for event: {event_type}")
                 
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
@@ -1973,9 +1996,39 @@ class TaskRunner(Generic[Context]):
         task.future = future
         logger.debug(f"[SUBMIT] Saved Future reference to task {task.name} for cancellation support")
         
+        # Mark task as running (in-memory + IPC to frontend)
+        try:
+            task.status.state = TaskState.working
+        except Exception:
+            pass
+        self._emit_task_status(task, "running")
+
         task_mode = "hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local")
         logger.info(f"[SUBMIT] Skill execution submitted for task={task.name} (mode={task_mode})")
     
+    def _emit_task_status(self, task: ManagedTask, status: str):
+        """Emit task-level status update to GUI via IPC.
+        
+        This notifies the frontend (e.g. AgentCard task popover) about
+        task status changes such as 'running', 'completed', 'failed'.
+        """
+        try:
+            from gui.ipc.api import IPCAPI
+            ipc = IPCAPI.get_instance()
+            ipc.update_run_stat(
+                agent_task_id=task.run_id or task.id,
+                current_node="",
+                status=status,
+                langgraph_state={
+                    "task_id": task.id,
+                    "task_name": getattr(task, "name", ""),
+                    "task_status": status,
+                },
+                timestamp=int(time.time() * 1000),
+            )
+        except Exception as e:
+            logger.debug(f"[TaskStatus] Failed to emit task status '{status}' for {getattr(task, 'name', '?')}: {e}")
+
     def _is_hybrid_cloud_task(self, task: ManagedTask) -> bool:
         """Check if a task uses a hybrid cloud skill."""
         skill = task.skill
@@ -2709,7 +2762,13 @@ class TaskRunner(Generic[Context]):
                 if trigger_type == "dev" and isinstance(dev_init_state, dict):
                     final_state = self._prepare_dev_state(task, msg, dev_init_state)
                 else:
-                    final_state = prep_skills_run(task.skill, self.agent, task.id, msg, None)
+                    initial_current_state = None
+                    try:
+                        if trigger_type == "message" and isinstance(task_metadata.get("state"), dict):
+                            initial_current_state = task_metadata.get("state")
+                    except Exception:
+                        initial_current_state = None
+                    final_state = prep_skills_run(task.skill, self.agent, task.id, msg, initial_current_state)
 
                 task_metadata["state"] = final_state
 
@@ -2918,6 +2977,7 @@ class TaskRunner(Generic[Context]):
                     task.status.message = _create_message("agent", err_text)
                 except Exception:
                     pass
+                self._emit_task_status(task, "failed")
 
                 # Track consecutive failures on the task
                 if hasattr(task, 'record_failure'):
@@ -2953,31 +3013,6 @@ class TaskRunner(Generic[Context]):
                     pass
                 return
 
-            # Reset failure counter on success
-            if hasattr(task, 'reset_failures'):
-                task.reset_failures()
-            logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
-
-            # Emit task_completed to TaskProgressBus
-            try:
-                lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
-                if isinstance(lineage, dict) and lineage.get("correlation_id"):
-                    from .task_progress_bus import TaskProgressBus, TaskProgressEvent
-                    TaskProgressBus.get_instance().emit(TaskProgressEvent(
-                        correlation_id=lineage["correlation_id"],
-                        run_id=getattr(task, "run_id", ""),
-                        parent_run_id=lineage.get("parent_run_id", ""),
-                        task_id=getattr(task, "id", ""),
-                        task_name=getattr(task, "name", ""),
-                        depth=lineage.get("depth", 0),
-                        event_type="task_completed",
-                        result=response,
-                    ))
-            except Exception:
-                pass
-
-            self._log_task_node_timings(task, waiter_task_id, response)
-            
             # Check for interrupt
             task_interrupted = False
             if response:
@@ -3000,6 +3035,37 @@ class TaskRunner(Generic[Context]):
                                     send_response_back(current_state.values)
                             except Exception as srb_err:
                                 logger.error(f"[COMPLETE] send_response_back failed: {srb_err}")
+
+            # Reset failure counter on success/parked interrupt
+            if hasattr(task, 'reset_failures'):
+                task.reset_failures()
+
+            if task_interrupted:
+                logger.info(f"[COMPLETE] Skill parked on interrupt for waiter={waiter_task_id}")
+                self._emit_task_status(task, "paused")
+            else:
+                logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
+                self._emit_task_status(task, "completed")
+
+                # Emit task_completed to TaskProgressBus only for real completion
+                try:
+                    lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
+                    if isinstance(lineage, dict) and lineage.get("correlation_id"):
+                        from .task_progress_bus import TaskProgressBus, TaskProgressEvent
+                        TaskProgressBus.get_instance().emit(TaskProgressEvent(
+                            correlation_id=lineage["correlation_id"],
+                            run_id=getattr(task, "run_id", ""),
+                            parent_run_id=lineage.get("parent_run_id", ""),
+                            task_id=getattr(task, "id", ""),
+                            task_name=getattr(task, "name", ""),
+                            depth=lineage.get("depth", 0),
+                            event_type="task_completed",
+                            result=response,
+                        ))
+                except Exception:
+                    pass
+
+            self._log_task_node_timings(task, waiter_task_id, response)
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})

@@ -193,6 +193,157 @@ class LabelsReformatAction(BaseModel):
 	)
 
 
+class SendChatAction(BaseModel):
+	"""Send a chat message to another agent via A2A (Agent-to-Agent) protocol.
+	Use list_chat_agents first to discover available agents and their IDs."""
+	sender_agent_id: str = Field(
+		description="ID of the agent sending the message."
+	)
+	recipient_agent_id: Optional[str] = Field(
+		default=None,
+		description="ID of the recipient agent. Either this or recipient_agent_name is required."
+	)
+	recipient_agent_name: Optional[str] = Field(
+		default=None,
+		description="Name of the recipient agent. Either this or recipient_agent_id is required."
+	)
+	message: str = Field(
+		description="The message text to send."
+	)
+	chat_id: Optional[str] = Field(
+		default=None,
+		description="Existing chat ID. If not provided, a new chat will be created."
+	)
+	message_type: Optional[str] = Field(
+		default="text",
+		description="Type of message: 'text', 'form', or 'notification'. Default: text."
+	)
+	async_send: Optional[bool] = Field(
+		default=True,
+		description="If True (default), send asynchronously. If False, wait for delivery confirmation."
+	)
+
+
+class ListChatAgentsAction(BaseModel):
+	"""List all available agents that can receive chat messages."""
+	exclude_self: Optional[str] = Field(
+		default=None,
+		description="Agent ID to exclude from the list (typically the calling agent's own ID)."
+	)
+	filter_name: Optional[str] = Field(
+		default=None,
+		description="Filter agents by name (partial match, case-insensitive)."
+	)
+
+
+class ReconfigureEventMonitorAction(BaseModel):
+	"""Reconfigure the active HTTP polling event monitor with new URL patterns, content filters, or HTTP methods.
+	Use this when you need to change what browser events you're listening for without restarting the browser session."""
+	label: str = Field(
+		default="",
+		description="The monitor label to reconfigure. If empty, uses the first active monitor."
+	)
+	url_patterns: Optional[list[str]] = Field(
+		default=None,
+		description="New URL patterns to match (e.g., ['/api/poll', '/chat']). Replaces existing patterns."
+	)
+	content_filters: Optional[list[str]] = Field(
+		default=None,
+		description="New content filter substrings to match in response body (e.g., ['has_new', 'msg_id']). Replaces existing filters."
+	)
+	methods: Optional[list[str]] = Field(
+		default=None,
+		description="New HTTP methods to monitor (e.g., ['GET', 'POST']). Default: ['POST']."
+	)
+	min_body_length: Optional[int] = Field(
+		default=None,
+		description="Minimum response body length to trigger event. Default: 10."
+	)
+	append: bool = Field(
+		default=False,
+		description="If True, append to existing patterns/filters instead of replacing."
+	)
+
+
+class ListSessionMonitorsAction(BaseModel):
+	"""List active or configured session-scoped browser event monitors."""
+	include_configs: bool = Field(
+		default=True,
+		description="Whether to include configured monitor definitions in the response."
+	)
+
+
+class UpsertSessionMonitorAction(BaseModel):
+	"""Create or replace a session monitor using the canonical monitor schema."""
+	id: str = Field(default="", description="Stable monitor id. If empty, one is generated from label.")
+	label: str = Field(description="Semantic event label, e.g. conversation_became_active")
+	source_type: str = Field(default="dom_mutation", description="dom_mutation | http_polling | websocket | sse | cdp_raw")
+	enabled: bool = Field(default=True, description="Whether this monitor should be active.")
+	url_patterns: list[str] = Field(default_factory=list, description="Target page URL patterns.")
+	methods: list[str] = Field(default_factory=list, description="HTTP methods for polling monitors.")
+	content_filters: list[str] = Field(default_factory=list, description="Substring filters for body/frame matching.")
+	min_body_length: int = Field(default=10, description="Minimum body length for HTTP polling.")
+	frame_direction: str = Field(default="incoming", description="WebSocket frame direction.")
+	sse_event_types: list[str] = Field(default_factory=list, description="SSE event names to watch.")
+	dom_selector: str = Field(default="", description="Legacy DOM selector hint.")
+	dom_attributes: bool = Field(default=False, description="Observe DOM attribute mutations.")
+	dom_child_list: bool = Field(default=True, description="Observe DOM child list mutations.")
+	dom_subtree: bool = Field(default=True, description="Observe DOM subtree mutations.")
+	dom_check_interval_ms: int = Field(default=250, description="Independent DOM check interval in milliseconds.")
+	cdp_domain: str = Field(default="", description="CDP domain for raw CDP monitors.")
+	cdp_event_method: str = Field(default="", description="CDP event method for raw CDP monitors.")
+	extractor_json: str = Field(default="", description="Advanced extractor JSON payload.")
+	auto_start: bool = Field(default=True, description="Whether to restart/apply the monitor immediately.")
+
+
+class RemoveSessionMonitorAction(BaseModel):
+	"""Remove one configured session monitor by id or label."""
+	id_or_label: str = Field(description="Monitor id or label to remove.")
+	auto_restart: bool = Field(default=True, description="Restart active monitor set after removal.")
+
+
+class GetSessionMonitorSnapshotAction(BaseModel):
+	"""Return current capability snapshot and optional latest events."""
+	include_configs: bool = Field(default=True, description="Include configured monitor definitions.")
+	include_runtime: bool = Field(default=True, description="Include current runtime status and counts.")
+
+
+class PersistSessionMonitorsToSkillAction(BaseModel):
+	"""Persist configured session monitor definitions back into the current node's skill JSON and bundle JSON."""
+	monitor_ids_or_labels: list[str] = Field(
+		default_factory=list,
+		description="Optional subset of monitor ids or labels to persist. Empty means persist all configured monitors."
+	)
+	stop_after_persist: bool = Field(
+		default=False,
+		description="If true, stop active monitors after persistence. Monitor definitions remain saved."
+	)
+
+
+class InspectDomRegionsAction(BaseModel):
+	"""Inspect visible DOM regions and summarize likely repeated/interactive areas."""
+	max_regions: int = Field(default=20, description="Maximum number of region summaries to return.")
+	max_text_length: int = Field(default=120, description="Maximum text sample length per region.")
+	include_html_hint: bool = Field(default=False, description="Whether to include compact outerHTML snippets.")
+
+
+class DiscoverChatAdapterAction(BaseModel):
+	"""Heuristically discover a customer-support chat adapter from the current page."""
+	max_regions: int = Field(default=20, description="Maximum DOM regions to inspect during discovery.")
+	prefer_selected_thread: bool = Field(default=True, description="Prefer regions that contain selected/active items.")
+
+
+class NormalizePageStateAction(BaseModel):
+	"""Normalize the current page into a semantic state using a provided adapter JSON."""
+	adapter_json: str = Field(description="Adapter JSON produced by discover_chat_adapter or external config.")
+
+
+class DiffNormalizedStateAction(BaseModel):
+	"""Diff two normalized page-state JSON blobs and return semantic changes."""
+	previous_state_json: str = Field(description="Previous normalized state JSON.")
+	current_state_json: str = Field(description="Current normalized state JSON.")
+
+
 class RagQueryAction(BaseModel):
 	"""Query the local RAG knowledge base for relevant information.
 	IMPORTANT: Do NOT override defaults unless explicitly asked. Defaults are tuned for fast, customer-ready answers.
