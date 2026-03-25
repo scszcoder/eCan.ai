@@ -2633,11 +2633,52 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
             chat_id = state.get("messages", [None])[1] if len(state.get("messages", [])) > 1 else None
             chat_id_source = "messages[1] (fallback)"
         
-        if not chat_id:
-            logger.error("[send_response_back] No chatId found in state")
+        inbound_chat_attrs = {}
+        try:
+            inbound_chat_attrs = (
+                (state.get("attributes", {}).get("debug", {}) or {}).get("chat_attributes", {})
+                or {}
+            )
+        except Exception:
+            inbound_chat_attrs = {}
+
+        inbound_sender_id = ""
+        inbound_transport = ""
+        inbound_sender_type = ""
+        if isinstance(inbound_chat_attrs, dict):
+            inbound_sender_id = str(inbound_chat_attrs.get("senderId") or "").strip()
+            inbound_transport = str(inbound_chat_attrs.get("transport") or "").strip()
+            inbound_sender_type = str(inbound_chat_attrs.get("senderType") or "").strip()
+
+        if not inbound_sender_id:
+            try:
+                last_evt = ((state.get("events") or [])[-1]) if isinstance(state.get("events"), list) and state.get("events") else {}
+                evt_ctx = (last_evt or {}).get("context") or {}
+                if isinstance(evt_ctx, dict):
+                    inbound_sender_id = str(evt_ctx.get("senderId") or "").strip()
+                    inbound_transport = inbound_transport or str(evt_ctx.get("transport") or "").strip()
+                    inbound_sender_type = inbound_sender_type or str(evt_ctx.get("senderType") or "").strip()
+            except Exception:
+                pass
+
+        if not chat_id and not inbound_sender_id:
+            logger.error("[send_response_back] No chatId or inbound sender found in state")
             return state
-            
-        opposite_agent = find_opposite_agent(self_agent, chat_id)
+
+        opposite_agent = None
+        if inbound_transport == "a2a" and inbound_sender_type == "agent" and inbound_sender_id:
+            opposite_agent = get_agent_by_id(inbound_sender_id)
+            if opposite_agent:
+                logger.info(
+                    f"[send_response_back] Using inbound A2A sender as reply target: "
+                    f"{inbound_sender_id}"
+                )
+            else:
+                logger.warning(
+                    f"[send_response_back] Inbound A2A sender not found as agent: {inbound_sender_id}"
+                )
+        elif chat_id:
+            opposite_agent = find_opposite_agent(self_agent, chat_id)
             
         msg_type = "text"
         qa_form = state["metadata"].get("qa_form", {})

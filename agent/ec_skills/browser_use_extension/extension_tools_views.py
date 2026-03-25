@@ -196,8 +196,9 @@ class LabelsReformatAction(BaseModel):
 class SendChatAction(BaseModel):
 	"""Send a chat message to another agent via A2A (Agent-to-Agent) protocol.
 	Use list_chat_agents first to discover available agents and their IDs."""
-	sender_agent_id: str = Field(
-		description="ID of the agent sending the message."
+	sender_agent_id: Optional[str] = Field(
+		default=None,
+		description="Optional sender agent ID. Normally omitted: the current runtime agent is used automatically."
 	)
 	recipient_agent_id: Optional[str] = Field(
 		default=None,
