@@ -23,6 +23,10 @@
     "match_mode": "all"
   },
   "event_routing": {
+    "chat_message": {
+      "task_selector": "name_contains:chat",
+      "queue": "chat_queue"
+    },
     "human_chat": {
       "task_selector": "name_contains:chat",
       "queue": "chat_queue"
@@ -30,6 +34,10 @@
     "dev_human_chat": {
       "task_selector": "name_contains:development",
       "queue": "chat_queue"
+    },
+    "task_request": {
+      "task_selector": "name_contains:chat",
+      "queue": "a2a_queue"
     },
     "a2a": {
       "task_selector": "name_contains:chat",

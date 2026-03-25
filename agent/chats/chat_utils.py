@@ -161,6 +161,8 @@ def gui_a2a_send_chat(mainwin, req):
 
     # Attach recipient_ids for downstream consumers (pend_event node, etc.)
     req["params"]["recipient_ids"] = [recipient_id] if recipient_id else []
+    req["params"]["transport"] = req["params"].get("transport") or "gui"
+    req["params"]["senderType"] = req["params"].get("senderType") or "human"
 
     # --- Dispatch to recipient agent's runner ---
     runner_method = recipient_agent.runner.sync_task_wait_in_line
@@ -171,7 +173,7 @@ def gui_a2a_send_chat(mainwin, req):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                return loop.run_until_complete(runner_method("human_chat", req))
+                return loop.run_until_complete(runner_method("chat_message", req))
             finally:
                 loop.close()
 
@@ -181,7 +183,7 @@ def gui_a2a_send_chat(mainwin, req):
             result = future.result()
     else:
         logger.debug("[chat_utils] Runner method is synchronous, calling directly.")
-        result = runner_method("human_chat", req)
+        result = runner_method("chat_message", req)
 
     return result
 

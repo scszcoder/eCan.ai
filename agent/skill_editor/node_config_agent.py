@@ -593,12 +593,15 @@ PROMPT MODULARITY: Instead of inline prompts, create a prompt file in my_prompts
                 "description": "Main event type to wait for",
                 "required": True,
                 "options": [
-                    {"value": "human_input", "label": "Human Input"},
-                    {"value": "external_api", "label": "External API"},
+                    {"value": "chat_message", "label": "Chat Message"},
+                    {"value": "task_request", "label": "Task Request"},
+                    {"value": "human_chat", "label": "Human Chat (Legacy)"},
+                    {"value": "a2a", "label": "A2A (Legacy)"},
                     {"value": "timer", "label": "Timer"},
+                    {"value": "browser_event", "label": "Browser Event"},
                     {"value": "custom", "label": "Custom Event"},
                 ],
-                "default": "human_input",
+                "default": "chat_message",
             },
             "pendingSources": {
                 "type": "json",

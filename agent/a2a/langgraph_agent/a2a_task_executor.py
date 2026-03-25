@@ -131,13 +131,13 @@ class A2ATaskExecutor(AgentExecutor):
             if mtype == "send_task":
                 logger.info("[A2A] Task wait in line")
                 self._agent.runner.sync_task_wait_in_line(
-                    "a2a", request, async_response=async_response
+                    "task_request", request, async_response=async_response
                 )
             elif "send_chat" in mtype:
                 logger.info("[A2A] Chat wait in line")
                 if mtype == "send_chat":
                     self._agent.runner.sync_task_wait_in_line(
-                        "human_chat", request, async_response=async_response
+                        "chat_message", request, async_response=async_response
                     )
                 elif mtype == "dev_send_chat":
                     logger.debug("[A2A] Human chat for development task")

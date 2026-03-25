@@ -349,6 +349,9 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 "msgId": meta_params.get("msgId") if isinstance(meta_params, dict) else metadata.get("msgId"),
                 "senderId": meta_params.get("senderId") if isinstance(meta_params, dict) else metadata.get("senderId"),
                 "senderName": meta_params.get("senderName") if isinstance(meta_params, dict) else metadata.get("senderName"),
+                "receiverId": meta_params.get("receiverId") if isinstance(meta_params, dict) else metadata.get("receiverId"),
+                "transport": _infer_transport(metadata.get("mtype"), metadata, src),
+                "senderType": _infer_sender_type(metadata),
             })
 
             # Fallback: legacy dict messages store chatId directly in msg["params"]
@@ -362,11 +365,19 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                         event["context"]["senderId"] = raw_params.get("senderId")
                     if not event["context"].get("senderName"):
                         event["context"]["senderName"] = raw_params.get("senderName")
+                    if not event["context"].get("receiverId"):
+                        event["context"]["receiverId"] = raw_params.get("receiverId")
+                    if not event["context"].get("transport"):
+                        event["context"]["transport"] = raw_params.get("transport")
+                    if not event["context"].get("senderType"):
+                        event["context"]["senderType"] = "human" if raw_params.get("human") is True else raw_params.get("senderType")
 
             # Event type/source best-effort
             mtype = metadata.get("mtype")
-            if not event["type"]:
-                event["type"] = _infer_event_type(mtype)
+            inferred_type = _infer_event_type(mtype)
+            if not event["type"] or event["type"] == "other":
+                if inferred_type and inferred_type != "other":
+                    event["type"] = inferred_type
             if not event["source"]:
                 event["source"] = (meta_params.get("senderId") if isinstance(meta_params, dict) else None) or metadata.get("senderId") or ""
 
@@ -443,10 +454,38 @@ def _infer_event_type(mtype: Optional[str]) -> str:
     if not mtype:
         return "other"
     if mtype == "send_chat":
-        return "human_chat"
+        return "chat_message"
     if mtype == "send_task":
-        return "a2a"
+        return "task_request"
     return mtype
+
+
+def _infer_transport(mtype: Optional[str], metadata: Dict[str, Any], source: Optional[str]) -> str:
+    if isinstance(metadata, dict):
+        meta_params = metadata.get("params") if isinstance(metadata.get("params"), dict) else {}
+        transport = meta_params.get("transport") or metadata.get("transport")
+        if transport:
+            return str(transport)
+    if mtype in {"send_chat", "send_task", "dev_send_chat"}:
+        return "a2a"
+    if source and str(source).startswith("gui:"):
+        return "gui"
+    return ""
+
+
+def _infer_sender_type(metadata: Dict[str, Any]) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    meta_params = metadata.get("params") if isinstance(metadata.get("params"), dict) else {}
+    sender_type = meta_params.get("senderType") or metadata.get("senderType")
+    if sender_type:
+        return str(sender_type)
+    if meta_params.get("human") is True or metadata.get("human") is True:
+        return "human"
+    role = meta_params.get("role") or metadata.get("role")
+    if role == "agent":
+        return "agent"
+    return ""
 
 
 def _infer_event_source(metadata: Dict[str, Any]) -> Optional[str]:
@@ -1012,13 +1051,20 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             or _safe_get(msg, "params.metadata.mtype")
             or event.get("data", {}).get("metadata", {}).get("mtype")
         ) if isinstance(event, dict) else None
-        resume_payload["event_type"] = message_mtype or event.get("type", "")
+        canonical_event_type = event.get("type", "") if isinstance(event, dict) else ""
+        if not canonical_event_type or canonical_event_type == "other":
+            inferred_from_mtype = _infer_event_type(message_mtype)
+            if inferred_from_mtype and inferred_from_mtype != "other":
+                canonical_event_type = inferred_from_mtype
+                if isinstance(event, dict):
+                    event["type"] = canonical_event_type
+        resume_payload["event_type"] = canonical_event_type or message_mtype or ""
         # Include the full normalized event envelope so downstream nodes can inspect it
         resume_payload["_event_envelope"] = event
         if isinstance(message_mtype, str) and "send_chat" in message_mtype.lower():
             chat_params = _safe_get(msg, "params.metadata.params") or {}
-            chat_attrs = {"mtype": message_mtype}
-            for key in ("chatId", "senderId", "content", "receiverId", "attachments"):
+            chat_attrs = {"mtype": message_mtype, "event_type": canonical_event_type or "chat_message"}
+            for key in ("chatId", "senderId", "senderName", "senderType", "transport", "content", "receiverId", "attachments"):
                 value = chat_params.get(key)
                 if value is not None:
                     chat_attrs[key] = value
