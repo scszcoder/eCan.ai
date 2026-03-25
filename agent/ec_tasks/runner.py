@@ -39,6 +39,7 @@ from .scheduler import find_tasks_ready_to_run
 from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor, _create_message
+from .terminal_status_utils import task_is_blocked
 from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
 from utils.sleep_inhibitor import get_sleep_inhibitor
@@ -1848,16 +1849,21 @@ class TaskRunner(Generic[Context]):
                     msg = f"[DEV] Timeout after {DEV_EVENT_TIMEOUT_SEC}s waiting for resume event"
                     logger.error(msg)
                     ipc.send_skill_editor_log("error", msg)
+                    logger.error("[FAIL_REASON] reason=timeout scope=dev_resume_wait")
                     task.status.state = TaskState.failed
                     state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
                     state['pending_since'] = None  # Clear so timeout only fires once
+                    self._emit_task_status(task, "failed")
                     self._dev_exit_requested = True
             else:
                 if elapsed > RUN_EVENT_TIMEOUT_SEC:
                     logger.error(f"[RUN] Timeout after {RUN_EVENT_TIMEOUT_SEC}s")
+                    logger.error("[FAIL_REASON] reason=timeout scope=runtime_event_wait")
                     task.status.state = TaskState.failed
                     state['justStarted'] = True
                     state['pending_since'] = None
+                    state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
+                    self._emit_task_status(task, "failed")
                     
         except Exception:
             pass
@@ -2962,6 +2968,58 @@ class TaskRunner(Generic[Context]):
         """Handle skill execution completion."""
         try:
             response, was_initial = future.result()
+            terminal_status = ""
+            if isinstance(response, dict):
+                terminal_status = str(response.get("terminal_status") or "").lower()
+
+            if not terminal_status:
+                try:
+                    if task.is_cancelled() or str(getattr(task.status, "state", "")).lower().endswith("canceled"):
+                        terminal_status = "cancelled"
+                except Exception:
+                    pass
+
+            if not terminal_status:
+                try:
+                    if isinstance(response, dict):
+                        cp = response.get("cp")
+                        cp_values = cp.values if hasattr(cp, "values") else {}
+                        # task_is_blocked only checks task-level result and the most-recent
+                        # node output — not full history/messages — to avoid false positives
+                        # from transient mid-task blocks (e.g. one platform hitting risk control).
+                        if task_is_blocked(cp_values):
+                            terminal_status = "blocked"
+                except Exception:
+                    pass
+
+            if not terminal_status:
+                try:
+                    ts = self._task_states.get(task.id, {})
+                    last_resp = ts.get("last_response") if isinstance(ts, dict) else None
+                    if isinstance(last_resp, dict) and "timeoutwaitingforevent" in str(last_resp.get("error") or "").lower():
+                        terminal_status = "timeout"
+                except Exception:
+                    pass
+
+            if terminal_status in {"cancelled", "canceled"}:
+                logger.info(f"[COMPLETE] Skill cancelled for waiter={waiter_task_id}")
+                try:
+                    task.status.state = TaskState.canceled
+                    task.status.message = _create_message("agent", "Task cancelled by user")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "cancelled")
+                return
+
+            if terminal_status == "timeout":
+                logger.error(f"[FAIL_REASON] reason=timeout scope=task_complete waiter={waiter_task_id}")
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", "Task timed out")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "failed")
+                return
 
             # Distinguish real failures from interrupts: an interrupt returns
             # success=False but carries __interrupt__ in the step dict and has
@@ -3043,6 +3101,14 @@ class TaskRunner(Generic[Context]):
             if task_interrupted:
                 logger.info(f"[COMPLETE] Skill parked on interrupt for waiter={waiter_task_id}")
                 self._emit_task_status(task, "paused")
+            elif terminal_status == "blocked":
+                logger.error(f"[FAIL_REASON] reason=blocked scope=task_complete waiter={waiter_task_id}")
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", "Task blocked")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "failed")
             else:
                 logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
                 self._emit_task_status(task, "completed")

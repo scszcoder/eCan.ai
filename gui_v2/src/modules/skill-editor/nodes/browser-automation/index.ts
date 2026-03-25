@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 
 import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
-import iconScript from '../../assets/icon-script.png';
+import iconBrowserAutomation from '../../assets/icon-browser-automation.svg';
 import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 import { formMeta } from './form-meta';
 
@@ -14,7 +14,7 @@ let index = 0;
 export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.BrowserAutomation,
   info: {
-    icon: iconScript,
+    icon: iconBrowserAutomation,
     description: 'nodes.browserAutomation.description',
   },
   meta: {
