@@ -3,6 +3,26 @@ from agent.ec_skill import EC_Skill, NodeState
 from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
 from utils.logger_helper import get_traceback
 from agent.ec_agents.create_dev_task import create_skill_dev_task
+import json
+
+
+def _load_dev_mapping_rules(skill_payload):
+    """Load mapping rules from inline dev payload only."""
+    if not isinstance(skill_payload, dict):
+        return None
+
+    inline_candidates = [
+        skill_payload.get("data_mapping"),
+        skill_payload.get("dataMapping"),
+        (skill_payload.get("diagram") or {}).get("data_mapping") if isinstance(skill_payload.get("diagram"), dict) else None,
+        (skill_payload.get("diagram") or {}).get("dataMapping") if isinstance(skill_payload.get("diagram"), dict) else None,
+    ]
+    for cand in inline_candidates:
+        if isinstance(cand, dict) and cand:
+            logger.info("[setup_dev_skill] Loaded mapping rules from inline payload")
+            return cand
+
+    return None
 
 async def create_test_dev_skill(mainwin):
     try:
@@ -71,7 +91,6 @@ def setup_dev_skill(mainwin, skill):
         
         # Parse skill if it's a JSON string
         if isinstance(skill, str):
-            import json
             try:
                 skill = json.loads(skill)
             except (json.JSONDecodeError, TypeError):
@@ -133,6 +152,23 @@ def setup_dev_skill(mainwin, skill):
 
         # Set the workflow on the task
         dev_run_task.skill.set_work_flow(skill_under_dev)
+
+        # Ensure dev-run uses real skill mapping rules (especially node_transfers)
+        # so cross-node variables like previous_node_output can be propagated.
+        try:
+            loaded_rules = _load_dev_mapping_rules(skill if isinstance(skill, dict) else {})
+            if isinstance(loaded_rules, dict) and loaded_rules:
+                dev_run_task.skill.mapping_rules = loaded_rules
+                node_transfers = loaded_rules.get("node_transfers", {})
+                logger.info(
+                    "[setup_dev_skill] Applied mapping_rules for dev run; node_transfer_rules keys: "
+                    + str(list(node_transfers.keys()) if isinstance(node_transfers, dict) else [])
+                )
+            else:
+                logger.warning("[setup_dev_skill] No external mapping_rules resolved; using existing dev task mapping_rules")
+        except Exception as _map_e:
+            logger.warning(f"[setup_dev_skill] Failed applying external mapping_rules: {_map_e}")
+
         # Preserve the original flowgram diagram so _amend_event_routing_for_task
         # can inspect pend_event nodes (including those nested inside loops/blocks)
         dev_run_task.skill.diagram = flow_payload or skill

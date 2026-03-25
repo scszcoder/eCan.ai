@@ -60,6 +60,14 @@ class SystemPrompt:
 # {self.default_action_description}
 
 
+_MAX_ELEMENTS_CHARS = 35000   # total cap for DOM interactive elements text.
+                              # Uses HEAD+TAIL strategy: keeps first 60% + last 40% of the budget
+                              # so both top-of-form elements AND bottom submit buttons are always visible.
+                              # Goofish publish page: ~40k raw DOM → 35k budget covers everything.
+                              # Taobao homepage: ~70k raw → HEAD(21k) + TAIL(14k) = 35k, no critical miss.
+_MAX_TABS_CHARS     = 500     # cap tabs list to avoid accumulating stale-tab noise
+
+
 class AgentMessagePrompt:
 	def __init__(
 		self,
@@ -67,16 +75,32 @@ class AgentMessagePrompt:
 		result: Optional[List['ActionResult']] = None,
 		include_attributes: list[str] = [],
 		step_info: Optional['AgentStepInfo'] = None,
+		max_elements_chars: int = _MAX_ELEMENTS_CHARS,
 	):
 		self.state = state
 		self.result = result
 		self.include_attributes = include_attributes
 		self.step_info = step_info
+		self.max_elements_chars = max_elements_chars
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		print("self state:", self.state)
 		if self.state:
 			elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+
+			# HEAD+TAIL truncation: keeps both the beginning and end of the DOM element list.
+			# Pure head-truncation misses bottom elements (submit buttons, price fields).
+			# Pure tail-truncation misses top elements (image upload, first form fields).
+			# HEAD(60%) + TAIL(40%) ensures critical UI at both ends is always visible.
+			# Example: 40k DOM → HEAD 21k + "...[N chars omitted]..." + TAIL 14k = 35k total.
+			if len(elements_text) > self.max_elements_chars:
+				head_chars = int(self.max_elements_chars * 0.6)
+				tail_chars = self.max_elements_chars - head_chars
+				omitted = len(elements_text) - head_chars - tail_chars
+				elements_text = (
+					elements_text[:head_chars]
+					+ f'\n... [{omitted} chars omitted — middle DOM elements not shown] ...\n'
+					+ elements_text[-tail_chars:]
+				)
 
 			has_content_above = (self.state.pixels_above or 0) > 0
 			has_content_below = (self.state.pixels_below or 0) > 0
@@ -109,13 +133,16 @@ class AgentMessagePrompt:
 		step_info_description += f'Current date and time: {time_str}'
 
 		if self.state:
+			tabs_text = str(self.state.tabs)
+			if len(tabs_text) > _MAX_TABS_CHARS:
+				tabs_text = tabs_text[:_MAX_TABS_CHARS] + '... [truncated]'
 			state_description = f"""
 				[Task history memory ends]
 				[Current state starts here]
 				The following is one-time information - if you need to remember it write it to memory:
 				Current url: {self.state.url}
 				Available tabs:
-				{self.state.tabs}
+				{tabs_text}
 				Interactive elements from top layer of the current page inside the viewport:
 				{elements_text}
 				{step_info_description}

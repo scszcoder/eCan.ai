@@ -500,14 +500,14 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     return out
 
                 if isinstance(patch, dict) and patch:
-                    # Deep-merge common sections
-                    for sec in ("attributes", "metadata", "tool_input"):
+                    # Deep-merge common sections (prompt_refs: node transfers must not wipe inputsValues-injected keys)
+                    for sec in ("attributes", "metadata", "tool_input", "prompt_refs"):
                         if sec in patch:
                             base = state.get(sec) if isinstance(state.get(sec), dict) else {}
                             state[sec] = _deep_merge(base, patch[sec])
                     # Handle other keys conservatively
                     for k, v in patch.items():
-                        if k in ("attributes", "metadata", "tool_input"):
+                        if k in ("attributes", "metadata", "tool_input", "prompt_refs"):
                             continue
                         if k == "messages" and isinstance(v, list):
                             if isinstance(state.get("messages"), list):
@@ -801,6 +801,14 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception as qe:
             logger.debug(f"[NODE_QUEUE] Queue check skipped: {qe}")
 
+        # Clear stale error from a previous node so the terminal-status check
+        # below only reacts to errors produced by THIS node.
+        try:
+            if isinstance(state, dict) and state.get("error"):
+                state["error"] = ""
+        except Exception:
+            pass
+
         # Send running status to frontend before executing node
         # This must be OUTSIDE the retry loop and AFTER breakpoint checks
         _notify_node_status("running", state)
@@ -826,14 +834,20 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         pass
                     raise e
 
+                _err_text = str(e or "")
+                non_retryable = "[NON_RETRYABLE]" in _err_text
+
                 attempts += 1
+                if non_retryable:
+                    # Stop retry loop immediately for deterministic failures.
+                    attempts = retries
                 last_exc = e
                 error_type = type(e).__name__
-                error_msg = str(e)
+                error_msg = _err_text.replace("[NON_RETRYABLE]", "").strip() or _err_text
                 logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {error_type}: {error_msg}")
                 import traceback
                 logger.debug(f"[{node_name}] Traceback: {traceback.format_exc()}")
-                if attempts < retries:
+                if attempts < retries and not non_retryable:
                     delay = base_delay * (2 ** (attempts - 1)) + random.uniform(0, jitter)
                     time.sleep(delay)
 
@@ -891,10 +905,132 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception:
             pass
 
-        # Successful completion: notify frontend for this specific node.
-        _notify_node_status("completed", state)
+        # Ensure LLM nodes (which write to state["result"] but not to state["tool_result"][node_name])
+        # are visible in upstream_outputs for downstream nodes.  Browser-use nodes write their own
+        # entry; this only fills the gap when the entry is absent.
+        try:
+            tr = state.setdefault("tool_result", {})
+            if isinstance(tr, dict) and node_name not in tr:
+                sr = state.get("result")
+                if isinstance(sr, dict) and sr:
+                    # Extract the most informative payload available.
+                    payload = sr.get("llm_result") or sr.get("work_result") or sr
+                    if isinstance(payload, dict) and payload:
+                        tr[node_name] = dict(payload)
+                        logger.debug(f"[ec_skill] Backfilled tool_result[{node_name}] from state['result']")
+        except Exception:
+            pass
 
-        # Reset consecutive failure counter on success
+        # Log each node's output for debugging / traceability.
+        try:
+            tr = state.get("tool_result", {})
+            node_out = tr.get(node_name) if isinstance(tr, dict) else None
+            import json as _json
+            out_str = _json.dumps(node_out, ensure_ascii=False, indent=None) if node_out else "(empty)"
+            if len(out_str) > 2000:
+                out_str = out_str[:2000] + "…(truncated)"
+            logger.info(f"[NODE_OUTPUT] ✅ {node_name} => {out_str}")
+        except Exception:
+            pass
+
+        node_terminal_status = "completed"
+        try:
+            task_obj = None
+            try:
+                task_obj = runtime.context.get("task") or runtime.context.get("managed_task")
+            except Exception:
+                task_obj = None
+            if task_obj is None and isinstance(state, dict):
+                task_obj = state.get("_managed_task")
+            if task_obj is not None:
+                if getattr(task_obj, "is_cancelled", lambda: False)():
+                    node_terminal_status = "cancelled"
+            if node_terminal_status == "completed":
+                # Only evaluate terminal hints from CURRENT node payload.
+                current_node_result = None
+                try:
+                    tr = state.get("tool_result")
+                    if isinstance(tr, dict):
+                        current_node_result = tr.get(node_name)
+                except Exception:
+                    current_node_result = None
+
+                fallback_result = None
+                try:
+                    sr = state.get("result")
+                    if isinstance(sr, dict) and ("status" in sr or "reason" in sr):
+                        fallback_result = sr
+                except Exception:
+                    fallback_result = None
+
+                def _extract_status_hint(payload):
+                    try:
+                        if isinstance(payload, dict):
+                            s = str(payload.get("status") or "").strip().lower()
+                            if s:
+                                return s
+                            # Parse common text carriers only (avoid scanning history blobs)
+                            for key in ("result", "final", "extracted_content", "content", "text"):
+                                v = payload.get(key)
+                                if not isinstance(v, str) or not v.strip():
+                                    continue
+                                vv = v.strip()
+                                try:
+                                    import json as _json
+                                    parsed = _json.loads(vv)
+                                    if isinstance(parsed, dict):
+                                        ps = str(parsed.get("status") or "").strip().lower()
+                                        if ps:
+                                            return ps
+                                except Exception:
+                                    pass
+                                if "blocked(reason=" in vv.lower():
+                                    return "blocked"
+                        elif isinstance(payload, str):
+                            vv = payload.strip()
+                            if "blocked(reason=" in vv.lower():
+                                return "blocked"
+                        return ""
+                    except Exception:
+                        return ""
+
+                _hint = _extract_status_hint(current_node_result) or _extract_status_hint(fallback_result)
+                if _hint == "blocked":
+                    node_terminal_status = "blocked"
+                elif _hint in ("skipped", "success", "completed"):
+                    node_terminal_status = "completed"
+            if node_terminal_status == "completed":
+                # Only use errors scoped to THIS node:
+                # 1) state["error"] (already cleared before this node ran, so any value here
+                #    was written by this node itself during execution)
+                # 2) tool_result[node_name]["error"] — explicit error field from browser nodes
+                err_txt = str(state.get("error") or "").lower()
+                node_tool_err_txt = ""
+                try:
+                    tr = state.get("tool_result")
+                    if isinstance(tr, dict):
+                        current_node_tool_result = tr.get(node_name)
+                        if isinstance(current_node_tool_result, dict):
+                            node_tool_err_txt = str(current_node_tool_result.get("error") or "").lower()
+                except Exception:
+                    node_tool_err_txt = ""
+
+                merged_err_txt = (err_txt + " " + node_tool_err_txt).strip()
+                if merged_err_txt:
+                    if "timeout" in merged_err_txt or "timed out" in merged_err_txt:
+                        node_terminal_status = "timeout"
+                    else:
+                        node_terminal_status = "failed"
+        except Exception:
+            node_terminal_status = "completed"
+
+        # Keep UI-facing statuses stable; map diagnostic terminals to failed.
+        ui_terminal_status = "failed" if node_terminal_status in ("blocked", "timeout") else node_terminal_status
+        if node_terminal_status in ("blocked", "timeout"):
+            logger.error(f"[FAIL_REASON] reason={node_terminal_status} scope=node_complete node={node_name}")
+        _notify_node_status(ui_terminal_status, state)
+
+        # Reset consecutive failure counter only on true completion.
         try:
             task = None
             try:
@@ -903,13 +1039,13 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 pass
             if task is None:
                 task = state.get('_managed_task')
-            if task and hasattr(task, 'reset_failures'):
+            if node_terminal_status == "completed" and task and hasattr(task, 'reset_failures'):
                 task.reset_failures()
         except Exception:
             pass
 
         try:
-            _record_node_timing(state, "completed", time.perf_counter() - node_t0)
+            _record_node_timing(state, node_terminal_status, time.perf_counter() - node_t0)
         except Exception:
             pass
 

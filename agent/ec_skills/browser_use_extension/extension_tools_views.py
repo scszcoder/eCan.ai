@@ -57,6 +57,55 @@ class FileRenameAction(BaseModel):
 		default="", description="new file's full path name after renaming"
 	)
 
+
+class ConvertFileFormatAction(BaseModel):
+	"""Convert files from one format to another format.
+	Designed for natural-language usage (e.g., 'convert webp images to jpg')."""
+	source_files: list[str] = Field(
+		default_factory=list,
+		description="List of absolute file paths to convert."
+	)
+	directory: Optional[str] = Field(
+		default=None,
+		description="Optional directory to scan for files to convert."
+	)
+	source_format: Optional[str] = Field(
+		default=None,
+		description="Optional source extension without dot (e.g. webp, png, txt). Used with directory scan."
+	)
+	target_format: str = Field(
+		default="",
+		description="Target format extension without dot, e.g. jpg, png, pdf, txt."
+	)
+	output_dir: Optional[str] = Field(
+		default=None,
+		description="Optional output directory. Defaults to each source file directory."
+	)
+	keep_original: bool = Field(
+		default=True,
+		description="Whether to keep original source files."
+	)
+	quality: int = Field(
+		default=90,
+		description="Quality for lossy output formats (1-100), mainly for jpg/webp."
+	)
+
+
+class DownloadFileAction(BaseModel):
+	"""Download a file from URL to a local path."""
+	url: str = Field(
+		default="",
+		description="Remote file URL to download."
+	)
+	path: str = Field(
+		default="",
+		description="Absolute local target file path."
+	)
+	timeout: float = Field(
+		default=30.0,
+		description="Download timeout seconds."
+	)
+
 class FilesPrintAction(BaseModel):
 	printer: str = Field(
 		default="", description="networked printer name"

@@ -194,7 +194,7 @@ class TaskExecutor:
                 agent_task_id=self.task.run_id,
                 current_node=node_name or "",
                 status=status,
-                langgraph_state=state_values or {},
+                langgraph_state=state_values,
                 timestamp=int(time.time() * 1000)
             )
         except Exception:
@@ -215,14 +215,14 @@ class TaskExecutor:
         """
         node_name = ""
         
-        # Try from step metadata
+        # Try from step metadata (cheapest path - no state fetch needed)
         try:
             meta = step.get("__metadata__", {}) if isinstance(step, dict) else {}
             node_name = meta.get("langgraph_node") or meta.get("node") or ""
         except Exception:
             pass
         
-        # Fallback: from state attributes
+        # Fallback: single get_state() call, check both attributes and next in one shot
         if not node_name:
             try:
                 st = self.task.skill.runnable.get_state(config=effective_config)
@@ -232,14 +232,7 @@ class TaskExecutor:
                     .get("__this_node__", {})
                     .get("name") or ""
                 )
-            except Exception:
-                pass
-        
-        # Final fallback: next node from state
-        if not node_name:
-            try:
-                st = self.task.skill.runnable.get_state(config=effective_config)
-                if hasattr(st, "next") and st.next:
+                if not node_name and hasattr(st, "next") and st.next:
                     node_name = st.next[0]
             except Exception:
                 pass
@@ -313,7 +306,14 @@ class TaskExecutor:
     
     # ==================== Finalization ====================
     
-    def finalize_run(self, success: bool, step: dict, current_checkpoint: Any, effective_config: dict) -> dict:
+    def finalize_run(
+        self,
+        success: bool,
+        step: dict,
+        current_checkpoint: Any,
+        effective_config: dict,
+        terminal_status: str = "completed",
+    ) -> dict:
         """
         Finalize stream run and return result.
         
@@ -334,16 +334,21 @@ class TaskExecutor:
             logger.info(f"[EXECUTOR] Waiting for {len(self.task.get_pending_events())} pending events")
             self._wait_for_pending_events(timeout=DEFAULT_PENDING_EVENTS_TIMEOUT)
         
-        run_result = {"success": success, "step": step, "cp": current_checkpoint}
+        run_result = {
+            "success": success,
+            "step": step,
+            "cp": current_checkpoint,
+            "terminal_status": terminal_status,
+        }
         
         # Include pending event results in the run result
         if self.task.pending_events:
             run_result["pending_event_results"] = self.task.get_all_pending_event_results()
         
-        # Emit completion status (only if truly completed, not paused)
-        if success:
+        # Emit terminal status for frontend observability.
+        if terminal_status and terminal_status != "paused":
             st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-            self.emit_run_status("completed", "", st_js)
+            self.emit_run_status(terminal_status, "", st_js)
         
         return run_result
     
@@ -473,14 +478,6 @@ class TaskExecutor:
         cancellation_registry.register(self.task.id, self.task.cancellation_event)
         
         logger.debug(f"[SKILL_CHECK] Task {self.task.id} using skill: {self.task.skill.name}, runnable type: {type(self.task.skill.runnable)}")
-        # Truncate screenshot data for logging
-        try:
-            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-            _state0 = self.task.skill.runnable.get_state(config=effective_config)
-            _log_state0 = truncate_screenshot_for_logging(_state0) if _state0 else _state0
-        except Exception:
-            _log_state0 = "[truncation error]"
-        logger.debug(f"current langgraph run time state0: {_log_state0}")
         
         if not isinstance(in_msg, Command):
             in_args = self.task.metadata.get("state", {})
@@ -492,24 +489,16 @@ class TaskExecutor:
         
         try:
             logger.debug(f"stream running skill: {self.task.skill.name}, {in_msg}")
-            logger.debug(f"stream_run config: {effective_config}")
-            # Truncate screenshot data for logging
-            try:
-                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-                _state2 = self.task.skill.runnable.get_state(config=effective_config)
-                _log_state2 = truncate_screenshot_for_logging(_state2) if _state2 else _state2
-            except Exception:
-                _log_state2 = "[truncation error]"
-            logger.debug(f"current langgraph run time state2: {_log_state2}")
             
             step = {}
             current_checkpoint = None
             
-            # Step 6: Emit initial running status
-            st0_js = self.get_state_values(effective_config)
+            # Step 6: Emit initial running status (single get_state() call)
             node0 = ""
+            st0_js = {}
             try:
                 st0 = self.task.skill.runnable.get_state(config=effective_config)
+                st0_js = st0.values if hasattr(st0, "values") else {}
                 if hasattr(st0, "next") and st0.next:
                     node0 = st0.next[0]
             except Exception:
@@ -518,17 +507,17 @@ class TaskExecutor:
             
             # Step 7: Process stream
             for step in agen:
-                # Truncate screenshot data for logging
-                try:
-                    from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-                    log_step_sync = truncate_screenshot_for_logging(step)
-                    log_step_str = str(log_step_sync)
-                    if len(log_step_str) > 1000:
-                        log_step_str = log_step_str[:1000] + "..."
-                    logger.debug(f"sync Step output: {log_step_str}")
-                except Exception:
-                    log_step_str = str(step)[:1000] + "..." if len(str(step)) > 1000 else str(step)
-                    logger.debug(f"sync Step output: {log_step_str}")
+                # Debug logging guarded behind level check to avoid heavy truncation work
+                if getattr(getattr(logger, "logger", None), "isEnabledFor", lambda *_: False)(10):  # logging.DEBUG == 10
+                    try:
+                        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                        log_step_sync = truncate_screenshot_for_logging(step)
+                        log_step_str = str(log_step_sync)
+                        if len(log_step_str) > 1000:
+                            log_step_str = log_step_str[:1000] + "..."
+                        logger.debug(f"sync Step output: {log_step_str}")
+                    except Exception:
+                        pass
                 
                 # Check for cancellation
                 if self.task.cancellation_event.is_set():
@@ -554,41 +543,54 @@ class TaskExecutor:
                 # Update status message
                 self.task.status.message = _create_message("agent", str(step))
                 
-                # Emit running status with current node
-                # Skip if this step contains the final output of a completed node
-                # (step dict has node name as key with the node's return value)
+                # Emit running status with current node.
+                # Only fetch full state when a node has produced output (cheapest update path
+                # for intermediate/metadata steps).
                 node_name = self.get_node_name_from_step(step, effective_config)
                 
-                if not self.is_step_node_output(step):
-                    # Only emit running status if this is not a node's final output
+                if self.is_step_node_output(step):
+                    # Node completed - send full state so GUI reflects latest results
                     st_js = self.get_state_values(effective_config)
                     self.emit_run_status("running", node_name, st_js)
+                else:
+                    # Intermediate metadata step - send lightweight update without
+                    # overwriting the frontend's cached node state with an empty dict.
+                    self.emit_run_status("running", node_name, None)
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.task.status.state = TaskState.input_required
-                    logger.debug(f"input required... {log_step_sync}")
+                    logger.debug(f"input required... {step}")
                     
                     if step.get("__interrupt__"):
                         i_tag, current_checkpoint = self.handle_interrupt(step, effective_config)
-                        # Truncate screenshot data for logging
-                        try:
-                            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-                            log_checkpoint = truncate_screenshot_for_logging(current_checkpoint) if current_checkpoint else current_checkpoint
-                        except Exception:
-                            log_checkpoint = str(current_checkpoint)[:500] + "..." if current_checkpoint else None
-                        logger.debug(f"current checkpoint: {log_checkpoint}")
                     break
             
-            # Step 8: Determine success and finalize
+            # Step 8: Determine terminal status and finalize
+            terminal_status = "completed"
             if self.task.status.state == TaskState.input_required:
                 success = False
+                terminal_status = "paused"
+            elif self.task.status.state == TaskState.canceled:
+                success = False
+                terminal_status = "cancelled"
+                logger.info("task cancelled...")
+            elif self.task.status.state == TaskState.failed:
+                success = False
+                terminal_status = "failed"
+                logger.info("task failed...")
             else:
                 success = True
                 self.task.status.state = TaskState.completed
                 logger.info("task completed...")
             
-            run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
+            run_result = self.finalize_run(
+                success,
+                step,
+                current_checkpoint,
+                effective_config,
+                terminal_status=terminal_status,
+            )
             logger.debug(f"synced stream_run result: {_truncate_for_log(run_result)}")
             return run_result
         
@@ -651,11 +653,12 @@ class TaskExecutor:
             step = {}
             current_checkpoint = None
             
-            # Step 5: Emit initial running status
-            st0_js = self.get_state_values(effective_config)
+            # Step 5: Emit initial running status (single get_state() call)
             node0 = ""
+            st0_js = {}
             try:
                 st0 = self.task.skill.runnable.get_state(config=effective_config)
+                st0_js = st0.values if hasattr(st0, "values") else {}
                 if hasattr(st0, "next") and st0.next:
                     node0 = st0.next[0]
             except Exception:
@@ -664,17 +667,17 @@ class TaskExecutor:
             
             # Step 6: Process async stream
             async for step in agen:
-                # Truncate screenshot data for logging
-                try:
-                    from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-                    log_step = truncate_screenshot_for_logging(step)
-                    log_step_str = str(log_step)
-                    if len(log_step_str) > 1000:
-                        log_step_str = log_step_str[:1000] + "..."
-                    logger.debug(f"async Step output: {log_step_str}")
-                except Exception:
-                    log_step_str = str(step)[:1000] + "..." if len(str(step)) > 1000 else str(step)
-                    logger.debug(f"async Step output: {log_step_str}")
+                # Debug logging guarded behind level check to avoid heavy truncation work
+                if getattr(getattr(logger, "logger", None), "isEnabledFor", lambda *_: False)(10):  # logging.DEBUG == 10
+                    try:
+                        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                        log_step = truncate_screenshot_for_logging(step)
+                        log_step_str = str(log_step)
+                        if len(log_step_str) > 1000:
+                            log_step_str = log_step_str[:1000] + "..."
+                        logger.debug(f"async Step output: {log_step_str}")
+                    except Exception:
+                        pass
                 await self.task.pause_event.wait()
                 
                 # Check for cancellation
@@ -701,15 +704,19 @@ class TaskExecutor:
                 # Update status message
                 self.task.status.message = _create_message("agent", str(step))
                 
-                # Emit running status with current node
-                # Skip if this step contains the final output of a completed node
-                # (step dict has node name as key with the node's return value)
+                # Emit running status with current node.
+                # Only fetch full state when a node has produced output (cheapest update path
+                # for intermediate/metadata steps).
                 node_name = self.get_node_name_from_step(step, effective_config)
                 
-                if not self.is_step_node_output(step):
-                    # Only emit running status if this is not a node's final output
+                if self.is_step_node_output(step):
+                    # Node completed - send full state so GUI reflects latest results
                     st_js = self.get_state_values(effective_config)
                     self.emit_run_status("running", node_name, st_js)
+                else:
+                    # Intermediate metadata step - send lightweight update without
+                    # overwriting the frontend's cached node state with an empty dict.
+                    self.emit_run_status("running", node_name, None)
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
@@ -720,15 +727,31 @@ class TaskExecutor:
                         i_tag, current_checkpoint = self.handle_interrupt(step, effective_config)
                     break
             
-            # Step 7: Determine success and finalize
+            # Step 7: Determine terminal status and finalize
+            terminal_status = "completed"
             if self.task.status.state == TaskState.input_required:
                 success = False
+                terminal_status = "paused"
+            elif self.task.status.state == TaskState.canceled:
+                success = False
+                terminal_status = "cancelled"
+                logger.info("task cancelled...")
+            elif self.task.status.state == TaskState.failed:
+                success = False
+                terminal_status = "failed"
+                logger.info("task failed...")
             else:
                 success = True
                 self.task.status.state = TaskState.completed
                 logger.info("task completed...")
             
-            run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
+            run_result = self.finalize_run(
+                success,
+                step,
+                current_checkpoint,
+                effective_config,
+                terminal_status=terminal_status,
+            )
             logger.debug(f"astream_run result: {run_result}")
             return run_result
         

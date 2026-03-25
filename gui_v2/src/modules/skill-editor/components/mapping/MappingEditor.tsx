@@ -22,7 +22,7 @@ type MappingTarget = {
   target: string; // e.g. "state.attributes.x" | "state.metadata.y" | "state.tool_input.z" | "resume.foo"
 };
 
-type MappingRule = {
+export type MappingRule = {
   from: string[];
   to: MappingTarget[];
   transform?: string | { name: string; args?: Record<string, any> };
