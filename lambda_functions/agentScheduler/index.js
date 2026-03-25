@@ -1152,10 +1152,12 @@ async function prepareSkillUploadTargets({ skill, ownerEmail }) {
 
   const diagramDirRaw = skill.diagram?.dir;
   const hasDiagramDir = !!diagramDirRaw;
-  // Only use the last path segment to avoid full local paths (e.g. C:\Users\...) leaking into S3 keys
+  // Only use the last path segment to avoid full local paths (e.g. C:\Users\...) leaking into S3 keys.
+  // Always fall back to "diagram_dir" so that diagram upload URLs are always generated for copied/new
+  // skills that do not carry a diagram.dir value.
   const diagramDir = hasDiagramDir
     ? normalizePathSegment(String(diagramDirRaw).split(/[\\/]/).filter(Boolean).pop()) || "diagram_dir"
-    : null;
+    : "diagram_dir";
   const codeDir = "code_dir";
 
   const dataMappingKey = `${root}/data_mapping.json`;
@@ -5949,7 +5951,7 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "writeSkillFile":
             {
-              returnData = await skillEditorService.writeSkillFile(event.arguments?.input || {});
+              returnData = await skillEditorService.writeSkillFile(event.arguments?.input || {}, ownerEmail || owner);
             }
             break;
           case "scaffoldSkill":
