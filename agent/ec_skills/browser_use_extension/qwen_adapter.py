@@ -345,6 +345,11 @@ def _sanitize_action_array(actions: list) -> list:
         'go_back', 'wait', 'switch', 'close', 'send_keys', 'find_text',
         'upload_file', 'dropdown_options', 'select_dropdown',
     }
+    # Forbidden actions that cause Pydantic validation errors - drop silently
+    forbidden_actions = {
+        'evaluate', 'execute_js', 'switch_tab', 'run_js', 'run_javascript',
+        'execute_javascript', 'eval', 'js_eval',
+    }
     # Model class name → action name mapping
     model_class_map = {
         'doneactionmodel': 'done',
@@ -408,8 +413,13 @@ def _sanitize_action_array(actions: list) -> list:
                 action = {real_action: action[key] if isinstance(action[key], dict) else {}}
                 logger.info(f"[QwenAdapter] 🔄 Remapped legacy action '{key}' → '{real_action}'")
 
-        # Keep custom action keys; do not force-convert to extract here.
+        # Drop forbidden actions (e.g. evaluate/execute_js causes 89 Pydantic errors)
         action_keys = set(action.keys())
+        if action_keys & forbidden_actions:
+            logger.warning(f"[QwenAdapter] 🚫 Dropped forbidden action: {list(action_keys & forbidden_actions)}")
+            continue
+
+        # Keep custom action keys; do not force-convert to extract here.
         if not (action_keys & valid_actions):
             logger.info(f"[QwenAdapter] 🔄 Preserving custom action keys: {list(action_keys)}")
 
@@ -466,6 +476,82 @@ def clean_qwen_response(content: str) -> str:
     # Note: Generic cleaning (markdown, think tags) is already done by LoggingBrowserUseChatOpenAI base class
     content = content.strip()
     
+    # Step 1.5: Fix common invalid JSON escape sequences emitted by LLMs.
+    # These cause json.loads to raise JSONDecodeError before any other logic runs.
+    # Valid JSON escapes: \" \\ \/ \b \f \n \r \t \uXXXX
+    try:
+        _VALID_AFTER_BS = frozenset('"' + chr(92) + '/bfnrtu')
+        _HEX_CHARS = frozenset('0123456789abcdefABCDEF')
+        _buf = []
+        _i = 0
+        _s = content
+        while _i < len(_s):
+            if _s[_i] == chr(92):  # backslash
+                _nxt = _s[_i + 1] if _i + 1 < len(_s) else ''
+                if _nxt in _VALID_AFTER_BS:
+                    # \uXXXX — keep only if followed by 4 hex digits
+                    if _nxt == 'u' and _i + 5 <= len(_s) and all(c in _HEX_CHARS for c in _s[_i + 2:_i + 6]):
+                        _buf.append(_s[_i:_i + 6])
+                        _i += 6
+                    elif _nxt == 'u':
+                        # \u not followed by 4 hex → escape the backslash
+                        _buf.append(chr(92) + chr(92) + _nxt)
+                        _i += 2
+                    else:
+                        _buf.append(_s[_i])
+                        _buf.append(_nxt)
+                        _i += 2
+                elif _nxt:
+                    # Invalid escape — double the backslash
+                    _buf.append(chr(92) + chr(92) + _nxt)
+                    _i += 2
+                else:
+                    _buf.append(_s[_i])
+                    _i += 1
+            else:
+                _buf.append(_s[_i])
+                _i += 1
+        content = ''.join(_buf)
+    except Exception as _esc_err:
+        logger.debug(f"[QwenAdapter] escape-fix skipped: {_esc_err}")
+
+    # Step 1.8: Escape literal control characters inside JSON string values.
+    # Python's json.loads rejects control chars (\x00-\x1f) inside strings, but
+    # Pydantic's Rust-based parser may also reject them even after Python re-dumps.
+    # This pass walks the text character-by-character and escapes bare control
+    # characters found inside JSON string literals before any parsing attempt.
+    try:
+        _CTRL_ESCAPE = {'\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f'}
+        _cc_buf = []
+        _in_str = False
+        _ci = 0
+        _cs = content
+        while _ci < len(_cs):
+            _ch = _cs[_ci]
+            if not _in_str:
+                _cc_buf.append(_ch)
+                if _ch == '"':
+                    _in_str = True
+            else:
+                if _ch == '\\' and _ci + 1 < len(_cs):
+                    _cc_buf.append(_ch)
+                    _cc_buf.append(_cs[_ci + 1])
+                    _ci += 1
+                elif _ch == '"':
+                    _cc_buf.append(_ch)
+                    _in_str = False
+                elif ord(_ch) < 0x20:
+                    _cc_buf.append(_CTRL_ESCAPE.get(_ch, f'\\u{ord(_ch):04x}'))
+                else:
+                    _cc_buf.append(_ch)
+            _ci += 1
+        _fixed = ''.join(_cc_buf)
+        if _fixed != content:
+            logger.debug(f"[QwenAdapter] control-char fix applied ({len(content) - len(_fixed)} chars changed)")
+            content = _fixed
+    except Exception as _cc_err:
+        logger.debug(f"[QwenAdapter] control-char fix skipped: {_cc_err}")
+
     # Step 2: Try to parse as JSON
     try:
         data = json.loads(content)
