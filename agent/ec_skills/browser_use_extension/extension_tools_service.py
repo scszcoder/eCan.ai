@@ -41,6 +41,7 @@ custom_controller = Controller()
 
 # Global registry to track current agent instance for file path authorization
 _current_agent_instance = None
+_current_runtime_context: Dict[str, Any] = {}
 
 def set_current_agent(agent):
     """Set the current agent instance for fi
@@ -52,6 +53,24 @@ def set_current_agent(agent):
 def get_current_agent():
     """Get the current agent instance."""
     return _current_agent_instance
+
+
+def set_current_runtime_context(**kwargs):
+    """Set runtime context for browser-use extension tools."""
+    global _current_runtime_context
+    _current_runtime_context = dict(kwargs or {})
+    logger.debug(
+        "[ExtensionTools] Set runtime context: "
+        f"agent_id={_current_runtime_context.get('agent_id', '')}, "
+        f"task_id={_current_runtime_context.get('task_id', '')}, "
+        f"skill_name={_current_runtime_context.get('skill_name', '')}, "
+        f"node_id={_current_runtime_context.get('node_id', '')}"
+    )
+
+
+def get_current_runtime_context() -> Dict[str, Any]:
+    """Get runtime context for browser-use extension tools."""
+    return dict(_current_runtime_context or {})
 
 
 def _json_result(data: Any) -> ActionResult:
@@ -895,8 +914,26 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
 async def bu_send_chat(params: SendChatAction) -> ActionResult:
     from agent.mcp.server.chat_utils.chat_tools import send_chat
 
+    runtime_ctx = get_current_runtime_context()
+    bound_sender_agent_id = str(runtime_ctx.get("agent_id") or "").strip()
+    explicit_sender_agent_id = str(params.sender_agent_id or "").strip()
+
+    if not bound_sender_agent_id:
+        return ActionResult(
+            error="Current runtime agent_id is unavailable for bu_send_chat. "
+                  "This tool requires an active browser/task agent context."
+        )
+
+    if explicit_sender_agent_id and explicit_sender_agent_id != bound_sender_agent_id:
+        return ActionResult(
+            error=(
+                f"sender_agent_id mismatch: requested={explicit_sender_agent_id}, "
+                f"runtime={bound_sender_agent_id}. bu_send_chat binds sender to the current runtime agent."
+            )
+        )
+
     config: Dict[str, Any] = {
-        "sender_agent_id": params.sender_agent_id,
+        "sender_agent_id": bound_sender_agent_id,
         "message": params.message,
     }
     if params.recipient_agent_id is not None:
@@ -911,6 +948,13 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
         config["async_send"] = params.async_send
 
     login = AppContext.login
+    logger.info(
+        f"[bu_send_chat] runtime sender={bound_sender_agent_id}, "
+        f"recipient_id={config.get('recipient_agent_id', '')}, "
+        f"recipient_name={config.get('recipient_agent_name', '')}, "
+        f"task_id={runtime_ctx.get('task_id', '')}, skill={runtime_ctx.get('skill_name', '')}, "
+        f"node_id={runtime_ctx.get('node_id', '')}"
+    )
     result = send_chat(login.main_win, config)
 
     if result.get("success"):

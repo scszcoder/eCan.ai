@@ -91,6 +91,7 @@ def _build_chat_message(
     chat_id: str,
     message_text: str,
     sender_name: str = "",
+    receiver_agent_id: str = "",
     message_type: str = "text",
     attachments: List[Dict] = None,
     metadata: Dict[str, Any] = None,
@@ -121,6 +122,7 @@ def _build_chat_message(
                 "attachments": attachments or [],
                 "chatId": chat_id,
                 "senderId": sender_agent_id,
+                "receiverId": receiver_agent_id,
                 "i_tag": "",
                 "createAt": int(time.time() * 1000),
                 "senderName": sender_name,
@@ -128,6 +130,8 @@ def _build_chat_message(
                 "role": "agent",
                 "ext": "",
                 "human": False,
+                "transport": "a2a",
+                "senderType": "agent",
                 **(metadata or {}),
             }
         }
@@ -233,6 +237,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             chat_id=chat_id,
             message_text=message_text,
             sender_name=sender_name,
+            receiver_agent_id=getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id,
             message_type=message_type,
             attachments=attachments,
         )

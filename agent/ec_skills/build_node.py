@@ -6040,8 +6040,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     f"{_agent_keep_alive_err}"
                 )
             try:
-                from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+                from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                    set_current_agent,
+                    set_current_runtime_context,
+                )
                 set_current_agent(agent)
+                set_current_runtime_context(
+                    agent_id=calling_agent_id or "",
+                    task_id=(state.get("attributes") or {}).get("task_id", "") if isinstance(state, dict) else "",
+                    skill_name=skill_name,
+                    node_id=node_name,
+                    owner=owner,
+                )
             except Exception as _set_agent_err:
                 logger.debug(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_err}")
 
