@@ -1950,6 +1950,7 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
     
     try:
         import os
+        skip_cloud_sync = bool((params or {}).get('_skip_cloud_sync'))
         # Normalize file path to handle Chinese characters correctly
         # This ensures consistent path format in database for proper querying
         file_path = os.path.abspath(os.path.normpath(file_path))
@@ -2048,7 +2049,8 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 # Sync to cloud
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
-                _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
+                if not skip_cloud_sync:
+                    _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
 
                 try:
                     if file_skill_id != str(skill_id):
@@ -2087,7 +2089,8 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 # Sync to cloud
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
-                _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+                if not skip_cloud_sync:
+                    _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
 
                 try:
                     if file_skill_id != str(skill_id):

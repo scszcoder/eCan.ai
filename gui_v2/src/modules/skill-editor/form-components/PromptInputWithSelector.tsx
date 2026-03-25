@@ -96,14 +96,20 @@ export const PromptInputWithSelector: React.FC<PromptInputWithSelectorProps> = (
           {({ field }) => {
             const promptId = field.value?.content || field.value || IN_LINE_PROMPT_ID;
             return (
-              <PromptSelector
-                value={promptId}
-                onChange={(val) => {
-                  // Store as FlowValue with content
-                  field.onChange({ type: 'constant', content: val });
-                }}
-                promptType={promptType}
-              />
+              <Field<any> name={promptFieldName}>
+                {({ field: promptField }) => (
+                  <PromptSelector
+                    value={promptId}
+                    onChange={(val) => {
+                      field.onChange({ type: 'constant', content: val });
+                      if (val !== IN_LINE_PROMPT_ID) {
+                        promptField.onChange({ type: 'template', content: '' });
+                      }
+                    }}
+                    promptType={promptType}
+                  />
+                )}
+              </Field>
             );
           }}
         </Field>
