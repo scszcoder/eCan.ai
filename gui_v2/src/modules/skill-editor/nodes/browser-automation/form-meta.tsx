@@ -247,6 +247,76 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     }
   }, []);
 
+  const normalizeMonitorItem = useCallback((item: any) => {
+    const base = (item && typeof item === 'object') ? { ...item } : {};
+    const parsed = parseDomExtractorConfig(base?.cdpFilterExpr);
+    const looksLikeFullMonitor =
+      !!parsed &&
+      typeof parsed === 'object' &&
+      (
+        parsed.sourceType ||
+        parsed.source_type ||
+        parsed.urlPatterns ||
+        parsed.url_patterns ||
+        parsed.domSelector ||
+        parsed.dom_selector ||
+        parsed.domCheckIntervalMs ||
+        parsed.dom_check_interval_ms
+      );
+
+    const merged = looksLikeFullMonitor ? { ...base, ...parsed } : base;
+    const nestedExpr = looksLikeFullMonitor ? (parsed?.cdpFilterExpr ?? parsed?.cdp_filter_expr) : base?.cdpFilterExpr;
+    const domCfg = parseDomExtractorConfig(nestedExpr);
+    const domItem = Array.isArray(domCfg?.items) && domCfg.items[0]
+      ? domCfg.items[0]
+      : (typeof domCfg === 'object' && domCfg ? domCfg : {});
+    const domFields = domItem?.fields || {};
+
+    return {
+      label: merged?.label ?? '',
+      enabled: merged?.enabled !== false,
+      sourceType: merged?.sourceType ?? merged?.source_type ?? 'http_polling',
+      urlPatterns: merged?.urlPatterns ?? merged?.url_patterns ?? '',
+      contentFilters: merged?.contentFilters ?? merged?.content_filters ?? '',
+      methods: merged?.methods ?? '',
+      minBodyLength: merged?.minBodyLength ?? merged?.min_body_length ?? 10,
+      frameDirection: merged?.frameDirection ?? merged?.frame_direction ?? 'incoming',
+      sseEventTypes: merged?.sseEventTypes ?? merged?.sse_event_types ?? '',
+      domSelector: merged?.domSelector ?? merged?.dom_selector ?? '',
+      domAttributes: merged?.domAttributes ?? merged?.dom_attributes ?? false,
+      domChildList: merged?.domChildList ?? merged?.dom_child_list ?? true,
+      domSubtree: merged?.domSubtree ?? merged?.dom_subtree ?? true,
+      domCheckIntervalMs: merged?.domCheckIntervalMs ?? merged?.dom_check_interval_ms ?? 250,
+      cdpDomain: merged?.cdpDomain ?? merged?.cdp_domain ?? '',
+      cdpEventMethod: merged?.cdpEventMethod ?? merged?.cdp_event_method ?? '',
+      cdpFilterExpr: typeof nestedExpr === 'string' ? nestedExpr : '',
+      domPageUrlPatterns: Array.isArray(domCfg?.page_url_patterns) ? domCfg.page_url_patterns.join(', ') : '',
+      domExtractorRoots: Array.isArray(domCfg?.roots) ? domCfg.roots.join(', ') : '',
+      domItemSelector: domItem?.selector ?? domCfg?.item_selector ?? '',
+      domKeyFields: Array.isArray(domCfg?.identity?.key_fields)
+        ? domCfg.identity.key_fields.join(', ')
+        : (domCfg?.key_field ?? 'session'),
+      domKeyField: domCfg?.key_field ?? 'session',
+      domEmitOn: domCfg?.emit_on ?? 'added',
+      domTopN: domCfg?.top_n ?? 10,
+      domEmptyTextPatterns: Array.isArray(domCfg?.empty_text_patterns) ? domCfg.empty_text_patterns.join(', ') : '',
+      domSessionSource: domFields?.session?.source ?? 'attr',
+      domSessionSelector: domFields?.session?.selector ?? '',
+      domSessionAttr: domFields?.session?.attr ?? 'href',
+      domSessionRegex: domFields?.session?.regex ?? '',
+      domSessionGroup: domFields?.session?.group ?? 1,
+      domChatUrlSource: domFields?.chatUrl?.source ?? 'attr',
+      domChatUrlSelector: domFields?.chatUrl?.selector ?? '',
+      domChatUrlAttr: domFields?.chatUrl?.attr ?? 'href',
+      domNameSource: domFields?.name?.source ?? 'text',
+      domNameSelector: domFields?.name?.selector ?? '',
+      domNameClosest: domFields?.name?.closest ?? '',
+      domNameRegex: domFields?.name?.regex ?? '',
+      domNameGroup: domFields?.name?.group ?? 1,
+      domNameSplitBefore: domFields?.name?.split_before ?? '',
+    };
+  }, [parseDomExtractorConfig]);
+
   const buildDomExtractorConfig = useCallback((item: any) => {
     const roots = String(item?.domExtractorRoots ?? '')
       .split(',')
@@ -316,6 +386,35 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     if (!config.items[0].fields.name.split_before) delete config.items[0].fields.name.split_before;
     return config;
   }, []);
+
+  const serializeMonitorItem = useCallback((item: any) => {
+    const normalized = normalizeMonitorItem(item);
+    const serialized: any = {
+      label: normalized.label || '',
+      enabled: normalized.enabled !== false,
+      sourceType: normalized.sourceType || 'http_polling',
+      urlPatterns: normalized.urlPatterns || '',
+      contentFilters: normalized.contentFilters || '',
+      methods: normalized.methods || '',
+      minBodyLength: Number(normalized.minBodyLength ?? 10) || 10,
+      frameDirection: normalized.frameDirection || 'incoming',
+      sseEventTypes: normalized.sseEventTypes || '',
+      domSelector: normalized.domSelector || '',
+      domAttributes: !!normalized.domAttributes,
+      domChildList: normalized.domChildList !== false,
+      domSubtree: normalized.domSubtree !== false,
+      domCheckIntervalMs: Number(normalized.domCheckIntervalMs ?? 250) || 250,
+      cdpDomain: normalized.cdpDomain || '',
+      cdpEventMethod: normalized.cdpEventMethod || '',
+      cdpFilterExpr: normalized.cdpFilterExpr || '',
+    };
+
+    if (serialized.sourceType === 'dom_mutation') {
+      serialized.cdpFilterExpr = JSON.stringify(buildDomExtractorConfig(normalized), null, 2);
+    }
+
+    return serialized;
+  }, [buildDomExtractorConfig, normalizeMonitorItem]);
 
   return (
     <>
@@ -709,56 +808,9 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 const toObj = (item: any) =>
                   typeof item === 'string'
                     ? { label: '', enabled: true, sourceType: 'http_polling' }
-                    : (() => {
-                        const domCfg = parseDomExtractorConfig(item?.cdpFilterExpr);
-                        const domItem = Array.isArray(domCfg?.items) && domCfg.items[0] ? domCfg.items[0] : {};
-                        const domFields = domItem?.fields || {};
-                        return {
-                        label: item?.label ?? '',
-                        enabled: item?.enabled !== false,
-                        sourceType: item?.sourceType ?? 'http_polling',
-                        urlPatterns: item?.urlPatterns ?? '',
-                        contentFilters: item?.contentFilters ?? '',
-                        methods: item?.methods ?? '',
-                        minBodyLength: item?.minBodyLength ?? 10,
-                        frameDirection: item?.frameDirection ?? 'incoming',
-                        sseEventTypes: item?.sseEventTypes ?? '',
-                        domSelector: item?.domSelector ?? '',
-                        domAttributes: item?.domAttributes ?? false,
-                        domChildList: item?.domChildList ?? true,
-                        domSubtree: item?.domSubtree ?? true,
-                        domCheckIntervalMs: item?.domCheckIntervalMs ?? 250,
-                        cdpDomain: item?.cdpDomain ?? '',
-                        cdpEventMethod: item?.cdpEventMethod ?? '',
-                        cdpFilterExpr: item?.cdpFilterExpr ?? '',
-                        domPageUrlPatterns: Array.isArray(domCfg?.page_url_patterns) ? domCfg.page_url_patterns.join(', ') : '',
-                        domExtractorRoots: Array.isArray(domCfg?.roots) ? domCfg.roots.join(', ') : '',
-                        domItemSelector: domItem?.selector ?? '',
-                        domKeyFields: Array.isArray(domCfg?.identity?.key_fields)
-                          ? domCfg.identity.key_fields.join(', ')
-                          : (domCfg?.key_field ?? 'session'),
-                        domKeyField: domCfg?.key_field ?? 'session',
-                        domEmitOn: domCfg?.emit_on ?? 'added',
-                        domTopN: domCfg?.top_n ?? 10,
-                        domEmptyTextPatterns: Array.isArray(domCfg?.empty_text_patterns) ? domCfg.empty_text_patterns.join(', ') : '',
-                        domSessionSource: domFields?.session?.source ?? 'attr',
-                        domSessionSelector: domFields?.session?.selector ?? '',
-                        domSessionAttr: domFields?.session?.attr ?? 'href',
-                        domSessionRegex: domFields?.session?.regex ?? '',
-                        domSessionGroup: domFields?.session?.group ?? 1,
-                        domChatUrlSource: domFields?.chatUrl?.source ?? 'attr',
-                        domChatUrlSelector: domFields?.chatUrl?.selector ?? '',
-                        domChatUrlAttr: domFields?.chatUrl?.attr ?? 'href',
-                        domNameSource: domFields?.name?.source ?? 'text',
-                        domNameSelector: domFields?.name?.selector ?? '',
-                        domNameClosest: domFields?.name?.closest ?? '',
-                        domNameRegex: domFields?.name?.regex ?? '',
-                        domNameGroup: domFields?.name?.group ?? 1,
-                        domNameSplitBefore: domFields?.name?.split_before ?? '',
-                      };
-                    })();
+                    : normalizeMonitorItem(item);
                 const arr = raw.map(toObj);
-                const setArray = (next: any[]) => field.onChange({ type: 'constant', content: next });
+                const setArray = (next: any[]) => field.onChange({ type: 'constant', content: next.map(serializeMonitorItem) });
                 const addOne = () =>
                   {
                     const nextIndex = arr.length;
@@ -1144,7 +1196,22 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                   </label>
                                   <TextArea value={item.cdpFilterExpr} rows={8} onChange={(val) => {
                                     const next = [...arr];
-                                    next[i] = { ...next[i], cdpFilterExpr: String(val) };
+                                    const text = String(val);
+                                    const parsed = parseDomExtractorConfig(text);
+                                    const looksLikeFullMonitor =
+                                      !!parsed &&
+                                      typeof parsed === 'object' &&
+                                      (
+                                        parsed.sourceType ||
+                                        parsed.source_type ||
+                                        parsed.urlPatterns ||
+                                        parsed.url_patterns ||
+                                        parsed.domSelector ||
+                                        parsed.dom_selector
+                                      );
+                                    next[i] = looksLikeFullMonitor
+                                      ? normalizeMonitorItem({ ...next[i], cdpFilterExpr: text })
+                                      : { ...next[i], cdpFilterExpr: text };
                                     setArray(next);
                                   }} />
                                 </div>
