@@ -306,7 +306,14 @@ class TaskExecutor:
     
     # ==================== Finalization ====================
     
-    def finalize_run(self, success: bool, step: dict, current_checkpoint: Any, effective_config: dict) -> dict:
+    def finalize_run(
+        self,
+        success: bool,
+        step: dict,
+        current_checkpoint: Any,
+        effective_config: dict,
+        terminal_status: str = "completed",
+    ) -> dict:
         """
         Finalize stream run and return result.
         
@@ -327,16 +334,21 @@ class TaskExecutor:
             logger.info(f"[EXECUTOR] Waiting for {len(self.task.get_pending_events())} pending events")
             self._wait_for_pending_events(timeout=DEFAULT_PENDING_EVENTS_TIMEOUT)
         
-        run_result = {"success": success, "step": step, "cp": current_checkpoint}
+        run_result = {
+            "success": success,
+            "step": step,
+            "cp": current_checkpoint,
+            "terminal_status": terminal_status,
+        }
         
         # Include pending event results in the run result
         if self.task.pending_events:
             run_result["pending_event_results"] = self.task.get_all_pending_event_results()
         
-        # Emit completion status (only if truly completed, not paused)
-        if success:
+        # Emit terminal status for frontend observability.
+        if terminal_status and terminal_status != "paused":
             st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-            self.emit_run_status("completed", "", st_js)
+            self.emit_run_status(terminal_status, "", st_js)
         
         return run_result
     
@@ -554,15 +566,31 @@ class TaskExecutor:
                         i_tag, current_checkpoint = self.handle_interrupt(step, effective_config)
                     break
             
-            # Step 8: Determine success and finalize
+            # Step 8: Determine terminal status and finalize
+            terminal_status = "completed"
             if self.task.status.state == TaskState.input_required:
                 success = False
+                terminal_status = "paused"
+            elif self.task.status.state == TaskState.canceled:
+                success = False
+                terminal_status = "cancelled"
+                logger.info("task cancelled...")
+            elif self.task.status.state == TaskState.failed:
+                success = False
+                terminal_status = "failed"
+                logger.info("task failed...")
             else:
                 success = True
                 self.task.status.state = TaskState.completed
                 logger.info("task completed...")
             
-            run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
+            run_result = self.finalize_run(
+                success,
+                step,
+                current_checkpoint,
+                effective_config,
+                terminal_status=terminal_status,
+            )
             logger.debug(f"synced stream_run result: {_truncate_for_log(run_result)}")
             return run_result
         
@@ -699,15 +727,31 @@ class TaskExecutor:
                         i_tag, current_checkpoint = self.handle_interrupt(step, effective_config)
                     break
             
-            # Step 7: Determine success and finalize
+            # Step 7: Determine terminal status and finalize
+            terminal_status = "completed"
             if self.task.status.state == TaskState.input_required:
                 success = False
+                terminal_status = "paused"
+            elif self.task.status.state == TaskState.canceled:
+                success = False
+                terminal_status = "cancelled"
+                logger.info("task cancelled...")
+            elif self.task.status.state == TaskState.failed:
+                success = False
+                terminal_status = "failed"
+                logger.info("task failed...")
             else:
                 success = True
                 self.task.status.state = TaskState.completed
                 logger.info("task completed...")
             
-            run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
+            run_result = self.finalize_run(
+                success,
+                step,
+                current_checkpoint,
+                effective_config,
+                terminal_status=terminal_status,
+            )
             logger.debug(f"astream_run result: {run_result}")
             return run_result
         

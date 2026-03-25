@@ -823,6 +823,172 @@ def _escape_positional_placeholders(template: str) -> str:
     return "".join(rebuilt)
 
 
+def _compact_upstream_for_prompt(state: dict, max_chars: int = 10000) -> str:
+    """Compact state["tool_result"] into a trimmed JSON string for LLM prompt injection.
+
+    Design principle: **blacklist noise, keep everything else**.
+
+    Instead of whitelisting specific business field names (which would be
+    skill-specific and require maintenance), we drop known *structural noise*
+    produced by browser-use / LLM framework internals and keep all remaining
+    fields that are small enough to include in a prompt.
+
+    Noise sources to drop:
+    - Large text blobs: DOM content, HTML, screenshots, raw markdown
+    - Framework internals: messages, history, prompt text, threads, events
+    - Redundant scaffolding: provider, task description, system prompt
+
+    Everything else (business fields of any name, from any skill) passes through
+    as long as individual values stay under the per-value size cap.
+    """
+    import json as _json
+    import re as _re
+
+    tr = state.get("tool_result")
+    if not isinstance(tr, dict) or not tr:
+        return "{}"
+
+    # Keys always dropped — framework/infrastructure noise with no business value.
+    _NOISE_KEYS = frozenset({
+        "provider", "task", "systemPrompt", "system_prompt",
+        "history", "prompts", "prompt_refs", "prompt",
+        "messages", "threads", "events",
+        "attachments", "http_response",
+        "cli_input", "cli_results",
+        "attributes", "metadata",
+    })
+
+    # Key-name substrings that signal large, noisy content regardless of key name.
+    _NOISE_SUBSTR = (
+        "screenshot", "base64", "dom_content", "html_content",
+        "raw_html", "markdown_content", "page_content", "dom_tree",
+        "page_source", "inner_html", "outer_html",
+    )
+
+    # Maximum character length for any single scalar value kept in the output.
+    _MAX_VAL_CHARS = 500
+    # Maximum items kept from a list value.
+    _MAX_LIST_ITEMS = 30
+
+    def _is_noisy_key(k: str) -> bool:
+        kl = k.lower()
+        return k in _NOISE_KEYS or any(s in kl for s in _NOISE_SUBSTR)
+
+    def _extract_json_from_text(text: str):
+        """Best-effort: parse a JSON object out of a fenced or plain string."""
+        s = text.strip()
+        if not s:
+            return None
+        if s.startswith("```"):
+            s = _re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", s)
+            s = _re.sub(r"\n?```$", "", s).strip()
+        try:
+            parsed = _json.loads(s)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+        m = _re.search(r"\{[\s\S]*\}", s)
+        if m:
+            try:
+                parsed = _json.loads(m.group(0))
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        return None
+
+    def _compact_value(v, depth: int = 0):
+        """Recursively compact a value, dropping noise and over-sized content."""
+        if v is None or v == "" or v == [] or v == {}:
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v
+        if isinstance(v, str):
+            if len(v) > _MAX_VAL_CHARS:
+                # Try to parse as JSON — the string might be an encoded business payload.
+                parsed = _extract_json_from_text(v)
+                if parsed:
+                    return _compact_dict(parsed, depth + 1)
+                return None  # Too long and not parseable — drop it.
+            return v
+        if isinstance(v, list):
+            result = []
+            for item in v[:_MAX_LIST_ITEMS]:
+                cv = _compact_value(item, depth + 1)
+                if cv is not None:
+                    result.append(cv)
+            return result or None
+        if isinstance(v, dict):
+            return _compact_dict(v, depth + 1) or None
+        return None
+
+    def _compact_dict(d: dict, depth: int = 0) -> dict:
+        """Return a compacted copy of d, dropping noise and oversized values."""
+        if depth > 5:
+            return {}
+        out = {}
+        for k, v in d.items():
+            if not isinstance(k, str):
+                continue
+            if _is_noisy_key(k):
+                continue
+            cv = _compact_value(v, depth)
+            if cv is not None:
+                out[k] = cv
+        return out
+
+    def _unwrap_payload(node_val: dict) -> dict:
+        """
+        Merge business data from both the top-level dict and common wrapper keys
+        (final, result, llm_result, response, output) into a single flat dict.
+        Wrapper keys are resolved first so that top-level scaffolding fields
+        (provider, task, …) don't shadow the actual business payload.
+        """
+        merged: dict = {}
+
+        # 1. Check candidate wrapper keys for a JSON business payload.
+        for wrapper in ("final", "result", "llm_result", "response", "output", "text"):
+            payload = node_val.get(wrapper)
+            if isinstance(payload, dict):
+                for k, v in payload.items():
+                    if k not in merged and not _is_noisy_key(k):
+                        merged[k] = v
+            elif isinstance(payload, str):
+                parsed = _extract_json_from_text(payload)
+                if isinstance(parsed, dict):
+                    for k, v in parsed.items():
+                        if k not in merged and not _is_noisy_key(k):
+                            merged[k] = v
+
+        # 2. Top-level non-noise keys (don't overwrite payload fields).
+        for k, v in node_val.items():
+            if k not in merged and not _is_noisy_key(k) and k not in ("final", "result", "llm_result", "response", "output", "text"):
+                merged[k] = v
+
+        return merged
+
+    compact = {}
+    for node_id, node_val in tr.items():
+        if not isinstance(node_val, dict):
+            continue
+        unwrapped = _unwrap_payload(node_val)
+        row = _compact_dict(unwrapped)
+        if row:
+            compact[node_id] = row
+
+    try:
+        payload = _json.dumps(compact, ensure_ascii=False, indent=2)
+    except Exception:
+        payload = str(compact)
+
+    if len(payload) > max_chars:
+        payload = payload[:max_chars] + "...(truncated)"
+    return payload
+
+
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
@@ -1345,6 +1511,20 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
         logger.debug(f"[LLM] node={node_name} template_vars={variables}")
+
+        # Compact upstream_outputs before variable resolution to prevent context bloat.
+        # Browser-automation nodes do this inline; LLM nodes must do the same here.
+        if "upstream_outputs" in variables:
+            try:
+                _pr = state.setdefault("prompt_refs", {})
+                if isinstance(_pr, dict) and "upstream_outputs" not in _pr:
+                    _pr["upstream_outputs"] = _compact_upstream_for_prompt(state)
+                    logger.info(
+                        f"[LLM] node={node_name} injected compact upstream_outputs "
+                        f"({len(_pr['upstream_outputs'])} chars) into prompt_refs"
+                    )
+            except Exception as _cmp_err:
+                logger.debug(f"[LLM] Failed to compact upstream_outputs: {_cmp_err}")
 
         # --- Cascading variable resolution ---
         # Priority: prompt_refs → prompt-level vars → skill-level vars → built-in providers → ""
@@ -4449,8 +4629,6 @@ _passive_steps_processed: set[str] = set()
 # Module-level cache for PassiveAgent - reuse across loop iterations
 # Key: browser_session id, Value: PassiveAgent instance
 _cached_passive_agents: dict[int, "PassiveAgent"] = {}
-# Prevent concurrent start() calls on the same BrowserSession in the same process.
-_browser_session_start_lock = _asyncio_module.Lock()
 
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
@@ -4594,10 +4772,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_max_actions_per_step = None
 
-    # DOM pruning patch switch (default: "on").
-    # Node input: domPrune = "on" | "off"
-    dom_prune_mode = str(((inputs.get("domPrune") or {}).get("content") or "on")).strip().lower()
-    node_enable_dom_prune = dom_prune_mode != "off"
 
     # Optional node-level hard timeout for browser automation runtime (seconds).
     # Keep this separate from LLM request timeout so we can cap the whole node duration.
@@ -4615,7 +4789,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     logger.info(
         f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
         f"max_steps={node_max_steps}, max_actions_per_step={node_max_actions_per_step}, "
-        f"node_timeout_seconds={node_timeout_seconds}, dom_prune={dom_prune_mode}"
+        f"node_timeout_seconds={node_timeout_seconds}"
     )
     send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
@@ -4906,8 +5080,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
         
         # Acquire browser based on settings
+        _agent_id_base = getattr(mainwin, 'current_agent_id', 'default_agent') or 'default_agent'
+        # Isolate parallel browser-automation nodes at BrowserManager layer.
+        # Without node suffix, sibling branches may contend on the same default agent handle.
+        _node_agent_id = f"{_agent_id_base}:{node_name}"
         auto_browser = browser_manager.acquire_browser(
-            agent_id=getattr(mainwin, 'current_agent_id', 'default_agent'),
+            agent_id=_node_agent_id,
             task=f"browser_automation_{node_name}",
             browser_type=browser_type,
             cdp_port=cdp_port,
@@ -4928,15 +5106,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 send_skill_editor_log("log", log_msg)
 
                 if not _is_session_started(auto_browser.browser_session):
-                    # Avoid concurrent start() on same BrowserSession, which can race
-                    # and leave the internal CDP client in half-initialized state.
-                    async with _browser_session_start_lock:
-                        if not _is_session_started(auto_browser.browser_session):
-                            # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
-                            # Wrap in create_task to ensure proper task context for bubus event handling
-                            import asyncio
-                            task = asyncio.create_task(auto_browser.browser_session.start())
-                            await task
+                    # Each parallel branch has its own distinct BrowserSession object,
+                    # so no shared lock is needed here — a global asyncio.Lock would
+                    # serialize parallel fan-out branches and leave one stuck waiting.
+                    import asyncio
+                    task = asyncio.create_task(auto_browser.browser_session.start())
+                    await task
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
@@ -5833,6 +6008,79 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                 agent_kwargs["register_done_callback"] = _on_browser_done
 
+            # Populate available_file_paths so the agent can upload local images.
+            # Extract product_dir from state (set by init_params / analyze_product),
+            # then allowlist every image file in that directory.
+            try:
+                _product_dir_for_files: str | None = None
+                if isinstance(state, dict):
+                    # 1. Direct from prompt_refs (fastest)
+                    _pr = state.get("prompt_refs") or {}
+                    _product_dir_for_files = _pr.get("product_dir") or None
+                    if not _product_dir_for_files:
+                        # 2. Scan tool_result entries (init_params / analyze_product output)
+                        _tr = state.get("tool_result") or {}
+                        for _node_out in _tr.values():
+                            if not isinstance(_node_out, dict):
+                                continue
+                            _pd = _node_out.get("product_dir")
+                            if _pd and isinstance(_pd, str):
+                                _product_dir_for_files = _pd
+                                break
+                            # Try parsing "final" / "content" as JSON
+                            for _fk in ("final", "content", "extracted_content"):
+                                _fv = _node_out.get(_fk)
+                                if not isinstance(_fv, str):
+                                    continue
+                                try:
+                                    import json as _json_afp
+                                    _parsed_afp = _json_afp.loads(_fv)
+                                    if isinstance(_parsed_afp, dict) and _parsed_afp.get("product_dir"):
+                                        _product_dir_for_files = str(_parsed_afp["product_dir"])
+                                        break
+                                except Exception:
+                                    pass
+                            if _product_dir_for_files:
+                                break
+
+                if _product_dir_for_files and os.path.isdir(_product_dir_for_files):
+                    _image_exts = {
+                        ".jpg", ".jpeg", ".png", ".webp",
+                        ".gif", ".bmp", ".tiff", ".tif",
+                        ".heic", ".heif",
+                    }
+                    import re as _re_uuid
+                    # UUID pattern: 8-4-4-4-12 hex chars with hyphens (e.g. from research downloads)
+                    _UUID_PAT = _re_uuid.compile(
+                        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.',
+                        _re_uuid.IGNORECASE,
+                    )
+                    _file_paths = [
+                        os.path.join(_product_dir_for_files, _fname)
+                        for _fname in os.listdir(_product_dir_for_files)
+                        if (
+                            os.path.splitext(_fname.lower())[1] in _image_exts
+                            and not _UUID_PAT.match(_fname)  # exclude research-downloaded UUID images
+                        )
+                    ]
+                    if _file_paths:
+                        agent_kwargs["available_file_paths"] = _file_paths
+                        logger.info(
+                            f"[BrowserAutomation] available_file_paths: "
+                            f"{len(_file_paths)} image(s) from {_product_dir_for_files}"
+                        )
+                    else:
+                        logger.debug(
+                            f"[BrowserAutomation] No image files found in product_dir={_product_dir_for_files}"
+                        )
+                else:
+                    logger.debug(
+                        f"[BrowserAutomation] product_dir not found in state; "
+                        f"skipping available_file_paths ({_product_dir_for_files!r})"
+                    )
+            except Exception as _afp_err:
+                logger.warning(f"[BrowserAutomation] Failed to set available_file_paths: {_afp_err}")
+
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
 
@@ -5866,24 +6114,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as e:
                     logger.error(f"[BrowserAutomation] ❌ Failed to apply extract patch: {e}", exc_info=True)
 
-            # Apply DOM pruning patch to reduce noisy browser-state payload per step.
-            # Message compaction only compresses history, not current step DOM.
-            if node_enable_dom_prune:
-                try:
-                    from agent.ec_skills.browser_use_extension.dom_prune_patch import patch_dom_llm_representation
-
-                    # dom_chars_limit is a character count, distinct from
-                    # max_clickable_elements_length which is an element count.
-                    _dom_chars_limit = int(agent_kwargs.get('dom_chars_limit') or 8000)
-                    patch_dom_llm_representation(max_chars=_dom_chars_limit)
-                    logger.debug(
-                        "[BrowserAutomation] ✅ DOM prune patch applied (dom_chars_limit=%s)",
-                        _dom_chars_limit,
-                    )
-                except Exception as e:
-                    logger.error(f"[BrowserAutomation] ❌ Failed to apply DOM prune patch: {e}", exc_info=True)
-            else:
-                logger.info("[BrowserAutomation] DOM prune patch disabled by configuration")
 
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
             # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
@@ -5965,7 +6195,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     
                     # Start the browser session
                     if not _is_session_started(browser_session):
-                        await browser_session.start()
+                        # Parallel branches have distinct session objects; no shared lock
+                        # needed (a global asyncio.Lock would serialize fan-out branches).
+                        _start_task = asyncio.create_task(browser_session.start())
+                        await _start_task
                     if keep_browser_alive:
                         _patch_browser_session_lifecycle_debug(browser_session, source="post_start")
 
@@ -6190,6 +6423,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     """Run agent with node-level limits (max_steps + optional hard timeout)."""
                     if node_max_steps:
                         run_kwargs.setdefault("max_steps", node_max_steps)
+                    # max_actions_per_step is an Agent constructor param (already in agent_kwargs),
+                    # NOT a run() param — do not pass it here or agent.run() raises TypeError.
                     run_coro = agent.run(**run_kwargs)
                     if node_timeout_seconds:
                         return await asyncio.wait_for(run_coro, timeout=node_timeout_seconds)
@@ -6346,9 +6581,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception:
             pass
 
-        # Copy scalar browser node inputsValues into state["prompt_refs"] under the same key name.
-        # Any workflow can add arbitrary keys (e.g. region_code, locale); prompts use {{key}} matching
-        # the placeholder name — there are no reserved keys like site_name/home_url at runtime.
+        # Copy scalar browser node inputsValues into state["prompt_refs"].
+        # Empty strings are skipped: an empty inputsValue means "not configured here",
+        # so the upstream implicit resolver (priority 1.5 in resolve_prompt_variables)
+        # can supply the value from a previous node's tool_result output instead.
+        prompt_refs = {}
         try:
             if isinstance(state, dict):
                 prompt_refs = state.setdefault("prompt_refs", {})
@@ -6361,6 +6598,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         continue
                     _val = _raw.get("content")
                     if isinstance(_val, (str, int, float, bool)):
+                        if isinstance(_val, str) and not _val.strip():
+                            continue
                         prompt_refs[_key] = _val
 
                 def _compact_upstream_outputs_for_prompt(_state: dict) -> str:
@@ -6395,6 +6634,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         "highlights_summary",
                         "target_audience",
                         "notes",
+                        "is_free_shipping",
+                        "is_used",
+                        "features",
+                        "listing_images",
+                        "search_keyword",
                     }
 
                     # Generic noise keys to avoid prompt bloat and scenario-specific internals.
@@ -6729,6 +6973,157 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         else:
             combined_task = task_instructions
 
+        # Fast preflight: fail early on missing required prompt variables
+        # (marker-driven, avoids an expensive LLM/browser round-trip).
+        def _parse_required_vars_marker(task_text_raw: str) -> list[str]:
+            try:
+                m = re.search(r"\[REQUIRED_VARS:([^\]]+)\]", str(task_text_raw or ""))
+                if not m:
+                    return []
+                raw = m.group(1)
+                vars_list = [v.strip() for v in raw.split(",") if v.strip()]
+                # Keep stable order and dedupe
+                seen = set()
+                out = []
+                for v in vars_list:
+                    if v in seen:
+                        continue
+                    seen.add(v)
+                    out.append(v)
+                return out
+            except Exception:
+                return []
+
+        try:
+            _required_vars = _parse_required_vars_marker(combined_task)
+            if _required_vars:
+                _missing_vars = []
+                for _v in _required_vars:
+                    _val = (format_context or {}).get(_v)
+                    if _val is None or str(_val).strip() == "":
+                        _missing_vars.append(_v)
+                if _missing_vars:
+                    _blocked_payload = {
+                        "status": "blocked",
+                        "reason": "missing_required_inputs",
+                        "missing_fields": _missing_vars,
+                        "node": node_name,
+                        "notes": f"Missing required variables: {', '.join(_missing_vars)}",
+                    }
+                    state.setdefault("tool_result", {})
+                    if isinstance(state.get("tool_result"), dict):
+                        state["tool_result"][node_name] = _blocked_payload
+                    state["result"] = _blocked_payload
+                    add_to_history(
+                        state,
+                        ActionMessage(
+                            content=(
+                                f"action: browser-use preflight; "
+                                f"result: blocked(reason=missing_required_inputs, "
+                                f"missing={_missing_vars})"
+                            )
+                        ),
+                    )
+                    send_skill_editor_log(
+                        "warning",
+                        f"[BrowserAutomation] Preflight blocked: missing required vars {_missing_vars}",
+                    )
+                    return state
+        except Exception:
+            pass
+
+        # Deterministic local-directory grounding for local-analysis prompts.
+        # Variable name is defined by prompt marker, e.g. [LOCAL_DIR_VAR:local_dir].
+        def _resolve_local_dir_from_prompt_var(task_text_raw: str, context: dict) -> tuple[str, str]:
+            try:
+                marker_match = re.search(r"\[LOCAL_DIR_VAR:([a-zA-Z_][a-zA-Z0-9_]*)\]", str(task_text_raw or ""))
+                if not marker_match:
+                    return "", ""
+                var_name = marker_match.group(1).strip()
+                if not var_name:
+                    return "", ""
+                value = (context or {}).get(var_name)
+                if isinstance(value, str) and value.strip():
+                    return var_name, value.strip()
+                return var_name, ""
+            except Exception:
+                return "", ""
+
+        def _build_local_dir_snapshot(dir_path: str) -> str:
+            try:
+                if not dir_path:
+                    return ""
+                abs_dir = os.path.abspath(os.path.expanduser(dir_path))
+                payload: dict[str, Any] = {
+                    "dir_path": abs_dir,
+                    "exists": os.path.isdir(abs_dir),
+                    "file_count": 0,
+                    "sample_files": [],
+                    "text_snippets": {},
+                }
+                if not payload["exists"]:
+                    payload["error"] = "directory_not_found"
+                    return json.dumps(payload, ensure_ascii=False)
+
+                names = sorted(os.listdir(abs_dir))
+                payload["file_count"] = len(names)
+                payload["sample_files"] = names[:60]
+
+                text_exts = {".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".log"}
+                picked = 0
+                for name in names:
+                    if picked >= 3:
+                        break
+                    fpath = os.path.join(abs_dir, name)
+                    if not os.path.isfile(fpath):
+                        continue
+                    ext = os.path.splitext(name)[1].lower()
+                    if ext not in text_exts:
+                        continue
+                    try:
+                        # Read only small prefix to avoid prompt bloat
+                        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                            snippet = f.read(2400)
+                        if snippet.strip():
+                            payload["text_snippets"][name] = snippet
+                            picked += 1
+                    except Exception:
+                        continue
+                return json.dumps(payload, ensure_ascii=False)
+            except Exception as e:
+                return json.dumps({"error": f"snapshot_failed: {e}"}, ensure_ascii=False)
+
+        _local_dir_grounded = False
+        try:
+            _enable_local_dir_grounding = "[LOCAL_DIR_GROUNDING:ON]" in str(combined_task or "")
+
+            if _enable_local_dir_grounding:
+                _local_dir_var_name, configured_dir = _resolve_local_dir_from_prompt_var(combined_task, format_context)
+                local_snapshot = _build_local_dir_snapshot(configured_dir)
+                if local_snapshot:
+                    _local_dir_grounded = True
+                    combined_task = (
+                        f"{combined_task}\n\n"
+                        "[LOCAL PRODUCT DIRECTORY SNAPSHOT]\n"
+                        f"{local_snapshot}\n\n"
+                        "[STRICT EXECUTION RULES FOR THIS NODE]\n"
+                        "1) This node must use the local directory snapshot above as primary evidence.\n"
+                        "2) Do NOT navigate websites, do NOT search web, do NOT switch tabs.\n"
+                        "3) If fields are missing, infer conservatively from filenames/snippets only.\n"
+                        "4) Output final JSON directly once extracted."
+                    )
+                elif configured_dir == "":
+                    combined_task = (
+                        f"{combined_task}\n\n"
+                        "[LOCAL PRODUCT DIRECTORY SNAPSHOT]\n"
+                        f"{{\"error\":\"missing_local_dir_variable\",\"variable\":\"{_local_dir_var_name or 'LOCAL_DIR_VAR_NOT_SET'}\"}}\n\n"
+                        "[STRICT EXECUTION RULES FOR THIS NODE]\n"
+                        "Required local directory variable is missing. "
+                        "Return blocked(reason=missing_local_dir_variable) immediately."
+                    )
+        except Exception:
+            pass
+
         # Global anti-risk guardrails for browser automation.
         # This keeps prompts user-friendly while enforcing a consistent low-risk behavior
         # across different skills/sites (instead of requiring each prompt to repeat it).
@@ -6764,7 +7159,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception:
                 return task_text_raw
 
-        combined_task = _append_anti_risk_guardrails(combined_task)
+        # Skip web anti-risk guardrails for local-directory grounded nodes, otherwise
+        # these web-centric instructions may conflict with local-only extraction intent.
+        if not _local_dir_grounded:
+            combined_task = _append_anti_risk_guardrails(combined_task)
 
         # print("final_system_prompt:", final_system_prompt)
         # print("final_user_prompt:", final_user_prompt)
@@ -6953,17 +7351,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 _err_type = type(e).__name__
                 _tb = _traceback.format_exc()
                 error_msg = f"browser-use run failed: {_err_text}"
-                logger.error(f"[BrowserAutomation] {error_msg}")
-                logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
-                logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
-                send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
-                
-                info = {
-                    "error": error_msg,
-                    "error_type": _err_type,
-                    "error_repr": repr(e),
-                    "traceback": _tb,
-                }
+                _err_text_l = _err_text.lower()
+                _tb_l = (_tb or "").lower()
+                _is_nonfatal_watchdog_noise = (
+                    "root cdp client not initialized" in _err_text_l
+                    and ("watchdog" in _err_text_l or "watchdog" in _tb_l)
+                )
+
+                if _is_nonfatal_watchdog_noise:
+                    logger.warning(
+                        f"[BrowserAutomation] Non-fatal watchdog noise suppressed: {error_msg}"
+                    )
+                    logger.debug(f"[BrowserAutomation] suppressed traceback:\n{_tb}")
+                    send_skill_editor_log(
+                        "warning",
+                        "⚠️ [BrowserAutomation] Suppressed non-fatal watchdog teardown noise",
+                    )
+                    info = {
+                        "status": "warning",
+                        "warning_type": "non_fatal_watchdog_noise",
+                        "warning": error_msg,
+                    }
+                else:
+                    logger.error(f"[BrowserAutomation] {error_msg}")
+                    logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
+                    logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
+                    send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
+                    
+                    info = {
+                        "error": error_msg,
+                        "error_type": _err_type,
+                        "error_repr": repr(e),
+                        "traceback": _tb,
+                    }
             state.setdefault("tool_result", {})
             tr = state.get("tool_result")
             if not isinstance(tr, dict):

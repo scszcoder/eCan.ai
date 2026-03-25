@@ -94,6 +94,8 @@ Usage:
     python -m pytest tests/test_polling_capture.py::TestMultiTabPolling -v -s
 """
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import json
@@ -105,14 +107,15 @@ import threading
 import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from browser_use import BrowserSession
-from browser_use.browser.events import NavigateToUrlEvent
-from browser_use.browser.profile import BrowserProfile
+if TYPE_CHECKING:
+    from browser_use import BrowserSession
+    from browser_use.browser.events import NavigateToUrlEvent
+    from browser_use.browser.profile import BrowserProfile
 
 
 # =====================================================================
@@ -124,10 +127,63 @@ from browser_use.browser.profile import BrowserProfile
 # Imported here for test usage.
 # =====================================================================
 
-from agent.ec_skills.browser_use_extension.polling_capture import (
-    PollingCapture,
-    PollingCaptureConfig,
-)
+_BROWSER_SESSION_CLS: Any = None
+_BROWSER_PROFILE_CLS: Any = None
+NavigateToUrlEvent: Any = None
+PollingCapture: Any = None
+PollingCaptureConfig: Any = None
+
+
+def _ensure_browser_use_available() -> tuple[Any, Any, Any]:
+    """Import browser_use lazily to avoid collection-time hard aborts."""
+    global _BROWSER_SESSION_CLS, _BROWSER_PROFILE_CLS, NavigateToUrlEvent
+
+    if _BROWSER_SESSION_CLS and _BROWSER_PROFILE_CLS and NavigateToUrlEvent:
+        return _BROWSER_SESSION_CLS, _BROWSER_PROFILE_CLS, NavigateToUrlEvent
+
+    # browser_use may hard-abort the Python process in non-GUI runtimes on macOS.
+    # Require explicit opt-in so default test runs remain stable.
+    if os.environ.get("ECAN_ENABLE_BROWSER_USE_TESTS") != "1":
+        pytest.skip(
+            "Skipping browser_use integration tests by default. "
+            "Set ECAN_ENABLE_BROWSER_USE_TESTS=1 to enable.",
+            allow_module_level=True,
+        )
+
+    try:
+        from browser_use import BrowserSession as _BrowserSession
+        from browser_use.browser.events import NavigateToUrlEvent as _NavigateToUrlEvent
+        from browser_use.browser.profile import BrowserProfile as _BrowserProfile
+    except BaseException as exc:
+        pytest.skip(
+            f"browser_use unavailable in current runtime (skipping integration tests): {exc}",
+            allow_module_level=True,
+        )
+
+    _BROWSER_SESSION_CLS = _BrowserSession
+    _BROWSER_PROFILE_CLS = _BrowserProfile
+    NavigateToUrlEvent = _NavigateToUrlEvent
+    return _BROWSER_SESSION_CLS, _BROWSER_PROFILE_CLS, NavigateToUrlEvent
+
+
+def _ensure_polling_capture_available() -> tuple[Any, Any]:
+    """Import PollingCapture lazily (it transitively imports browser_use)."""
+    global PollingCapture, PollingCaptureConfig
+    if PollingCapture and PollingCaptureConfig:
+        return PollingCapture, PollingCaptureConfig
+    try:
+        from agent.ec_skills.browser_use_extension.polling_capture import (
+            PollingCapture as _PollingCapture,
+            PollingCaptureConfig as _PollingCaptureConfig,
+        )
+    except BaseException as exc:
+        pytest.skip(
+            f"polling_capture runtime unavailable (skipping integration tests): {exc}",
+            allow_module_level=True,
+        )
+    PollingCapture = _PollingCapture
+    PollingCaptureConfig = _PollingCaptureConfig
+    return PollingCapture, PollingCaptureConfig
 
 
 # =====================================================================
@@ -357,6 +413,8 @@ def poll_base_url(polling_server):
 
 @pytest.fixture(scope="function")
 async def browser_session():
+    BrowserSession, BrowserProfile, _ = _ensure_browser_use_available()
+    _ensure_polling_capture_available()
     session = BrowserSession(
         browser_profile=BrowserProfile(
             headless=True,

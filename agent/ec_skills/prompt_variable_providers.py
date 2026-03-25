@@ -370,7 +370,8 @@ def resolve_prompt_variables(
     """Resolve a list of variable names using the cascading resolution chain.
 
     Resolution priority (first match wins):
-      1. state["prompt_refs"][var]                — explicit from code node
+      1. state["prompt_refs"][var]                — explicit inputsValues written by build_node
+      1.5 implicit from previous node tool_result — zero-config upstream variable passing
       2. prompt_variables[var]                    — prompt-level declaration
       3. skill_prompt_variables[var]              — skill-level mapping
       4. BUILTIN_PROVIDERS[var]                   — built-in provider
@@ -532,7 +533,7 @@ def resolve_prompt_variables(
 
     resolved = {}
     for var in variable_names:
-        # 1. Explicit from state["prompt_refs"]
+        # 1. Explicit from state["prompt_refs"] (written by build_node from inputsValues)
         if var in prompt_refs:
             resolved[var] = _ref_val_to_str(prompt_refs[var])
             continue
