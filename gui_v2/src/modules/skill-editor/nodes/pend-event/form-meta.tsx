@@ -17,7 +17,18 @@ const openDocFile = () => {
 };
 
 const EVENT_TYPES = [
-  'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'browser_event', 'system', 'other'
+  'chat_message',
+  'task_request',
+  'human_chat',
+  'a2a',
+  'webhook',
+  'websocket',
+  'mqtt',
+  'sse',
+  'timer',
+  'browser_event',
+  'system',
+  'other',
 ];
 
 export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
@@ -30,16 +41,19 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
           <Field<any> name="inputsValues.eventType">
             {({ field }) => (
               <Select
-                value={String(field.value?.content ?? 'human_chat')}
+                value={String(field.value?.content ?? 'chat_message')}
                 onChange={(val) => field.onChange({ type: 'constant', content: String(val) })}
-                optionList={EVENT_TYPES.map((t) => ({ label: t, value: t }))}
+                optionList={EVENT_TYPES.map((t) => ({
+                  label: t === 'human_chat' ? 'human_chat (legacy)' : t === 'a2a' ? 'a2a (legacy)' : t,
+                  value: t,
+                }))}
               />
             )}
           </Field>
         </FormItem>
         <Field<any> name="inputsValues.eventType">
           {({ field }) => {
-            const et = String(field.value?.content ?? 'human_chat');
+            const et = String(field.value?.content ?? 'chat_message');
             if (["websocket", "sse", "webhook", "system"].includes(et)) {
               return (
                 <FormItem key={`main-extra-${et}`} name="messageType" label={t('nodes.pendEvent.messageType')} type="string" vertical>
@@ -54,7 +68,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 </FormItem>
               );
             }
-            if (et === 'a2a') {
+            if (['chat_message', 'task_request', 'human_chat', 'a2a'].includes(et)) {
               return (
                 <FormItem key={`main-extra-${et}`} name="agentIds" label={t('nodes.pendEvent.agentIds')} type="string" vertical>
                   <Field<any> name="inputsValues.agentIds">
@@ -109,10 +123,10 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
               const toObj = (item: any) =>
                 typeof item === 'string'
                   ? { type: item }
-                  : { type: String(item?.type ?? 'human_chat'), messageType: item?.messageType ?? '', agentIds: item?.agentIds ?? '', timerName: item?.timerName ?? '', browserEventLabel: item?.browserEventLabel ?? '' };
+                  : { type: String(item?.type ?? 'chat_message'), messageType: item?.messageType ?? '', agentIds: item?.agentIds ?? '', timerName: item?.timerName ?? '', browserEventLabel: item?.browserEventLabel ?? '' };
               const arr = (raw || []).map(toObj);
               const setArray = (next: any[]) => field.onChange({ type: 'constant', content: next });
-              const addOne = () => setArray([...(arr || []), { type: 'human_chat' }]);
+              const addOne = () => setArray([...(arr || []), { type: 'chat_message' }]);
               const removeAt = (idx: number) => {
                 const next = [...arr];
                 next.splice(idx, 1);
@@ -138,7 +152,10 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                           <Select
                             value={et}
                             onChange={(val) => updateTypeAt(i, String(val))}
-                            optionList={EVENT_TYPES.map((t) => ({ label: t, value: t }))}
+                            optionList={EVENT_TYPES.map((t) => ({
+                              label: t === 'human_chat' ? 'human_chat (legacy)' : t === 'a2a' ? 'a2a (legacy)' : t,
+                              value: t,
+                            }))}
                             style={{ flex: 1 }}
                           />
                           <Button type="danger" theme="borderless" onClick={() => removeAt(i)}>
@@ -153,7 +170,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                             />
                           </FormItem>
                         )}
-                        {et === 'a2a' && (
+                        {['chat_message', 'task_request', 'human_chat', 'a2a'].includes(et) && (
                           <FormItem key={`list-extra-${i}-${et}`} name="agentIds" label={t('nodes.pendEvent.agentIds')} type="string" vertical>
                             <Input
                               value={item.agentIds ?? ''}
@@ -235,15 +252,16 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
               const arr = raw.map((item: any) => ({
                 event_path: String(item?.event_path ?? ''),
                 task_path: String(item?.task_path ?? ''),
+                literal: String(item?.literal ?? ''),
               }));
               const setArr = (next: any[]) => field.onChange({ type: 'constant', content: next });
-              const addRow = () => setArr([...arr, { event_path: '', task_path: '' }]);
+              const addRow = () => setArr([...arr, { event_path: '', task_path: '', literal: '' }]);
               const removeRow = (idx: number) => {
                 const next = [...arr];
                 next.splice(idx, 1);
                 setArr(next);
               };
-              const updateRow = (idx: number, key: 'event_path' | 'task_path', val: string) => {
+              const updateRow = (idx: number, key: 'event_path' | 'task_path' | 'literal', val: string) => {
                 const next = [...arr];
                 next[idx] = { ...next[idx], [key]: val };
                 setArr(next);
@@ -263,6 +281,13 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                         value={item.task_path}
                         placeholder={t('nodes.pendEvent.taskFieldPlaceholder')}
                         onChange={(val) => updateRow(i, 'task_path', String(val))}
+                        style={{ flex: 1 }}
+                        size="small"
+                      />
+                      <Input
+                        value={item.literal}
+                        placeholder={t('nodes.pendEvent.literalPlaceholder')}
+                        onChange={(val) => updateRow(i, 'literal', String(val))}
                         style={{ flex: 1 }}
                         size="small"
                       />

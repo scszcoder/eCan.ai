@@ -697,8 +697,25 @@ class TaskRunner(Generic[Context]):
                         if isinstance(mf, dict):
                             ep = (mf.get("event_path") or "").strip()
                             tp = (mf.get("task_path") or "").strip()
+                            literal = mf.get("literal")
                             if ep:  # event_path is required; task_path can be blank
-                                match_fields.append({"event_path": ep, "task_path": tp})
+                                entry = {"event_path": ep, "task_path": tp}
+                                if literal not in (None, ""):
+                                    entry["literal"] = literal
+                                match_fields.append(entry)
+
+                def _augment_match_fields(event_type: str, fields: list, agent_ids_value: str):
+                    augmented = list(fields or [])
+                    supported = {"chat_message", "human_chat", "task_request", "a2a", "channel_message"}
+                    if event_type not in supported:
+                        return augmented
+                    raw_ids = [seg.strip() for seg in str(agent_ids_value or "").split(",") if seg.strip()]
+                    if raw_ids:
+                        literal_value = raw_ids if len(raw_ids) > 1 else raw_ids[0]
+                        augmented.append({"event_path": "context.senderId", "literal": literal_value})
+                    return augmented
+
+                main_agent_ids = ((inputs.get("agentIds") or {}).get("content") or "").strip()
                 
                 # Extract timerName from main event config
                 main_timer_name = ((inputs.get("timerName") or {}).get("content") or "").strip()
@@ -708,7 +725,7 @@ class TaskRunner(Generic[Context]):
                 # Main event type
                 main_et = (inputs.get("eventType") or {}).get("content")
                 if isinstance(main_et, str) and main_et.strip():
-                    entry = {"event_type": main_et.strip(), "match_fields": match_fields}
+                    entry = {"event_type": main_et.strip(), "match_fields": _augment_match_fields(main_et.strip(), match_fields, main_agent_ids)}
                     if main_et.strip() == "timer" and main_timer_name:
                         entry["timer_name"] = main_timer_name
                     if main_et.strip() == "browser_event" and main_browser_label:
@@ -724,7 +741,8 @@ class TaskRunner(Generic[Context]):
                         elif isinstance(src, dict):
                             st = (src.get("type") or "").strip()
                             if st:
-                                entry = {"event_type": st, "match_fields": match_fields}
+                                src_agent_ids = (src.get("agentIds") or "").strip()
+                                entry = {"event_type": st, "match_fields": _augment_match_fields(st, match_fields, src_agent_ids)}
                                 # Extract timerName from pending source item
                                 src_timer = (src.get("timerName") or "").strip()
                                 if st == "timer" and src_timer:
@@ -759,7 +777,9 @@ class TaskRunner(Generic[Context]):
         that matches on the timer_name field in the event.
         Otherwise falls back to routing_key: command.run_id for dynamic matching.
         
-        Skips event types that already have a routing rule in the global config.
+        Task-specific rules take precedence over generic global defaults. If a
+        generic rule already exists for an event type, task-specific rules are
+        layered ahead of it instead of being skipped.
         """
         skill = getattr(task, "skill", None)
         if not skill:
@@ -788,17 +808,6 @@ class TaskRunner(Generic[Context]):
                     routing_key_name = f"{et}:{browser_event_label}"
                 else:
                     routing_key_name = et
-                
-                existing_rule = self._global_event_routing.get(routing_key_name)
-                if isinstance(existing_rule, dict):
-                    # Allow overriding auto-added rules (e.g., dev task overrides
-                    # the background task's timer routing) but never override
-                    # user-defined rules from event_routing.json.
-                    if existing_rule.get("_auto_added_by_task"):
-                        logger.debug(f"[EventRouting] Overriding auto-added rule for '{routing_key_name}' (was task={existing_rule['_auto_added_by_task']})")
-                    else:
-                        logger.debug(f"[EventRouting] Event '{routing_key_name}' already has a routing rule, skipping")
-                        continue
                 
                 rule: Dict[str, Any] = {
                     "task_selector": f"id:{task.id}",
@@ -850,7 +859,35 @@ class TaskRunner(Generic[Context]):
                         f"[EventRouting] Added routing_key rule: event '{et}' -> task '{task.name}' (id={task.id})"
                     )
                 
-                self._global_event_routing[routing_key_name] = rule
+                existing_rule = self._global_event_routing.get(routing_key_name)
+                if isinstance(existing_rule, dict):
+                    existing_chain = existing_rule.get("_rule_chain")
+                    if isinstance(existing_chain, list):
+                        rule_chain = [r for r in existing_chain if isinstance(r, dict)]
+                    else:
+                        rule_chain = [existing_rule]
+
+                    filtered_chain: List[Dict[str, Any]] = []
+                    for candidate_rule in rule_chain:
+                        if candidate_rule.get("_auto_added_by_task") == task.id:
+                            logger.debug(
+                                f"[EventRouting] Replacing existing auto-added rule for "
+                                f"'{routing_key_name}' (task={task.id})"
+                            )
+                            continue
+                        filtered_chain.append(candidate_rule)
+
+                    auto_rules = [r for r in filtered_chain if r.get("_auto_added_by_task")]
+                    fallback_rules = [r for r in filtered_chain if not r.get("_auto_added_by_task")]
+                    self._global_event_routing[routing_key_name] = {
+                        "_rule_chain": auto_rules + [rule] + fallback_rules
+                    }
+                    logger.debug(
+                        f"[EventRouting] Layered task-specific rule for '{routing_key_name}' "
+                        f"ahead of {len(fallback_rules)} fallback rule(s)"
+                    )
+                else:
+                    self._global_event_routing[routing_key_name] = rule
                 amended = True
             
             if amended:
@@ -1004,7 +1041,11 @@ class TaskRunner(Generic[Context]):
                 # Compare event value against a static literal string
                 if transform:
                     event_val = self._apply_match_transform(event_val, transform)
-                matched = (event_val is not None and str(event_val) == str(literal))
+                if isinstance(literal, (list, tuple, set)):
+                    candidates = [self._apply_match_transform(v, transform) if transform else v for v in literal]
+                    matched = (event_val is not None and str(event_val) in {str(v) for v in candidates})
+                else:
+                    matched = (event_val is not None and str(event_val) == str(literal))
                 results.append(matched)
                 logger.debug(
                     f"[ROUTING] match_field: event.{event_path}={event_val} vs literal='{literal}' "
@@ -1036,24 +1077,9 @@ class TaskRunner(Generic[Context]):
     def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[Tuple[ManagedTask, dict]]:
         """
         Route an event to a task using the global agent-level event routing config.
-        
-        The global config (event_routing.json) maps event types to routing rules.
-        Each rule supports three matching strategies (evaluated in order):
-        
-          1. match_fields: Array of {event_path, task_path, transform?} pairs.
-             Extracts values from the event and task, optionally transforms them,
-             and compares. match_mode ("all"|"any") controls AND/OR logic.
-          2. routing_key: Legacy shorthand — extracts a value from the request
-             and compares against well-known task fields (id, cloud_run_id, skill.id).
-          3. task_selector: Static match by task name or id (e.g. "name_contains:chatter").
-        
-        Args:
-            event_type: Type of event (e.g. "human_chat", "web_hook").
-            request: The request object.
-            source: Optional source identifier.
-            
-        Returns:
-            Tuple of (matching ManagedTask, routing rule dict) or None.
+
+        Supports ordered rule candidates per event type so task-specific rules can
+        coexist with generic fallback rules from `event_routing.json`.
         """
         try:
             event = normalize_event(event_type, request, src=source)
@@ -1061,14 +1087,42 @@ class TaskRunner(Generic[Context]):
         except Exception:
             event = None
             etype = event_type
-        
+
         logger.debug(f"[ROUTING] normalized event: {etype}")
-        
+        alias_candidates = [etype]
+        if etype == "chat_message":
+            alias_candidates.append("human_chat")
+        elif etype == "human_chat":
+            alias_candidates.append("chat_message")
+        elif etype == "task_request":
+            alias_candidates.append("a2a")
+        elif etype == "a2a":
+            alias_candidates.append("task_request")
+
         try:
-            # Look up rule in global routing table
-            # For timer events, also try composite key "timer:<timer_name>"
-            rule = self._global_event_routing.get(etype)
-            if not isinstance(rule, dict) and etype == "timer":
+            rule = None
+            candidate_rules: List[Dict[str, Any]] = []
+            resolved_etype = etype
+
+            def _extract_rules(rule_value: Any) -> List[Dict[str, Any]]:
+                if not isinstance(rule_value, dict):
+                    return []
+                chain = rule_value.get("_rule_chain")
+                if isinstance(chain, list):
+                    return [r for r in chain if isinstance(r, dict)]
+                return [rule_value]
+
+            for candidate in alias_candidates:
+                extracted = _extract_rules(self._global_event_routing.get(candidate))
+                if extracted:
+                    candidate_rules = extracted
+                    rule = extracted[0]
+                    resolved_etype = candidate
+                    if candidate != etype:
+                        logger.debug(f"[ROUTING] Resolved event alias '{etype}' via rule '{candidate}'")
+                    break
+
+            if not candidate_rules and etype == "timer":
                 timer_name = None
                 if isinstance(event, dict):
                     timer_name = (
@@ -1080,10 +1134,12 @@ class TaskRunner(Generic[Context]):
                     timer_name = request.get("timer_name")
                 if timer_name:
                     composite_key = f"{etype}:{timer_name}"
-                    rule = self._global_event_routing.get(composite_key)
-                    if isinstance(rule, dict):
+                    candidate_rules = _extract_rules(self._global_event_routing.get(composite_key))
+                    if candidate_rules:
+                        rule = candidate_rules[0]
                         logger.debug(f"[ROUTING] Resolved timer via composite key '{composite_key}'")
-            if not isinstance(rule, dict) and etype == "browser_event":
+
+            if not candidate_rules and etype == "browser_event":
                 sub_type = None
                 if isinstance(event, dict):
                     sub_type = (
@@ -1095,108 +1151,103 @@ class TaskRunner(Generic[Context]):
                     sub_type = request.get("sub_type")
                 if sub_type:
                     composite_key = f"{etype}:{sub_type}"
-                    rule = self._global_event_routing.get(composite_key)
-                    if isinstance(rule, dict):
+                    candidate_rules = _extract_rules(self._global_event_routing.get(composite_key))
+                    if candidate_rules:
+                        rule = candidate_rules[0]
                         logger.debug(f"[ROUTING] Resolved browser_event via composite key '{composite_key}'")
+
             if not isinstance(rule, dict):
                 logger.debug(f"[ROUTING] No global routing rule for event type '{etype}'")
                 return None
-            
+
             tasks_list = getattr(self.agent, "tasks", []) or []
-            logger.info(f"[ROUTING] Routing event '{etype}' — {len(tasks_list)} tasks available")
-            
-            # Pre-filter: if task_selector is present, narrow candidate tasks first.
-            # This ensures match_fields and routing_key only consider tasks that
-            # match the selector (e.g. auto-added timer rules target a specific task id).
-            selector = rule.get("task_selector") or ""
-            if selector:
-                candidates = [t for t in tasks_list if t and self._evaluate_selector(selector, t)]
-                if not candidates:
-                    logger.debug(f"[ROUTING] ❌ No task matched selector '{selector}' for event '{etype}'")
-                    return None
-            else:
-                candidates = [t for t in tasks_list if t]
-            
-            # 1. match_fields: declarative multi-field matching
-            # Uses normalized event envelope so event_path is consistent
-            # (e.g. "data.metadata.params.chatId", "context.senderId")
-            match_fields = rule.get("match_fields")
-            if isinstance(match_fields, list) and match_fields:
-                match_mode = rule.get("match_mode", "all")
-                # Prefer normalized event; fall back to raw request
-                event_data = event if isinstance(event, dict) else request
-                for t in candidates:
-                    if self._evaluate_match_fields(match_fields, match_mode, event_data, t):
-                        skill_obj = getattr(t, "skill", None)
-                        skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
-                        skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
-                        logger.info(
-                            f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}, "
-                            f"skill={skill_name}, skill_id={skill_id}"
+            logger.info(f"[ROUTING] Routing event '{etype}' (rule='{resolved_etype}') - {len(tasks_list)} tasks available")
+
+            for idx, candidate_rule in enumerate(candidate_rules, start=1):
+                selector = candidate_rule.get("task_selector") or ""
+                if selector:
+                    candidates = [t for t in tasks_list if t and self._evaluate_selector(selector, t)]
+                    if not candidates:
+                        logger.debug(
+                            f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' matched no task_selector '{selector}'"
                         )
-                        return (t, rule)
-                logger.debug(f"[ROUTING] ❌ No task matched via match_fields for event '{etype}'")
-            
-            # 2. routing_key: legacy shorthand for dynamic matching
-            # Try normalized event first, then raw request for backward compat
-            routing_key = rule.get("routing_key")
-            if routing_key:
-                key_value = None
-                if isinstance(event, dict):
-                    key_value = self._extract_nested_value(event, routing_key)
-                if key_value is None:
-                    key_value = self._extract_nested_value(request, routing_key)
-                if key_value:
-                    logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
+                        continue
+                else:
+                    candidates = [t for t in tasks_list if t]
+
+                match_fields = candidate_rule.get("match_fields")
+                if isinstance(match_fields, list) and match_fields:
+                    match_mode = candidate_rule.get("match_mode", "all")
+                    event_data = event if isinstance(event, dict) else request
                     for t in candidates:
-                        # Match by run_id (task.id or cloud_run_id)
-                        if "run_id" in routing_key:
-                            if str(t.id) == str(key_value):
-                                skill_obj = getattr(t, "skill", None)
-                                skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
-                                skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
-                                logger.info(
-                                    f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}, "
-                                    f"skill={skill_name}, skill_id={skill_id}"
-                                )
-                                return (t, rule)
-                            cloud_run_id = (t.state or {}).get("cloud_run_id")
-                            if cloud_run_id and str(cloud_run_id) == str(key_value):
-                                skill_obj = getattr(t, "skill", None)
-                                skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
-                                skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
-                                logger.info(
-                                    f"[ROUTING] ✅ Matched task by cloud_run_id: {t.name}, id={t.id}, "
-                                    f"skill={skill_name}, skill_id={skill_id}"
-                                )
-                                return (t, rule)
-                        # Match by skill_id
-                        if "skill_id" in routing_key:
-                            skill = getattr(t, "skill", None)
-                            if skill and str(getattr(skill, "id", "")) == str(key_value):
-                                skill_name = getattr(skill, "name", skill)
-                                skill_id = getattr(skill, "id", "")
-                                logger.info(
-                                    f"[ROUTING] ✅ Matched task by skill_id: {t.name}, id={t.id}, "
-                                    f"skill={skill_name}, skill_id={skill_id}"
-                                )
-                                return (t, rule)
-            
-            # 3. If only task_selector was specified (no match_fields/routing_key),
-            #    return the first candidate directly.
-            if selector and not match_fields and not routing_key and candidates:
-                t = candidates[0]
-                logger.info(f"[ROUTING] ✅ Matched task via selector '{selector}': {t.name}, id={t.id}")
-                return (t, rule)
-            
-            if not match_fields and not routing_key and not selector:
-                logger.debug(f"[ROUTING] No matching strategy in rule for event '{etype}'")
-                    
+                        if self._evaluate_match_fields(match_fields, match_mode, event_data, t):
+                            skill_obj = getattr(t, "skill", None)
+                            skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                            skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                            logger.info(
+                                f"[ROUTING] Matched task via match_fields: {t.name}, id={t.id}, skill={skill_name}, skill_id={skill_id}"
+                            )
+                            return (t, candidate_rule)
+                    logger.debug(
+                        f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} did not match via match_fields for event '{etype}'"
+                    )
+
+                routing_key = candidate_rule.get("routing_key")
+                if routing_key:
+                    key_value = None
+                    if isinstance(event, dict):
+                        key_value = self._extract_nested_value(event, routing_key)
+                    if key_value is None:
+                        key_value = self._extract_nested_value(request, routing_key)
+                    if key_value:
+                        logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
+                        for t in candidates:
+                            if "run_id" in routing_key:
+                                if str(t.id) == str(key_value):
+                                    skill_obj = getattr(t, "skill", None)
+                                    skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                                    skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                                    logger.info(
+                                        f"[ROUTING] Matched task by run_id: {t.name}, id={t.id}, skill={skill_name}, skill_id={skill_id}"
+                                    )
+                                    return (t, candidate_rule)
+                                cloud_run_id = (t.state or {}).get("cloud_run_id")
+                                if cloud_run_id and str(cloud_run_id) == str(key_value):
+                                    skill_obj = getattr(t, "skill", None)
+                                    skill_name = getattr(skill_obj, "name", skill_obj) if skill_obj else ""
+                                    skill_id = getattr(skill_obj, "id", "") if skill_obj else ""
+                                    logger.info(
+                                        f"[ROUTING] Matched task by cloud_run_id: {t.name}, id={t.id}, skill={skill_name}, skill_id={skill_id}"
+                                    )
+                                    return (t, candidate_rule)
+                            if "skill_id" in routing_key:
+                                skill = getattr(t, "skill", None)
+                                if skill and str(getattr(skill, "id", "")) == str(key_value):
+                                    skill_name = getattr(skill, "name", skill)
+                                    skill_id = getattr(skill, "id", "")
+                                    logger.info(
+                                        f"[ROUTING] Matched task by skill_id: {t.name}, id={t.id}, skill={skill_name}, skill_id={skill_id}"
+                                    )
+                                    return (t, candidate_rule)
+                    logger.debug(
+                        f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} did not match routing_key '{routing_key}' for event '{etype}'"
+                    )
+
+                if selector and not match_fields and not routing_key and candidates:
+                    t = candidates[0]
+                    logger.info(f"[ROUTING] Matched task via selector '{selector}': {t.name}, id={t.id}")
+                    return (t, candidate_rule)
+
+                if not match_fields and not routing_key and not selector:
+                    logger.debug(
+                        f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for event '{etype}' has no matching strategy"
+                    )
+
         except Exception as e:
             logger.error(get_traceback(e, "ErrorResolveEventRouting"))
-        
+
         return None
-    
+
     def _evaluate_selector(self, selector: str, task: ManagedTask) -> bool:
         """Evaluate a task selector against a task."""
         try:
@@ -1344,7 +1395,7 @@ class TaskRunner(Generic[Context]):
                 except Exception as e:
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
-                if event_type in {"human_chat", "a2a", "channel_message"}:
+                if event_type in {"chat_message", "human_chat", "task_request", "a2a", "channel_message"}:
                     fallback_task = self._ensure_chatter_task()
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:

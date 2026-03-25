@@ -30,7 +30,7 @@ export const PendEventNodeRegistry: FlowNodeRegistry = {
       data: {
         title: `PendEvent_${++idx}`,
         inputsValues: {
-          eventType: { type: 'constant', content: 'human_chat' },
+          eventType: { type: 'constant', content: 'chat_message' },
           messageType: { type: 'constant', content: '' },
           agentIds: { type: 'constant', content: '' },
           timerName: { type: 'constant', content: '' },
