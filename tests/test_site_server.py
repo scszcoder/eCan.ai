@@ -53,6 +53,12 @@ import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 # =====================================================================
 # In-memory state
@@ -68,6 +74,8 @@ _CUSTOMERS: Dict[str, dict] = {}
 _EVENT_LOG: List[dict] = []
 
 _MAX_EVENT_LOG = 200
+DEFAULT_FRONT_DESK_AGENT_ID = "agent_48bdd65f982a4cdb"
+DEFAULT_SERVICE_AGENT_ID = "agent_b31f281332104b93"
 
 # Sample product queries for simulation
 PRODUCT_QUERIES = [
@@ -156,10 +164,108 @@ def _create_new_customer() -> dict:
         "from": "customer",
         "text": query,
         "customer_name": name,
+        "customer_name": name,
         "timestamp": int(time.time() * 1000),
     })
 
     return {"session_id": session_id, "name": name, "query": query, "msg_id": msg_id}
+
+
+def _discover_open_chat_tabs_from_cdp(cdp_port: int = 9228, limit: int = 3) -> List[dict]:
+    base_url = f"http://127.0.0.1:{int(cdp_port)}/json/list"
+    sys.stderr.write(f"[test_rig] discover_open_chat_tabs_from_cdp port={cdp_port} limit={limit}\n")
+    req = Request(base_url, headers={"User-Agent": "eCan-test-rig"})
+    with urlopen(req, timeout=3) as resp:
+        payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+
+    tabs: List[dict] = []
+    for item in payload if isinstance(payload, list) else []:
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "")
+        url = str(item.get("url") or "")
+        if item_type not in ("page", "tab"):
+            continue
+        if "127.0.0.1:9877/chat?session=" not in url and "localhost:9877/chat?session=" not in url:
+            continue
+        parsed = urlparse(url)
+        session_id = (parse_qs(parsed.query).get("session") or [""])[0].strip()
+        if not session_id:
+            continue
+        customer = _CUSTOMERS.get(session_id, {})
+        tabs.append({
+            "session_id": session_id,
+            "tab_id": str(item.get("id") or "").strip(),
+            "chat_url": url,
+            "customer_name": customer.get("name") or session_id,
+            "title": str(item.get("title") or "").strip(),
+        })
+
+    deduped: List[dict] = []
+    seen_sessions = set()
+    for item in tabs:
+        sid = item["session_id"]
+        if sid in seen_sessions:
+            continue
+        seen_sessions.add(sid)
+        deduped.append(item)
+    sys.stderr.write(
+        "[test_rig] discovered_chat_tabs="
+        + json.dumps(deduped[: max(1, int(limit))], ensure_ascii=False)
+        + "\n"
+    )
+    return deduped[: max(1, int(limit))]
+
+
+def _send_direct_service_assignments(
+    assignments: List[dict],
+    sender_agent_id: str = DEFAULT_FRONT_DESK_AGENT_ID,
+    recipient_agent_id: str = DEFAULT_SERVICE_AGENT_ID,
+    local_server_port: int = 4668,
+) -> List[dict]:
+    endpoint = f"http://127.0.0.1:{int(local_server_port)}/api/test-direct-service-assign"
+    body = {
+        "sender_agent_id": sender_agent_id,
+        "recipient_agent_id": recipient_agent_id,
+        "assignments": assignments,
+    }
+    sys.stderr.write(
+        "[test_rig] forwarding_direct_assignments_to_app="
+        + json.dumps({"endpoint": endpoint, **body}, ensure_ascii=False)
+        + "\n"
+    )
+    req = Request(
+        endpoint,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "eCan-test-rig"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=20) as resp:
+            response_payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        sys.stderr.write(
+            "[test_rig] app_direct_assignment_http_error="
+            + json.dumps({
+                "status": getattr(e, "code", None),
+                "reason": str(e),
+                "body": error_body[:4000],
+            }, ensure_ascii=False)
+            + "\n"
+        )
+        raise
+    results = response_payload.get("results") or []
+    sys.stderr.write(
+        "[test_rig] app_direct_assignment_response="
+        + json.dumps(response_payload, ensure_ascii=False, default=str)
+        + "\n"
+    )
+    return results
 
 
 def _send_followup(session_id: str) -> Optional[dict]:
@@ -168,15 +274,33 @@ def _send_followup(session_id: str) -> Optional[dict]:
         return None
     customer = _CUSTOMERS[session_id]
     text = random.choice(FOLLOWUP_MESSAGES)
-    msg_id = f"msg_{int(time.time()*1000)}_{random.randint(100,999)}"
+    injected_at_ms = int(time.time() * 1000)
+    msg_id = f"msg_{injected_at_ms}_{random.randint(100,999)}"
     _add_message(session_id, {
         "msg_id": msg_id,
         "from": "customer",
         "text": text,
         "customer_name": customer["name"],
-        "timestamp": int(time.time() * 1000),
+        "timestamp": injected_at_ms,
     })
-    return {"session_id": session_id, "name": customer["name"], "text": text, "msg_id": msg_id}
+    sys.stderr.write(
+        "[test_rig] followup_injected="
+        + json.dumps({
+            "session_id": session_id,
+            "customer_name": customer["name"],
+            "msg_id": msg_id,
+            "injected_at_ms": injected_at_ms,
+            "text": text,
+        }, ensure_ascii=False)
+        + "\n"
+    )
+    return {
+        "session_id": session_id,
+        "name": customer["name"],
+        "text": text,
+        "msg_id": msg_id,
+        "injected_at_ms": injected_at_ms,
+    }
 
 
 # =====================================================================
@@ -194,7 +318,7 @@ CHAT_PAGE_HTML = """
            max-width: 600px; margin: 40px auto; padding: 0 16px; background: #f5f5f5; }
     h2 { margin-bottom: 4px; }
     .meta { color: #999; font-size: 12px; margin-bottom: 12px; }
-    #chat-box { border: 1px solid #ddd; padding: 16px; min-height: 250px;
+    #messages { border: 1px solid #ddd; padding: 16px; min-height: 250px;
                 border-radius: 12px; background: #fff; overflow-y: auto; max-height: 500px; }
     .msg { padding: 8px 14px; margin: 6px 0; border-radius: 16px; max-width: 80%;
            line-height: 1.4; font-size: 14px; }
@@ -212,7 +336,7 @@ CHAT_PAGE_HTML = """
 <body>
   <h2>💬 {{CUSTOMER_NAME}}</h2>
   <div class="meta">Session: {{SESSION_ID}} · Polling every 2s</div>
-  <div id="chat-box"></div>
+  <div id="messages">{{INITIAL_MESSAGES_HTML}}</div>
   <div class="input-row">
     <input id="msg-input" type="text" placeholder="Type a message…"
            onkeydown="if(event.key==='Enter')sendMessage()" />
@@ -238,21 +362,23 @@ CHAT_PAGE_HTML = """
         pollCount++;
         document.getElementById('poll-count').textContent = pollCount;
 
-        if (data.messages && data.messages.length > lastMsgCount) {
-          const chatBox = document.getElementById('chat-box');
-          for (let i = lastMsgCount; i < data.messages.length; i++) {
-            const msg = data.messages[i];
-            const div = document.createElement('div');
-            div.className = 'msg ' + msg.from;
-            div.setAttribute('data-msg-id', msg.msg_id);
-            div.textContent = (msg.customer_name && msg.from === 'customer'
-              ? msg.customer_name + ': ' : '') + msg.text;
-            chatBox.appendChild(div);
-          }
-          lastMsgCount = data.messages.length;
-          document.getElementById('msg-count').textContent = lastMsgCount;
-          chatBox.scrollTop = chatBox.scrollHeight;
-        }
+        const chatBox = document.getElementById('messages');
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+        chatBox.innerHTML = messages.map(msg => {
+          const from = String(msg.from || '');
+          const msgId = String(msg.msg_id || '');
+          const ts = String(msg.timestamp || '');
+          const safeText = String((msg.customer_name && msg.from === 'customer'
+            ? msg.customer_name + ': ' : '') + (msg.text || ''))
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+          return `<div class="msg ${from}" data-msg-id="${msgId}" data-from="${from}" data-ts="${ts}">${safeText}</div>`;
+        }).join('');
+        lastMsgCount = messages.length;
+        document.getElementById('msg-count').textContent = lastMsgCount;
+        chatBox.scrollTop = chatBox.scrollHeight;
       } catch (e) {
         console.error('Poll error:', e);
       }
@@ -361,6 +487,9 @@ CONTROL_PANEL_HTML = """
     <button class="btn btn-orange" onclick="simFollowups()" id="btn-followup">
       💬 3 Follow-up Messages
     </button>
+    <button class="btn btn-green" onclick="assignOpenTabs()" id="btn-assign-tabs">
+      🧪 Assign 3 Open Chat Tabs
+    </button>
   </div>
 
   <!-- Stats -->
@@ -426,7 +555,11 @@ CONTROL_PANEL_HTML = """
         const resp = await fetch(BASE + '/api/sim/followup', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({count: 3})
+          body: JSON.stringify({
+            count: 3,
+            use_open_chat_tabs: true,
+            cdp_port: 9228
+          })
         });
         const data = await resp.json();
         if (data.messages) {
@@ -438,6 +571,34 @@ CONTROL_PANEL_HTML = """
         refreshState();
       } catch(e) { addLog('error', 'Followup failed: ' + e); }
       btn('btn-followup', false);
+    }
+
+    async function assignOpenTabs() {
+      btn('btn-assign-tabs', true);
+      try {
+        const resp = await fetch(BASE + '/api/test/assign_open_tabs', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            count: 3,
+            cdp_port: 9228,
+            local_server_port: 4668,
+            sender_agent_id: 'agent_48bdd65f982a4cdb',
+            recipient_agent_id: 'agent_b31f281332104b93'
+          })
+        });
+        const data = await resp.json();
+        if (data.assignments) {
+          data.assignments.forEach(a => {
+            addLog(
+              data.success ? 'sim' : 'error',
+              `Direct assign ${a.session_id} -> ${a.recipient_agent_id} tab ${a.tab_id} msg ${a.message_id || 'n/a'}`
+            );
+          });
+        }
+        if (data.error) addLog('error', data.error);
+      } catch(e) { addLog('error', 'Direct assign failed: ' + e); }
+      btn('btn-assign-tabs', false);
     }
 
     async function refreshState() {
@@ -517,6 +678,31 @@ CONTROL_PANEL_HTML = """
 class TestSiteHandler(BaseHTTPRequestHandler):
     """Handles all routes for the test rig."""
 
+    @staticmethod
+    def _render_initial_messages_html(session_id: str) -> str:
+        messages = _get_store(session_id)
+        html_parts = []
+        for msg in messages:
+            from_value = str(msg.get("from") or "")
+            msg_id = str(msg.get("msg_id") or "")
+            ts = str(msg.get("timestamp") or "")
+            text_prefix = ""
+            if from_value == "customer" and msg.get("customer_name"):
+                text_prefix = f"{msg.get('customer_name')}: "
+            text = f"{text_prefix}{str(msg.get('text') or '')}"
+            safe_text = (
+                text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+            )
+            html_parts.append(
+                f'<div class="msg {from_value}" '
+                f'data-msg-id="{msg_id}" data-from="{from_value}" data-ts="{ts}">'
+                f"{safe_text}</div>"
+            )
+        return "".join(html_parts)
+
     def do_GET(self):
         try:
             parsed = urlparse(self.path)
@@ -533,6 +719,7 @@ class TestSiteHandler(BaseHTTPRequestHandler):
                 html = CHAT_PAGE_HTML
                 html = html.replace("{{SESSION_ID}}", session_id)
                 html = html.replace("{{CUSTOMER_NAME}}", name)
+                html = html.replace("{{INITIAL_MESSAGES_HTML}}", self._render_initial_messages_html(session_id))
                 self._html_response(200, html)
 
             elif path == "/api/state":
@@ -615,6 +802,18 @@ class TestSiteHandler(BaseHTTPRequestHandler):
                 count = body_json.get("count", 3)
                 count = max(1, min(count, 20))
                 existing = list(_CUSTOMERS.keys())
+                use_open_chat_tabs = bool(body_json.get("use_open_chat_tabs", False))
+                if use_open_chat_tabs:
+                    cdp_port = int(body_json.get("cdp_port", 9228) or 9228)
+                    open_tabs = _discover_open_chat_tabs_from_cdp(cdp_port=cdp_port, limit=count)
+                    targeted_sessions = [str(t.get("session_id") or "").strip() for t in open_tabs if str(t.get("session_id") or "").strip()]
+                    if targeted_sessions:
+                        existing = targeted_sessions
+                        sys.stderr.write(
+                            "[test_rig] followup_target_sessions="
+                            + json.dumps(targeted_sessions, ensure_ascii=False)
+                            + "\n"
+                        )
                 if not existing:
                     self._json_response(200, json.dumps({
                         "success": False,
@@ -632,6 +831,42 @@ class TestSiteHandler(BaseHTTPRequestHandler):
                         messages.append(result)
                 _log_event("sim", {"message": f"Sent {len(messages)} follow-up messages"})
                 self._json_response(200, json.dumps({"success": True, "messages": messages}))
+
+            # --- Direct service assignment harness ---
+            elif path == "/api/test/assign_open_tabs":
+                count = max(1, min(int(body_json.get("count", 3) or 3), 10))
+                cdp_port = int(body_json.get("cdp_port", 9228) or 9228)
+                local_server_port = int(body_json.get("local_server_port", 4668) or 4668)
+                sender_agent_id = str(body_json.get("sender_agent_id") or DEFAULT_FRONT_DESK_AGENT_ID).strip()
+                recipient_agent_id = str(body_json.get("recipient_agent_id") or DEFAULT_SERVICE_AGENT_ID).strip()
+
+                tabs = _discover_open_chat_tabs_from_cdp(cdp_port=cdp_port, limit=count)
+                if not tabs:
+                    self._json_response(200, json.dumps({
+                        "success": False,
+                        "error": f"No open chat tabs found from CDP on port {cdp_port}.",
+                        "assignments": [],
+                    }))
+                    return
+
+                assignments = _send_direct_service_assignments(
+                    tabs,
+                    sender_agent_id=sender_agent_id,
+                    recipient_agent_id=recipient_agent_id,
+                    local_server_port=local_server_port,
+                )
+                ok = [a for a in assignments if a.get("success")]
+                _log_event("sim", {
+                    "message": (
+                        f"Direct service assignment harness sent {len(ok)}/{len(assignments)} "
+                        f"assignment(s) to {recipient_agent_id}"
+                    )
+                })
+                self._json_response(200, json.dumps({
+                    "success": len(ok) == len(assignments),
+                    "count": len(assignments),
+                    "assignments": assignments,
+                }, default=str))
 
             # --- Reset ---
             elif path == "/api/reset":

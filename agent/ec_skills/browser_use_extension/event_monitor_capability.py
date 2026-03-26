@@ -13,6 +13,29 @@ from .session_capabilities import get_or_create_session_capability_registry
 _COMPAT_MONITOR_ATTR = "_ecan_event_monitors"
 
 
+def _dedupe_monitor_configs(configs: List[Any]) -> List[Any]:
+    deduped: List[Any] = []
+    seen_keys = set()
+    for cfg in reversed(list(configs or [])):
+        label = str(getattr(cfg, "label", "") or "").strip()
+        cfg_id = str(getattr(cfg, "id", "") or "").strip()
+        source_type = str(getattr(cfg, "source_type", "") or "").strip()
+        if label == "chat_message_added":
+            key = ("label", label, source_type or "dom_mutation")
+        else:
+            key = ("id", cfg_id or label, source_type)
+        if key in seen_keys:
+            logger.warning(
+                f"[EventMonitorCapability] Dropping duplicate monitor config: "
+                f"id={cfg_id}, label={label}, source_type={source_type}"
+            )
+            continue
+        seen_keys.add(key)
+        deduped.append(cfg)
+    deduped.reverse()
+    return deduped
+
+
 def get_attached_monitor_set(session: Any) -> Any:
     return getattr(session, _COMPAT_MONITOR_ATTR, None)
 
@@ -53,6 +76,7 @@ class EventMonitorCapability:
         return self._active_monitor_set
 
     def configure(self, configs: List[Any]) -> None:
+        configs = _dedupe_monitor_configs(configs)
         records: List[MonitorConfigRecord] = []
         for cfg in configs or []:
             record = MonitorConfigRecord(
@@ -70,6 +94,7 @@ class EventMonitorCapability:
         return [asdict(item) for item in self.state.monitor_configs]
 
     def _config_signature(self, configs: List[Any]) -> str:
+        configs = _dedupe_monitor_configs(configs)
         normalized = []
         for cfg in configs or []:
             raw = getattr(cfg, "__dict__", {}).copy() if hasattr(cfg, "__dict__") else {}
@@ -80,6 +105,7 @@ class EventMonitorCapability:
             return str(normalized)
 
     async def ensure_started(self, configs: List[Any], agent_id: str = "") -> Any:
+        configs = _dedupe_monitor_configs(configs)
         self.configure(configs)
         current = self.get_active_monitor_set()
         desired_sig = self._config_signature(configs)

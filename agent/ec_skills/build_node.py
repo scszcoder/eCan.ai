@@ -4312,6 +4312,29 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         send_skill_editor_log("log", log_msg)
         # send_skill_editor_log("log", log_msg)
 
+        try:
+            _env = resume_payload.get("_event_envelope") if isinstance(resume_payload, dict) else {}
+            _env_ctx = _env.get("context", {}) if isinstance(_env, dict) else {}
+            _env_data = _env.get("data", {}) if isinstance(_env, dict) else {}
+            _browser_label = ""
+            if isinstance(_env_ctx, dict):
+                _browser_label = str(_env_ctx.get("label") or _env_ctx.get("browserEventLabel") or "").strip()
+            if not _browser_label and isinstance(_env_data, dict):
+                _browser_label = str(_env_data.get("label") or "").strip()
+            if _rp_event_type == "browser_event" and _browser_label == "chat_message_added":
+                _chat_id = ""
+                if isinstance(state, dict):
+                    _attrs = state.get("attributes", {}) if isinstance(state.get("attributes"), dict) else {}
+                    _chat_id = str(_attrs.get("chat_id") or "").strip()
+                if not _chat_id and isinstance(_env_ctx, dict):
+                    _chat_id = str(_env_ctx.get("chatId") or "").strip()
+                logger.info(
+                    f"[LatencyMarker] service_resume browser_event=chat_message_added "
+                    f"chat_id={_chat_id or 'unknown'} resumed_at_ms={int(time.time() * 1000)} node={node_name}"
+                )
+        except Exception as _latency_log_err:
+            logger.debug(f"[LatencyMarker] failed to log browser_event resume marker: {_latency_log_err}")
+
         # --- Append full event envelope to state["events"] ---
         try:
             envelope = resume_payload.get("_event_envelope") if isinstance(resume_payload, dict) else None
@@ -4811,6 +4834,65 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     logger.debug(f"[BrowserAutomation] run_environment={run_environment_setting}, privacy_strategy={privacy_strategy_setting}, enable_judge={enable_judge_setting}")
     logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
+    def _extract_runtime_invocation_input(state: dict | None) -> str:
+        """Extract the live invocation payload for browser-use task grounding.
+
+        Browser-use nodes do not consume graph state directly; they only see the
+        composed task string. For resumed chat/service flows we must inject the
+        current assignment/customer payload into that task string so the model
+        does not fall back to examples or stale memory.
+        """
+        if not isinstance(state, dict):
+            return ""
+
+        candidates = []
+        direct_input = state.get("input")
+        if isinstance(direct_input, str) and direct_input.strip():
+            candidates.append(direct_input.strip())
+
+        messages = state.get("messages")
+        if isinstance(messages, list) and len(messages) > 4:
+            msg_payload = messages[4]
+            if isinstance(msg_payload, str) and msg_payload.strip():
+                candidates.append(msg_payload.strip())
+
+        attrs = state.get("attributes", {}) if isinstance(state.get("attributes"), dict) else {}
+        params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
+        metadata = params.get("metadata", {}) if isinstance(params.get("metadata"), dict) else {}
+        meta_params = metadata.get("params", {}) if isinstance(metadata.get("params"), dict) else {}
+
+        content_obj = meta_params.get("content")
+        if isinstance(content_obj, str) and content_obj.strip():
+            candidates.append(content_obj.strip())
+        elif isinstance(content_obj, dict):
+            text_val = content_obj.get("text")
+            if isinstance(text_val, str) and text_val.strip():
+                candidates.append(text_val.strip())
+
+        message = params.get("message")
+        if isinstance(message, dict):
+            parts = message.get("parts")
+            if isinstance(parts, list) and parts:
+                first = parts[0]
+                if isinstance(first, dict):
+                    text_val = first.get("text")
+                    if isinstance(text_val, str) and text_val.strip():
+                        candidates.append(text_val.strip())
+        else:
+            try:
+                parts = getattr(message, "parts", None)
+                if isinstance(parts, (list, tuple)) and parts:
+                    text_val = getattr(parts[0], "text", None)
+                    if isinstance(text_val, str) and text_val.strip():
+                        candidates.append(text_val.strip())
+            except Exception:
+                pass
+
+        for candidate in candidates:
+            if candidate:
+                return candidate
+        return ""
+
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
     logger.info(f"[BrowserAutomation] 🔍 prompt_selection='{prompt_selection}'")
     send_skill_editor_log("log", f"[BrowserAutomation] Prompt selection: '{prompt_selection}'")
@@ -4947,8 +5029,52 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     # each iteration.  BrowserManager.acquire_browser marks the browser IN_USE,
     # so subsequent find_available_browser calls miss it and create_browser builds
     # a brand-new BrowserSession (resetting agent_focus_target_id to the first tab).
-    _cached_browser_session = None
-    _last_known_focus_target_id: str | None = None  # survives session recreation
+    _cached_browser_sessions: dict[str, Any] = {}
+    _last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
+    _browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
+
+    def _resolve_browser_scope_key(state: dict | None = None) -> str:
+        """Resolve a stable browser scope key from workflow state.
+
+        Session-scoped chat tasks must not share browser cache/state with other
+        customer sessions. Prefer chat/session identity when present.
+        """
+        try:
+            state = state or {}
+            attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+            params = attrs.get("params", {}) if isinstance(attrs, dict) else {}
+            meta_params = {}
+            if isinstance(params.get("metadata"), dict):
+                meta_params = params.get("metadata", {}).get("params", {}) or {}
+
+            candidates = [
+                attrs.get("chat_id"),
+                params.get("chatId"),
+                meta_params.get("chatId"),
+            ]
+            if isinstance(state, dict):
+                messages = state.get("messages")
+                if isinstance(messages, list) and len(messages) > 1:
+                    candidates.append(messages[1])
+
+            for value in candidates:
+                if value:
+                    return f"chat:{value}"
+        except Exception:
+            pass
+        return f"node:{node_name}"
+
+    def _extract_assignment_scope(runtime_input: str) -> dict:
+        """Best-effort parse of the current assignment payload."""
+        if not isinstance(runtime_input, str) or not runtime_input.strip():
+            return {}
+        try:
+            payload = json.loads(runtime_input)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            pass
+        return {}
 
     def _patch_browser_session_lifecycle_debug(session, source: str) -> None:
         """Attach one-time debug hooks to the live BrowserSession/CDP client."""
@@ -4956,10 +5082,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if session is None:
                 return
 
+            _debug_scope_key = getattr(session, "_ecan_browser_scope_key", "")
+            _cached_for_scope = _cached_browser_sessions.get(_debug_scope_key) if _debug_scope_key else None
+
             logger.info(
                 f"[BrowserAutomation][LifecycleDebug] Patch attempt source={source} "
-                f"session_obj={id(session)} cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
-                f"same_as_cached={session is _cached_browser_session}"
+                f"session_obj={id(session)} cached_obj={id(_cached_for_scope) if _cached_for_scope else 'none'} "
+                f"same_as_cached={session is _cached_for_scope} scope={_debug_scope_key or 'unscoped'}"
             )
 
             if not getattr(session, "_ecan_lifecycle_debug_patched", False):
@@ -5021,102 +5150,126 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception as exc:
             logger.warning(f"[BrowserAutomation] Failed to patch browser lifecycle debug hooks: {exc}")
 
-    async def _get_or_create_browser_session(mainwin):
+    async def _get_or_create_browser_session(mainwin, state: dict | None = None, calling_agent_id: str | None = None):
         """Get or create browser session based on node editor settings."""
-        nonlocal _cached_browser_session, _last_known_focus_target_id
+        nonlocal _cached_browser_sessions, _last_known_focus_target_ids, _browser_start_locks
         import asyncio
+        import threading
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+
+        browser_scope_key = _resolve_browser_scope_key(state)
+        isolate_scope = browser_scope_key.startswith("chat:")
+        _cached_browser_session = _cached_browser_sessions.get(browser_scope_key)
+        _last_known_focus_target_id = _last_known_focus_target_ids.get(browser_scope_key)
 
         # Return cached session if still valid AND event bus alive
         if _cached_browser_session is not None and _is_session_alive(_cached_browser_session):
             logger.debug(f"[BrowserAutomation] Reusing cached browser session: {_cached_browser_session.id}")
             return _cached_browser_session
 
-        # Invalidate stale cache — but preserve the focus target
+        # Invalidate stale cache - but preserve the focus target
         if _cached_browser_session is not None:
-            # Save the focus target from the dying session
             old_focus = getattr(_cached_browser_session, 'agent_focus_target_id', None)
             if old_focus:
                 _last_known_focus_target_id = old_focus
+                _last_known_focus_target_ids[browser_scope_key] = old_focus
                 logger.info(f"[BrowserAutomation] Saved focus target from dying session: ...{old_focus[-4:]}")
-            # Also check if the PassiveAgent had a saved focus
             old_sid = id(_cached_browser_session)
             old_pa = _cached_passive_agents.get(old_sid)
             if old_pa and hasattr(old_pa, '_last_focus_target_id') and old_pa._last_focus_target_id:
                 _last_known_focus_target_id = old_pa._last_focus_target_id
+                _last_known_focus_target_ids[browser_scope_key] = old_pa._last_focus_target_id
                 logger.info(f"[BrowserAutomation] Saved focus target from PassiveAgent: ...{old_pa._last_focus_target_id[-4:]}")
             logger.info(f"[BrowserAutomation] Cached session {_cached_browser_session.id} is stale (event bus dead), creating new one")
             _cached_passive_agents.pop(old_sid, None)
-            _cached_browser_session = None
-        
-        # Load profile settings if a profile is specified
+            _cached_browser_sessions.pop(browser_scope_key, None)
+
         profile_settings = _get_browser_profile_settings(node_profile)
         if profile_settings:
             log_msg = f"[BrowserAutomation] Using profile: {profile_settings.get('name', node_profile)}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
-        
+
         log_msg = f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
-        # Get or create BrowserManager
         if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
             mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
-        
+
         browser_manager: BrowserManager = mainwin.browser_manager
-        
-        # Map browser setting to BrowserType
+
         browser_type_map = {
             'new chromium': BrowserType.CHROME,
             'existing chrome': BrowserType.CHROME,
             'ads power': BrowserType.ADSPOWER,
             'adspower': BrowserType.ADSPOWER,
-            'ziniao': BrowserType.CHROME,  # Treat as Chrome for now
-            'multi-login': BrowserType.CHROME,  # Treat as Chrome for now
+            'ziniao': BrowserType.CHROME,
+            'multi-login': BrowserType.CHROME,
         }
         browser_type = browser_type_map.get(browser_type_setting, BrowserType.CHROME)
-        
-        # Determine CDP port
         cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
-        
-        # Acquire browser based on settings
-        _agent_id_base = getattr(mainwin, 'current_agent_id', 'default_agent') or 'default_agent'
-        # Isolate parallel browser-automation nodes at BrowserManager layer.
-        # Without node suffix, sibling branches may contend on the same default agent handle.
-        _node_agent_id = f"{_agent_id_base}:{node_name}"
+
+        _agent_id_base = calling_agent_id or getattr(mainwin, 'current_agent_id', 'default_agent') or 'default_agent'
+        _node_agent_id = (
+            f"{_agent_id_base}:{node_name}:{browser_scope_key}"
+            if isolate_scope else f"{_agent_id_base}:{node_name}"
+        )
         auto_browser = browser_manager.acquire_browser(
             agent_id=_node_agent_id,
-            task=f"browser_automation_{node_name}",
+            task=(f"browser_automation_{node_name}:{browser_scope_key}" if isolate_scope else f"browser_automation_{node_name}"),
             browser_type=browser_type,
             cdp_port=cdp_port,
             webdriver_path=mainwin.getWebDriverPath(),
             downloads_path=downloads_path,
-            profile=node_profile,  # Pass profile from node editor
+            profile=node_profile,
         )
-        
+
         if auto_browser and auto_browser.status != BrowserStatus.ERROR:
-            # Set webdriver on mainwin for backward compatibility
             if auto_browser.webdriver:
                 mainwin.setWebDriver(auto_browser.webdriver)
-            
-            # Start browser session if not already started (for CDP/native mode)
+
             if browser_driver_setting == 'native' and auto_browser.browser_session:
                 log_msg = f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
                 if not _is_session_started(auto_browser.browser_session):
-                    # Each parallel branch has its own distinct BrowserSession object,
-                    # so no shared lock is needed here — a global asyncio.Lock would
-                    # serialize parallel fan-out branches and leave one stuck waiting.
-                    import asyncio
-                    task = asyncio.create_task(auto_browser.browser_session.start())
-                    await task
+                    start_lock = _browser_start_locks.get(cdp_port)
+                    if start_lock is None:
+                        start_lock = threading.Lock()
+                        _browser_start_locks[cdp_port] = start_lock
+
+                    logger.info(
+                        f"[BrowserAutomation] Waiting for startup lock on cdp_port={cdp_port} "
+                        f"scope={browser_scope_key} session={auto_browser.browser_session.id}"
+                    )
+                    await asyncio.to_thread(start_lock.acquire)
+                    try:
+                        if not _is_session_started(auto_browser.browser_session):
+                            logger.info(
+                                f"[BrowserAutomation] Acquired startup lock on cdp_port={cdp_port}; "
+                                f"starting session {auto_browser.browser_session.id} scope={browser_scope_key}"
+                            )
+                            task = asyncio.create_task(auto_browser.browser_session.start())
+                            await task
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] Session already started after waiting for lock: "
+                                f"{auto_browser.browser_session.id}"
+                            )
+                    finally:
+                        try:
+                            start_lock.release()
+                        except Exception:
+                            pass
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
+                try:
+                    setattr(auto_browser.browser_session, "_ecan_browser_scope_key", browser_scope_key)
+                except Exception:
+                    pass
 
-                # Fix E-F5: Restore focus to the tab from the previous (dead) session
                 if _last_known_focus_target_id:
                     try:
                         from browser_use.browser.events import SwitchTabEvent
@@ -5134,9 +5287,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     except Exception as e:
                         logger.warning(f"[BrowserAutomation] Failed to restore focus after session recreation: {e}")
 
-                _cached_browser_session = auto_browser.browser_session
+                _cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
                 return auto_browser.browser_session
-            
+
             return auto_browser
         else:
             error_msg = auto_browser.last_error if auto_browser else "Unknown error"
@@ -5144,7 +5297,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             return None
 
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
-        nonlocal _last_known_focus_target_id
+        nonlocal _last_known_focus_target_ids
         try:
             import asyncio
             from browser_use import Agent as BUAgent
@@ -5157,6 +5310,74 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
+
+            runtime_input = _extract_runtime_invocation_input(state)
+            if runtime_input:
+                task = (
+                    f"{task}\n\n"
+                    f"## Current Invocation Input\n"
+                    f"{runtime_input}"
+                )
+                logger.info(
+                    f"[BrowserAutomation] Injected runtime invocation input into task "
+                    f"(node={node_name}, skill={skill_name}, len={len(runtime_input)})"
+                )
+                send_skill_editor_log(
+                    "log",
+                    f"[BrowserAutomation] Injected runtime input into task (len={len(runtime_input)})"
+                )
+
+            if skill_name == "rt_chat_bot":
+                assignment_scope = _extract_assignment_scope(runtime_input)
+                assignment_session_id = str(
+                    assignment_scope.get("session_id")
+                    or assignment_scope.get("sessionId")
+                    or (state.get("chat_id") if isinstance(state, dict) else "")
+                    or ""
+                ).strip()
+                assignment_tab_id = str(
+                    assignment_scope.get("tab_id") or assignment_scope.get("tabId") or ""
+                ).strip()
+                assignment_chat_url = str(
+                    assignment_scope.get("chat_url") or assignment_scope.get("chatUrl") or ""
+                ).strip()
+                assignment_customer_name = str(
+                    assignment_scope.get("customer_name") or assignment_scope.get("customerName") or ""
+                ).strip()
+
+                scope_contract_lines = [
+                    "## Runtime Scope Contract",
+                    "This invocation belongs to the customer-service skill.",
+                    "Front-desk routing and assignment are already complete.",
+                    "You must never call `bu_send_chat` in this invocation.",
+                    "You must never assign or re-assign any session.",
+                    "You must ignore any other session IDs, customer names, or assignment payloads that appear in tabs, logs, history, or stale memory.",
+                ]
+                if assignment_session_id:
+                    scope_contract_lines.append(f"Assigned session_id: {assignment_session_id}")
+                if assignment_tab_id:
+                    scope_contract_lines.append(f"Assigned tab_id: {assignment_tab_id}")
+                if assignment_chat_url:
+                    scope_contract_lines.append(f"Assigned chat_url: {assignment_chat_url}")
+                if assignment_customer_name:
+                    scope_contract_lines.append(f"Assigned customer_name: {assignment_customer_name}")
+                scope_contract_lines.extend([
+                    "Allowed work only:",
+                    "1. focus the assigned tab or navigate to the assigned chat_url",
+                    "2. validate that the page matches the assigned session_id",
+                    "3. validate or repair the `chat_message_added` monitor for that assigned chat tab only",
+                    "4. if no new customer-originated message is visible yet, call `done()` immediately after setup",
+                    "5. if resumed by a real new customer message, reply in the assigned browser chat tab and then call `done()`",
+                ])
+                task = f"{task}\n\n" + "\n".join(scope_contract_lines)
+                logger.info(
+                    f"[BrowserAutomation] Applied customer-service runtime scope contract "
+                    f"(session_id={assignment_session_id or 'unknown'}, tab_id={assignment_tab_id or 'none'})"
+                )
+
+            _browser_scope_key = _resolve_browser_scope_key(state)
+            _cached_browser_session = _cached_browser_sessions.get(_browser_scope_key)
+            _last_known_focus_target_id = _last_known_focus_target_ids.get(_browser_scope_key)
 
             def _extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> str | None:
                 """Pull a deterministic startup URL from task/state for control-page workflows."""
@@ -5409,7 +5630,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if not isinstance(actions, list):
                         return {"error": "browser-use passive mode enabled but actions is not a list"}
 
-                    browser_session = await _get_or_create_browser_session(mainwin)
+                    browser_session = await _get_or_create_browser_session(mainwin, state=state, calling_agent_id=calling_agent_id)
                     if not browser_session:
                         return {"error": "browser-use passive mode: failed to acquire browser session"}
 
@@ -5458,7 +5679,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         )
                         # Update closure-level focus target after successful execution
                         if hasattr(passive_agent, '_last_focus_target_id') and passive_agent._last_focus_target_id:
-                            _last_known_focus_target_id = passive_agent._last_focus_target_id
+                            _last_known_focus_target_ids[_browser_scope_key] = passive_agent._last_focus_target_id
                     except Exception as e:
                         exec_error = e
                         err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
@@ -5788,6 +6009,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     
                     history = await agent.run()
                     final = history.final_result() if hasattr(history, 'final_result') else None
+                    _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
                     
                     logger.info(f"[BrowserAutomation] CloudAgent completed")
                     send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent completed")
@@ -6165,7 +6387,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.info(f"[BrowserAutomation] Mode: existing browser - connecting via CDP (type={browser_type_setting}, driver={browser_driver_setting})")
                 
                 # Get or create browser session through BrowserManager
-                browser_session = await _get_or_create_browser_session(mainwin)
+                browser_session = await _get_or_create_browser_session(mainwin, state=state, calling_agent_id=calling_agent_id)
                 
                 if browser_session and browser_driver_setting == 'native':
                     # Successfully connected to existing browser via CDP
@@ -6220,7 +6442,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
 
                         target_focus = None
-                        if valid_cur_focus:
+                        assignment_target_focus = None
+                        if skill_name == "rt_chat_bot":
+                            try:
+                                assignment_tab_focus = str(assignment_tab_id or "").strip()
+                                if assignment_tab_focus and assignment_tab_focus in page_target_ids:
+                                    assignment_target_focus = assignment_tab_focus
+                            except Exception:
+                                assignment_target_focus = None
+
+                        if assignment_target_focus:
+                            target_focus = assignment_target_focus
+                        elif valid_cur_focus:
                             target_focus = cur_focus
                         elif valid_last_focus:
                             target_focus = _last_known_focus_target_id
@@ -6234,6 +6467,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     f"[BrowserAutomation] Focus preflight switched target: "
                                     f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
                                 )
+                            elif assignment_target_focus:
+                                logger.info(
+                                    f"[BrowserAutomation] Focus preflight confirmed assigned tab already active: "
+                                    f"...{target_focus[-4:]}"
+                                )
                             _last_known_focus_target_id = target_focus
 
                             # Warm browser state to repopulate selector/session mapping before TypeTextEvent.
@@ -6241,7 +6479,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         else:
                             logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
 
-                        preferred_start_url = _extract_preferred_start_url(task, state)
+                        preferred_start_url = None if skill_name == "rt_chat_bot" else _extract_preferred_start_url(task, state)
                         if preferred_start_url and sm:
                             latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
                             all_targets = sm.get_all_targets() if sm else {}
@@ -6293,6 +6531,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 setattr(agent, "_ecan_owner", owner)
             except Exception:
                 pass
+            _browser_scope_key = _resolve_browser_scope_key(state)
+            _cached_browser_session = _cached_browser_sessions.get(_browser_scope_key)
+            _last_known_focus_target_id = _last_known_focus_target_ids.get(_browser_scope_key)
+
             try:
                 # Defensive second application after agent construction. Some agent
                 # constructors may replace/wrap the session reference.
@@ -6301,8 +6543,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     f"[BrowserAutomation][LifecycleDebug] Agent/browser session identity: "
                     f"agent_session_obj={id(_agent_session) if _agent_session else 'none'} "
                     f"cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
-                    f"same_as_cached={_agent_session is _cached_browser_session}"
+                    f"same_as_cached={_agent_session is _cached_browser_session} scope={_browser_scope_key}"
                 )
+                if _agent_session and _agent_session is not _cached_browser_session:
+                    _cached_browser_sessions[_browser_scope_key] = _agent_session
+                    try:
+                        setattr(_agent_session, "_ecan_browser_scope_key", _browser_scope_key)
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"[BrowserAutomation] Updated scoped cache from live agent session "
+                        f"for scope={_browser_scope_key}"
+                    )
                 if _agent_session and hasattr(_agent_session, "browser_profile") and _agent_session.browser_profile:
                     _agent_session.browser_profile.keep_alive = bool(keep_browser_alive)
                     logger.info(
@@ -6425,8 +6677,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from agent.ec_tasks import cancellation_registry
             task_id = state.get('attributes', {}).get('task_id') if isinstance(state, dict) else None
             cancellation_event = cancellation_registry.get(task_id) if task_id else None
-            if cancellation_event:
-                logger.info(f"[BrowserAutomation] ✅ Got cancellation_event for task_id={task_id}")
+            if cancellation_event and cancellation_event.is_set():
+                logger.info(f"[BrowserAutomation] Cancellation is set for task_id={task_id}")
+            elif cancellation_event:
+                logger.debug(f"[BrowserAutomation] Cancellation handle present but not set for task_id={task_id}")
 
             try:
                 async def _run_agent_call(**run_kwargs):
@@ -6466,7 +6720,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 try:
                     _focus_after_run = getattr(getattr(agent, 'browser_session', None), 'agent_focus_target_id', None)
                     if _focus_after_run:
-                        _last_known_focus_target_id = _focus_after_run
+                        _last_known_focus_target_ids[_browser_scope_key] = _focus_after_run
                 except Exception:
                     pass
                 
@@ -6477,6 +6731,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
                 
                 final = history.final_result() if hasattr(history, 'final_result') else None
+                _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
                 final_str = str(final)
                 if len(final_str) > 10000:
                     final_str = final_str[:10000] + '... (truncated)'
@@ -6557,7 +6812,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # Only close non-cached sessions to prevent resource leaks
                 if hasattr(agent, 'browser_session') and agent.browser_session:
                     # Check if this is the cached session
-                    is_cached_session = (agent.browser_session == _cached_browser_session)
+                    is_cached_session = (agent.browser_session == _cached_browser_sessions.get(_browser_scope_key))
                     
                     # Only close if NOT cached (cached sessions are reused)
                     if not is_cached_session and browser_type_setting != 'new chromium':
@@ -7147,6 +7402,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 if marker in task_text_raw:
                     return task_text_raw
 
+                if skill_name == "rt_chat_bot":
+                    tab_guardrail = (
+                        "2) If an assigned `tab_id` is provided for this customer-service invocation, "
+                        "you may and should focus that assigned tab. Do not switch to unrelated stale tabs "
+                        "from previous sessions. If no assigned `tab_id` is available, navigate directly to "
+                        "the assigned `chat_url`.\n"
+                    )
+                else:
+                    tab_guardrail = (
+                        "2) Never use switch_tab. Always stay in the current active tab and use navigate "
+                        "to load any new URL. Do not switch to any stale tab from a previous run.\n"
+                    )
+
                 guardrail_text = (
                     "\n\n[GLOBAL ANTI-RISK GUARDRAILS]\n"
                     "1) Anti-bot handling: if the page shows any rate-limit, captcha, "
@@ -7154,8 +7422,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     "perform at most one low-risk recovery attempt (for example: refresh once or navigate "
                     "to site home then continue with the same intent). If still blocked, return "
                     "blocked(reason=risk_control).\n"
-                    "2) Never use switch_tab. Always stay in the current active tab and use navigate "
-                    "to load any new URL. Do not switch to any stale tab from a previous run.\n"
+                    f"{tab_guardrail}"
                     "3) Low-frequency behavior: avoid repeated clicks on the same element and "
                     "unnecessary refresh loops. Retry the same failed action at most once.\n"
                     "4) Fast convergence: if 2-3 consecutive actions produce no meaningful state change, "
@@ -7288,10 +7555,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             )
                         if _event_monitor_configs:
                             from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
-                            _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}")
+                            _browser_scope_key = _resolve_browser_scope_key(state)
+                            _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
                             logger.info(
                                 f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
-                                f"{_worker_suffix}"
+                                f"{_worker_suffix} "
+                                f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
+                                f"task_id={state.get('task_id') if isinstance(state, dict) else ''}, "
+                                f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
                             )
                             info = run_async_in_persistent_worker_thread(
                                 _run_with_hard_timeout,
@@ -7317,10 +7588,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 else:
                     if _event_monitor_configs:
                         from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
-                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}")
+                        _browser_scope_key = _resolve_browser_scope_key(state)
+                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
                         logger.info(
                             f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
-                            f"{_worker_suffix}"
+                            f"{_worker_suffix} "
+                            f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
+                            f"task_id={state.get('task_id') if isinstance(state, dict) else ''}, "
+                            f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
                         )
                         info = run_async_in_persistent_worker_thread(
                             lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
@@ -7474,6 +7749,40 @@ def build_task_node(config_metadata: dict, node_name: str, skill_name: str, owne
         return state
     
     return node_builder(_task, node_name, skill_name, owner, bp_manager)
+
+
+def _log_browser_use_result_summary(history: Any, *, skill_name: str, node_name: str) -> None:
+    """Log compact per-step browser-use results so blank retry counters are diagnosable."""
+    try:
+        all_results = list(getattr(history, "all_results", []) or [])
+    except Exception:
+        all_results = []
+    if not all_results:
+        return
+
+    lines = []
+    for idx, result in enumerate(all_results, start=1):
+        if result is None:
+            lines.append(f"[{idx}] <none>")
+            continue
+        try:
+            is_done = getattr(result, "is_done", None)
+            success = getattr(result, "success", None)
+            error = str(getattr(result, "error", "") or "").strip()
+            extracted = str(getattr(result, "extracted_content", "") or "").strip().replace("\r", " ").replace("\n", " ")
+            if len(extracted) > 180:
+                extracted = extracted[:177] + "..."
+            line = f"[{idx}] done={is_done} success={success}"
+            if error:
+                line += f" error={error}"
+            if extracted:
+                line += f" extracted={extracted}"
+            lines.append(line)
+        except Exception as exc:
+            lines.append(f"[{idx}] <summary_failed> {exc}")
+    logger.info(
+        f"[BrowserAutomation] browser-use result summary for {skill_name}:{node_name}\n" + "\n".join(lines)
+    )
 
 
 def _get_chat_llm(model_name: str, temperature: float = 0.0):

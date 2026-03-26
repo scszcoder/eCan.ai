@@ -17,6 +17,7 @@ References:
 - my_twin_chatter_skill.py: parrot function (lines 131-142)
 """
 
+import json
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -29,9 +30,14 @@ from utils.logger_helper import logger_helper as logger, get_traceback
 
 # ==================== Helper Functions ====================
 
-def _get_agent_by_id(agent_id: str):
+def _get_agent_by_id(agent_id: str, mainwin=None):
     """Get agent by ID from the application context."""
     try:
+        if mainwin is not None and getattr(mainwin, "agents", None):
+            return next(
+                (ag for ag in mainwin.agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id),
+                None,
+            )
         from agent.agent_service import get_agent_by_id
         return get_agent_by_id(agent_id)
     except Exception as e:
@@ -39,11 +45,12 @@ def _get_agent_by_id(agent_id: str):
         return None
 
 
-def _get_agent_by_name(agent_name: str):
+def _get_agent_by_name(agent_name: str, mainwin=None):
     """Get agent by name from the application context."""
     try:
-        from app_context import AppContext
-        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            from app_context import AppContext
+            mainwin = AppContext.get_main_window()
         if not mainwin or not mainwin.agents:
             return None
         
@@ -61,11 +68,12 @@ def _get_agent_by_name(agent_name: str):
         return None
 
 
-def _get_all_agents() -> List[Dict[str, Any]]:
+def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
     """Get all available agents."""
     try:
-        from app_context import AppContext
-        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            from app_context import AppContext
+            mainwin = AppContext.get_main_window()
         if not mainwin or not mainwin.agents:
             return []
         
@@ -138,6 +146,23 @@ def _build_chat_message(
     }
 
 
+def _infer_session_chat_id(message_text: str) -> str:
+    """Infer a stable chat/session id from JSON message text when possible."""
+    if not isinstance(message_text, str) or not message_text.strip():
+        return ""
+    try:
+        payload = json.loads(message_text)
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("session_id", "sessionId", "customer_id", "customerId"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 # ==================== Tool Implementations ====================
 
 def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -199,7 +224,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             }
         
         # Get sender agent
-        sender_agent = _get_agent_by_id(sender_agent_id)
+        sender_agent = _get_agent_by_id(sender_agent_id, mainwin)
         if not sender_agent:
             return {
                 "success": False,
@@ -210,9 +235,9 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         # Get recipient agent
         recipient_agent = None
         if recipient_agent_id:
-            recipient_agent = _get_agent_by_id(recipient_agent_id)
+            recipient_agent = _get_agent_by_id(recipient_agent_id, mainwin)
         if not recipient_agent and recipient_agent_name:
-            recipient_agent = _get_agent_by_name(recipient_agent_name)
+            recipient_agent = _get_agent_by_name(recipient_agent_name, mainwin)
         
         if not recipient_agent:
             return {
@@ -226,10 +251,27 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         sender_card = getattr(sender_agent, 'card', None)
         if sender_card:
             sender_name = getattr(sender_card, 'name', '')
-        
+
+        resolved_sender_id = getattr(getattr(sender_agent, "card", None), "id", "") or sender_agent_id
+        resolved_recipient_id = getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id
+
+        if resolved_sender_id and resolved_recipient_id and resolved_sender_id == resolved_recipient_id:
+            logger.error(
+                f"[send_chat] Blocked self-send sender={resolved_sender_id} recipient={resolved_recipient_id} "
+                f"chat_id={chat_id or '<pending>'} message_preview={str(message_text)[:200]}"
+            )
+            return {
+                "success": False,
+                "error": f"Self-send blocked for agent {resolved_sender_id}",
+                "sender_agent_id": resolved_sender_id,
+                "recipient_agent_id": resolved_recipient_id,
+                "timestamp": int(time.time() * 1000),
+            }
+
         # Generate chat_id if not provided
         if not chat_id:
-            chat_id = f"chat-{str(uuid.uuid4())[:8]}"
+            inferred_chat_id = _infer_session_chat_id(message_text)
+            chat_id = inferred_chat_id or f"chat-{str(uuid.uuid4())[:8]}"
         
         # Build the message
         chat_message = _build_chat_message(
@@ -237,7 +279,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             chat_id=chat_id,
             message_text=message_text,
             sender_name=sender_name,
-            receiver_agent_id=getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id,
+            receiver_agent_id=resolved_recipient_id,
             message_type=message_type,
             attachments=attachments,
         )
@@ -297,7 +339,7 @@ def list_chat_agents(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         mainwin: Main window instance
         config: Configuration dict with:
             - exclude_self: str (optional) - Agent ID to exclude from list
-            - filter_name: str (optional) - Filter agents by name (partial match)
+            - filter_name: str (optional) - Filter agents by id or name (partial match)
             
     Returns:
         Dict with list of agents:
@@ -320,14 +362,17 @@ def list_chat_agents(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         exclude_self = config.get("exclude_self", "")
         filter_name = config.get("filter_name", "").lower()
         
-        agents = _get_all_agents()
+        agents = _get_all_agents(mainwin)
         
         # Apply filters
         if exclude_self:
             agents = [a for a in agents if a["id"] != exclude_self]
         
         if filter_name:
-            agents = [a for a in agents if filter_name in a["name"].lower()]
+            agents = [
+                a for a in agents
+                if filter_name in a["name"].lower() or filter_name in a["id"].lower()
+            ]
         
         return {
             "success": True,

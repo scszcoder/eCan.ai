@@ -15,7 +15,7 @@ import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
-import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
+import { sanitizeNodeApiKeys, sanitizeApiKeysDeep, normalizeNodesForSave } from '../../utils/sanitize-utils';
 import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
@@ -618,6 +618,7 @@ export const Save = ({ disabled }: SaveProps) => {
       // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+      normalizeNodesForSave(sanitizedDiagram?.nodes);
 
       // 3. Extract config nodes and create updated skillInfo
       const configNodes = extractConfigNodes(diagram);
@@ -809,6 +810,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+      normalizeNodesForSave(sanitizedDiagram?.nodes);
 
       // 3. Extract config nodes
       const configNodes = extractConfigNodes(diagram);

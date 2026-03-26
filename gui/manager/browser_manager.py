@@ -564,6 +564,45 @@ class BrowserManager:
                 return browser
         
         return None
+
+    def find_browser_for_owner(
+        self,
+        agent_id: str,
+        task: Optional[str] = None,
+        browser_type: Optional[BrowserType] = None,
+        cdp_port: Optional[int] = None,
+        profile: Optional[str] = None,
+    ) -> Optional[AutoBrowser]:
+        """
+        Find a browser already marked IN_USE by the same scoped owner.
+
+        This is needed for long-lived browser-use nodes that may re-enter after
+        cache churn. Reusing the exact same owned browser avoids creating a new
+        BrowserSession for the same chat/control scope.
+        """
+        if not agent_id:
+            return None
+
+        with self._lock:
+            for browser in self._browsers.values():
+                if browser.status != BrowserStatus.IN_USE:
+                    continue
+                if str(browser.current_agent_id or "") != str(agent_id):
+                    continue
+                if task is not None and str(browser.current_task or "") != str(task):
+                    continue
+                if browser_type and browser.browser_type != browser_type:
+                    continue
+                if cdp_port and browser.cdp_port != cdp_port:
+                    continue
+                if profile:
+                    existing_profile = str(browser.profile or "")
+                    requested_profile = str(profile)
+                    if existing_profile != requested_profile:
+                        continue
+                return browser
+
+        return None
     
     def register_browser(self, browser: AutoBrowser) -> str:
         """
@@ -811,6 +850,24 @@ class BrowserManager:
             Acquired AutoBrowser instance or None
         """
         effective_cdp_port = cdp_port or 9228
+
+        # First, try to reuse a browser already owned by this exact scoped
+        # agent/task. This prevents duplicate BrowserSession creation when the
+        # caller loses its local cache but the BrowserManager still owns the
+        # correct in-use browser for the same scope.
+        browser = self.find_browser_for_owner(
+            agent_id=agent_id,
+            task=task,
+            browser_type=browser_type,
+            cdp_port=effective_cdp_port,
+            profile=profile,
+        )
+        if browser:
+            logger.info(
+                f"[BrowserManager] Agent {agent_id} reusing owned browser {browser.id} "
+                f"(task={task or ''}, profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
+            )
+            return browser
 
         # Try to find an available browser
         browser = self.find_available_browser(
