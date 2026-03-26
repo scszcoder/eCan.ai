@@ -71,9 +71,8 @@ def construct_prompt_from_data(prompt_data: Dict[str, Any]) -> str:
     # If mdContent exists and is not empty, use it directly (markdown mode)
     md_content = prompt_data.get("mdContent", "").strip()
     if md_content:
-        logger.warning(f"[prompt_loader] ✅ Using mdContent for prompt (markdown mode)")
-        logger.warning(f"[prompt_loader] mdContent length: {len(md_content)} chars")
-        logger.warning(f"[prompt_loader] mdContent preview: {md_content[:200]}...")
+        logger.info(f"[prompt_loader] ✅ Using mdContent for prompt (markdown mode, {len(md_content)} chars)")
+        logger.debug(f"[prompt_loader] mdContent preview: {md_content[:200]}...")
         return md_content
     
     # Otherwise, construct from sections (JSON mode)

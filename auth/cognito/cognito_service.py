@@ -304,28 +304,82 @@ class CognitoService:
             return {'success': False, 'error': error_msg}
 
     def forgot_password(self, username):
+        import time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+        start_time = time.time()
+        auth_flow_config = perf_config.get_auth_flow_config()
+        overall_timeout = auth_flow_config.get('total_timeout', 30)
         try:
             client = self._get_cognito_client()
-            response = client.forgot_password(
-                ClientId=AuthConfig.COGNITO.CLIENT_ID,
-                Username=username
-            )
+
+            def _do_forgot():
+                return client.forgot_password(
+                    ClientId=AuthConfig.COGNITO.CLIENT_ID,
+                    Username=username
+                )
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_forgot)
+                try:
+                    response = future.result(timeout=overall_timeout)
+                except FuturesTimeoutError:
+                    elapsed_time = time.time() - start_time
+                    logger.error(
+                        f"Cognito forgot_password overall timeout: {username}, "
+                        f"timeout={overall_timeout}s, elapsed: {elapsed_time:.2f}s"
+                    )
+                    self.cognito_client = None
+                    return {'success': False, 'error': 'FORGOT_PASSWORD_TIMEOUT'}
             return {'success': True, 'data': response}
         except ClientError as e:
             return {'success': False, 'error': e.response['Error']['Code']}
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logger.error(
+                f"Cognito forgot_password exception: {username}, exception: {str(e)}, "
+                f"elapsed: {elapsed_time:.2f}s"
+            )
+            return {'success': False, 'error': f'FORGOT_PASSWORD_EXCEPTION: {str(e)}'}
 
     def confirm_forgot_password(self, username, confirmation_code, new_password):
+        import time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+        start_time = time.time()
+        auth_flow_config = perf_config.get_auth_flow_config()
+        overall_timeout = auth_flow_config.get('total_timeout', 30)
         try:
             client = self._get_cognito_client()
-            response = client.confirm_forgot_password(
-                ClientId=AuthConfig.COGNITO.CLIENT_ID,
-                Username=username,
-                ConfirmationCode=confirmation_code,
-                Password=new_password
-            )
+
+            def _do_confirm():
+                return client.confirm_forgot_password(
+                    ClientId=AuthConfig.COGNITO.CLIENT_ID,
+                    Username=username,
+                    ConfirmationCode=confirmation_code,
+                    Password=new_password
+                )
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_confirm)
+                try:
+                    response = future.result(timeout=overall_timeout)
+                except FuturesTimeoutError:
+                    elapsed_time = time.time() - start_time
+                    logger.error(
+                        f"Cognito confirm_forgot_password overall timeout: {username}, "
+                        f"timeout={overall_timeout}s, elapsed: {elapsed_time:.2f}s"
+                    )
+                    self.cognito_client = None
+                    return {'success': False, 'error': 'CONFIRM_FORGOT_PASSWORD_TIMEOUT'}
             return {'success': True, 'data': response}
         except ClientError as e:
             return {'success': False, 'error': e.response['Error']['Code']}
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logger.error(
+                f"Cognito confirm_forgot_password exception: {username}, exception: {str(e)}, "
+                f"elapsed: {elapsed_time:.2f}s"
+            )
+            return {'success': False, 'error': f'CONFIRM_FORGOT_PASSWORD_EXCEPTION: {str(e)}'}
 
 
 

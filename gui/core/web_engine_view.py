@@ -81,6 +81,14 @@ class CustomWebEnginePage(QWebEnginePage):
         self._enable_console_capture = False
         self._browser_logger = None
 
+    @staticmethod
+    def _is_dev() -> bool:
+        try:
+            from config.app_settings import app_settings
+            return bool(app_settings.is_dev_mode)
+        except Exception:
+            return False
+
     def enable_console_capture(self, enable: bool = True):
         """Enable or disable console message capture (for development)"""
         self._enable_console_capture = enable
@@ -142,7 +150,8 @@ class CustomWebEnginePage(QWebEnginePage):
 
     def acceptNavigationRequest(self, url, _type, isMainFrame):
         url_str = url.toString()
-        logger.info(f"Navigation request: {url_str}, type: {_type}, isMainFrame: {isMainFrame}")
+        if self._is_dev():
+            logger.debug(f"Navigation request: {url_str}, type: {_type}, isMainFrame: {isMainFrame}")
 
         # Only intercept external links clicked by user, not main page
         MAIN_URLS = {"http://localhost:3000", "http://localhost:3000/"}
@@ -151,19 +160,14 @@ class CustomWebEnginePage(QWebEnginePage):
             and url_str.startswith(('http://', 'https://'))
             and url_str not in MAIN_URLS
         ):
-            logger.info(f"External link detected: {url_str}")
             try:
                 import webbrowser
                 webbrowser.open(url_str)
-                logger.info(f"Successfully opened external link in system browser: {url_str}")
                 return False  # Block opening in WebEngine
             except Exception as e:
                 logger.error(f"Failed to open external link '{url_str}' in system browser: {e}")
-                logger.info(f"Falling back to WebEngine for external link: {url_str}")
                 return True
 
-        # Allow WebEngine normal navigation in other cases
-        logger.debug(f"Allowing navigation: {url_str}")
         return True
 
     # Track temporary pages created by createWindow to prevent premature GC
@@ -459,30 +463,32 @@ class WebEngineView(QWebEngineView):
         self.titleChanged.connect(self.on_title_changed)
         self.urlChanged.connect(self.on_url_changed)
     
+    @staticmethod
+    def _is_dev() -> bool:
+        try:
+            from config.app_settings import app_settings
+            return bool(app_settings.is_dev_mode)
+        except Exception:
+            return False
+
     @Slot()
     def on_load_started(self):
-        """Handle page load start"""
         self._is_loading = True
         self._last_error = None
-        logger.info("Page load started")
+        if self._is_dev():
+            logger.debug("Page load started")
 
     @Slot(int)
     def on_load_progress(self, progress: int):
-        """Handle page load progress"""
-        logger.info(f"Page load progress: {progress}%")
+        if self._is_dev() and progress in (0, 25, 50, 75, 100):
+            logger.debug(f"Page load progress: {progress}%")
 
     @Slot(bool)
     def on_load_finished(self, success: bool):
-        """Handle page load completion"""
         self._is_loading = False
         if success:
-            logger.info("Page load completed successfully")
-            # Get current page title
-            title = self.page().title()
-            logger.info(f"Page title: {title}")
-            # Get current URL
-            url = self.url().toString()
-            logger.info(f"Current URL: {url}")
+            if self._is_dev():
+                logger.debug(f"Page load completed: {self.url().toString()}")
         else:
             error_msg = f"Page load failed: {self._last_error or 'Unknown error'}"
             logger.error(error_msg)
@@ -490,15 +496,15 @@ class WebEngineView(QWebEngineView):
 
     @Slot(str)
     def on_title_changed(self, title: str):
-        """Handle page title change"""
-        logger.info(f"Page title changed: {title}")
+        if self._is_dev():
+            logger.debug(f"Page title changed: {title}")
         self.title_changed.emit(title)
 
     @Slot(QUrl)
     def on_url_changed(self, url: QUrl):
-        """Handle page URL change"""
         url_str = url.toString()
-        logger.info(f"Page URL changed: {url_str}")
+        if self._is_dev():
+            logger.debug(f"Page URL changed: {url_str}")
         self.url_changed.emit(url_str)
     
     def inject_script(self, script: str) -> None:
