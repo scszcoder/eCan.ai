@@ -5104,9 +5104,18 @@ class MainWindow:
                     await self.wan_send_heartbeat(hbInfo)
 
                     # send vehicle status to cloud DB
+                    # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
+                    # Running it in an executor prevents it from blocking the asyncio event loop,
+                    # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
                     vehicle_report = self.prepFullVehicleReportData()
-                    resp = send_report_vehicles_to_cloud(self.session, self.get_auth_token(),
-                                                         vehicle_report, self.getWanApiEndpoint())
+                    _token = self.get_auth_token()
+                    _endpoint = self.getWanApiEndpoint()
+                    resp = await asyncio.get_running_loop().run_in_executor(
+                        None,
+                        lambda: send_report_vehicles_to_cloud(
+                            self.session, _token, vehicle_report, _endpoint
+                        ),
+                    )
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
