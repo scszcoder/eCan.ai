@@ -312,13 +312,17 @@ const Login: React.FC = () => {
 			// Add timeout for forgot password request
 			const forgotPromise = api.forgotPassword(username, i18n.language);
 			const timeoutPromise = new Promise<never>((_, reject) => {
-				setTimeout(() => reject(new Error('Forgot password timeout after 30 seconds')), 30000);
+				setTimeout(() => reject(new Error('Forgot password timeout after 120 seconds')), 120000);
 			});
 
-			await Promise.race([forgotPromise, timeoutPromise]);
+			const response = await Promise.race([forgotPromise, timeoutPromise]);
 
-			setCodeSent(true);
-			messageApi.success(t('login.forgotCodeSent'));
+			if (response.success) {
+				setCodeSent(true);
+				messageApi.success(t('login.forgotCodeSent'));
+			} else {
+				messageApi.error(response.error?.message || t('login.forgotCodeSendError'));
+			}
 		} catch (error) {
 			console.error('Forgot password send code error:', error);
 			messageApi.error(t('login.forgotCodeSendError') + ': ' + (error instanceof Error ? error.message : String(error)));
@@ -352,7 +356,7 @@ const Login: React.FC = () => {
 			// Add timeout for reset password request
 			const resetPromise = api.confirmForgotPassword(username, confirmCode, newPassword, i18n.language);
 			const timeoutPromise = new Promise<never>((_, reject) => {
-				setTimeout(() => reject(new Error('Reset password timeout after 30 seconds')), 30000);
+				setTimeout(() => reject(new Error('Reset password timeout after 120 seconds')), 120000);
 			});
 
 			const response = await Promise.race([resetPromise, timeoutPromise]);

@@ -69,8 +69,14 @@ COGNITO_ERROR_MAP = {
     'InvalidParameterException': 'signup_invalid_email',
 
     # Forgot password errors
+    'TooManyRequestsException': 'forgot_password_failed',
+    'LimitExceededException': 'forgot_password_failed',
+    'FORGOT_PASSWORD_TIMEOUT': 'forgot_password_failed',
     'CodeMismatchException': 'confirm_forgot_invalid_code',
     'ExpiredCodeException': 'confirm_forgot_expired_code',
+    'InvalidPasswordException': 'confirm_forgot_invalid_password',
+    'UserNotFoundException': 'confirm_forgot_user_not_found',
+    'CONFIRM_FORGOT_PASSWORD_TIMEOUT': 'confirm_forgot_failed',
 }
 
 def get_message_from_cognito_error(error_code, default_key):
