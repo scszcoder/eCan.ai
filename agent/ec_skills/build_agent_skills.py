@@ -804,8 +804,7 @@ def _convert_db_skill_to_object(db_skill):
 
         _fill_skill_from_db_view(skill_obj, v)
         
-        logger.warning(f"[build_agent_skills] 🔄 Converting DB skill to object: '{skill_obj.name}'")
-        logger.warning(f"[build_agent_skills] Skill path: {skill_obj.path}")
+        logger.debug(f"[build_agent_skills] 🔄 Converting DB skill to object: '{skill_obj.name}', path={skill_obj.path}")
 
         # Load mapping rules from data_mapping.json
         mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)
@@ -847,10 +846,9 @@ def _convert_db_skill_to_object(db_skill):
                 logger.error(f"[build_agent_skills] ❌ Error rebuilding workflow for {skill_obj.name}: {e}")
                 logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
         else:
-            logger.warning(f"[build_agent_skills] ⚠️ No diagram data for skill: {skill_obj.name}")
-            logger.warning(f"[build_agent_skills] 💡 This skill was created before diagram support was added")
+            logger.info(f"[build_agent_skills] No diagram data for skill '{skill_obj.name}' (pre-diagram version)")
 
-        logger.warning(f"[build_agent_skills] ✅ Converted DB skill: '{skill_obj.name}' (runnable: {'✅' if skill_obj.runnable else '❌'})")
+        logger.info(f"[build_agent_skills] ✅ Converted DB skill: '{skill_obj.name}' (runnable: {skill_obj.runnable})")
         return skill_obj
 
     except Exception as e:

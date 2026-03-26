@@ -16,6 +16,7 @@ import traceback
 # ====== 集成 TRACE 日志等级 ======
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+logging.TRACE = TRACE_LEVEL_NUM
 
 def trace(self, message, *args, **kws):
     if self.isEnabledFor(TRACE_LEVEL_NUM):
@@ -66,7 +67,13 @@ class LoggerHelper:
         else:
             print(f"runlogs {runlogs_dir} directory is existed")
 
-        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
+        # Default to INFO in production; override via ECAN_LOG_LEVEL when needed.
+        _env_level = os.environ.get("ECAN_LOG_LEVEL", "INFO").upper()
+        if _env_level == "TRACE":
+            _log_level = TRACE_LEVEL_NUM
+        else:
+            _log_level = getattr(logging, _env_level, logging.INFO)
+        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_NAME + ".log", _log_level)
 
         # 初始化崩溃日志功能
         self._setup_crash_logging()

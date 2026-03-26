@@ -4512,14 +4512,17 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
     """
 
     def on_message(ws, message):
-        logger.debug("[CloudLLMTask] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[CloudLLMTask] Subscription update: %s", json.dumps(data, indent=2))
         # Determine message type for protocol handling
         msg_type = data.get("type")
+        if msg_type in ("ka", "keepalive"):
+            # Keep-alive from server; no action required
+            return
+        logger.debug("[CloudLLMTask] Received WebSocket message type=%s", msg_type)
+        logger.trace("[CloudLLMTask] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
 
         if msg_type == "connection_ack":
             # After ack, start the subscription (AppSync format: data + extensions.authorization)
@@ -4564,9 +4567,6 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
             except Exception as e:
                 logger.error(f"[CloudLLMTask] Failed to send start payload: {e}")
 
-        elif msg_type in ("ka", "keepalive"):
-            # Keep-alive from server; no action required
-            return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "LongLLM1":
             # Extract structured object result per schema
             payload_data = data.get("payload", {}).get("data", {})
@@ -4693,14 +4693,16 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
     """
 
     def on_message(ws, message):
-        logger.debug("[AccountNotification] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[AccountNotification] Subscription update: %s", json.dumps(data, indent=2))
-        
         msg_type = data.get("type")
+        if msg_type in ("ka", "keepalive"):
+            # Keep-alive from server; no action required
+            return
+        logger.debug("[AccountNotification] Received WebSocket message type=%s", msg_type)
+        logger.trace("[AccountNotification] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
 
         if msg_type == "connection_ack":
             # After ack, start the subscription
@@ -4743,9 +4745,6 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
             except Exception as e:
                 logger.error(f"[AccountNotification] Failed to send start payload: {e}")
 
-        elif msg_type in ("ka", "keepalive"):
-            # Keep-alive from server; no action required
-            return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AccountNotification1":
             # Extract notification data
             payload_data = data.get("payload", {}).get("data", {})
@@ -4939,13 +4938,15 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
     """
 
     def on_message(ws, message):
-        logger.info("[AgentSceneEvent] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
         msg_type = data.get("type")
-        logger.info(f"[AgentSceneEvent] Message type: {msg_type}, full data: {json.dumps(data, indent=2)}")
+        if msg_type in ("ka", "keepalive"):
+            return
+        logger.debug(f"[AgentSceneEvent] Message type: {msg_type}")
+        logger.trace(f"[AgentSceneEvent] full data: {json.dumps(data, ensure_ascii=False)[:2000]}")
 
         if msg_type == "connection_ack":
             try:
@@ -4992,13 +4993,13 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
                         },
                     },
                 }
-                logger.info(f"[AgentSceneEvent] connection_ack received, sending start subscription with acctSiteID='{acct_site_id}'")
+                logger.debug(f"[AgentSceneEvent] connection_ack received, sending start subscription with acctSiteID='{acct_site_id}'")
                 ws.send(json.dumps(start_payload))
             except Exception as e:
                 logger.error(f"[AgentSceneEvent] Failed to send start payload: {e}")
 
         elif msg_type == "start_ack":
-            logger.info(f"[AgentSceneEvent] Subscription started successfully (start_ack received)")
+            logger.debug(f"[AgentSceneEvent] Subscription started successfully (start_ack received)")
             return
         elif msg_type == "error":
             logger.error(f"[AgentSceneEvent] Subscription error: {json.dumps(data, indent=2)}")
@@ -5010,7 +5011,13 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
             scene = None
             if isinstance(payload_data, dict):
                 scene = payload_data.get("onAgentSceneEvent")
-                logger.info(f"[AgentSceneEvent] Received scene event: {json.dumps(scene, indent=2, ensure_ascii=False)}")
+                logger.debug(
+                    "[AgentSceneEvent] Received scene event: id=%s scene_id=%s status=%s",
+                    scene.get("id") if scene else None,
+                    scene.get("scene_id") if scene else None,
+                    scene.get("status") if scene else None,
+                )
+                logger.trace("[AgentSceneEvent] scene detail: %s", json.dumps(scene, ensure_ascii=False)[:2000] if scene else "")
                 
                 # Client-side filtering by agent_id if specified
                 if agent_id_filter and scene:
@@ -5094,14 +5101,15 @@ def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
     """
 
     def on_message(ws, message):
-        logger.debug("[PuzzleResult] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[PuzzleResult] Subscription update: %s", json.dumps(data, indent=2))
-        
         msg_type = data.get("type")
+        if msg_type in ("ka", "keepalive"):
+            return
+        logger.debug("[PuzzleResult] Received WebSocket message type=%s", msg_type)
+        logger.trace("[PuzzleResult] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
 
         if msg_type == "connection_ack":
             try:
@@ -5139,8 +5147,6 @@ def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
             except Exception as e:
                 logger.error(f"[PuzzleResult] Failed to send start payload: {e}")
 
-        elif msg_type in ("ka", "keepalive"):
-            return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "PuzzleResult1":
             payload_data = data.get("payload", {}).get("data", {})
             puzzle_result = None
@@ -5223,14 +5229,15 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
     """
 
     def on_message(ws, message):
-        logger.debug("[SceneComplete] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[SceneComplete] Subscription update: %s", json.dumps(data, indent=2))
-        
         msg_type = data.get("type")
+        if msg_type in ("ka", "keepalive"):
+            return
+        logger.debug("[SceneComplete] Received WebSocket message type=%s", msg_type)
+        logger.trace("[SceneComplete] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
 
         if msg_type == "connection_ack":
             try:
@@ -5279,8 +5286,6 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
             except Exception as e:
                 logger.error(f"[SceneComplete] Failed to send start payload: {e}")
 
-        elif msg_type in ("ka", "keepalive"):
-            return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "SceneComplete1":
             payload_data = data.get("payload", {}).get("data", {})
             scene_result = None
@@ -5584,14 +5589,15 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
     """
 
     def on_message(ws, message):
-        logger.debug("[StoryUpdate] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[StoryUpdate] Subscription update: %s", json.dumps(data, indent=2))
-        
         msg_type = data.get("type")
+        if msg_type in ("ka", "keepalive"):
+            return
+        logger.debug("[StoryUpdate] Received WebSocket message type=%s", msg_type)
+        logger.trace("[StoryUpdate] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
 
         if msg_type == "connection_ack":
             try:
@@ -5639,8 +5645,6 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
             except Exception as e:
                 logger.error(f"[StoryUpdate] Failed to send start payload: {e}")
 
-        elif msg_type in ("ka", "keepalive"):
-            return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "StoryUpdate1":
             payload_data = data.get("payload", {}).get("data", {})
             story = None

@@ -439,6 +439,13 @@ def _sanitize_action_array(actions: list) -> list:
             if 'success' not in done_params:
                 done_params['success'] = True
 
+        # Fix wait.seconds: Pydantic requires int, but LLM may output float (e.g. 0.5)
+        if 'wait' in action and isinstance(action['wait'], dict):
+            secs = action['wait'].get('seconds')
+            if isinstance(secs, float):
+                action['wait']['seconds'] = max(1, int(round(secs)))
+                logger.info(f"[QwenAdapter] 🔧 Coerced wait.seconds {secs} → {action['wait']['seconds']} (int required)")
+
         sanitized.append(action)
 
     # If all actions were invalid, create a fallback done action

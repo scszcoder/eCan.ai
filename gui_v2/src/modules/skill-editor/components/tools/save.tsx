@@ -272,6 +272,20 @@ function buildWebSkillPath(skillName: string, username?: string | null): string 
   return `${ownerPrefix}my_skills/${folderName}/diagram_dir/${base}_skill.json`;
 }
 
+function isValidDesktopSkillSourcePath(path: string | null | undefined): boolean {
+  if (!path) return false;
+  const normalized = String(path).replace(/\\/g, '/');
+  // Expected: .../<name>_skill/diagram_dir/<file>.json
+  return /\/[^/]+_skill\/diagram_dir\/[^/]+\.json$/i.test(normalized);
+}
+
+function buildDesktopNestedSkillPath(selectedPath: string, skillName: string): string {
+  const normalizedSelected = String(selectedPath).replace(/\\/g, '/');
+  const selectedDir = normalizedSelected.replace(/\/[^/]+$/, '');
+  const base = normalizeSkillBaseName(skillName);
+  return `${selectedDir}/${base}_skill/diagram_dir/${base}_skill.json`;
+}
+
 export async function saveFile(
   dataToSave: SkillInfo,
   _username?: string,
@@ -411,7 +425,13 @@ export async function saveFile(
             };
           }
           console.error('[SKILL_IO][FRONTEND][MAIN_SAVE_ERROR]', writeResponse.error);
-          throw new Error(writeResponse.error || 'Failed to write file');
+          const rawError = writeResponse.error;
+          const errorMessage = typeof rawError === 'string'
+            ? rawError
+            : (rawError && typeof rawError === 'object' && 'message' in rawError && typeof rawError.message === 'string')
+              ? rawError.message
+              : 'Failed to write file';
+          throw new Error(errorMessage);
         }
       } catch (err) {
         console.warn('[SKILL_IO][FRONTEND][IPC_SAVE_ERROR]', err);
@@ -966,7 +986,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         const ipcApi = IPCAPI.getInstance();
         const targetDir = selectedPath.replace(/\/[^/]+$/, '');
 
-        if (currentFilePath) {
+        const canCopyFromCurrent = isValidDesktopSkillSourcePath(currentFilePath);
+        if (currentFilePath && canCopyFromCurrent) {
           const copyResult = await ipcApi.copySkillTo(
             currentFilePath,
             newSkillName,
@@ -993,12 +1014,20 @@ export const SaveAs = ({ disabled }: SaveProps) => {
             return;
           }
         } else {
-          finalDiagramPath = selectedPath;
-          await ipcApi.writeSkillFile({ filePath: selectedPath, content: JSON.stringify(updatedSkillInfo, null, 2) });
-          const bundlePath = selectedPath.replace(/_skill\.json$/i, '_skill_bundle.json').replace(/\.json$/i, '_bundle.json');
+          if (currentFilePath && !canCopyFromCurrent) {
+            console.warn('[SAVEAS] Skip copySkillTo due to invalid source path, fallback to direct write:', currentFilePath);
+          }
+
+          // For invalid existing source path, force nested skill layout to avoid flat/ambiguous saves.
+          finalDiagramPath = currentFilePath && !canCopyFromCurrent
+            ? buildDesktopNestedSkillPath(selectedPath, newSkillName)
+            : selectedPath;
+
+          await ipcApi.writeSkillFile({ filePath: finalDiagramPath, content: JSON.stringify(updatedSkillInfo, null, 2) });
+          const bundlePath = finalDiagramPath.replace(/_skill\.json$/i, '_skill_bundle.json').replace(/\.json$/i, '_bundle.json');
           await ipcApi.writeSkillFile({ filePath: bundlePath, content: JSON.stringify(bundle, null, 2) });
           if (dataMappingForSave) {
-            const mappingPath = deriveDataMappingPath(selectedPath, newSkillName);
+            const mappingPath = deriveDataMappingPath(finalDiagramPath, newSkillName);
             await ipcApi.writeSkillFile({ filePath: mappingPath, content: dataMappingForSave });
           }
         }
