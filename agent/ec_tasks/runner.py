@@ -2946,12 +2946,12 @@ class TaskRunner(Generic[Context]):
     
     def _prepare_dev_state(self, task: ManagedTask, msg: Any, dev_init_state: dict) -> dict:
         """Prepare state for dev run."""
-        logger.warning(f"[_prepare_dev_state] 📥 dev_init_state['result']: {dev_init_state.get('result')}")
+        logger.debug(f"[_prepare_dev_state] dev_init_state['result']: {dev_init_state.get('result')}")
         prepared_state = None
         try:
             prep_msg = msg if msg not in (None, {"__dev_kickoff__": True}) else None
             prepared_state = prep_skills_run(task.skill, self.agent, task.id, prep_msg, None)
-            logger.warning(f"[_prepare_dev_state] 📋 prepared_state['result']: {prepared_state.get('result') if isinstance(prepared_state, dict) else 'NOT_A_DICT'}")
+            logger.debug(f"[_prepare_dev_state] prepared_state['result']: {prepared_state.get('result') if isinstance(prepared_state, dict) else 'NOT_A_DICT'}")
         except Exception as e:
             logger.error(f"[DEV] prep_skills_run failed: {e}")
         
@@ -2960,7 +2960,7 @@ class TaskRunner(Generic[Context]):
             final_state = prepared_state
         if isinstance(dev_init_state, dict):
             final_state = self._deep_merge(final_state, dev_init_state)
-            logger.warning(f"[_prepare_dev_state] ✅ final_state['result'] after merge: {final_state.get('result')}")
+            logger.debug(f"[_prepare_dev_state] final_state['result'] after merge: {final_state.get('result')}")
         
         return final_state or task.metadata.get("state", {})
     
