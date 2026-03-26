@@ -1,3 +1,5 @@
+import { traverseWorkflowNodes } from './traverse-workflow-nodes';
+
 export const API_KEY_PLACEHOLDER = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 export const API_KEY_REGEX = /api[\-_]?key/i;
 
@@ -44,10 +46,121 @@ export const sanitizeApiKeysDeep = (value: any) => {
 export const sanitizeNodeApiKeys = (nodes: any[]) => {
   if (!nodes || !Array.isArray(nodes)) return;
 
-  nodes.forEach((node: any) => {
+  traverseWorkflowNodes(nodes, (node: any) => {
     if (!node || typeof node !== 'object') return;
     sanitizeValue(node.data);
     sanitizeValue(node.raw);
+  });
+};
+
+const INLINE_PROMPT_IDS = new Set(['inline', 'in-line', '']);
+
+const getFlowContent = (value: any): any => {
+  if (value && typeof value === 'object' && 'content' in value) {
+    return value.content;
+  }
+  return value;
+};
+
+const setFlowString = (target: any, key: string, content: string, type = 'template') => {
+  if (!target || typeof target !== 'object') return;
+  target[key] = { type, content };
+};
+
+const parseJsonObject = (raw: any): any => {
+  try {
+    const parsed = typeof raw === 'string' && raw.trim() ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const normalizeBrowserMonitor = (item: any) => {
+  const base = (item && typeof item === 'object') ? { ...item } : {};
+  const parsed = parseJsonObject(base.cdpFilterExpr);
+  const looksLikeFullMonitor =
+    !!parsed &&
+    typeof parsed === 'object' &&
+    (
+      parsed.sourceType ||
+      parsed.source_type ||
+      parsed.urlPatterns ||
+      parsed.url_patterns ||
+      parsed.domSelector ||
+      parsed.dom_selector ||
+      parsed.domCheckIntervalMs ||
+      parsed.dom_check_interval_ms
+    );
+
+  const merged = looksLikeFullMonitor ? { ...base, ...parsed } : base;
+  const nestedExpr = looksLikeFullMonitor ? (parsed.cdpFilterExpr ?? parsed.cdp_filter_expr) : base.cdpFilterExpr;
+  const domCfg = parseJsonObject(nestedExpr);
+
+  return {
+    label: merged.label ?? '',
+    enabled: merged.enabled !== false,
+    sourceType: merged.sourceType ?? merged.source_type ?? 'http_polling',
+    urlPatterns: merged.urlPatterns ?? merged.url_patterns ?? '',
+    contentFilters: merged.contentFilters ?? merged.content_filters ?? '',
+    methods: merged.methods ?? '',
+    minBodyLength: merged.minBodyLength ?? merged.min_body_length ?? 10,
+    frameDirection: merged.frameDirection ?? merged.frame_direction ?? 'incoming',
+    sseEventTypes: merged.sseEventTypes ?? merged.sse_event_types ?? '',
+    domSelector: merged.domSelector ?? merged.dom_selector ?? '',
+    domAttributes: merged.domAttributes ?? merged.dom_attributes ?? false,
+    domChildList: merged.domChildList ?? merged.dom_child_list ?? true,
+    domSubtree: merged.domSubtree ?? merged.dom_subtree ?? true,
+    domCheckIntervalMs: merged.domCheckIntervalMs ?? merged.dom_check_interval_ms ?? 250,
+    cdpDomain: merged.cdpDomain ?? merged.cdp_domain ?? '',
+    cdpEventMethod: merged.cdpEventMethod ?? merged.cdp_event_method ?? '',
+    cdpFilterExpr: typeof nestedExpr === 'string' ? nestedExpr : (typeof base.cdpFilterExpr === 'string' ? base.cdpFilterExpr : ''),
+  };
+};
+
+const normalizePromptFields = (node: any) => {
+  const inputsValues = node?.data?.inputsValues;
+  if (!inputsValues || typeof inputsValues !== 'object') return;
+
+  const promptSelection = String(getFlowContent(inputsValues.promptSelection) || '').trim();
+  const systemPromptId = String(getFlowContent(inputsValues.systemPromptId) || '').trim();
+  const promptId = String(getFlowContent(inputsValues.promptId) || '').trim();
+
+  if (systemPromptId && !INLINE_PROMPT_IDS.has(systemPromptId.toLowerCase())) {
+    setFlowString(inputsValues, 'systemPrompt', '', 'template');
+  }
+
+  const effectivePromptSelection = promptSelection || promptId;
+  if (effectivePromptSelection && !INLINE_PROMPT_IDS.has(effectivePromptSelection.toLowerCase())) {
+    setFlowString(inputsValues, 'prompt', '', 'template');
+  }
+};
+
+const normalizeBrowserAutomationNode = (node: any) => {
+  normalizePromptFields(node);
+  const inputsValues = node?.data?.inputsValues;
+  const eventMonitors = inputsValues?.eventMonitors;
+  const content = eventMonitors?.content;
+  if (!eventMonitors || !Array.isArray(content)) return;
+
+  eventMonitors.content = content.map((item: any) => normalizeBrowserMonitor(item));
+};
+
+const normalizeLlmNode = (node: any) => {
+  normalizePromptFields(node);
+};
+
+export const normalizeNodesForSave = (nodes: any[]) => {
+  if (!nodes || !Array.isArray(nodes)) return;
+
+  traverseWorkflowNodes(nodes, (node: any) => {
+    if (!node || typeof node !== 'object') return;
+    const type = String(node.type || '');
+    if (type === 'browser-automation') {
+      normalizeBrowserAutomationNode(node);
+    } else if (type === 'llm') {
+      normalizeLlmNode(node);
+    }
   });
 };
 

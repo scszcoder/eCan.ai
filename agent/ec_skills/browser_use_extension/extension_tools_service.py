@@ -375,6 +375,72 @@ def _compact_monitor_summary_text(snapshot: Dict[str, Any], include_configs: boo
     return "\n".join(lines)
 
 
+def _get_frontdesk_dispatch_latch(session: Any) -> Dict[str, Any]:
+    state = getattr(session, "_ecan_frontdesk_dispatch_latch", None)
+    if not isinstance(state, dict):
+        state = {}
+        setattr(session, "_ecan_frontdesk_dispatch_latch", state)
+    return state
+
+
+def _is_frontdesk_runtime_context() -> tuple[bool, str]:
+    runtime_ctx = get_current_runtime_context()
+    skill_name = str(runtime_ctx.get("skill_name") or "").strip()
+    task_id = str(runtime_ctx.get("task_id") or "").strip()
+    return (skill_name == "customer_front_desk"), task_id
+
+
+def _extract_control_monitor_instance(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    instances = snapshot.get("instances") or {}
+    if not isinstance(instances, dict):
+        return {}
+    for instance in instances.values():
+        if not isinstance(instance, dict):
+            continue
+        if str(instance.get("label") or "").strip() != "conversation_became_active":
+            continue
+        return instance
+    return {}
+
+
+def _mark_frontdesk_dispatch_ready(session: Any, snapshot: Dict[str, Any], task_id: str) -> None:
+    if not task_id:
+        return
+    latch = _get_frontdesk_dispatch_latch(session)
+    instance = _extract_control_monitor_instance(snapshot)
+    latch[task_id] = {
+        "ready": True,
+        "status": str(instance.get("status") or snapshot.get("status") or ""),
+        "current_url": str(instance.get("current_url") or ""),
+        "customer_count": int(instance.get("last_customer_count") or 0),
+    }
+
+
+def _frontdesk_dispatch_notice(session: Any, task_id: str) -> str:
+    if not task_id:
+        return ""
+    latch = _get_frontdesk_dispatch_latch(session)
+    state = latch.get(task_id) if isinstance(latch, dict) else None
+    if not isinstance(state, dict) or not state.get("ready"):
+        return ""
+    customer_count = int(state.get("customer_count") or 0)
+    current_url = str(state.get("current_url") or "http://127.0.0.1:9877/control")
+    status = str(state.get("status") or "ok")
+    return (
+        "CONTROL MONITOR ALREADY VALIDATED FOR THIS INVOCATION.\n"
+        f"- current_url={current_url}\n"
+        f"- runtime_status={status}\n"
+        f"- visible_customer_count={customer_count}\n"
+        "Dispatch phase is unlocked now.\n"
+        "Do not call monitor-validation tools again in this invocation.\n"
+        "Next allowed work is only:\n"
+        "- extract actionable visible sessions\n"
+        "- open required chat tabs\n"
+        "- send assignments\n"
+        "- done()\n"
+    )
+
+
 def _clip_text(value: str, limit: int) -> str:
     value = str(value or "").strip().replace("\r", " ").replace("\n", " ")
     return value if len(value) <= limit else (value[: limit - 3] + "...")
@@ -475,6 +541,78 @@ def _normalize_monitor_raw_for_skill(record_raw: Dict[str, Any]) -> Dict[str, An
     if "source_type" in cleaned and "sourceType" not in cleaned:
         cleaned["sourceType"] = cleaned.pop("source_type")
     return cleaned
+
+
+def _canonicalize_monitor_raw_for_skill(record_raw: Dict[str, Any]) -> Dict[str, Any]:
+    raw = _normalize_monitor_raw_for_skill(record_raw)
+    label = str(raw.get("label") or "").strip()
+    if label != "chat_message_added":
+        return raw
+
+    enabled = raw.get("enabled")
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in ("1", "true", "yes", "on")
+    if enabled is None:
+        enabled = True
+
+    extractor_cfg = {
+        "page_url_patterns": ["/chat?session="],
+        "roots": ["#messages"],
+        "item_selector": ".msg",
+        "fields": {
+            "msg_id": {"attr": "data-msg-id"},
+            "from": {"attr": "data-from"},
+            "text": {"text": True},
+            "timestamp": {"attr": "data-ts"},
+        },
+        "key_field": "msg_id",
+        "emit_on": "added",
+        "filters": {"from_equals": "customer"},
+    }
+
+
+def _dedupe_monitor_raws(raw_monitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen_keys = set()
+    for item in reversed(list(raw_monitors or [])):
+        raw = _canonicalize_monitor_raw_for_skill(item or {})
+        label = str(raw.get("label") or "").strip()
+        item_id = str(raw.get("id") or "").strip()
+        source_type = str(raw.get("sourceType") or raw.get("source_type") or "").strip()
+        if label == "chat_message_added":
+            key = ("label", label, source_type or "dom_mutation")
+        else:
+            key = ("id", item_id or label, source_type)
+        if key in seen_keys:
+            logger.warning(
+                f"[ExtensionTools] Dropping duplicate monitor raw before apply: "
+                f"id={item_id}, label={label}, source={source_type}"
+            )
+            continue
+        seen_keys.add(key)
+        deduped.append(raw)
+    deduped.reverse()
+    return deduped
+    return {
+        "id": "mon_customer_chat_message_added",
+        "label": "chat_message_added",
+        "enabled": bool(enabled),
+        "sourceType": "dom_mutation",
+        "urlPatterns": ["http://127.0.0.1:9877/chat?session="],
+        "methods": ["GET", "POST"],
+        "contentFilters": [],
+        "minBodyLength": 10,
+        "frameDirection": "incoming",
+        "sseEventTypes": [],
+        "domSelector": "#messages",
+        "domAttributes": False,
+        "domChildList": True,
+        "domSubtree": True,
+        "domCheckIntervalMs": 500,
+        "cdpDomain": "",
+        "cdpEventMethod": "",
+        "cdpFilterExpr": json.dumps(extractor_cfg, ensure_ascii=False, separators=(",", ":")),
+    }
 
 
 def _update_skill_node_monitors(payload: Dict[str, Any], node_id: str, monitor_raws: List[Dict[str, Any]]) -> bool:
@@ -1109,7 +1247,24 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
 
     runtime_ctx = get_current_runtime_context()
     bound_sender_agent_id = str(runtime_ctx.get("agent_id") or "").strip()
+    runtime_skill_name = str(runtime_ctx.get("skill_name") or "").strip()
     explicit_sender_agent_id = str(params.sender_agent_id or "").strip()
+
+    if runtime_skill_name == "rt_chat_bot":
+        logger.warning(
+            f"[bu_send_chat] Routing disabled for customer-service skill. "
+            f"skill={runtime_skill_name}, task_id={runtime_ctx.get('task_id', '')}, "
+            f"node_id={runtime_ctx.get('node_id', '')}, recipient_id={params.recipient_agent_id or ''}"
+        )
+        return ActionResult(
+            extracted_content=(
+                "Routing tools are disabled for the customer-service skill. "
+                "This task already owns the assigned customer session. "
+                "Do not send assignment chat messages. Stay on the assigned customer tab, "
+                "validate or install the per-session monitor, reply in the browser when needed, "
+                "and call done() for this bounded invocation."
+            )
+        )
 
     if not bound_sender_agent_id:
         return ActionResult(
@@ -1295,11 +1450,15 @@ async def bu_list_session_monitors(params: ListSessionMonitorsAction, browser_se
     try:
         from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
 
+        is_frontdesk, task_id = _is_frontdesk_runtime_context()
+        dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
         capability = get_event_monitor_capability(browser_session, create=True)
         payload = capability.snapshot()
         if not params.include_configs:
             payload.pop("monitor_configs", None)
         summary_text = _compact_monitor_summary_text(payload, include_configs=params.include_configs)
+        if dispatch_notice:
+            summary_text = dispatch_notice + "\n" + summary_text
         logger.info(
             f"[ExtensionTools] Listed session monitors: "
             f"configured_count={payload.get('configured_count', 0)}, "
@@ -1328,16 +1487,23 @@ async def bu_upsert_session_monitor(params: UpsertSessionMonitorAction, browser_
             if isinstance(item, dict)
         ]
 
-        raw_item = _build_monitor_raw_from_params(params)
+        raw_item = _canonicalize_monitor_raw_for_skill(_build_monitor_raw_from_params(params))
+        target_id = str(raw_item.get("id") or raw_item.get("label") or "")
+        target_label = str(raw_item.get("label") or "")
+        filtered_existing = []
         replaced = False
-        for idx, item in enumerate(raw_existing):
+        removed_duplicates = 0
+        for item in raw_existing:
             item_id = str(item.get("id") or item.get("label") or "")
-            if item_id == raw_item["id"] or item.get("label") == raw_item["label"]:
-                raw_existing[idx] = raw_item
+            item_label = str(item.get("label") or "")
+            if item_id == target_id or item_label == target_label:
                 replaced = True
-                break
-        if not replaced:
-            raw_existing.append(raw_item)
+                removed_duplicates += 1
+                continue
+            filtered_existing.append(item)
+        raw_existing = filtered_existing
+        raw_existing.append(raw_item)
+        raw_existing = _dedupe_monitor_raws(raw_existing)
 
         configs = parse_monitor_configs({"eventMonitors": {"content": raw_existing}})
         if params.auto_start:
@@ -1347,7 +1513,8 @@ async def bu_upsert_session_monitor(params: UpsertSessionMonitorAction, browser_
         logger.info(
             f"[ExtensionTools] Upserted session monitor: "
             f"id={raw_item['id']}, label={raw_item['label']}, source={raw_item.get('sourceType')}, "
-            f"replaced={replaced}, auto_start={params.auto_start}, configured_count={len(configs)}"
+            f"replaced={replaced}, removed_duplicates={removed_duplicates}, "
+            f"auto_start={params.auto_start}, configured_count={len(configs)}"
         )
 
         return _json_result({
@@ -1415,8 +1582,15 @@ async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotActio
     try:
         from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
 
+        is_frontdesk, task_id = _is_frontdesk_runtime_context()
         capability = get_event_monitor_capability(browser_session, create=True)
         full_payload = capability.snapshot()
+        if is_frontdesk:
+            instance = _extract_control_monitor_instance(full_payload)
+            status = str(instance.get("status") or "").strip()
+            current_url = str(instance.get("current_url") or "").strip()
+            if status in ("ok", "empty", "no_match") and "/control" in current_url:
+                _mark_frontdesk_dispatch_ready(browser_session, full_payload, task_id)
         payload = dict(full_payload)
         if not params.include_configs:
             payload.pop("monitor_configs", None)
@@ -1429,6 +1603,9 @@ async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotActio
             full_payload if params.include_runtime else payload,
             include_configs=params.include_configs,
         )
+        dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
+        if dispatch_notice:
+            summary_text = dispatch_notice + "\n" + summary_text
         logger.info(
             f"[ExtensionTools] Session monitor snapshot: "
             f"configured_count={payload.get('configured_count', 0)}, "
@@ -1459,7 +1636,7 @@ async def bu_persist_session_monitors_to_skill(
         for item in configured:
             if not isinstance(item, dict):
                 continue
-            raw = _normalize_monitor_raw_for_skill(item.get("raw") or {})
+            raw = _canonicalize_monitor_raw_for_skill(item.get("raw") or {})
             item_id = str(raw.get("id") or raw.get("label") or "")
             label = str(raw.get("label") or "")
             if wanted and item_id not in wanted and label not in wanted:
@@ -1532,6 +1709,7 @@ async def bu_persist_session_monitors_to_skill(
 )
 async def bu_inspect_dom_regions(params: InspectDomRegionsAction, browser_session: BrowserSession) -> ActionResult:
     try:
+        is_frontdesk, task_id = _is_frontdesk_runtime_context()
         expression = _build_dom_region_inspection_expression(
             max_regions=params.max_regions,
             max_text_length=params.max_text_length,
@@ -1544,12 +1722,14 @@ async def bu_inspect_dom_regions(params: InspectDomRegionsAction, browser_sessio
             f"regions={len(summary.get('regions', []) if isinstance(summary, dict) else [])}, "
             f"max_regions={params.max_regions}"
         )
-        return ActionResult(
-            extracted_content=_compact_dom_region_summary_text(
-                summary,
-                max_regions=params.max_regions,
-            )
+        summary_text = _compact_dom_region_summary_text(
+            summary,
+            max_regions=params.max_regions,
         )
+        dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
+        if dispatch_notice:
+            summary_text = dispatch_notice + "\n" + summary_text
+        return ActionResult(extracted_content=summary_text)
     except Exception as e:
         logger.error(f"[ExtensionTools] Error inspecting DOM regions: {e}")
         return ActionResult(error=f"Failed to inspect DOM regions: {str(e)}")

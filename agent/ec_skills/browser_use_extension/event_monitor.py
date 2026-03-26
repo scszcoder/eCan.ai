@@ -190,7 +190,166 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     if isinstance(advanced, dict):
         merged = _default_dom_extractor_config(cfg)
         merged.update({k: v for k, v in advanced.items() if v is not None})
+
+        # If a saved extractor provides an explicit key_field, it must override any
+        # default identity config inherited from the control-page extractor.
+        explicit_key_field = str(advanced.get("key_field") or merged.get("key_field") or "").strip()
+        if explicit_key_field:
+            merged["key_field"] = explicit_key_field
+            merged["identity"] = {"key_fields": [explicit_key_field]}
+
+        # Support shorthand extractor configs saved by the skill editor, e.g.
+        # {page_url_patterns, roots, item_selector, fields, key_field, filters}.
+        item_selector = str(advanced.get("item_selector") or merged.get("item_selector") or "").strip()
+        raw_fields = advanced.get("fields") if isinstance(advanced.get("fields"), dict) else (
+            merged.get("fields") if isinstance(merged.get("fields"), dict) else {}
+        )
+        if item_selector and raw_fields:
+            normalized_fields = {}
+            for field_name, spec in raw_fields.items():
+                if not isinstance(spec, dict):
+                    continue
+                normalized = dict(spec)
+                if normalized.get("text") is True:
+                    normalized.pop("text", None)
+                    normalized.setdefault("source", "text")
+                elif normalized.get("attr") and not normalized.get("source"):
+                    normalized.setdefault("source", "attr")
+                elif not normalized.get("source"):
+                    normalized.setdefault("source", "text")
+                normalized_fields[str(field_name)] = normalized
+            if normalized_fields:
+                merged["items"] = [{
+                    "selector": item_selector,
+                    "fields": normalized_fields,
+                }]
+
+        # Defensively normalize any merged item field specs as well.
+        normalized_items = []
+        for item in (merged.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            normalized_item = dict(item)
+            fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+            normalized_fields = {}
+            for field_name, spec in fields.items():
+                if not isinstance(spec, dict):
+                    continue
+                normalized = dict(spec)
+                if normalized.get("text") is True:
+                    normalized.pop("text", None)
+                    normalized.setdefault("source", "text")
+                elif normalized.get("attr") and not normalized.get("source"):
+                    normalized.setdefault("source", "attr")
+                elif not normalized.get("source"):
+                    normalized.setdefault("source", "text")
+                normalized_fields[str(field_name)] = normalized
+            if normalized_fields:
+                normalized_item["fields"] = normalized_fields
+            normalized_items.append(normalized_item)
+        if normalized_items:
+            merged["items"] = normalized_items
+
+        # Some older saved monitor payloads omitted identity overrides even though
+        # they set key_field=msg_id. Reassert the effective identity after item merge.
+        effective_key_field = str(merged.get("key_field") or "").strip()
+        if effective_key_field:
+            identity_cfg = merged.get("identity")
+            if not isinstance(identity_cfg, dict):
+                identity_cfg = {}
+            identity_cfg["key_fields"] = [effective_key_field]
+            merged["identity"] = identity_cfg
+
         return merged
+
+
+def _normalize_url_for_monitor(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    normalized = raw.lower()
+    if normalized.startswith("http://"):
+        normalized = normalized[7:]
+    elif normalized.startswith("https://"):
+        normalized = normalized[8:]
+    return normalized.rstrip("/")
+
+
+def _monitor_url_matches(actual_url: str, pattern: str) -> bool:
+    actual = _normalize_url_for_monitor(actual_url)
+    wanted = _normalize_url_for_monitor(pattern)
+    if not actual or not wanted:
+        return False
+    return wanted in actual
+
+
+async def _ensure_monitor_cdp_ready(session: Any, mutation_state: Dict[str, Any], label: str) -> bool:
+    """Best-effort ensure the BrowserSession has an initialized root CDP client."""
+    try:
+        cdp_root = getattr(session, "_cdp_client_root", None)
+        session_manager = getattr(session, "session_manager", None)
+        if cdp_root is not None and session_manager is not None:
+            return True
+
+        now = time.time()
+        last_attempt = float(mutation_state.get("_cdp_ready_last_attempt", 0.0) or 0.0)
+        if now - last_attempt < 1.0:
+            return False
+        mutation_state["_cdp_ready_last_attempt"] = now
+
+        logger.info(
+            f"[EventMonitor] CDP not ready for monitor '{label}', attempting BrowserSession.start() "
+            f"(root={cdp_root is not None}, session_manager={session_manager is not None})"
+        )
+        if hasattr(session, "start"):
+            await session.start()
+
+        cdp_root = getattr(session, "_cdp_client_root", None)
+        session_manager = getattr(session, "session_manager", None)
+        ready = cdp_root is not None and session_manager is not None
+        if ready:
+            logger.info(f"[EventMonitor] CDP became ready for monitor '{label}'")
+        return ready
+    except Exception as exc:
+        logger.debug(f"[EventMonitor] ensure_monitor_cdp_ready failed for '{label}': {exc}")
+        return False
+
+
+def _resolve_monitor_target_id(session: Any, cfg: EventMonitorConfig, extractor_cfg: Dict[str, Any]) -> str:
+    """Resolve a stable target_id for a monitor.
+
+    Prefer the session's current focused page target. If it does not match the
+    monitor's page patterns, search all known page/tab targets for a matching URL.
+    """
+    try:
+        sm = getattr(session, "session_manager", None)
+        if sm is None:
+            return str(getattr(session, "agent_focus_target_id", "") or "")
+
+        patterns = [p for p in (extractor_cfg.get("page_url_patterns") or []) if isinstance(p, str) and p.strip()]
+        focus_target_id = str(getattr(session, "agent_focus_target_id", "") or "")
+        all_targets = sm.get_all_targets() or {}
+
+        def _matches_target_url(target: Any) -> bool:
+            target_url = str(getattr(target, "url", "") or "")
+            if not patterns:
+                return True
+            return any(_monitor_url_matches(target_url, pat) for pat in patterns)
+
+        if focus_target_id:
+            focus_target = sm.get_target(focus_target_id)
+            if focus_target and getattr(focus_target, "target_type", "") in ("page", "tab") and _matches_target_url(focus_target):
+                return focus_target_id
+
+        for tid, target in all_targets.items():
+            if getattr(target, "target_type", "") not in ("page", "tab"):
+                continue
+            if _matches_target_url(target):
+                return str(tid)
+
+        return focus_target_id
+    except Exception:
+        return str(getattr(session, "agent_focus_target_id", "") or "")
     return _default_dom_extractor_config(cfg)
 
 
@@ -203,6 +362,17 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
 
             function normalizeText(value) {{
                 return String(value || '').replace(/\\s+/g, ' ').trim();
+            }}
+
+            function normalizePattern(value) {{
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                try {{
+                    const parsed = new URL(raw, currentUrl || window.location.origin);
+                    return `${{parsed.pathname || ''}}${{parsed.search || ''}}${{parsed.hash || ''}}` || raw;
+                }} catch (e) {{
+                    return raw;
+                }}
             }}
 
             function queryAllWithin(root, selector) {{
@@ -255,7 +425,24 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
 
             const pagePatterns = Array.isArray(cfg.page_url_patterns) ? cfg.page_url_patterns : [];
             if (pagePatterns.length > 0) {{
-                const pageOk = pagePatterns.some(p => p && currentUrl.includes(String(p)));
+                let currentPath = currentUrl;
+                try {{
+                    const parsedCurrent = new URL(currentUrl);
+                    currentPath = `${{parsedCurrent.pathname || ''}}${{parsedCurrent.search || ''}}${{parsedCurrent.hash || ''}}` || currentUrl;
+                }} catch (e) {{}}
+                const pageOk = pagePatterns.some(p => {{
+                    const rawPattern = String(p || '').trim();
+                    const normalizedPattern = normalizePattern(rawPattern);
+                    if (!rawPattern && !normalizedPattern) return false;
+                    return (
+                        (rawPattern && currentUrl.includes(rawPattern)) ||
+                        (normalizedPattern && currentUrl.includes(normalizedPattern)) ||
+                        (rawPattern && currentPath.includes(rawPattern)) ||
+                        (normalizedPattern && currentPath.includes(normalizedPattern)) ||
+                        (rawPattern && rawPattern.includes(currentPath)) ||
+                        (normalizedPattern && normalizedPattern.includes(currentPath))
+                    );
+                }});
                 if (!pageOk) {{
                     return JSON.stringify({{status: 'page_mismatch', currentUrl}});
                 }}
@@ -318,11 +505,51 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
             const rootSelectors = Array.isArray(cfg.roots) ? cfg.roots : [];
             rootSelectors.forEach(s => queryAllWithin(document, s).forEach(el => roots.push(el)));
             if (roots.length === 0) roots.push(document.body);
+            const rootDebug = roots.slice(0, 3).map((root, idx) => {{
+                if (!root) return {{ index: idx, exists: false }};
+                let html = '';
+                let text = '';
+                try {{
+                    html = String(root.innerHTML || '').slice(0, 400);
+                }} catch (e) {{}}
+                try {{
+                    text = normalizeText(root.textContent || '').slice(0, 200);
+                }} catch (e) {{}}
+                return {{
+                    index: idx,
+                    exists: true,
+                    tag: String(root.tagName || '').toLowerCase(),
+                    id: String(root.id || ''),
+                    className: String(root.className || ''),
+                    childCount: Number(root.childElementCount || 0),
+                    html,
+                    text,
+                }};
+            }});
 
             const keyField = cfg.key_field || '';
             const identityCfg = (cfg.identity && typeof cfg.identity === 'object') ? cfg.identity : {{}};
             const keyFields = Array.isArray(identityCfg.key_fields) ? identityCfg.key_fields.map(v => normalizeText(v)) : (keyField ? [keyField] : []);
             const itemSpecs = Array.isArray(cfg.items) ? cfg.items : [];
+            const itemFilters = (cfg.filters && typeof cfg.filters === 'object') ? cfg.filters : {{}};
+            const selectorDebug = itemSpecs.map((spec, idx) => {{
+                const selector = String((spec && spec.selector) || '');
+                let total = 0;
+                const perRoot = [];
+                for (const root of roots.slice(0, 3)) {{
+                    const nodes = queryAllWithin(root, selector);
+                    const count = Array.isArray(nodes) ? nodes.length : 0;
+                    total += count;
+                    perRoot.push(count);
+                }}
+                return {{ index: idx, selector, total, perRoot }};
+            }});
+            const pageDebug = {{
+                bodyMsgCount: queryAllWithin(document, '.msg').length,
+                rootMsgCount: queryAllWithin(document, '#messages .msg').length,
+                bodyText: normalizeText((document.body && document.body.textContent) || '').slice(0, 400),
+            }};
+            const extractionDebug = [];
             const items = [];
             const seenKeys = new Set();
 
@@ -336,6 +563,10 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                         for (const [fieldName, fieldSpec] of Object.entries(fields)) {{
                             item[fieldName] = readField(fieldSpec, node, root);
                         }}
+                        let skipReason = '';
+                        if (itemFilters.from_equals && normalizeText(item.from) !== normalizeText(itemFilters.from_equals)) {{
+                            skipReason = `from_mismatch:${{normalizeText(item.from)}}!=${{normalizeText(itemFilters.from_equals)}}`;
+                        }}
                         let itemKey = '';
                         if (keyFields.length > 0) {{
                             itemKey = normalizeText(
@@ -346,7 +577,30 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                         }} else {{
                             itemKey = normalizeText(JSON.stringify(item));
                         }}
-                        if (!itemKey || seenKeys.has(itemKey)) continue;
+                        if (!itemKey) {{
+                            // Be defensive for chat-message monitors: older saved configs can
+                            // leak the wrong identity key fields, but msg_id is still the real
+                            // stable identity for rendered chat messages.
+                            for (const fallbackField of ['msg_id', 'message_id', 'session', 'chatUrl', 'timestamp', 'text']) {{
+                                const fallbackValue = normalizeText(item[fallbackField] || '');
+                                if (fallbackValue) {{
+                                    itemKey = fallbackValue;
+                                    break;
+                                }}
+                            }}
+                        }}
+                        if (!itemKey) {{
+                            if (!skipReason) skipReason = 'empty_item_key';
+                        }} else if (seenKeys.has(itemKey)) {{
+                            if (!skipReason) skipReason = 'duplicate_item_key';
+                        }}
+                        extractionDebug.push({{
+                            selector: String((spec && spec.selector) || ''),
+                            item,
+                            itemKey,
+                            skipReason,
+                        }});
+                        if (skipReason) continue;
                         seenKeys.add(itemKey);
                         item.identity_key = itemKey;
                         items.push(item);
@@ -358,9 +612,37 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                 const pageText = normalizeText((document.body && document.body.textContent) || '').toLowerCase();
                 const empties = Array.isArray(cfg.empty_text_patterns) ? cfg.empty_text_patterns : [];
                 if (empties.some(p => p && pageText.includes(String(p).toLowerCase()))) {{
-                    return JSON.stringify({{status: 'empty', currentUrl, count: 0, items: [], key_field: keyField}});
+                    return JSON.stringify({{
+                        status: 'empty',
+                        currentUrl,
+                        count: 0,
+                        items: [],
+                        key_field: keyField,
+                        debug: {{
+                            rootSelectors,
+                            rootCount: roots.length,
+                            rootDebug,
+                            selectorDebug,
+                            pageDebug,
+                            extractionDebug,
+                        }}
+                    }});
                 }}
-                return JSON.stringify({{status: 'no_match', currentUrl, count: 0, items: [], key_field: keyField}});
+                return JSON.stringify({{
+                    status: 'no_match',
+                    currentUrl,
+                    count: 0,
+                    items: [],
+                    key_field: keyField,
+                    debug: {{
+                        rootSelectors,
+                        rootCount: roots.length,
+                        rootDebug,
+                        selectorDebug,
+                        pageDebug,
+                        extractionDebug,
+                    }}
+                }});
             }}
 
             return JSON.stringify({{
@@ -570,6 +852,16 @@ def _dispatch_to_runners(
     dispatched = 0
     for runner in runners:
         try:
+            runner_agent = getattr(runner, "agent", None)
+            runner_agent_id = (
+                getattr(getattr(runner_agent, "card", None), "id", "")
+                or getattr(runner_agent, "id", "")
+                or ""
+            )
+            logger.info(
+                f"[EventMonitor] Dispatching browser_event label='{label}' "
+                f"to runner_agent_id='{runner_agent_id}' target_agent_id='{target_agent_id or ''}'"
+            )
             runner.sync_task_wait_in_line("browser_event", event_data, source="event_monitor")
             dispatched += 1
         except Exception as e:
@@ -902,8 +1194,19 @@ async def _start_dom_mutation_monitor(
             "last_reordered_keys": [],
             "last_top_changed": False,
             "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
+            "page_mismatch_count": 0,
         }
-        
+        try:
+            extractor_cfg = _resolve_dom_extractor_config(cfg)
+            mutation_state["target_id"] = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+            logger.info(
+                f"[EventMonitor] Bound DOM monitor '{cfg.label}' to target_id="
+                f"{str(mutation_state.get('target_id') or '')[-4:] or 'None'}"
+            )
+        except Exception as _bind_err:
+            logger.warning(f"[EventMonitor] Failed to bind DOM monitor target for '{cfg.label}': {_bind_err}")
+            mutation_state["target_id"] = str(getattr(session, "agent_focus_target_id", "") or "")
+
         logger.info(f"[EventMonitor] DOM polling state initialized for '{cfg.label}'")
         
         # Create monitor object that can be checked periodically
@@ -951,25 +1254,9 @@ async def _start_dom_mutation_monitor(
                         await self._task
                     except asyncio.CancelledError:
                         pass
-                try:
-                    dom_monitors = getattr(_check_for_customer_changes, "_dom_monitors", [])
-                    if isinstance(dom_monitors, list):
-                        _check_for_customer_changes._dom_monitors = [m for m in dom_monitors if m is not self]
-                except Exception:
-                    pass
                 logger.info(f"[EventMonitor] DOM mutation monitor stopped: label='{self.state['config'].label}'")
         
         monitor = DOMMutationMonitor(mutation_state)
-        
-        # Register for periodic checking. Purge disabled/stale entries first.
-        if not hasattr(_check_for_customer_changes, "_dom_monitors"):
-            _check_for_customer_changes._dom_monitors = []
-        else:
-            _check_for_customer_changes._dom_monitors = [
-                m for m in _check_for_customer_changes._dom_monitors
-                if isinstance(getattr(m, "state", None), dict) and m.state.get("enabled", False)
-            ]
-        _check_for_customer_changes._dom_monitors.append(monitor)
         monitor.start_loop()
         
         logger.info(
@@ -987,22 +1274,13 @@ async def _start_dom_mutation_monitor(
 
 
 async def check_dom_monitors_periodically():
-    """Check all DOM monitors periodically. Call this from browser automation loop."""
-    try:
-        logger.debug(f"[EventMonitor] check_dom_monitors_periodically called")
-        if hasattr(_check_for_customer_changes, "_dom_monitors"):
-            monitors = _check_for_customer_changes._dom_monitors[:]
-            logger.debug(f"[EventMonitor] Found {len(monitors)} DOM monitors to check")
-            for i, monitor in enumerate(monitors):
-                try:
-                    logger.debug(f"[EventMonitor] Checking DOM monitor {i+1}/{len(monitors)}")
-                    await monitor.check_now()
-                except Exception as e:
-                    logger.error(f"[EventMonitor] Error checking DOM monitor {i+1}: {e}")
-        else:
-            logger.debug(f"[EventMonitor] No DOM monitors registered")
-    except Exception as e:
-        logger.debug(f"[EventMonitor] Error in periodic DOM check: {e}")
+    """Legacy no-op.
+
+    DOM mutation monitors now own their own per-session asyncio loops. Keeping a
+    process-global monitor list causes monitor ownership leakage across skills
+    and browser sessions.
+    """
+    return
 
 
 async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, session):
@@ -1010,6 +1288,16 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
     try:
         logger.debug(f"[EventMonitor] _check_for_customer_changes called")
         
+        extractor_cfg = _resolve_dom_extractor_config(cfg)
+        target_id = str(mutation_state.get("target_id") or "")
+        if not target_id:
+            target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+            mutation_state["target_id"] = target_id
+
+        if not await _ensure_monitor_cdp_ready(session, mutation_state, cfg.label):
+            logger.debug(f"[EventMonitor] CDP still not ready for monitor '{cfg.label}', deferring check")
+            return
+
         # Get current URL using CDP instead of session.current_url
         current_url = "unknown"
         cdp_session = None
@@ -1019,10 +1307,24 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             if hasattr(session, 'get_or_create_cdp_session'):
                 logger.debug(f"[EventMonitor] Creating CDP session via get_or_create_cdp_session")
                 try:
-                    cdp_session = await session.get_or_create_cdp_session()
+                    cdp_session = await session.get_or_create_cdp_session(target_id=target_id or None, focus=False)
                     cdp_client = cdp_session.cdp_client if cdp_session else None
                 except Exception as cdp_err:
                     logger.debug(f"[EventMonitor] Failed to create CDP session: {cdp_err}")
+                    if target_id:
+                        try:
+                            rebound_target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+                            if rebound_target_id and rebound_target_id != target_id:
+                                mutation_state["target_id"] = rebound_target_id
+                                target_id = rebound_target_id
+                                cdp_session = await session.get_or_create_cdp_session(target_id=target_id, focus=False)
+                                cdp_client = cdp_session.cdp_client if cdp_session else None
+                                logger.info(
+                                    f"[EventMonitor] Rebound DOM monitor '{cfg.label}' to target_id="
+                                    f"{target_id[-4:]}"
+                                )
+                        except Exception as _rebind_err:
+                            logger.debug(f"[EventMonitor] DOM monitor target rebind failed: {_rebind_err}")
                     # Try fallback to session.cdp_client directly
                     if hasattr(session, 'cdp_client'):
                         cdp_client = session.cdp_client
@@ -1103,7 +1405,16 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         
         mutation_state["last_check"] = current_time
         
-        extractor_cfg = _resolve_dom_extractor_config(cfg)
+        try:
+            logger.debug(
+                f"[EventMonitor] extractor_cfg label={cfg.label} "
+                f"page_url_patterns={extractor_cfg.get('page_url_patterns')} "
+                f"roots={extractor_cfg.get('roots')} "
+                f"item_selectors={[item.get('selector') for item in (extractor_cfg.get('items') or []) if isinstance(item, dict)]} "
+                f"target_id={target_id[-4:] if target_id else 'None'}"
+            )
+        except Exception:
+            pass
         
         # Use JS DOM queries first; the CDP DOM tree often omits the live customer widgets
         # we care about on the local control panel.
@@ -1113,7 +1424,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             if not cdp_client:
                 if hasattr(session, 'get_or_create_cdp_session'):
                     logger.debug(f"[EventMonitor] Creating CDP session for DOM query")
-                    cdp_session = await session.get_or_create_cdp_session()
+                    cdp_session = await session.get_or_create_cdp_session(target_id=target_id or None, focus=False)
                     cdp_client = cdp_session.cdp_client if cdp_session else None
                 elif hasattr(session, 'cdp_client'):
                     cdp_client = session.cdp_client
@@ -1152,14 +1463,50 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             except Exception:
                 logger.debug(f"[EventMonitor] DOM query result was not valid JSON")
                 return
+            if not isinstance(data, dict):
+                logger.debug(
+                    f"[EventMonitor] DOM query returned non-object payload "
+                    f"(type={type(data).__name__}), coercing to empty snapshot"
+                )
+                data = {}
 
             status = str(data.get("status") or "")
             current_url = str(data.get("currentUrl") or current_url)
             mutation_state["last_status"] = status or "ok"
             mutation_state["last_current_url"] = current_url
+            if status in ("no_match", "empty"):
+                debug_info = data.get("debug") if isinstance(data.get("debug"), dict) else {}
+                if debug_info:
+                    try:
+                        logger.debug(
+                            "[EventMonitor] DOM debug "
+                            f"status={status} "
+                            f"rootCount={debug_info.get('rootCount')} "
+                            f"rootSelectors={debug_info.get('rootSelectors')} "
+                            f"selectorDebug={debug_info.get('selectorDebug')} "
+                            f"pageDebug={debug_info.get('pageDebug')} "
+                            f"rootDebug={debug_info.get('rootDebug')} "
+                            f"extractionDebug={debug_info.get('extractionDebug')}"
+                        )
+                    except Exception:
+                        pass
             if status == "page_mismatch":
+                mutation_state["page_mismatch_count"] = int(mutation_state.get("page_mismatch_count") or 0) + 1
+                mismatch_count = mutation_state["page_mismatch_count"]
+                if (
+                    cfg.label == "chat_message_added"
+                    and mismatch_count >= 5
+                    and current_url
+                    and "127.0.0.1:9877/chat?session=" not in current_url
+                ):
+                    logger.warning(
+                        f"[EventMonitor] Retiring stale chat monitor '{cfg.label}' after "
+                        f"{mismatch_count} page mismatches; current_url={current_url}"
+                    )
+                    mutation_state["enabled"] = False
                 logger.debug(f"[EventMonitor] DOM page mismatch, skipping: {current_url}")
                 return
+            mutation_state["page_mismatch_count"] = 0
 
             items = data.get("items") if isinstance(data.get("items"), list) else []
             key_field = str(data.get("key_field") or "")
@@ -1180,6 +1527,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 if key:
                     current_keys.append(key)
 
+            keys_initialized = bool(mutation_state.get("keys_initialized"))
             previous_keys = mutation_state.get("last_keys") or []
             if not isinstance(previous_keys, list):
                 previous_keys = []
@@ -1189,12 +1537,20 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             previous_key_set = set(str(k) for k in previous_keys if isinstance(k, str) and k)
             current_key_set = set(current_keys)
             added_keys = [k for k in current_keys if k not in previous_key_set]
+            if (
+                not keys_initialized
+                and cfg.label == "chat_message_added"
+                and current_keys
+            ):
+                # For customer chat monitors, treat the first non-empty snapshot as
+                # meaningful work instead of silently absorbing it into baseline.
+                added_keys = list(current_keys)
             removed_keys = [k for k in previous_keys if isinstance(k, str) and k not in current_key_set]
             reordered_keys = []
-            if previous_keys and current_keys and previous_keys != current_keys:
+            if keys_initialized and previous_keys and current_keys and previous_keys != current_keys:
                 reordered_keys = [k for k in current_keys if k in previous_key_set]
             current_top_keys = current_keys[: min(len(current_keys), int(extractor_cfg.get("top_n") or len(current_keys) or 0))]
-            top_changed = bool(previous_top_keys != current_top_keys)
+            top_changed = bool(keys_initialized and previous_top_keys != current_top_keys)
             added_items = []
             if added_keys:
                 added_lookup = set(added_keys)
@@ -1215,6 +1571,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             mutation_state["last_removed_keys"] = removed_keys
             mutation_state["last_reordered_keys"] = reordered_keys
             mutation_state["last_top_changed"] = top_changed
+            mutation_state["keys_initialized"] = True
 
             logger.debug(
                 f"[EventMonitor] DOM snapshot status={status or 'ok'} count={customer_count} "
