@@ -1613,7 +1613,34 @@ def _get_logging_browser_use_class():
                     try:
                         response = await original_create(*args, **kwargs)
                         elapsed = time.time() - start_time
-                        logger.info(f"[BrowserUse] ✅ LLM responded in {elapsed:.2f}s")
+                        logger.info(f"[BrowserUse] ? LLM responded in {elapsed:.2f}s")
+                        try:
+                            from agent.ec_skills.token_tracker import token_tracker as _token_tracker
+                            _ctx = getattr(self, "_ec_token_context", {}) or {}
+                            _token_tracker.record_llm_usage(
+                                response,
+                                source_type="skill_browser_llm_call",
+                                source_id=_ctx.get("source_id"),
+                                source_name=_ctx.get("source_name"),
+                                session_id=_ctx.get("session_id"),
+                                node_type="browser_automation",
+                                metadata={
+                                    "skill_name": _ctx.get("skill_name"),
+                                    "node_name": _ctx.get("node_name"),
+                                    "task_id": _ctx.get("task_id"),
+                                    "run_id": _ctx.get("run_id"),
+                                    "browser_scope_key": _ctx.get("browser_scope_key"),
+                                    "model_requested": model,
+                                    "base_url": str(base_url),
+                                    "message_count": message_count,
+                                    "request_chars": total_chars,
+                                    "request_est_tokens": est_tokens,
+                                    "elapsed_seconds": round(elapsed, 4),
+                                    "path": "browser_use_raw_call",
+                                },
+                            )
+                        except Exception as _tk_err:
+                            logger.debug(f"[BrowserUse] TokenTracker raw-call record failed: {_tk_err}")
                         
                     except TimeoutError as e:
                         elapsed = time.time() - start_time
@@ -2192,7 +2219,7 @@ def get_use_vision_from_llm(llm, context="") -> bool:
         return False
 
 
-def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_check=False):
+def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_check=False, preferred_provider=None, preferred_model_name=None):
     """
     Create BrowserUse-compatible LLM based on mainwin's current LLM provider configuration.
     
@@ -2238,7 +2265,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
         if mainwin and hasattr(mainwin, 'config_manager'):
             try:
                 config_manager = mainwin.config_manager
-                default_llm_name = config_manager.general_settings.default_llm
+                default_llm_name = preferred_provider or config_manager.general_settings.default_llm
                 
                 if not default_llm_name:
                     logger.error("[create_browser_use_llm] default_llm is empty - this should not happen")
@@ -2251,9 +2278,13 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     logger.error(f"[create_browser_use_llm] Default LLM '{default_llm_name}' not found in providers")
                     return None
                 
-                # Use shared extract_provider_config to get configuration
-                # Pass config_manager to automatically use user-selected model
-                config = extract_provider_config(provider_dict, config_manager=config_manager)
+                # Use shared extract_provider_config to get configuration.
+                # If a preferred model is provided, honor it over the global default.
+                config = extract_provider_config(
+                    provider_dict,
+                    config_manager=config_manager,
+                    node_model_name=preferred_model_name,
+                )
                 
                 provider_type = config['provider_type']
                 model_name = config['model_name']  # Already includes user-selected model from extract_provider_config

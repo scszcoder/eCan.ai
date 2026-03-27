@@ -1193,6 +1193,8 @@ async def _start_dom_mutation_monitor(
             "last_removed_keys": [],
             "last_reordered_keys": [],
             "last_top_changed": False,
+            "last_items": [],
+            "last_added_items": [],
             "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
             "page_mismatch_count": 0,
         }
@@ -1571,6 +1573,8 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             mutation_state["last_removed_keys"] = removed_keys
             mutation_state["last_reordered_keys"] = reordered_keys
             mutation_state["last_top_changed"] = top_changed
+            mutation_state["last_items"] = list(items)
+            mutation_state["last_added_items"] = list(added_items)
             mutation_state["keys_initialized"] = True
 
             logger.debug(

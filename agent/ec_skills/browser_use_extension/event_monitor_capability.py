@@ -194,6 +194,8 @@ class EventMonitorCapability:
                 "enabled": bool(state.get("enabled", False)),
                 "status": str(state.get("last_status") or ("running" if state.get("enabled", False) else "idle")),
                 "current_url": str(state.get("last_current_url") or ""),
+                "items": list(state.get("last_items") or []),
+                "added_items": list(state.get("last_added_items") or []),
                 "last_customer_count": int(state.get("last_customer_count") or 0),
                 "last_keys_count": len(state.get("last_keys") or []),
                 "last_removed_count": len(state.get("last_removed_keys") or []),
