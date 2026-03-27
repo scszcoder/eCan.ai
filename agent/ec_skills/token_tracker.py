@@ -7,6 +7,9 @@ Records token usage from LLM nodes, browser automation nodes, and MCP tools.
 
 from typing import Optional, Dict, Any
 from datetime import datetime
+import json
+from pathlib import Path
+
 from utils.logger_helper import logger_helper as logger
 
 
@@ -31,6 +34,7 @@ class TokenTracker:
             return
         self._initialized = True
         self._token_service = None
+        self._jsonl_path = None
     
     def _get_token_service(self):
         """Lazy load token usage service to avoid circular imports."""
@@ -46,6 +50,28 @@ class TokenTracker:
             except Exception as e:
                 logger.error(f"[TokenTracker] Error getting token service: {e}")
         return self._token_service
+
+    def _get_jsonl_path(self) -> Path:
+        """Resolve the token usage booking ledger path lazily."""
+        if self._jsonl_path is None:
+            try:
+                from app_context import AppContext
+                ctx = AppContext.get_ctx()
+                runlogs_dir = Path(ctx.get_runlogs_dir()) if ctx else Path("runlogs")
+            except Exception:
+                runlogs_dir = Path("runlogs")
+            runlogs_dir.mkdir(parents=True, exist_ok=True)
+            self._jsonl_path = runlogs_dir / "token_usage_bookings.jsonl"
+        return self._jsonl_path
+
+    def _append_jsonl(self, payload: Dict[str, Any]) -> None:
+        """Append one structured usage record to the durable JSONL ledger."""
+        try:
+            path = self._get_jsonl_path()
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
+        except Exception as e:
+            logger.warning(f"[TokenTracker] Failed to append JSONL token ledger: {e}")
     
     def record_llm_usage(
         self,
@@ -55,7 +81,8 @@ class TokenTracker:
         source_name: Optional[str] = None,
         user_email: Optional[str] = None,
         session_id: Optional[str] = None,
-        node_type: Optional[str] = "llm"
+        node_type: Optional[str] = "llm",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
         Record token usage from an LLM response.
@@ -89,6 +116,8 @@ class TokenTracker:
                 logger.warning("[TokenTracker] Token service not available, cannot record usage")
                 return False
             
+            usage_timestamp = datetime.utcnow()
+
             # Record usage
             usage = service.record_usage(
                 source_type=source_type,
@@ -101,8 +130,27 @@ class TokenTracker:
                 source_name=source_name,
                 user_email=user_email,
                 session_id=session_id,
-                node_type=node_type
+                node_type=node_type,
+                usage_timestamp=usage_timestamp
             )
+
+            jsonl_payload = {
+                "ts": usage_timestamp.isoformat() + "Z",
+                "source_type": source_type,
+                "source_id": source_id,
+                "source_name": source_name,
+                "user_email": user_email,
+                "session_id": session_id,
+                "node_type": node_type,
+                "vendor": vendor,
+                "model": model_name,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "cost_usd": cost_usd,
+                "metadata": metadata or {},
+            }
+            self._append_jsonl(jsonl_payload)
             
             if usage:
                 logger.info(f"[TokenTracker] Recorded: {source_type} - {model_name} - {input_tokens + output_tokens} tokens (${cost_usd:.4f})")
@@ -174,6 +222,8 @@ class TokenTracker:
                 logger.warning("[TokenTracker] Token service not available, cannot record usage")
                 return False
             
+            usage_timestamp = datetime.utcnow()
+
             # Record usage
             usage = service.record_usage(
                 source_type=source_type,
@@ -186,8 +236,28 @@ class TokenTracker:
                 source_name=source_name,
                 user_email=user_email,
                 session_id=session_id,
-                operation=operation
+                operation=operation,
+                usage_timestamp=usage_timestamp
             )
+
+            jsonl_payload = {
+                "ts": usage_timestamp.isoformat() + "Z",
+                "source_type": source_type,
+                "source_id": source_id,
+                "source_name": source_name,
+                "user_email": user_email,
+                "session_id": session_id,
+                "node_type": None,
+                "operation": operation,
+                "vendor": vendor,
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "cost_usd": cost_usd,
+                "metadata": metadata or {},
+            }
+            self._append_jsonl(jsonl_payload)
             
             if usage:
                 logger.info(f"[TokenTracker] Recorded MCP: {source_type} - {model} - {input_tokens + output_tokens} tokens (${cost_usd:.4f})")
@@ -218,6 +288,21 @@ class TokenTracker:
             if isinstance(usage, dict):
                 input_tokens = usage.get("input_tokens", 0) or 0
                 output_tokens = usage.get("output_tokens", 0) or 0
+
+            # Raw OpenAI-style response objects expose .usage with prompt/completion tokens.
+            if input_tokens == 0 and output_tokens == 0:
+                raw_usage = getattr(response, "usage", None)
+                if raw_usage is not None:
+                    input_tokens = (
+                        getattr(raw_usage, "prompt_tokens", 0)
+                        or getattr(raw_usage, "input_tokens", 0)
+                        or 0
+                    )
+                    output_tokens = (
+                        getattr(raw_usage, "completion_tokens", 0)
+                        or getattr(raw_usage, "output_tokens", 0)
+                        or 0
+                    )
             
             # Fallback to response_metadata.token_usage
             resp_meta = getattr(response, "response_metadata", None) or {}
@@ -229,6 +314,8 @@ class TokenTracker:
             
             # Always extract model name from response_metadata
             model_name = resp_meta.get("model_name", "") or resp_meta.get("model", "") or "unknown"
+            if model_name == "unknown":
+                model_name = getattr(response, "model", "") or getattr(response, "model_name", "") or "unknown"
             
             # Determine vendor from model name
             vendor = self._determine_vendor(model_name)

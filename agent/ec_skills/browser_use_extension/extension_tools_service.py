@@ -383,6 +383,16 @@ def _get_frontdesk_dispatch_latch(session: Any) -> Dict[str, Any]:
     return state
 
 
+def _get_frontdesk_dispatch_state(session: Any) -> Dict[str, Any]:
+    state = getattr(session, "_ecan_frontdesk_dispatch_state", None)
+    if not isinstance(state, dict):
+        state = {
+            "assigned_sessions": {},
+        }
+        setattr(session, "_ecan_frontdesk_dispatch_state", state)
+    return state
+
+
 def _is_frontdesk_runtime_context() -> tuple[bool, str]:
     runtime_ctx = get_current_runtime_context()
     skill_name = str(runtime_ctx.get("skill_name") or "").strip()
@@ -413,6 +423,166 @@ def _mark_frontdesk_dispatch_ready(session: Any, snapshot: Dict[str, Any], task_
         "status": str(instance.get("status") or snapshot.get("status") or ""),
         "current_url": str(instance.get("current_url") or ""),
         "customer_count": int(instance.get("last_customer_count") or 0),
+    }
+
+
+def _extract_frontdesk_visible_sessions(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
+    instance = _extract_control_monitor_instance(snapshot)
+    raw_items = instance.get("items") or []
+    if not isinstance(raw_items, list):
+        return []
+
+    sessions: List[Dict[str, Any]] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        session_id = str(
+            item.get("session")
+            or item.get("session_id")
+            or item.get("customer_id")
+            or ""
+        ).strip()
+        if not session_id:
+            continue
+        customer_name = str(
+            item.get("customer_name")
+            or item.get("name")
+            or item.get("customer")
+            or ""
+        ).strip()
+        chat_url = str(item.get("chat_url") or "").strip() or f"http://127.0.0.1:9877/chat?session={session_id}"
+        sessions.append({
+            "customer_id": session_id,
+            "session_id": session_id,
+            "chat_url": chat_url,
+            "customer_name": customer_name,
+        })
+    return sessions
+
+
+def _find_frontdesk_open_tab_id(browser_session: BrowserSession, chat_url: str) -> str:
+    try:
+        sm = getattr(browser_session, "session_manager", None)
+        all_targets = sm.get_all_targets() if sm else {}
+        for tid, target in (all_targets or {}).items():
+            if getattr(target, "target_type", "") not in ("page", "tab"):
+                continue
+            target_url = str(getattr(target, "url", "") or "").strip()
+            if target_url == chat_url:
+                return str(tid or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _maybe_frontdesk_auto_assign(snapshot: Dict[str, Any], browser_session: BrowserSession, task_id: str) -> Dict[str, Any]:
+    is_frontdesk, runtime_task_id = _is_frontdesk_runtime_context()
+    if not is_frontdesk or not runtime_task_id or runtime_task_id != task_id:
+        return {"attempted": False}
+
+    latch = _get_frontdesk_dispatch_latch(browser_session)
+    latch_state = latch.get(task_id) if isinstance(latch, dict) else None
+    if not isinstance(latch_state, dict) or not latch_state.get("ready"):
+        return {"attempted": False}
+
+    visible_sessions = _extract_frontdesk_visible_sessions(snapshot)
+    if not visible_sessions:
+        return {"attempted": False}
+
+    runtime_ctx = get_current_runtime_context()
+    sender_agent_id = str(runtime_ctx.get("agent_id") or "").strip()
+    if not sender_agent_id:
+        logger.info("[ExtensionTools] Front-desk auto-assign skipped: missing runtime sender agent id")
+        return {"attempted": False, "reason": "missing_sender"}
+
+    dispatch_state = _get_frontdesk_dispatch_state(browser_session)
+    assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
+    recipient_agent_id = "agent_b31f281332104b93"
+
+    from agent.mcp.server.chat_utils.chat_tools import send_chat
+
+    assigned_rows: List[str] = []
+    failure_rows: List[str] = []
+    tab_rows: List[str] = []
+    pending_sessions: List[str] = []
+    open_session_items: List[Tuple[Dict[str, Any], str]] = []
+
+    for item in visible_sessions:
+        session_id = item["session_id"]
+        chat_url = item["chat_url"]
+        tab_id = _find_frontdesk_open_tab_id(browser_session, chat_url)
+        if tab_id:
+            tab_rows.append(f"{session_id}->{tab_id[-4:]}")
+            if not assigned_sessions.get(session_id):
+                open_session_items.append((item, tab_id))
+        else:
+            if not assigned_sessions.get(session_id):
+                pending_sessions.append(session_id)
+
+    if not open_session_items and pending_sessions:
+        logger.info(
+            f"[ExtensionTools] Front-desk auto-assign waiting for tabs: "
+            f"visible={len(visible_sessions)} tab_hits={len(tab_rows)} pending={len(pending_sessions)}"
+        )
+        return {
+            "attempted": True,
+            "visible_count": len(visible_sessions),
+            "tab_rows": tab_rows,
+            "assigned_rows": [],
+            "failure_rows": [],
+            "pending_sessions": pending_sessions,
+            "waiting_for_tabs": True,
+        }
+
+    for item, tab_id in open_session_items:
+        session_id = item["session_id"]
+        chat_url = item["chat_url"]
+
+        payload = {
+            "customer_id": item["customer_id"],
+            "session_id": session_id,
+            "tab_id": tab_id,
+            "chat_url": chat_url,
+        }
+        if item.get("customer_name"):
+            payload["customer_name"] = item["customer_name"]
+
+        result = send_chat(
+            AppContext.login.main_win,
+            {
+                "sender_agent_id": sender_agent_id,
+                "recipient_agent_id": recipient_agent_id,
+                "chat_id": session_id,
+                "message": json.dumps(payload, ensure_ascii=False),
+                "message_type": "text",
+                "async_send": False,
+            },
+        )
+        if result.get("success"):
+            assigned_sessions[session_id] = {
+                "recipient_agent_id": recipient_agent_id,
+                "message_id": str(result.get("message_id") or ""),
+                "timestamp": int(result.get("timestamp") or 0),
+            }
+            assigned_rows.append(f"{session_id}->{recipient_agent_id[-6:]}")
+        else:
+            failure_rows.append(f"{session_id}: {result.get('error', 'assignment failed')}")
+
+    if assigned_rows or failure_rows:
+        logger.info(
+            f"[ExtensionTools] Front-desk auto-assign: visible={len(visible_sessions)} "
+            f"tab_hits={len(tab_rows)} assigned={len(assigned_rows)} "
+            f"failures={len(failure_rows)} pending={len(pending_sessions)}"
+        )
+
+    return {
+        "attempted": True,
+        "visible_count": len(visible_sessions),
+        "tab_rows": tab_rows,
+        "assigned_rows": assigned_rows,
+        "failure_rows": failure_rows,
+        "pending_sessions": pending_sessions,
+        "waiting_for_tabs": bool(pending_sessions),
     }
 
 
@@ -1591,6 +1761,11 @@ async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotActio
             current_url = str(instance.get("current_url") or "").strip()
             if status in ("ok", "empty", "no_match") and "/control" in current_url:
                 _mark_frontdesk_dispatch_ready(browser_session, full_payload, task_id)
+                auto_assign_result = _maybe_frontdesk_auto_assign(full_payload, browser_session, task_id)
+            else:
+                auto_assign_result = {"attempted": False}
+        else:
+            auto_assign_result = {"attempted": False}
         payload = dict(full_payload)
         if not params.include_configs:
             payload.pop("monitor_configs", None)
@@ -1603,6 +1778,27 @@ async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotActio
             full_payload if params.include_runtime else payload,
             include_configs=params.include_configs,
         )
+        if auto_assign_result.get("attempted"):
+            assigned_rows = auto_assign_result.get("assigned_rows") or []
+            failure_rows = auto_assign_result.get("failure_rows") or []
+            tab_rows = auto_assign_result.get("tab_rows") or []
+            pending_sessions = auto_assign_result.get("pending_sessions") or []
+            auto_lines = [
+                "FRONT-DESK AUTO-ASSIGN CHECK:",
+                f"- visible_session_count={auto_assign_result.get('visible_count', 0)}",
+                f"- open_tab_hits={len(tab_rows)}",
+                f"- assigned_now={len(assigned_rows)}",
+                f"- assignment_failures={len(failure_rows)}",
+            ]
+            if auto_assign_result.get("waiting_for_tabs"):
+                auto_lines.append(f"- waiting_for_tabs={len(pending_sessions)}")
+            if assigned_rows:
+                auto_lines.append("- assigned_sessions=" + ", ".join(assigned_rows))
+            if pending_sessions:
+                auto_lines.append("- pending_sessions=" + ", ".join(str(x) for x in pending_sessions))
+            if failure_rows:
+                auto_lines.append("- failures=" + " | ".join(str(x) for x in failure_rows))
+            summary_text = "\n".join(auto_lines) + "\n\n" + summary_text
         dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
         if dispatch_notice:
             summary_text = dispatch_notice + "\n" + summary_text

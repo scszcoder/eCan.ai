@@ -94,6 +94,65 @@ def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
         return []
 
 
+def _resolve_recipient_fallback(
+    recipient_agent_id: str,
+    recipient_agent_name: str,
+    sender_agent_id: str,
+    mainwin=None,
+):
+    """Resolve a live recipient when a stale agent id is requested."""
+    try:
+        agents = getattr(mainwin, "agents", None) or []
+        if not agents:
+            return None
+
+        sender_agent_id = str(sender_agent_id or "").strip()
+        requested_id = str(recipient_agent_id or "").strip()
+        requested_name = str(recipient_agent_name or "").strip().lower()
+
+        candidates = []
+        for agent in agents:
+            card = getattr(agent, "card", None)
+            if not card:
+                continue
+            agent_id = str(getattr(card, "id", "") or "").strip()
+            if sender_agent_id and agent_id == sender_agent_id:
+                continue
+            candidates.append(agent)
+
+        if not candidates:
+            return None
+
+        if requested_name:
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if name == requested_name:
+                    return agent
+
+        # Legacy front-desk -> service-agent mapping. The service agent id is not stable
+        # across sessions, but the front-desk workflow still carries the historical id.
+        if requested_id == "agent_b31f281332104b93":
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if name == "joan b":
+                    return agent
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if "joan" in name:
+                    return agent
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        return None
+    except Exception as e:
+        logger.error(f"[chat_tools] Failed recipient fallback resolution: {e}")
+        return None
+
+
 def _build_chat_message(
     sender_agent_id: str,
     chat_id: str,
@@ -240,11 +299,29 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             recipient_agent = _get_agent_by_name(recipient_agent_name, mainwin)
         
         if not recipient_agent:
+            recipient_agent = _resolve_recipient_fallback(
+                recipient_agent_id=recipient_agent_id,
+                recipient_agent_name=recipient_agent_name,
+                sender_agent_id=sender_agent_id,
+                mainwin=mainwin,
+            )
+
+        if not recipient_agent:
             return {
                 "success": False,
                 "error": f"Recipient agent not found: {recipient_agent_id or recipient_agent_name}",
                 "timestamp": int(time.time() * 1000)
             }
+
+        if recipient_agent:
+            resolved_card = getattr(recipient_agent, "card", None)
+            resolved_id = str(getattr(resolved_card, "id", "") or "").strip()
+            resolved_name = str(getattr(resolved_card, "name", "") or "").strip()
+            if resolved_id and resolved_id != recipient_agent_id:
+                logger.info(
+                    f"[send_chat] Recipient fallback resolved requested={recipient_agent_id or recipient_agent_name} "
+                    f"-> live_recipient={resolved_name or resolved_id}"
+                )
         
         # Get sender name
         sender_name = ""

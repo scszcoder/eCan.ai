@@ -2083,12 +2083,29 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 # Record token usage to database for the top-panel display
                 try:
                     from agent.ec_skills.token_tracker import token_tracker
+                    _task_id = state.get("task_id") if isinstance(state, dict) else None
+                    _run_id = state.get("run_id") if isinstance(state, dict) else None
+                    _session_id = (
+                        state.get("session_id")
+                        or state.get("chat_id")
+                        or (state.get("attributes", {}) or {}).get("sessionId")
+                    ) if isinstance(state, dict) else None
                     token_tracker.record_llm_usage(
                         response,
                         source_type="skill_llm_node",
                         source_id=full_node_name,
                         source_name=f"{skill_name}::{node_name}",
-                        node_type="llm"
+                        session_id=_session_id,
+                        node_type="llm",
+                        metadata={
+                            "skill_name": skill_name,
+                            "node_name": node_name,
+                            "task_id": _task_id,
+                            "run_id": _run_id,
+                            "full_node_name": full_node_name,
+                            "llm_provider": llm_provider,
+                            "path": "llm_node",
+                        },
                     )
                 except Exception as _tk_err:
                     logger.debug(f"[TokenTracker] Failed to record LLM usage: {_tk_err}")
@@ -2260,12 +2277,29 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 # Record token usage to database for the top-panel display
                 try:
                     from agent.ec_skills.token_tracker import token_tracker
+                    _task_id = state.get("task_id") if isinstance(state, dict) else None
+                    _run_id = state.get("run_id") if isinstance(state, dict) else None
+                    _session_id = (
+                        state.get("session_id")
+                        or state.get("chat_id")
+                        or (state.get("attributes", {}) or {}).get("sessionId")
+                    ) if isinstance(state, dict) else None
                     token_tracker.record_llm_usage(
                         _response,
                         source_type="skill_llm_node",
                         source_id=full_node_name,
                         source_name=f"{skill_name}::{node_name}",
-                        node_type="llm"
+                        session_id=_session_id,
+                        node_type="llm",
+                        metadata={
+                            "skill_name": skill_name,
+                            "node_name": node_name,
+                            "task_id": _task_id,
+                            "run_id": _run_id,
+                            "full_node_name": full_node_name,
+                            "llm_provider": llm_provider,
+                            "path": "llm_node_no_agent",
+                        },
                     )
                 except Exception as _tk_err:
                     logger.debug(f"[TokenTracker] Failed to record LLM usage (no-agent): {_tk_err}")
@@ -5417,6 +5451,244 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception:
                     return actual_url.rstrip("/") == preferred_url.rstrip("/")
 
+            async def _maybe_run_frontdesk_dispatch_fastpath(agent_obj) -> dict | None:
+                if skill_name != "customer_front_desk":
+                    return None
+                browser_session = getattr(agent_obj, "browser_session", None)
+                if not browser_session:
+                    logger.info("[BrowserAutomation] Front-desk fast-path skipped: no browser session on agent")
+                    return None
+
+                try:
+                    from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+                    from agent.mcp.server.chat_utils.chat_tools import send_chat
+
+                    scope_key = _resolve_browser_scope_key(state)
+                    candidate_sessions = []
+                    for _candidate in (
+                        browser_session,
+                        _cached_browser_sessions.get(scope_key),
+                    ):
+                        if _candidate and _candidate not in candidate_sessions:
+                            candidate_sessions.append(_candidate)
+
+                    control_state = None
+                    active_monitor_set = None
+                    chosen_session = None
+                    for _candidate in candidate_sessions:
+                        capability = get_event_monitor_capability(_candidate, create=False)
+                        _active_monitor_set = capability.get_active_monitor_set() if capability else None
+                        if not _active_monitor_set:
+                            continue
+                        for _monitor in list(getattr(_active_monitor_set, "monitors", []) or []):
+                            _state = getattr(_monitor, "state", None)
+                            _cfg = (_state or {}).get("config") if isinstance(_state, dict) else None
+                            if str(getattr(_cfg, "label", "") or "").strip() != "conversation_became_active":
+                                continue
+                            control_state = _state
+                            active_monitor_set = _active_monitor_set
+                            chosen_session = _candidate
+                            break
+                        if control_state:
+                            break
+
+                    if not active_monitor_set or not control_state:
+                        logger.info(
+                            f"[BrowserAutomation] Front-desk fast-path skipped: no active control monitor "
+                            f"(scope={scope_key}, candidates={len(candidate_sessions)})"
+                        )
+                        return None
+
+                    status = str(control_state.get("last_status") or "").strip().lower()
+                    current_url = str(control_state.get("last_current_url") or "").strip()
+                    if status not in {"ok", "empty", "no_match"} or "/control" not in current_url:
+                        logger.info(
+                            f"[BrowserAutomation] Front-desk fast-path skipped: control monitor not ready "
+                            f"(status={status}, current_url={current_url})"
+                        )
+                        return None
+
+                    raw_items = control_state.get("last_items") or []
+                    if not isinstance(raw_items, list):
+                        raw_items = []
+                    logger.info(
+                        f"[BrowserAutomation] Front-desk fast-path candidate items: "
+                        f"count={len(raw_items)} scope={scope_key} chosen_session_obj={id(chosen_session) if chosen_session else 'none'}"
+                    )
+
+                    dispatch_state = getattr(chosen_session, "_ecan_frontdesk_dispatch_state", None)
+                    if not isinstance(dispatch_state, dict):
+                        dispatch_state = {
+                            "opened_tabs": {},
+                            "assigned_sessions": {},
+                        }
+                        setattr(chosen_session, "_ecan_frontdesk_dispatch_state", dispatch_state)
+
+                    opened_tabs = dispatch_state.setdefault("opened_tabs", {})
+                    assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
+
+                    sm = getattr(chosen_session, "session_manager", None)
+                    all_targets = sm.get_all_targets() if sm else {}
+
+                    def _find_target_id_for_url(target_url: str) -> str:
+                        for tid, target in (all_targets or {}).items():
+                            if getattr(target, "target_type", "") not in ("page", "tab"):
+                                continue
+                            if str(getattr(target, "url", "") or "").strip() == target_url:
+                                return str(tid or "")
+                        return ""
+
+                    actionable = []
+                    for item in raw_items:
+                        if not isinstance(item, dict):
+                            continue
+                        session_id = str(
+                            item.get("session")
+                            or item.get("session_id")
+                            or item.get("customer_id")
+                            or ""
+                        ).strip()
+                        if not session_id:
+                            continue
+                        customer_name = str(
+                            item.get("customer_name")
+                            or item.get("name")
+                            or item.get("customer")
+                            or ""
+                        ).strip()
+                        chat_url = str(item.get("chat_url") or "").strip() or f"http://127.0.0.1:9877/chat?session={session_id}"
+                        actionable.append({
+                            "customer_id": session_id,
+                            "session_id": session_id,
+                            "customer_name": customer_name,
+                            "chat_url": chat_url,
+                        })
+
+                    if not actionable:
+                        payload = {
+                            "all_done": True,
+                            "work_result": {
+                                "frontdesk_fastpath": True,
+                                "visible_session_count": 0,
+                                "opened_count": 0,
+                                "assigned_count": 0,
+                                "last_action_succeeded": True,
+                                "no_customers": True,
+                            },
+                            "message": "Front desk fast-path: no visible customer sessions on control page.",
+                        }
+                        logger.info("[BrowserAutomation] Front-desk fast-path completed: no visible sessions")
+                        return {"final": json.dumps(payload, ensure_ascii=False), "history": "frontdesk_fastpath:no_customers"}
+
+                    from browser_use.browser.events import NavigateToUrlEvent
+
+                    opened_rows = []
+                    assigned_rows = []
+                    failure_rows = []
+                    sender_agent_id = str(calling_agent_id or "").strip()
+                    recipient_agent_id = "agent_b31f281332104b93"
+                    if not sender_agent_id:
+                        logger.info("[BrowserAutomation] Front-desk fast-path skipped: missing runtime sender agent id")
+                        return None
+
+                    for item in actionable:
+                        session_id = item["session_id"]
+                        chat_url = item["chat_url"]
+                        target_id = str(opened_tabs.get(session_id) or "").strip()
+                        if not target_id:
+                            target_id = _find_target_id_for_url(chat_url)
+                        if not target_id:
+                            try:
+                                await chosen_session.event_bus.dispatch(
+                                    NavigateToUrlEvent(url=chat_url, new_tab=True)
+                                )
+                                await asyncio.sleep(0.8)
+                                all_targets = sm.get_all_targets() if sm else {}
+                                target_id = _find_target_id_for_url(chat_url)
+                            except Exception as _open_err:
+                                failure_rows.append(f"{session_id}: tab open failed: {_open_err}")
+                        if not target_id:
+                            failure_rows.append(f"{session_id}: could not resolve chat tab after open")
+                            continue
+
+                        opened_tabs[session_id] = target_id
+                        opened_rows.append(f"{session_id}->{target_id[-4:]}")
+
+                        if assigned_sessions.get(session_id):
+                            continue
+
+                        if not sender_agent_id:
+                            continue
+
+                        assignment_payload = {
+                            "customer_id": item["customer_id"],
+                            "session_id": session_id,
+                            "tab_id": target_id,
+                            "chat_url": chat_url,
+                        }
+                        if item.get("customer_name"):
+                            assignment_payload["customer_name"] = item["customer_name"]
+
+                        send_result = send_chat(
+                            mainwin,
+                            {
+                                "sender_agent_id": sender_agent_id,
+                                "recipient_agent_id": recipient_agent_id,
+                                "chat_id": session_id,
+                                "message": json.dumps(assignment_payload, ensure_ascii=False),
+                                "message_type": "text",
+                                "async_send": False,
+                            },
+                        )
+                        if send_result.get("success"):
+                            assigned_sessions[session_id] = {
+                                "recipient_agent_id": recipient_agent_id,
+                                "message_id": str(send_result.get("message_id") or ""),
+                                "timestamp": int(send_result.get("timestamp") or 0),
+                            }
+                            assigned_rows.append(
+                                f"{session_id}->{recipient_agent_id[-6:]} msg={str(send_result.get('message_id') or '')[:8]}"
+                            )
+                        else:
+                            failure_rows.append(
+                                f"{session_id}: assignment failed: {send_result.get('error', 'unknown error')}"
+                            )
+
+                    if not opened_rows and not assigned_rows and not failure_rows:
+                        return None
+
+                    payload = {
+                        "all_done": True,
+                        "work_result": {
+                            "frontdesk_fastpath": True,
+                            "visible_session_count": len(actionable),
+                            "opened_count": len(opened_rows),
+                            "assigned_count": len(assigned_rows),
+                            "last_action_succeeded": not bool(failure_rows),
+                            "no_customers": False,
+                        },
+                        "opened_sessions": opened_rows,
+                        "assigned_sessions": assigned_rows,
+                        "failures": failure_rows,
+                        "message": (
+                            "Front desk fast-path completed"
+                            if not failure_rows
+                            else "Front desk fast-path completed with failures"
+                        ),
+                    }
+                    logger.info(
+                        f"[BrowserAutomation] Front-desk fast-path completed: "
+                        f"visible={len(actionable)} opened={len(opened_rows)} "
+                        f"assigned={len(assigned_rows)} failures={len(failure_rows)}"
+                    )
+                    return {
+                        "final": json.dumps(payload, ensure_ascii=False),
+                        "history": "frontdesk_fastpath",
+                    }
+                except Exception as _frontdesk_fastpath_err:
+                    logger.warning(f"[BrowserAutomation] Front-desk fast-path failed: {_frontdesk_fastpath_err}")
+                    return None
+
             # Determine run mode based on node editor setting (run_environment_setting)
             # Options: full_local, passive_local, hybrid_cloud, full_cloud
             # Fall back to environment variables if not set or for backward compatibility
@@ -6138,8 +6410,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Final validation
             if not llm:
                 error_msg = "LLM creation failed. This should not happen - please report this bug."
-                logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                logger.error(f"[BrowserAutomation] ? {error_msg}")
                 raise ValueError(error_msg)
+
+            try:
+                setattr(llm, "_ec_token_context", {
+                    "skill_name": skill_name,
+                    "node_name": node_name,
+                    "source_id": f"{skill_name}::{node_name}",
+                    "source_name": f"{skill_name}::{node_name}",
+                    "task_id": state.get("task_id") if isinstance(state, dict) else None,
+                    "run_id": state.get("run_id") if isinstance(state, dict) else None,
+                    "session_id": (
+                        state.get("session_id")
+                        or state.get("chat_id")
+                        or (state.get("attributes", {}) or {}).get("sessionId")
+                    ) if isinstance(state, dict) else None,
+                    "browser_scope_key": _browser_scope_key,
+                    "node_model_name": node_model_name,
+                    "node_llm_provider": node_llm_provider,
+                })
+            except Exception as _ctx_err:
+                logger.debug(f"[BrowserAutomation] Failed to attach token context to llm: {_ctx_err}")
 
             controller = custom_controller
                         
@@ -6441,13 +6733,41 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
 
+                        def _resolve_target_id_for_assignment(
+                            preferred_tab_id: str,
+                            preferred_chat_url: str,
+                        ) -> str | None:
+                            preferred_tab_id = str(preferred_tab_id or "").strip()
+                            preferred_chat_url = str(preferred_chat_url or "").strip()
+                            if not all_targets:
+                                return None
+
+                            if preferred_tab_id:
+                                if preferred_tab_id in page_target_ids:
+                                    return preferred_tab_id
+                                preferred_upper = preferred_tab_id.upper()
+                                for tid in page_target_ids:
+                                    if str(tid or "").upper().endswith(preferred_upper):
+                                        return str(tid)
+
+                            if preferred_chat_url:
+                                preferred_norm = preferred_chat_url.rstrip("/")
+                                for tid, target in (all_targets or {}).items():
+                                    if getattr(target, 'target_type', '') not in ('page', 'tab'):
+                                        continue
+                                    target_url = str(getattr(target, 'url', '') or '').strip().rstrip("/")
+                                    if target_url and target_url == preferred_norm:
+                                        return str(tid)
+                            return None
+
                         target_focus = None
                         assignment_target_focus = None
                         if skill_name == "rt_chat_bot":
                             try:
-                                assignment_tab_focus = str(assignment_tab_id or "").strip()
-                                if assignment_tab_focus and assignment_tab_focus in page_target_ids:
-                                    assignment_target_focus = assignment_tab_focus
+                                assignment_target_focus = _resolve_target_id_for_assignment(
+                                    assignment_tab_id,
+                                    assignment_chat_url,
+                                )
                             except Exception:
                                 assignment_target_focus = None
 
@@ -6476,6 +6796,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                             # Warm browser state to repopulate selector/session mapping before TypeTextEvent.
                             await browser_session.get_browser_state_summary(include_screenshot=False)
+
+                            if skill_name == "rt_chat_bot" and assignment_chat_url:
+                                latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                                focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
+                                focused_url = str(getattr(focused_target, 'url', '') or '').strip()
+                                if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
+                                    await browser_session.event_bus.dispatch(
+                                        NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
+                                    )
+                                    logger.info(
+                                        f"[BrowserAutomation] Focus preflight re-navigated assigned tab to chat_url: "
+                                        f"{assignment_chat_url}"
+                                    )
+                                    await asyncio.sleep(1.0)
+                                    await browser_session.get_browser_state_summary(include_screenshot=False)
                         else:
                             logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
 
@@ -6664,6 +6999,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as _em_start_err:
                     logger.warning(f"[BrowserAutomation] Failed to start event monitors: {_em_start_err}")
 
+            _frontdesk_fastpath_result = await _maybe_run_frontdesk_dispatch_fastpath(agent)
+            if _frontdesk_fastpath_result is not None:
+                return _frontdesk_fastpath_result
+
             # Register current agent instance so extension tools (e.g. list_files)
             # can auto-authorize discovered file paths for later read_long_content/read_file calls.
             try:
@@ -6737,51 +7076,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     final_str = final_str[:10000] + '... (truncated)'
                 logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
                 
-                # Record token usage from browser-use AgentHistoryList.usage (UsageSummary)
-                # browser-use tracks per-model stats via TokenCost service
+                # Log browser-use usage summary for diagnostics only.
+                # Do NOT record it into TokenTracker because raw underlying LLM calls
+                # are already recorded in LoggingBrowserUseChatOpenAI. Recording both
+                # would double-count tokens and mislead later analysis.
                 try:
-                    from agent.ec_skills.token_tracker import token_tracker as _bu_token_tracker
                     _bu_usage = getattr(history, 'usage', None)
                     if _bu_usage and (getattr(_bu_usage, 'total_tokens', 0) or 0) > 0:
-                        # Record per-model breakdown (handles main LLM + judge + page_extraction + compaction)
                         _by_model = getattr(_bu_usage, 'by_model', None) or {}
                         if _by_model:
                             for _m_name, _m_stats in _by_model.items():
                                 _m_in = getattr(_m_stats, 'prompt_tokens', 0) or 0
                                 _m_out = getattr(_m_stats, 'completion_tokens', 0) or 0
                                 if _m_in > 0 or _m_out > 0:
-                                    _bu_token_tracker.record_llm_usage(
-                                        type('_BUTokens', (), {
-                                            'usage_metadata': {'input_tokens': _m_in, 'output_tokens': _m_out},
-                                            'response_metadata': {'model_name': _m_name},
-                                        })(),
-                                        source_type="skill_browser_node",
-                                        source_id=f"{skill_name}::{node_name}",
-                                        source_name=f"{skill_name}::{node_name}",
-                                        node_type="browser_automation"
-                                    )
-                                    logger.info(f"[TokenTracker] BrowserUse model={_m_name} in={_m_in} out={_m_out}")
-                        else:
-                            # Fallback: no per-model breakdown, record aggregate
-                            _bu_total_in = getattr(_bu_usage, 'total_prompt_tokens', 0) or 0
-                            _bu_total_out = getattr(_bu_usage, 'total_completion_tokens', 0) or 0
-                            _bu_model_name = (
-                                node_model_name
-                                or getattr(getattr(agent, 'llm', None), 'model_name', None)
-                                or getattr(getattr(agent, 'llm', None), 'model', None)
-                                or "unknown"
-                            )
-                            _bu_token_tracker.record_llm_usage(
-                                type('_BUTokens', (), {
-                                    'usage_metadata': {'input_tokens': _bu_total_in, 'output_tokens': _bu_total_out},
-                                    'response_metadata': {'model_name': _bu_model_name},
-                                })(),
-                                source_type="skill_browser_node",
-                                source_id=f"{skill_name}::{node_name}",
-                                source_name=f"{skill_name}::{node_name}",
-                                node_type="browser_automation"
-                            )
-                            logger.info(f"[TokenTracker] BrowserUse tokens: model={_bu_model_name} in={_bu_total_in} out={_bu_total_out}")
+                                    logger.info(f"[TokenTracker] BrowserUse summary model={_m_name} in={_m_in} out={_m_out}")
                         logger.info(
                             f"[TokenTracker] BrowserUse total: {getattr(_bu_usage, 'total_tokens', 0)} tokens, "
                             f"{getattr(_bu_usage, 'entry_count', 0)} LLM calls, "
