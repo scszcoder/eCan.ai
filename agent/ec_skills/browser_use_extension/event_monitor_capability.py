@@ -105,11 +105,34 @@ class EventMonitorCapability:
             return str(normalized)
 
     async def ensure_started(self, configs: List[Any], agent_id: str = "") -> Any:
+        logger.info(
+            f"[EventMonitorCapability] ensure_started called: "
+            f"incoming_labels={[getattr(c, 'label', '') for c in (configs or [])]}, "
+            f"session_id={id(self.session)}"
+        )
         configs = _dedupe_monitor_configs(configs)
-        self.configure(configs)
         current = self.get_active_monitor_set()
+        current_active_configs = list(getattr(current, "configs", []) or []) if current else []
+
+        # Preserve any monitors added by the LLM at runtime (not in the incoming skill-file list).
+        # If the currently active set is a superset of the incoming configs, merge so that
+        # runtime-added monitors (e.g. chat_message_added for a specific session) are not lost.
+        if current_active_configs:
+            incoming_labels = {str(getattr(c, "label", "") or "") for c in configs}
+            extra_configs = [
+                c for c in current_active_configs
+                if str(getattr(c, "label", "") or "") not in incoming_labels
+            ]
+            if extra_configs:
+                logger.info(
+                    f"[EventMonitorCapability] Preserving {len(extra_configs)} runtime-added monitor(s) "
+                    f"not in skill-file: {[getattr(c, 'label', '') for c in extra_configs]}"
+                )
+                configs = _dedupe_monitor_configs(list(configs) + extra_configs)
+
+        self.configure(configs)
         desired_sig = self._config_signature(configs)
-        current_sig = self._config_signature(list(getattr(current, "configs", []) or [])) if current else ""
+        current_sig = self._config_signature(current_active_configs) if current else ""
         if current and getattr(current, "monitors", None):
             logger.info(
                 f"[EventMonitorCapability] Active monitor set present: "

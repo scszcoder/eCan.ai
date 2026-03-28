@@ -832,26 +832,10 @@ class TaskRunner(Generic[Context]):
                     amended = True
                     continue
 
-                if et == "browser_event" and browser_event_label and not task_session_id:
-                    existing_rule = self._global_event_routing.get(routing_key_name)
-                    if isinstance(existing_rule, dict):
-                        existing_chain = existing_rule.get("_rule_chain")
-                        if isinstance(existing_chain, list):
-                            filtered_chain = [
-                                r for r in existing_chain
-                                if not (isinstance(r, dict) and r.get("_auto_added_by_task") == task.id)
-                            ]
-                            if filtered_chain:
-                                self._global_event_routing[routing_key_name] = {"_rule_chain": filtered_chain}
-                            else:
-                                self._global_event_routing.pop(routing_key_name, None)
-                        elif existing_rule.get("_auto_added_by_task") == task.id:
-                            self._global_event_routing.pop(routing_key_name, None)
-                    logger.info(
-                        f"[EventRouting] Removed/skipped generic browser_event routing for task '{task.name}' with no sessionId"
-                    )
-                    amended = True
-                    continue
+                # NOTE: browser_event routing is NOT skipped when sessionId is absent.
+                # Unlike chat messages, browser events (e.g. conversation_became_active
+                # on the control page) are often sessionless by design and must still
+                # reach the task's pend_event node.
                 
                 rule: Dict[str, Any] = {
                     "task_selector": f"id:{task.id}",
@@ -956,8 +940,28 @@ class TaskRunner(Generic[Context]):
 
                     auto_rules = [r for r in filtered_chain if r.get("_auto_added_by_task")]
                     fallback_rules = [r for r in filtered_chain if not r.get("_auto_added_by_task")]
+
+                    # For browser_event rules, session-specific chatter tasks
+                    # must be tried before static tasks.  Static tasks have no
+                    # customer context and consume the event without acting on it.
+                    if routing_key_name.startswith("browser_event:"):
+                        chatter_auto = [
+                            r for r in auto_rules
+                            if str(r.get("_auto_added_by_task", "")).startswith("auto-chatter-")
+                        ]
+                        static_auto = [
+                            r for r in auto_rules
+                            if not str(r.get("_auto_added_by_task", "")).startswith("auto-chatter-")
+                        ]
+                        if str(rule.get("_auto_added_by_task", "")).startswith("auto-chatter-"):
+                            new_chain = chatter_auto + [rule] + static_auto + fallback_rules
+                        else:
+                            new_chain = chatter_auto + static_auto + [rule] + fallback_rules
+                    else:
+                        new_chain = auto_rules + [rule] + fallback_rules
+
                     self._global_event_routing[routing_key_name] = {
-                        "_rule_chain": auto_rules + [rule] + fallback_rules
+                        "_rule_chain": new_chain
                     }
                     logger.debug(
                         f"[EventRouting] Layered task-specific rule for '{routing_key_name}' "

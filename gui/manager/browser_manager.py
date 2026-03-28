@@ -201,16 +201,22 @@ def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
                         downloader = WebDriverDownloader()
                         webdriver_dir = get_webdriver_dir()
                         
-                        # Use asyncio to run the async download function
+                        # Use a dedicated thread to run the async download, avoiding
+                        # "Cannot run the event loop while another loop is running" when
+                        # this sync function is called from within an async context.
                         import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            new_driver_path = loop.run_until_complete(
-                                downloader.download_webdriver(chrome_version, webdriver_dir)
-                            )
-                        finally:
-                            loop.close()
+                        import concurrent.futures
+                        def _run_download():
+                            loop = asyncio.new_event_loop()
+                            try:
+                                return loop.run_until_complete(
+                                    downloader.download_webdriver(chrome_version, webdriver_dir)
+                                )
+                            finally:
+                                loop.close()
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(_run_download)
+                            new_driver_path = future.result(timeout=120)
                         
                         if new_driver_path:
                             logger.info(f"[WebDriver] ✅ Downloaded matching ChromeDriver: {new_driver_path}")
