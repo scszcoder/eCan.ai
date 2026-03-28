@@ -7571,17 +7571,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _required_vars = _parse_required_vars_marker(combined_task)
             if _required_vars:
                 _missing_vars = []
+                _missing_details: list[str] = []
+                # Scan the raw prompt text for {{var}} placeholders so we can
+                # give a precise diagnosis when a variable is missing.
+                _placeholders_in_text = set(re.findall(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}", str(combined_task or "")))
                 for _v in _required_vars:
                     _val = (format_context or {}).get(_v)
                     if _val is None or str(_val).strip() == "":
                         _missing_vars.append(_v)
+                        if _v not in _placeholders_in_text:
+                            # Variable name never appears as {{var}} in the prompt text.
+                            # The resolver only scans {{...}} placeholders, so this variable
+                            # was never looked up from upstream outputs at all.
+                            _missing_details.append(
+                                f"  - '{_v}': placeholder {{{{{_v}}}}} not found in prompt text. "
+                                f"The resolver only processes variables that appear as {{{{name}}}} "
+                                f"in the prompt body. Fix: add '| {_v} | {{{{{_v}}}}} |' to the "
+                                f"input parameters table in the prompt."
+                            )
+                        else:
+                            _missing_details.append(
+                                f"  - '{_v}': placeholder {{{{{_v}}}}} exists in prompt but resolved "
+                                f"to empty. Check that an upstream node outputs a field named '{_v}' "
+                                f"in its JSON result, or that init_params defines it."
+                            )
                 if _missing_vars:
+                    _diag_lines = "\n".join(_missing_details)
                     _blocked_payload = {
                         "status": "blocked",
                         "reason": "missing_required_inputs",
                         "missing_fields": _missing_vars,
                         "node": node_name,
                         "notes": f"Missing required variables: {', '.join(_missing_vars)}",
+                        "diagnosis": _diag_lines.strip(),
                     }
                     state.setdefault("tool_result", {})
                     if isinstance(state.get("tool_result"), dict):
@@ -7599,7 +7621,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
                     send_skill_editor_log(
                         "warning",
-                        f"[BrowserAutomation] Preflight blocked: missing required vars {_missing_vars}",
+                        f"[BrowserAutomation] Preflight BLOCKED — node='{node_name}' "
+                        f"missing vars: {_missing_vars}\n"
+                        f"Diagnosis per variable:\n{_diag_lines}\n"
+                        f"Placeholders found in prompt text: {sorted(_placeholders_in_text)}",
                     )
                     return state
         except Exception:
