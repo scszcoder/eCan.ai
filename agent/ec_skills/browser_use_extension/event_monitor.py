@@ -42,6 +42,105 @@ _active_monitor_sets: Dict[str, ActiveMonitorSet] = {}
 _session_start_locks: Dict[int, asyncio.Lock] = {}
 
 
+# ---------------------------------------------------------------------------
+# Independent CDP connection for monitor DOM polling
+# ---------------------------------------------------------------------------
+# Monitors must NOT use the agent's BrowserSession CDP client because browser-use
+# operations (screenshot, navigation, etc.) monopolise it and cause the monitor's
+# Runtime.evaluate calls to hang/time out.
+#
+# Instead each monitor gets its own lightweight CDPClient that connects directly
+# to Chrome's debugging WebSocket and attaches to the specific target tab.
+# ---------------------------------------------------------------------------
+
+async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_id: str):
+    """Return (cdp_client, session_id) using an independent CDP connection.
+
+    The client and session_id are cached in *mutation_state* so they persist
+    across polling cycles.  If the connection drops they are recreated.
+    """
+    cached_client = mutation_state.get("_mon_cdp_client")
+    cached_sid = mutation_state.get("_mon_cdp_session_id")
+
+    # Quick health check — is the cached client still alive?
+    if cached_client and cached_sid:
+        ws = getattr(cached_client, "ws", None)
+        if ws is not None:
+            try:
+                from websockets.protocol import State as _WsState
+                if ws.state is _WsState.OPEN:
+                    return cached_client, cached_sid
+            except Exception:
+                # If we can't check state, try to use it anyway
+                return cached_client, cached_sid
+        # Dead — clean up
+        try:
+            await cached_client.stop()
+        except Exception:
+            pass
+        mutation_state.pop("_mon_cdp_client", None)
+        mutation_state.pop("_mon_cdp_session_id", None)
+
+    # Resolve Chrome's debugging WebSocket URL from the BrowserSession.
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        # Try to reconstruct from CDP port
+        cdp_port = None
+        try:
+            bp = getattr(session, "browser_profile", None)
+            cdp_port = getattr(bp, "cdp_url", None) if bp else None
+        except Exception:
+            pass
+        if not cdp_port:
+            return None, None
+        cdp_url = cdp_port  # Already a ws:// URL
+
+    try:
+        from cdp_use import CDPClient as _MonCDPClient
+
+        client = _MonCDPClient(url=cdp_url)
+        await client.start()
+
+        # Attach to the specific target to get a flat session
+        attach_result = await client.send_raw(
+            "Target.attachToTarget",
+            {"targetId": target_id, "flatten": True},
+        )
+        sid = attach_result.get("sessionId")
+        if not sid:
+            logger.warning(
+                f"[EventMonitor] Independent CDP: attachToTarget returned no sessionId "
+                f"for target={target_id[-6:]}"
+            )
+            await client.stop()
+            return None, None
+
+        # Enable Runtime domain on the attached session
+        await client.send_raw("Runtime.enable", {}, session_id=sid)
+
+        mutation_state["_mon_cdp_client"] = client
+        mutation_state["_mon_cdp_session_id"] = sid
+        logger.info(
+            f"[EventMonitor] Independent CDP connection established: "
+            f"target=...{target_id[-6:]}, sessionId=...{sid[-6:] if sid else 'None'}"
+        )
+        return client, sid
+    except Exception as exc:
+        logger.warning(f"[EventMonitor] Failed to create independent CDP connection: {exc}")
+        return None, None
+
+
+async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
+    """Tear down the independent CDP client cached in mutation_state."""
+    client = mutation_state.pop("_mon_cdp_client", None)
+    mutation_state.pop("_mon_cdp_session_id", None)
+    if client:
+        try:
+            await client.stop()
+        except Exception:
+            pass
+
+
 def register_monitor_set(monitor_set: ActiveMonitorSet) -> None:
     """Register an active monitor set in the global registry."""
     global _active_monitor_sets
@@ -90,6 +189,16 @@ class EventMonitorConfig:
     label: str = ""
     enabled: bool = True
     source_type: str = "http_polling"  # http_polling | websocket | sse | dom_mutation | cdp_raw
+
+    def __setattr__(self, name, value):
+        if name == "label" and hasattr(self, "label") and self.label and value != self.label:
+            import traceback
+            logger.warning(
+                f"[EventMonitorConfig] LABEL MUTATION DETECTED: "
+                f"'{self.label}' -> '{value}'\n"
+                f"{''.join(traceback.format_stack()[-5:])}"
+            )
+        super().__setattr__(name, value)
 
     # Common
     url_patterns: List[str] = field(default_factory=list)
@@ -335,6 +444,17 @@ def _resolve_monitor_target_id(session: Any, cfg: EventMonitorConfig, extractor_
             if not patterns:
                 return True
             return any(_monitor_url_matches(target_url, pat) for pat in patterns)
+
+        # For chat_message_added, always prefer the agent's focused target
+        # (each service agent focuses its own chat tab).  Only fall through to
+        # pattern search if agent_focus_target_id is empty/unset.
+        if cfg.label == "chat_message_added" and focus_target_id:
+            focus_target = sm.get_target(focus_target_id) if sm else None
+            if focus_target and getattr(focus_target, "target_type", "") in ("page", "tab"):
+                target_url = str(getattr(focus_target, "url", "") or "")
+                # Sanity: make sure it's a chat page, not the control page
+                if "/chat" in target_url or not target_url or "/control" not in target_url:
+                    return focus_target_id
 
         if focus_target_id:
             focus_target = sm.get_target(focus_target_id)
@@ -1014,6 +1134,11 @@ async def start_monitors(
     if not configs:
         return None
 
+    logger.info(
+        f"[EventMonitor] start_monitors called: "
+        f"labels={[c.label for c in configs]}, session_id={id(session)}"
+    )
+
     session_key = id(session)
     lock = _session_start_locks.get(session_key)
     if lock is None:
@@ -1232,19 +1357,46 @@ async def _start_dom_mutation_monitor(
 
                 async def _run_loop():
                     interval_s = max(0.05, float(self.state.get("check_interval_ms", 250)) / 1000.0)
+                    # Timeout for a single check — prevents CDP hangs from blocking the loop forever.
+                    check_timeout_s = max(interval_s * 20, 8.0)
                     logger.info(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
                     )
+                    consecutive_errors = 0
                     try:
                         while self.state.get("enabled", False):
-                            await self.check_now()
+                            try:
+                                await asyncio.wait_for(self.check_now(), timeout=check_timeout_s)
+                                consecutive_errors = 0
+                            except asyncio.TimeoutError:
+                                consecutive_errors += 1
+                                logger.warning(
+                                    f"[EventMonitor] DOM check timed out after {check_timeout_s:.1f}s "
+                                    f"(label='{self.state['config'].label}', consecutive={consecutive_errors}); "
+                                    "continuing loop"
+                                )
+                            except Exception as check_err:
+                                consecutive_errors += 1
+                                logger.error(
+                                    f"[EventMonitor] DOM check error "
+                                    f"(label='{self.state['config'].label}', consecutive={consecutive_errors}): {check_err}"
+                                )
                             await asyncio.sleep(interval_s)
                     except asyncio.CancelledError:
                         logger.debug(f"[EventMonitor] DOM monitor loop cancelled: label='{self.state['config'].label}'")
                         raise
                     except Exception as loop_err:
                         logger.error(f"[EventMonitor] DOM monitor loop error: {loop_err}")
+                    # Auto-restart if the task exits unexpectedly while still enabled.
+                    if self.state.get("enabled", False):
+                        logger.warning(
+                            f"[EventMonitor] DOM monitor loop exited unexpectedly for "
+                            f"label='{self.state['config'].label}'; restarting in 2s"
+                        )
+                        await asyncio.sleep(2.0)
+                        if self.state.get("enabled", False):
+                            self._task = asyncio.create_task(_run_loop())
 
                 self._task = asyncio.create_task(_run_loop())
             
@@ -1296,372 +1448,286 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
             mutation_state["target_id"] = target_id
 
+        # For chat monitors, re-resolve target if the cached one doesn't match
+        # (the agent may not have navigated to the chat tab when the monitor started)
+        if cfg.label == "chat_message_added" and target_id:
+            _retarget_interval = 5.0  # seconds between re-resolve attempts
+            _last_retarget = float(mutation_state.get("_last_retarget_check") or 0)
+            if time.time() - _last_retarget > _retarget_interval:
+                mutation_state["_last_retarget_check"] = time.time()
+                fresh_target = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+                if fresh_target and fresh_target != target_id:
+                    logger.info(
+                        f"[EventMonitor] Re-targeted '{cfg.label}' monitor: "
+                        f"old=...{target_id[-6:]}, new=...{fresh_target[-6:]}"
+                    )
+                    # Clean up old CDP connection so it reconnects to new target
+                    await _cleanup_monitor_cdp(mutation_state)
+                    target_id = fresh_target
+                    mutation_state["target_id"] = target_id
+
         if not await _ensure_monitor_cdp_ready(session, mutation_state, cfg.label):
             logger.debug(f"[EventMonitor] CDP still not ready for monitor '{cfg.label}', deferring check")
             return
 
-        # Get current URL using CDP instead of session.current_url
+        # --- Independent CDP connection (does NOT share the agent's CDP client) ---
+        mon_client, mon_sid = await _get_monitor_cdp(mutation_state, session, target_id)
+        if not mon_client or not mon_sid:
+            logger.debug(f"[EventMonitor] Independent CDP not available for '{cfg.label}', deferring")
+            return
+
         current_url = "unknown"
-        cdp_session = None
-        cdp_client = None
         try:
-            # Try to get or create CDP session (this initializes the connection)
-            if hasattr(session, 'get_or_create_cdp_session'):
-                logger.debug(f"[EventMonitor] Creating CDP session via get_or_create_cdp_session")
-                try:
-                    cdp_session = await session.get_or_create_cdp_session(target_id=target_id or None, focus=False)
-                    cdp_client = cdp_session.cdp_client if cdp_session else None
-                except Exception as cdp_err:
-                    logger.debug(f"[EventMonitor] Failed to create CDP session: {cdp_err}")
-                    if target_id:
-                        try:
-                            rebound_target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
-                            if rebound_target_id and rebound_target_id != target_id:
-                                mutation_state["target_id"] = rebound_target_id
-                                target_id = rebound_target_id
-                                cdp_session = await session.get_or_create_cdp_session(target_id=target_id, focus=False)
-                                cdp_client = cdp_session.cdp_client if cdp_session else None
-                                logger.info(
-                                    f"[EventMonitor] Rebound DOM monitor '{cfg.label}' to target_id="
-                                    f"{target_id[-4:]}"
-                                )
-                        except Exception as _rebind_err:
-                            logger.debug(f"[EventMonitor] DOM monitor target rebind failed: {_rebind_err}")
-                    # Try fallback to session.cdp_client directly
-                    if hasattr(session, 'cdp_client'):
-                        cdp_client = session.cdp_client
-                        logger.debug(f"[EventMonitor] Using session.cdp_client directly")
-            elif hasattr(session, 'cdp_client'):
-                cdp_client = session.cdp_client
-            
-            if not cdp_client:
-                logger.debug(f"[EventMonitor] No CDP client available")
-                # Try fallback methods for URL
-                try:
-                    if hasattr(session, 'browser_context') and session.browser_context:
-                        current_url = getattr(session.browser_context, 'current_url', 'unknown')
-                except Exception:
-                    pass
-                
-                if current_url == "unknown" and hasattr(session, 'current_url'):
-                    try:
-                        current_url = session.current_url
-                    except Exception:
-                        pass
-            else:
-                logger.debug(f"[EventMonitor] CDP client available, trying Page domain")
-                session_id = cdp_session.session_id if cdp_session else None
-                # Try Page domain first - need to enable it first with session_id
-                try:
-                    # Use proper API with session_id like PollingCapture does
-                    if session_id:
-                        await cdp_client.send.Page.enable(session_id=session_id)
-                        result = await cdp_client.send.Page.getNavigationHistory(session_id=session_id)
-                    else:
-                        await cdp_client.send.Page.enable()
-                        result = await cdp_client.send.Page.getNavigationHistory()
-                    entries = result.get("entries", [])
-                    if entries:
-                        current_url = entries[-1].get("url", "unknown")
-                        logger.debug(f"[EventMonitor] Got URL via Page.getNavigationHistory: {current_url}")
-                except Exception as page_err:
-                    logger.debug(f"[EventMonitor] Page.getNavigationHistory failed: {page_err}")
-                    
-                # Fallback to Runtime.evaluate
-                if current_url == "unknown":
-                    try:
-                        if session_id:
-                            await cdp_client.send.Runtime.enable(session_id=session_id)
-                            result = await cdp_client.send.Runtime.evaluate(
-                                params={"expression": "window.location.href"},
-                                session_id=session_id
-                            )
-                        else:
-                            await cdp_client.send.Runtime.enable()
-                            result = await cdp_client.send.Runtime.evaluate(
-                                params={"expression": "window.location.href"}
-                            )
-                        current_url = result.get("result", {}).get("value", "unknown")
-                        logger.debug(f"[EventMonitor] Got URL via Runtime.evaluate: {current_url}")
-                    except Exception as runtime_err:
-                        logger.debug(f"[EventMonitor] Runtime.evaluate failed: {runtime_err}")
-        except Exception as url_err:
-            logger.debug(f"[EventMonitor] Error getting URL: {url_err}")
-        
-        logger.debug(f"[EventMonitor] Current URL: {current_url}")
-        
-        # Even if URL is unknown, try DOM query anyway - browser might be ready.
-        if current_url == "unknown":
-            logger.debug(f"[EventMonitor] URL unknown, but will try DOM query anyway")
-        
+            url_result = await mon_client.send_raw(
+                "Runtime.evaluate",
+                {"expression": "window.location.href"},
+                session_id=mon_sid,
+            )
+            current_url = (url_result.get("result") or {}).get("value", "unknown")
+        except Exception as _url_err:
+            logger.debug(f"[EventMonitor] URL fetch via independent CDP failed: {_url_err}")
+            # Connection may be stale — force reconnect on next cycle
+            await _cleanup_monitor_cdp(mutation_state)
+
         current_count = mutation_state["last_customer_count"]
         current_time = time.time()
         time_since_last = current_time - mutation_state["last_check"]
-        
-        logger.debug(f"[EventMonitor] Time since last check: {time_since_last:.1f}s")
-        
+
         interval_s = max(0.05, float(mutation_state.get("check_interval_ms", 250)) / 1000.0)
         if time_since_last < interval_s:
-            logger.debug(f"[EventMonitor] Too soon to check again, skipping")
             return
-        
+
         mutation_state["last_check"] = current_time
-        
+
+        # --- DOM extractor query via independent CDP ---
         try:
-            logger.debug(
-                f"[EventMonitor] extractor_cfg label={cfg.label} "
-                f"page_url_patterns={extractor_cfg.get('page_url_patterns')} "
-                f"roots={extractor_cfg.get('roots')} "
-                f"item_selectors={[item.get('selector') for item in (extractor_cfg.get('items') or []) if isinstance(item, dict)]} "
-                f"target_id={target_id[-4:] if target_id else 'None'}"
+            runtime_expr = _build_dom_runtime_expression(extractor_cfg)
+            result = await mon_client.send_raw(
+                "Runtime.evaluate",
+                {"expression": runtime_expr, "awaitPromise": True},
+                session_id=mon_sid,
             )
-        except Exception:
-            pass
-        
-        # Use JS DOM queries first; the CDP DOM tree often omits the live customer widgets
-        # we care about on the local control panel.
+            dom_content = result.get("result", {}).get("value", "")
+            logger.debug(f"[EventMonitor] DOM query result via Runtime: {dom_content[:100]}...")
+        except Exception as runtime_err:
+            logger.debug(f"[EventMonitor] Runtime domain query failed: {runtime_err}")
+            # Connection may be stale — force reconnect on next cycle
+            await _cleanup_monitor_cdp(mutation_state)
+            return
+
         try:
-            logger.debug(f"[EventMonitor] Getting CDP client for DOM query")
-            # Re-check CDP client - try to create session if not available
-            if not cdp_client:
-                if hasattr(session, 'get_or_create_cdp_session'):
-                    logger.debug(f"[EventMonitor] Creating CDP session for DOM query")
-                    cdp_session = await session.get_or_create_cdp_session(target_id=target_id or None, focus=False)
-                    cdp_client = cdp_session.cdp_client if cdp_session else None
-                elif hasattr(session, 'cdp_client'):
-                    cdp_client = session.cdp_client
-            
-            if not cdp_client:
-                logger.debug(f"[EventMonitor] No CDP client available, skipping DOM query")
-                return
-            
-            # Evaluate a generic config-driven DOM extractor in the page context.
-            logger.debug(f"[EventMonitor] Sending Runtime DOM query")
-            try:
-                session_id = cdp_session.session_id if cdp_session else None
-                runtime_expr = _build_dom_runtime_expression(extractor_cfg)
-                if session_id:
-                    await cdp_client.send.Runtime.enable(session_id=session_id)
-                    result = await cdp_client.send.Runtime.evaluate(
-                        params={"expression": runtime_expr, "awaitPromise": True},
-                        session_id=session_id
+            data = json.loads(dom_content) if isinstance(dom_content, str) and dom_content.strip() else {}
+        except Exception:
+            logger.debug(f"[EventMonitor] DOM query result was not valid JSON")
+            return
+        if not isinstance(data, dict):
+            logger.debug(
+                f"[EventMonitor] DOM query returned non-object payload "
+                f"(type={type(data).__name__}), coercing to empty snapshot"
+            )
+            data = {}
+
+        status = str(data.get("status") or "")
+        current_url = str(data.get("currentUrl") or current_url)
+        mutation_state["last_status"] = status or "ok"
+        mutation_state["last_current_url"] = current_url
+        if status in ("no_match", "empty"):
+            debug_info = data.get("debug") if isinstance(data.get("debug"), dict) else {}
+            if debug_info:
+                try:
+                    logger.debug(
+                        "[EventMonitor] DOM debug "
+                        f"status={status} "
+                        f"rootCount={debug_info.get('rootCount')} "
+                        f"rootSelectors={debug_info.get('rootSelectors')} "
+                        f"selectorDebug={debug_info.get('selectorDebug')} "
+                        f"pageDebug={debug_info.get('pageDebug')} "
+                        f"rootDebug={debug_info.get('rootDebug')} "
+                        f"extractionDebug={debug_info.get('extractionDebug')}"
                     )
-                else:
-                    await cdp_client.send.Runtime.enable()
-                    result = await cdp_client.send.Runtime.evaluate(
-                        params={"expression": runtime_expr, "awaitPromise": True}
-                    )
-                dom_content = result.get("result", {}).get("value", "")
-                logger.debug(f"[EventMonitor] DOM query result via Runtime: {dom_content[:100]}...")
-            except Exception as runtime_err:
-                logger.debug(f"[EventMonitor] Runtime domain query failed: {runtime_err}")
-                return
-            
-            logger.debug(f"[EventMonitor] CDP query completed, parsing result")
-            logger.debug(f"[EventMonitor] DOM query result: {dom_content[:100]}...")
-            
-            try:
-                data = json.loads(dom_content) if isinstance(dom_content, str) and dom_content.strip() else {}
-            except Exception:
-                logger.debug(f"[EventMonitor] DOM query result was not valid JSON")
-                return
-            if not isinstance(data, dict):
-                logger.debug(
-                    f"[EventMonitor] DOM query returned non-object payload "
-                    f"(type={type(data).__name__}), coercing to empty snapshot"
+                except Exception:
+                    pass
+        if status == "page_mismatch":
+            mutation_state["page_mismatch_count"] = int(mutation_state.get("page_mismatch_count") or 0) + 1
+            mismatch_count = mutation_state["page_mismatch_count"]
+            if (
+                cfg.label == "chat_message_added"
+                and mismatch_count >= 5
+                and current_url
+                and "127.0.0.1:9877/chat?session=" not in current_url
+            ):
+                logger.warning(
+                    f"[EventMonitor] Retiring stale chat monitor '{cfg.label}' after "
+                    f"{mismatch_count} page mismatches; current_url={current_url}"
                 )
-                data = {}
+                mutation_state["enabled"] = False
+            logger.debug(f"[EventMonitor] DOM page mismatch, skipping: {current_url}")
+            return
+        mutation_state["page_mismatch_count"] = 0
 
-            status = str(data.get("status") or "")
-            current_url = str(data.get("currentUrl") or current_url)
-            mutation_state["last_status"] = status or "ok"
-            mutation_state["last_current_url"] = current_url
-            if status in ("no_match", "empty"):
-                debug_info = data.get("debug") if isinstance(data.get("debug"), dict) else {}
-                if debug_info:
-                    try:
-                        logger.debug(
-                            "[EventMonitor] DOM debug "
-                            f"status={status} "
-                            f"rootCount={debug_info.get('rootCount')} "
-                            f"rootSelectors={debug_info.get('rootSelectors')} "
-                            f"selectorDebug={debug_info.get('selectorDebug')} "
-                            f"pageDebug={debug_info.get('pageDebug')} "
-                            f"rootDebug={debug_info.get('rootDebug')} "
-                            f"extractionDebug={debug_info.get('extractionDebug')}"
-                        )
-                    except Exception:
-                        pass
-            if status == "page_mismatch":
-                mutation_state["page_mismatch_count"] = int(mutation_state.get("page_mismatch_count") or 0) + 1
-                mismatch_count = mutation_state["page_mismatch_count"]
-                if (
-                    cfg.label == "chat_message_added"
-                    and mismatch_count >= 5
-                    and current_url
-                    and "127.0.0.1:9877/chat?session=" not in current_url
-                ):
-                    logger.warning(
-                        f"[EventMonitor] Retiring stale chat monitor '{cfg.label}' after "
-                        f"{mismatch_count} page mismatches; current_url={current_url}"
-                    )
-                    mutation_state["enabled"] = False
-                logger.debug(f"[EventMonitor] DOM page mismatch, skipping: {current_url}")
-                return
-            mutation_state["page_mismatch_count"] = 0
+        items = data.get("items") if isinstance(data.get("items"), list) else []
+        key_field = str(data.get("key_field") or "")
+        key_fields = data.get("key_fields") if isinstance(data.get("key_fields"), list) else []
+        current_keys: List[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if key_fields:
+                key = str(item.get("identity_key") or "").strip()
+            elif key_field:
+                key = str(item.get(key_field) or "").strip()
+            else:
+                try:
+                    key = json.dumps(item, sort_keys=True)
+                except Exception:
+                    key = ""
+            if key:
+                current_keys.append(key)
 
-            items = data.get("items") if isinstance(data.get("items"), list) else []
-            key_field = str(data.get("key_field") or "")
-            key_fields = data.get("key_fields") if isinstance(data.get("key_fields"), list) else []
-            current_keys: List[str] = []
+        keys_initialized = bool(mutation_state.get("keys_initialized"))
+        previous_keys = mutation_state.get("last_keys") or []
+        if not isinstance(previous_keys, list):
+            previous_keys = []
+        previous_top_keys = mutation_state.get("last_top_keys") or []
+        if not isinstance(previous_top_keys, list):
+            previous_top_keys = []
+        previous_key_set = set(str(k) for k in previous_keys if isinstance(k, str) and k)
+        current_key_set = set(current_keys)
+        added_keys = [k for k in current_keys if k not in previous_key_set]
+        if not keys_initialized and cfg.label == "chat_message_added":
+            # First snapshot is baseline — the initial message is handled by
+            # the A2A assignment, not the monitor.  Absorb silently.
+            added_keys = []
+        removed_keys = [k for k in previous_keys if isinstance(k, str) and k not in current_key_set]
+        reordered_keys = []
+        if keys_initialized and previous_keys and current_keys and previous_keys != current_keys:
+            reordered_keys = [k for k in current_keys if k in previous_key_set]
+        current_top_keys = current_keys[: min(len(current_keys), int(extractor_cfg.get("top_n") or len(current_keys) or 0))]
+        top_changed = bool(keys_initialized and previous_top_keys != current_top_keys)
+        added_items = []
+        if added_keys:
+            added_lookup = set(added_keys)
             for item in items:
                 if not isinstance(item, dict):
                     continue
                 if key_fields:
-                    key = str(item.get("identity_key") or "").strip()
-                elif key_field:
-                    key = str(item.get(key_field) or "").strip()
+                    item_key = str(item.get("identity_key") or "").strip()
                 else:
-                    try:
-                        key = json.dumps(item, sort_keys=True)
-                    except Exception:
-                        key = ""
-                if key:
-                    current_keys.append(key)
+                    item_key = str(item.get(key_field) or "").strip() if key_field else json.dumps(item, sort_keys=True)
+                if item_key in added_lookup:
+                    added_items.append(item)
 
-            keys_initialized = bool(mutation_state.get("keys_initialized"))
-            previous_keys = mutation_state.get("last_keys") or []
-            if not isinstance(previous_keys, list):
-                previous_keys = []
-            previous_top_keys = mutation_state.get("last_top_keys") or []
-            if not isinstance(previous_top_keys, list):
-                previous_top_keys = []
-            previous_key_set = set(str(k) for k in previous_keys if isinstance(k, str) and k)
-            current_key_set = set(current_keys)
-            added_keys = [k for k in current_keys if k not in previous_key_set]
-            if (
-                not keys_initialized
-                and cfg.label == "chat_message_added"
-                and current_keys
-            ):
-                # For customer chat monitors, treat the first non-empty snapshot as
-                # meaningful work instead of silently absorbing it into baseline.
-                added_keys = list(current_keys)
-            removed_keys = [k for k in previous_keys if isinstance(k, str) and k not in current_key_set]
-            reordered_keys = []
-            if keys_initialized and previous_keys and current_keys and previous_keys != current_keys:
-                reordered_keys = [k for k in current_keys if k in previous_key_set]
-            current_top_keys = current_keys[: min(len(current_keys), int(extractor_cfg.get("top_n") or len(current_keys) or 0))]
-            top_changed = bool(keys_initialized and previous_top_keys != current_top_keys)
-            added_items = []
-            if added_keys:
-                added_lookup = set(added_keys)
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    if key_fields:
-                        item_key = str(item.get("identity_key") or "").strip()
-                    else:
-                        item_key = str(item.get(key_field) or "").strip() if key_field else json.dumps(item, sort_keys=True)
-                    if item_key in added_lookup:
-                        added_items.append(item)
+        # For chat monitors, filter out the agent's own replies so the
+        # monitor only fires for genuine customer messages (prevents self-
+        # triggering when the agent types a response into the same chat).
+        if cfg.label == "chat_message_added" and added_items:
+            customer_only = [
+                item for item in added_items
+                if str(item.get("from") or "").lower() == "customer"
+            ]
+            skipped = len(added_items) - len(customer_only)
+            if skipped:
+                logger.info(
+                    f"[EventMonitor] Filtered {skipped} non-customer message(s) "
+                    f"from chat_message_added (agent self-reply)"
+                )
+                added_items = customer_only
+                added_keys = [
+                    str(item.get(key_field) or item.get("identity_key") or "").strip()
+                    for item in added_items
+                ] if key_field or key_fields else added_keys[:len(added_items)]
 
-            customer_count = int(data.get("count") or len(items) or 0)
-            mutation_state["last_customer_count"] = customer_count
-            mutation_state["last_keys"] = current_keys
-            mutation_state["last_top_keys"] = current_top_keys
-            mutation_state["last_removed_keys"] = removed_keys
-            mutation_state["last_reordered_keys"] = reordered_keys
-            mutation_state["last_top_changed"] = top_changed
-            mutation_state["last_items"] = list(items)
-            mutation_state["last_added_items"] = list(added_items)
-            mutation_state["keys_initialized"] = True
+        customer_count = int(data.get("count") or len(items) or 0)
+        mutation_state["last_customer_count"] = customer_count
+        mutation_state["last_keys"] = current_keys
+        mutation_state["last_top_keys"] = current_top_keys
+        mutation_state["last_removed_keys"] = removed_keys
+        mutation_state["last_reordered_keys"] = reordered_keys
+        mutation_state["last_top_changed"] = top_changed
+        mutation_state["last_items"] = list(items)
+        mutation_state["last_added_items"] = list(added_items)
+        mutation_state["keys_initialized"] = True
 
-            logger.debug(
-                f"[EventMonitor] DOM snapshot status={status or 'ok'} count={customer_count} "
-                f"(was {current_count}) added={len(added_items)} removed={len(removed_keys)} "
-                f"reordered={len(reordered_keys)} top_changed={top_changed}"
-            )
+        logger.debug(
+            f"[EventMonitor] DOM snapshot status={status or 'ok'} count={customer_count} "
+            f"(was {current_count}) added={len(added_items)} removed={len(removed_keys)} "
+            f"reordered={len(reordered_keys)} top_changed={top_changed}"
+        )
 
-            emit_on = str(extractor_cfg.get("emit_on") or "added").lower()
-            should_emit = False
-            if emit_on == "changed":
-                should_emit = bool(added_items or removed_keys)
-            elif emit_on == "reordered":
-                should_emit = bool(reordered_keys)
-            elif emit_on == "top_changed":
-                should_emit = top_changed
-            elif emit_on == "added_or_reordered":
-                should_emit = bool(added_items or reordered_keys)
-            else:
-                should_emit = bool(added_items)
+        emit_on = str(extractor_cfg.get("emit_on") or "added").lower()
+        should_emit = False
+        if emit_on == "changed":
+            should_emit = bool(added_items or removed_keys)
+        elif emit_on == "reordered":
+            should_emit = bool(reordered_keys)
+        elif emit_on == "top_changed":
+            should_emit = top_changed
+        elif emit_on == "added_or_reordered":
+            should_emit = bool(added_items or reordered_keys)
+        else:
+            should_emit = bool(added_items)
 
-            if should_emit:
-                payload = {
-                    "status": status or "ok",
-                    "count": customer_count,
-                    "items": items,
-                    "added": added_items,
+        if should_emit:
+            payload = {
+                "status": status or "ok",
+                "count": customer_count,
+                "items": items,
+                "added": added_items,
+                "removed_keys": removed_keys,
+                "key_field": key_field,
+                "key_fields": key_fields,
+                "reordered_keys": reordered_keys,
+                "top_keys": current_top_keys,
+                "current_url": current_url,
+            }
+            sub_id = f"dom_{int(time.time() * 1000)}"
+            normalized_event = _build_normalized_browser_event(
+                session=session,
+                monitor_id=str(getattr(cfg, "id", "") or monitor_set_id),
+                label=cfg.label,
+                source_type="dom_mutation",
+                params_obj={
+                    "url": current_url,
+                    "body": payload,
+                },
+                sub_id=sub_id,
+                scope="tab",
+                change_summary={
+                    "mode": emit_on,
+                    "added_keys": added_keys,
                     "removed_keys": removed_keys,
-                    "key_field": key_field,
-                    "key_fields": key_fields,
                     "reordered_keys": reordered_keys,
                     "top_keys": current_top_keys,
-                    "current_url": current_url,
+                },
+            )
+            event_data = {
+                "type": "browser_event",
+                "sub_type": cfg.label,
+                "sub_id": sub_id,
+                "event_method": "DOM.polling",
+                "domain": "DOM",
+                "event": normalized_event,
+                "params": {
+                    "url": current_url,
+                    "method": "DOM_MUTATION",
+                    "status": 200,
+                    "body": json.dumps(payload),
+                    "rule": cfg.label,
+                    "detection": "config_driven_dom_diff",
+                    "customer_count": customer_count,
+                    "previous_count": current_count,
                 }
-                sub_id = f"dom_{int(time.time() * 1000)}"
-                normalized_event = _build_normalized_browser_event(
-                    session=session,
-                    monitor_id=str(getattr(cfg, "id", "") or monitor_set_id),
-                    label=cfg.label,
-                    source_type="dom_mutation",
-                    params_obj={
-                        "url": current_url,
-                        "body": payload,
-                    },
-                    sub_id=sub_id,
-                    scope="tab",
-                    change_summary={
-                        "mode": emit_on,
-                        "added_keys": added_keys,
-                        "removed_keys": removed_keys,
-                        "reordered_keys": reordered_keys,
-                        "top_keys": current_top_keys,
-                    },
-                )
-                event_data = {
-                    "type": "browser_event",
-                    "sub_type": cfg.label,
-                    "sub_id": sub_id,
-                    "event_method": "DOM.polling",
-                    "domain": "DOM",
-                    "event": normalized_event,
-                    "params": {
-                        "url": current_url,
-                        "method": "DOM_MUTATION",
-                        "status": 200,
-                        "body": json.dumps(payload),
-                        "rule": cfg.label,
-                        "detection": "config_driven_dom_diff",
-                        "customer_count": customer_count,
-                        "previous_count": current_count,
-                    }
-                }
-                _dispatch_to_runners(
-                    cfg.label,
-                    event_data,
-                    target_agent_id=(mutation_state.get("agent_id") or ""),
-                )
-                logger.info(
-                    f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
-                    f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
-                )
-            
-        except Exception as e:
-            logger.error(f"[EventMonitor] Error querying DOM: {e}")
-            import traceback
-            logger.debug(f"[EventMonitor] DOM query error traceback: {traceback.format_exc()}")
-    
+            }
+            _dispatch_to_runners(
+                cfg.label,
+                event_data,
+                target_agent_id=(mutation_state.get("agent_id") or ""),
+            )
+            logger.info(
+                f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
+                f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
+            )
+
     except Exception as e:
         logger.error(f"[EventMonitor] Error in customer change detection: {e}")
         import traceback

@@ -806,11 +806,29 @@ class TestSiteHandler(BaseHTTPRequestHandler):
                 if use_open_chat_tabs:
                     cdp_port = int(body_json.get("cdp_port", 9228) or 9228)
                     open_tabs = _discover_open_chat_tabs_from_cdp(cdp_port=cdp_port, limit=count)
-                    targeted_sessions = [str(t.get("session_id") or "").strip() for t in open_tabs if str(t.get("session_id") or "").strip()]
-                    if targeted_sessions:
-                        existing = targeted_sessions
+                    targeted_sessions = [
+                        str(t.get("session_id") or "").strip()
+                        for t in open_tabs
+                        if str(t.get("session_id") or "").strip()
+                    ]
+                    live_targeted_sessions = [sid for sid in targeted_sessions if sid in _CUSTOMERS]
+                    stale_targeted_sessions = [sid for sid in targeted_sessions if sid not in _CUSTOMERS]
+                    if stale_targeted_sessions:
+                        sys.stderr.write(
+                            "[test_rig] followup_stale_target_sessions="
+                            + json.dumps(stale_targeted_sessions, ensure_ascii=False)
+                            + "\n"
+                        )
+                    if live_targeted_sessions:
+                        existing = live_targeted_sessions
                         sys.stderr.write(
                             "[test_rig] followup_target_sessions="
+                            + json.dumps(live_targeted_sessions, ensure_ascii=False)
+                            + "\n"
+                        )
+                    elif targeted_sessions:
+                        sys.stderr.write(
+                            "[test_rig] followup_target_sessions_empty_after_filter="
                             + json.dumps(targeted_sessions, ensure_ascii=False)
                             + "\n"
                         )
@@ -829,6 +847,14 @@ class TestSiteHandler(BaseHTTPRequestHandler):
                     result = _send_followup(sid)
                     if result:
                         messages.append(result)
+                if not messages:
+                    self._json_response(200, json.dumps({
+                        "success": False,
+                        "error": "No follow-up messages were injected for the selected sessions.",
+                        "messages": [],
+                        "selected_sessions": selected,
+                    }))
+                    return
                 _log_event("sim", {"message": f"Sent {len(messages)} follow-up messages"})
                 self._json_response(200, json.dumps({"success": True, "messages": messages}))
 

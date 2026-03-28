@@ -39,6 +39,7 @@ from agent.ec_skills.label_utils.print_label import (
     reformat_labels_async,
 )
 
+from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 from app_context import AppContext
 
 # Create a shared controller with custom actions for browser_use
@@ -47,6 +48,8 @@ custom_controller = Controller()
 # Global registry to track current agent instance for file path authorization
 _current_agent_instance = None
 _current_runtime_context: Dict[str, Any] = {}
+
+
 
 def set_current_agent(agent):
     """Set the current agent instance for fi
@@ -739,6 +742,17 @@ def _canonicalize_monitor_raw_for_skill(record_raw: Dict[str, Any]) -> Dict[str,
         "emit_on": "added",
         "filters": {"from_equals": "customer"},
     }
+    # Apply canonicalized defaults for chat_message_added monitors:
+    # preserve caller-supplied url_patterns (session-specific) but fill in
+    # sensible defaults for fields the LLM typically leaves empty.
+    raw.setdefault("sourceType", "dom_mutation")
+    raw.setdefault("domSelector", "#messages")
+    raw.setdefault("domChildList", True)
+    raw.setdefault("domSubtree", True)
+    raw.setdefault("domCheckIntervalMs", 2000)
+    if not raw.get("cdpFilterExpr"):
+        raw["cdpFilterExpr"] = json.dumps(extractor_cfg, ensure_ascii=False, separators=(",", ":"))
+    return raw
 
 
 def _dedupe_monitor_raws(raw_monitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -763,26 +777,6 @@ def _dedupe_monitor_raws(raw_monitors: List[Dict[str, Any]]) -> List[Dict[str, A
         deduped.append(raw)
     deduped.reverse()
     return deduped
-    return {
-        "id": "mon_customer_chat_message_added",
-        "label": "chat_message_added",
-        "enabled": bool(enabled),
-        "sourceType": "dom_mutation",
-        "urlPatterns": ["http://127.0.0.1:9877/chat?session="],
-        "methods": ["GET", "POST"],
-        "contentFilters": [],
-        "minBodyLength": 10,
-        "frameDirection": "incoming",
-        "sseEventTypes": [],
-        "domSelector": "#messages",
-        "domAttributes": False,
-        "domChildList": True,
-        "domSubtree": True,
-        "domCheckIntervalMs": 500,
-        "cdpDomain": "",
-        "cdpEventMethod": "",
-        "cdpFilterExpr": json.dumps(extractor_cfg, ensure_ascii=False, separators=(",", ":")),
-    }
 
 
 def _update_skill_node_monitors(payload: Dict[str, Any], node_id: str, monitor_raws: List[Dict[str, Any]]) -> bool:
@@ -1431,8 +1425,8 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
                 "Routing tools are disabled for the customer-service skill. "
                 "This task already owns the assigned customer session. "
                 "Do not send assignment chat messages. Stay on the assigned customer tab, "
-                "validate or install the per-session monitor, reply in the browser when needed, "
-                "and call done() for this bounded invocation."
+                "reply to the customer message in the browser chat, "
+                "and call done() when finished."
             )
         )
 
@@ -1454,16 +1448,106 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
         "sender_agent_id": bound_sender_agent_id,
         "message": params.message,
     }
-    if params.recipient_agent_id is not None:
-        config["recipient_agent_id"] = params.recipient_agent_id
-    if params.recipient_agent_name is not None:
-        config["recipient_agent_name"] = params.recipient_agent_name
+    normalized_recipient_id = str(params.recipient_agent_id or "").strip()
+    normalized_recipient_name = str(params.recipient_agent_name or "").strip()
+    if not normalized_recipient_id and normalized_recipient_name.startswith("agent_"):
+        normalized_recipient_id = normalized_recipient_name
+        normalized_recipient_name = ""
+        logger.info(
+            f"[bu_send_chat] Normalized recipient_agent_name-looking-like-id into recipient_agent_id: "
+            f"{normalized_recipient_id}"
+        )
+    if normalized_recipient_id:
+        config["recipient_agent_id"] = normalized_recipient_id
+    if normalized_recipient_name:
+        config["recipient_agent_name"] = normalized_recipient_name
     if params.chat_id is not None:
         config["chat_id"] = params.chat_id
     if params.message_type is not None:
         config["message_type"] = params.message_type
     if params.async_send is not None:
         config["async_send"] = params.async_send
+
+    # Front-desk service assignment hardening:
+    # browser-use sometimes tries to send the assignment payload before it carries a
+    # resolved tab_id. That causes the service agent to start from an ambiguous page
+    # and drift into front-desk behavior. Before sending, enrich the payload from the
+    # live browser session; if the tab still is not open, fail fast so front desk
+    # keeps opening/locating tabs instead of dispatching a broken assignment.
+    try:
+        if runtime_skill_name == "customer_front_desk":
+            payload_obj = None
+            if isinstance(config.get("message"), str):
+                payload_obj = try_parse_json(config.get("message"))
+            # Reject batched multi-customer assignments: LLM must send one per call
+            if isinstance(payload_obj, list):
+                return ActionResult(
+                    error=(
+                        "Assignment payload contains multiple customers in a single message. "
+                        "Send exactly ONE assignment per bu_send_chat call. "
+                        "Call bu_send_chat once for each customer with their individual assignment payload."
+                    )
+                )
+            if isinstance(payload_obj, dict):
+                _assignments_list = payload_obj.get("assignments") or payload_obj.get("customers")
+                if isinstance(_assignments_list, list) and len(_assignments_list) > 1:
+                    return ActionResult(
+                        error=(
+                            "Assignment payload contains multiple customers in a single message. "
+                            "Send exactly ONE assignment per bu_send_chat call. "
+                            "Call bu_send_chat once for each customer with their individual assignment payload."
+                        )
+                    )
+            if isinstance(payload_obj, dict):
+                payload_session_id = str(
+                    payload_obj.get("session_id")
+                    or payload_obj.get("sessionId")
+                    or payload_obj.get("customer_id")
+                    or ""
+                ).strip()
+                payload_chat_url = str(
+                    payload_obj.get("chat_url")
+                    or payload_obj.get("chatUrl")
+                    or ""
+                ).strip()
+                payload_tab_id = str(
+                    payload_obj.get("tab_id")
+                    or payload_obj.get("tabId")
+                    or ""
+                ).strip()
+
+                recipient_for_service = str(config.get("recipient_agent_id") or "").strip() or str(
+                    config.get("recipient_agent_name") or ""
+                ).strip()
+                if payload_session_id and payload_chat_url and recipient_for_service:
+                    if not payload_tab_id:
+                        current_agent = get_current_agent()
+                        browser_session = getattr(current_agent, "browser_session", None) if current_agent else None
+                        resolved_tab_id = _find_frontdesk_open_tab_id(browser_session, payload_chat_url) if browser_session else ""
+                        if resolved_tab_id:
+                            payload_obj["tab_id"] = resolved_tab_id
+                            config["message"] = json.dumps(payload_obj, ensure_ascii=False)
+                            logger.info(
+                                f"[bu_send_chat] Enriched front-desk assignment with resolved tab_id: "
+                                f"session_id={payload_session_id} tab_id=...{resolved_tab_id[-4:]}"
+                            )
+                        else:
+                            logger.info(
+                                f"[bu_send_chat] Refusing to send assignment without resolved tab_id: "
+                                f"session_id={payload_session_id} chat_url={payload_chat_url}"
+                            )
+                            return ActionResult(
+                                error=(
+                                    "Assignment payload is missing a resolved tab_id and the chat tab is not open yet. "
+                                    "Open or locate the customer's chat tab first, then send the assignment."
+                                )
+                            )
+    except Exception as _assignment_enrich_err:
+        logger.warning(f"[bu_send_chat] Failed to normalize front-desk assignment payload: {_assignment_enrich_err}")
+
+    # Discovery gate and duplicate-recipient detection are now handled
+    # in chat_tools.send_chat() — the common path for both bu_send_chat
+    # and MCP send_chat.  No need to duplicate here.
 
     login = AppContext.login
     logger.info(
@@ -1506,8 +1590,18 @@ async def bu_list_chat_agents(params: ListChatAgentsAction) -> ActionResult:
 
     if result.get("success"):
         agents = result.get("agents", [])
+        # Also mark discovery at the chat_tools level (via sender agent ID)
+        # so the dispatch gate in send_chat() recognises this caller.
+        ctx = get_current_runtime_context()
+        sender_id = str(ctx.get("agent_id") or "").strip()
+        if sender_id:
+            from agent.mcp.server.chat_utils.chat_tools import _mark_discovery
+            _mark_discovery(sender_id, agents)
         if agents:
-            agent_lines = [f"- {a['name']} (ID: {a['id']})" for a in agents]
+            agent_lines = [
+                f"- {a['name']} (ID: {a['id']}, tasks: {', '.join(a.get('tasks', [])) or 'none'})"
+                for a in agents
+            ]
             msg = f"Available agents ({result.get('count', 0)}):\n" + "\n".join(agent_lines)
         else:
             msg = "No agents available for chat."
@@ -1660,6 +1754,27 @@ async def bu_upsert_session_monitor(params: UpsertSessionMonitorAction, browser_
         raw_item = _canonicalize_monitor_raw_for_skill(_build_monitor_raw_from_params(params))
         target_id = str(raw_item.get("id") or raw_item.get("label") or "")
         target_label = str(raw_item.get("label") or "")
+
+        # Guard: never replace a working dom_mutation monitor with http_polling
+        new_source = str(raw_item.get("sourceType") or "").lower()
+        for item in raw_existing:
+            item_label2 = str(item.get("label") or "")
+            item_source = str(item.get("sourceType") or "").lower()
+            if (item_label2 == target_label and item_source == "dom_mutation"
+                    and new_source != "dom_mutation"):
+                logger.warning(
+                    f"[ExtensionTools] Blocked upsert: cannot replace dom_mutation monitor "
+                    f"'{target_label}' with source_type='{new_source}'"
+                )
+                return _json_result({
+                    "success": True,
+                    "replaced": False,
+                    "monitor_id": target_id,
+                    "label": target_label,
+                    "message": f"Monitor '{target_label}' already exists as dom_mutation and is managed by the system. No changes made.",
+                    "configured_count": len(raw_existing),
+                })
+
         filtered_existing = []
         replaced = False
         removed_duplicates = 0

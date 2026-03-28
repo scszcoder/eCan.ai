@@ -4754,7 +4754,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if _event_monitor_configs:
             logger.info(
                 f"[BrowserAutomation] Parsed {len(_event_monitor_configs)} event monitor config(s): "
-                f"{[c.label for c in _event_monitor_configs]}"
+                f"{[c.label for c in _event_monitor_configs]}, "
+                f"list_id={id(_event_monitor_configs)}, obj_ids={[id(c) for c in _event_monitor_configs]}, "
+                f"skill={skill_name}"
             )
             send_skill_editor_log("log", f"[BrowserAutomation] {len(_event_monitor_configs)} event monitor(s) configured")
     except Exception as _em_parse_err:
@@ -5019,6 +5021,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if session is None:
             return False
 
+        if getattr(session, "_ecan_fast_attach_ready", False):
+            return True
+
         # Prefer strong signal: root CDP client initialized.
         root_client = getattr(session, "_cdp_client_root", None)
         if root_client is None:
@@ -5267,7 +5272,35 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
-                if not _is_session_started(auto_browser.browser_session):
+                # Each agent gets its own independent CDP connection via
+                # browser_session.start().  No donor/shared-session pattern — sharing
+                # session_manager/event_bus causes tab contamination when multiple
+                # agents run concurrently on the same Chrome.
+                fast_attach_ready = False
+                if isolate_scope and browser_type_setting == 'existing chrome':
+                    try:
+                        sm = getattr(auto_browser.browser_session, "session_manager", None)
+                        eb = getattr(auto_browser.browser_session, "event_bus", None)
+                        targets = sm.get_all_targets() if sm and hasattr(sm, "get_all_targets") else {}
+                        page_targets = [
+                            tid for tid, t in (targets or {}).items()
+                            if getattr(t, "target_type", "") in ("page", "tab")
+                        ]
+                        if eb is not None and page_targets:
+                            fast_attach_ready = True
+                            setattr(auto_browser.browser_session, "_ecan_fast_attach_ready", True)
+                            logger.info(
+                                f"[BrowserAutomation] Fast-attach ready (own session already started) "
+                                f"{auto_browser.browser_session.id}: page_targets={len(page_targets)} "
+                                f"scope={browser_scope_key}"
+                            )
+                    except Exception as _fast_attach_exc:
+                        logger.warning(
+                            f"[BrowserAutomation] Fast-attach probe failed for session "
+                            f"{auto_browser.browser_session.id}: {_fast_attach_exc}"
+                        )
+
+                if not _is_session_started(auto_browser.browser_session) and not fast_attach_ready:
                     start_lock = _browser_start_locks.get(cdp_port)
                     if start_lock is None:
                         start_lock = threading.Lock()
@@ -5277,25 +5310,57 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"[BrowserAutomation] Waiting for startup lock on cdp_port={cdp_port} "
                         f"scope={browser_scope_key} session={auto_browser.browser_session.id}"
                     )
-                    await asyncio.to_thread(start_lock.acquire)
-                    try:
-                        if not _is_session_started(auto_browser.browser_session):
-                            logger.info(
-                                f"[BrowserAutomation] Acquired startup lock on cdp_port={cdp_port}; "
-                                f"starting session {auto_browser.browser_session.id} scope={browser_scope_key}"
-                            )
-                            task = asyncio.create_task(auto_browser.browser_session.start())
-                            await task
-                        else:
-                            logger.info(
-                                f"[BrowserAutomation] Session already started after waiting for lock: "
-                                f"{auto_browser.browser_session.id}"
-                            )
-                    finally:
+                    _lock_acquired = await asyncio.to_thread(lambda: start_lock.acquire(timeout=60))
+                    if not _lock_acquired:
+                        logger.error(
+                            f"[BrowserAutomation] Startup lock timed out after 60s on cdp_port={cdp_port} "
+                            f"scope={browser_scope_key}; cannot start independent session"
+                        )
+                    else:
                         try:
-                            start_lock.release()
-                        except Exception:
-                            pass
+                            if not _is_session_started(auto_browser.browser_session):
+                                logger.info(
+                                    f"[BrowserAutomation] Acquired startup lock on cdp_port={cdp_port}; "
+                                    f"starting session {auto_browser.browser_session.id} scope={browser_scope_key}"
+                                )
+                                _start_task = asyncio.create_task(auto_browser.browser_session.start())
+                                try:
+                                    await asyncio.wait_for(asyncio.shield(_start_task), timeout=30)
+                                except asyncio.TimeoutError:
+                                    logger.warning(
+                                        f"[BrowserAutomation] browser_session.start() timed out after 30s "
+                                        f"for {auto_browser.browser_session.id} scope={browser_scope_key}; "
+                                        f"will retry once"
+                                    )
+                                    # Retry once — transient CDP handshake failures can occur
+                                    # when multiple sessions connect in quick succession.
+                                    try:
+                                        _start_task2 = asyncio.create_task(auto_browser.browser_session.start())
+                                        await asyncio.wait_for(asyncio.shield(_start_task2), timeout=30)
+                                        logger.info(
+                                            f"[BrowserAutomation] Retry start() succeeded for "
+                                            f"{auto_browser.browser_session.id}"
+                                        )
+                                    except (asyncio.TimeoutError, Exception) as _retry_err:
+                                        logger.error(
+                                            f"[BrowserAutomation] Retry start() also failed for "
+                                            f"{auto_browser.browser_session.id}: {_retry_err}"
+                                        )
+                            else:
+                                logger.info(
+                                    f"[BrowserAutomation] Session already started after waiting for lock: "
+                                    f"{auto_browser.browser_session.id}"
+                                )
+                        finally:
+                            try:
+                                start_lock.release()
+                            except Exception:
+                                pass
+                elif fast_attach_ready:
+                    logger.info(
+                        f"[BrowserAutomation] Skipped browser_session.start() (already started): "
+                        f"{auto_browser.browser_session.id} scope={browser_scope_key}"
+                    )
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
@@ -5361,6 +5426,44 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     f"[BrowserAutomation] Injected runtime input into task (len={len(runtime_input)})"
                 )
 
+            # ── Inject triggering event context ──
+            # When this browser_automation node was resumed by pend_event after
+            # an event (browser_event, chat_message, etc.), expose the event
+            # metadata so the LLM knows WHY this invocation was triggered.
+            try:
+                _event_json = ""
+                if isinstance(state, dict):
+                    _pr = state.get("prompt_refs")
+                    if isinstance(_pr, dict):
+                        _event_json = _pr.get("events", "")
+                if _event_json and isinstance(_event_json, str) and _event_json.strip():
+                    _evt = json.loads(_event_json)
+                    _evt_type = _evt.get("event_type", "")
+                    _evt_ctx = _evt.get("context", {}) if isinstance(_evt.get("context"), dict) else {}
+                    _evt_label = _evt_ctx.get("sub_type") or _evt_ctx.get("label") or ""
+                    _evt_lines = [
+                        "## Triggering Event",
+                        f"This invocation was resumed by a **{_evt_type}** event.",
+                    ]
+                    if _evt_label:
+                        _evt_lines.append(f"Event label: **{_evt_label}**")
+                    if _evt_type == "browser_event" and _evt_label == "chat_message_added":
+                        _evt_lines.append(
+                            "A new customer message was just added to the assigned chat tab. "
+                            "You MUST read the new message from the page and respond to it in the chat UI before calling done()."
+                        )
+                    elif _evt_type == "chat_message":
+                        _evt_lines.append(
+                            "A new chat message arrived from another agent or from the customer."
+                        )
+                    task = f"{task}\n\n" + "\n".join(_evt_lines)
+                    logger.info(
+                        f"[BrowserAutomation] Injected triggering event context "
+                        f"(event_type={_evt_type}, label={_evt_label}, node={node_name})"
+                    )
+            except Exception as _evt_inject_err:
+                logger.debug(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
+
             if skill_name == "rt_chat_bot":
                 assignment_scope = _extract_assignment_scope(runtime_input)
                 assignment_session_id = str(
@@ -5378,6 +5481,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 assignment_customer_name = str(
                     assignment_scope.get("customer_name") or assignment_scope.get("customerName") or ""
                 ).strip()
+
+                # ── Short-circuit: no assignment → skip browser entirely ──
+                # Base tasks (feige_chat_1/2/3) may receive stray browser events
+                # but have no customer assignment. Starting a browser session would
+                # waste resources and cause CDP contention.  Return immediately.
+                if not assignment_session_id and not assignment_chat_url:
+                    logger.info(
+                        f"[BrowserAutomation] rt_chat_bot node has no assignment "
+                        f"(no session_id, no chat_url) — skipping browser. "
+                        f"node={node_name}, runtime_input={runtime_input[:200] if runtime_input else 'empty'}"
+                    )
+                    return {
+                        "result": {"llm_result": {"all_done": False, "work_done": False}},
+                    }
 
                 scope_contract_lines = [
                     "## Runtime Scope Contract",
@@ -5398,10 +5515,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 scope_contract_lines.extend([
                     "Allowed work only:",
                     "1. focus the assigned tab or navigate to the assigned chat_url",
-                    "2. validate that the page matches the assigned session_id",
-                    "3. validate or repair the `chat_message_added` monitor for that assigned chat tab only",
-                    "4. if no new customer-originated message is visible yet, call `done()` immediately after setup",
-                    "5. if resumed by a real new customer message, reply in the assigned browser chat tab and then call `done()`",
+                    "2. read the latest customer message visible on the page",
+                    "3. type your reply into the chat input and send it",
+                    "4. call `done()` after replying",
+                    "",
+                    "IMPORTANT: Do NOT spend time validating or repairing monitors.",
+                    "The `chat_message_added` monitor is already configured by the system.",
+                    "Do NOT call bu_list_session_monitors, bu_get_session_monitor_snapshot, or bu_upsert_session_monitor.",
+                    "Your only job is to read the customer message and reply to it. Act immediately.",
                 ])
                 task = f"{task}\n\n" + "\n".join(scope_contract_lines)
                 logger.info(
@@ -5524,6 +5645,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         }
                         setattr(chosen_session, "_ecan_frontdesk_dispatch_state", dispatch_state)
 
+                    # Prevent concurrent fast-path invocations from racing
+                    _fp_lock = dispatch_state.get("_lock")
+                    if _fp_lock is None:
+                        import threading as _fp_threading
+                        _fp_lock = _fp_threading.Lock()
+                        dispatch_state["_lock"] = _fp_lock
+                    if not _fp_lock.acquire(blocking=False):
+                        logger.info("[BrowserAutomation] Front-desk fast-path skipped: another invocation already running")
+                        # Abort this LLM run — another fast-path is handling it
+                        setattr(chosen_session, "_ecan_frontdesk_dispatched_all", True)
+                        return {"final": json.dumps({"all_done": True, "message": "Fast-path handled by another invocation"}), "history": "frontdesk_fastpath:dedup"}
+
                     opened_tabs = dispatch_state.setdefault("opened_tabs", {})
                     assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
 
@@ -5578,83 +5711,139 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             "message": "Front desk fast-path: no visible customer sessions on control page.",
                         }
                         logger.info("[BrowserAutomation] Front-desk fast-path completed: no visible sessions")
+                        if _fp_lock.locked():
+                            _fp_lock.release()
                         return {"final": json.dumps(payload, ensure_ascii=False), "history": "frontdesk_fastpath:no_customers"}
-
-                    from browser_use.browser.events import NavigateToUrlEvent
 
                     opened_rows = []
                     assigned_rows = []
                     failure_rows = []
                     sender_agent_id = str(calling_agent_id or "").strip()
-                    recipient_agent_id = "agent_b31f281332104b93"
                     if not sender_agent_id:
                         logger.info("[BrowserAutomation] Front-desk fast-path skipped: missing runtime sender agent id")
+                        if _fp_lock.locked():
+                            _fp_lock.release()
                         return None
 
-                    for item in actionable:
-                        session_id = item["session_id"]
-                        chat_url = item["chat_url"]
-                        target_id = str(opened_tabs.get(session_id) or "").strip()
-                        if not target_id:
-                            target_id = _find_target_id_for_url(chat_url)
-                        if not target_id:
-                            try:
-                                await chosen_session.event_bus.dispatch(
-                                    NavigateToUrlEvent(url=chat_url, new_tab=True)
-                                )
-                                await asyncio.sleep(0.8)
-                                all_targets = sm.get_all_targets() if sm else {}
-                                target_id = _find_target_id_for_url(chat_url)
-                            except Exception as _open_err:
-                                failure_rows.append(f"{session_id}: tab open failed: {_open_err}")
-                        if not target_id:
-                            failure_rows.append(f"{session_id}: could not resolve chat tab after open")
-                            continue
-
-                        opened_tabs[session_id] = target_id
-                        opened_rows.append(f"{session_id}->{target_id[-4:]}")
-
-                        if assigned_sessions.get(session_id):
-                            continue
-
-                        if not sender_agent_id:
-                            continue
-
-                        assignment_payload = {
-                            "customer_id": item["customer_id"],
-                            "session_id": session_id,
-                            "tab_id": target_id,
-                            "chat_url": chat_url,
-                        }
-                        if item.get("customer_name"):
-                            assignment_payload["customer_name"] = item["customer_name"]
-
-                        send_result = send_chat(
+                    # Discover service agents dynamically (round-robin, no hardcoded IDs).
+                    # Cache the filtered agent list and round-robin index in dispatch_state
+                    # so it persists across fast-path invocations.
+                    from agent.mcp.server.chat_utils.chat_tools import list_chat_agents as _list_chat_agents
+                    if "service_agents" not in dispatch_state or not dispatch_state["service_agents"]:
+                        _all_agents_result = _list_chat_agents(
                             mainwin,
-                            {
-                                "sender_agent_id": sender_agent_id,
-                                "recipient_agent_id": recipient_agent_id,
-                                "chat_id": session_id,
-                                "message": json.dumps(assignment_payload, ensure_ascii=False),
-                                "message_type": "text",
-                                "async_send": False,
-                            },
+                            {"exclude_self": sender_agent_id},
                         )
-                        if send_result.get("success"):
-                            assigned_sessions[session_id] = {
-                                "recipient_agent_id": recipient_agent_id,
-                                "message_id": str(send_result.get("message_id") or ""),
-                                "timestamp": int(send_result.get("timestamp") or 0),
+                        _all_agents = _all_agents_result.get("agents", [])
+                        # Filter to agents whose task names contain the service-agent keyword.
+                        # The front-desk prompt instructs: filter to tasks containing 'feige_chat'.
+                        # As a fallback also accept skill names containing 'rt_chat_bot'.
+                        _service_agents = [
+                            a for a in _all_agents
+                            if any("feige_chat" in str(t).lower() for t in a.get("tasks", []))
+                            or any("rt_chat_bot" in str(s).lower() for s in a.get("skills", []))
+                        ]
+                        if not _service_agents:
+                            # Broadest fallback: exclude the sender itself
+                            _service_agents = [a for a in _all_agents if a.get("id") != sender_agent_id]
+                        dispatch_state["service_agents"] = [a["id"] for a in _service_agents]
+                        dispatch_state.setdefault("rr_index", 0)
+                        logger.info(
+                            f"[BrowserAutomation] Front-desk fast-path discovered {len(_service_agents)} service agents: "
+                            f"{[a['id'][-8:] for a in _service_agents]}"
+                        )
+
+                    service_agent_ids = dispatch_state.get("service_agents") or []
+                    if not service_agent_ids:
+                        failure_rows.append("no service agents available")
+                    else:
+                        for item in actionable:
+                            session_id = item["session_id"]
+                            chat_url = item["chat_url"]
+
+                            # Open a dedicated tab for this session if not already open.
+                            # This is instant (deterministic CDP, no LLM cost) and gives each
+                            # service agent a pre-loaded tab so they don't waste LLM steps navigating.
+                            # Each session gets its own unique tab → no sharing between agents.
+                            tab_id = opened_tabs.get(session_id) or ""
+                            if not tab_id:
+                                try:
+                                    # Check if a tab is already open at this URL.
+                                    tab_id = _find_target_id_for_url(chat_url) or ""
+                                    if not tab_id:
+                                        from browser_use.browser.events import NavigateToUrlEvent as _NavEvt
+                                        await chosen_session.event_bus.dispatch(_NavEvt(url=chat_url, new_tab=True))
+                                        await asyncio.sleep(0.8)
+                                        # Refresh targets and find the newly opened tab.
+                                        sm2 = getattr(chosen_session, "session_manager", None)
+                                        all_targets2 = sm2.get_all_targets() if sm2 else {}
+                                        for tid2, tgt2 in (all_targets2 or {}).items():
+                                            if getattr(tgt2, "target_type", "") not in ("page", "tab"):
+                                                continue
+                                            if str(getattr(tgt2, "url", "") or "").strip().rstrip("/") == chat_url.rstrip("/"):
+                                                tab_id = str(tid2)
+                                                break
+                                    if tab_id:
+                                        opened_tabs[session_id] = tab_id
+                                        logger.info(
+                                            f"[BrowserAutomation] Front-desk fast-path opened tab "
+                                            f"tab_id=...{tab_id[-6:]} for session={session_id}"
+                                        )
+                                except Exception as _open_err:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Front-desk fast-path failed to open tab "
+                                        f"for session={session_id}: {_open_err}"
+                                    )
+                            opened_rows.append(session_id)
+
+                            if assigned_sessions.get(session_id):
+                                continue
+
+                            # Pick next service agent in round-robin order.
+                            rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
+                            recipient_agent_id = service_agent_ids[rr_idx]
+                            dispatch_state["rr_index"] = rr_idx + 1
+
+                            # Include tab_id so the service agent can focus the pre-opened tab
+                            # immediately without LLM-driven navigation (fast + no token cost).
+                            assignment_payload = {
+                                "customer_id": item["customer_id"],
+                                "session_id": session_id,
+                                "chat_url": chat_url,
                             }
-                            assigned_rows.append(
-                                f"{session_id}->{recipient_agent_id[-6:]} msg={str(send_result.get('message_id') or '')[:8]}"
+                            if tab_id:
+                                assignment_payload["tab_id"] = tab_id
+                            if item.get("customer_name"):
+                                assignment_payload["customer_name"] = item["customer_name"]
+
+                            send_result = send_chat(
+                                mainwin,
+                                {
+                                    "sender_agent_id": sender_agent_id,
+                                    "recipient_agent_id": recipient_agent_id,
+                                    "chat_id": session_id,
+                                    "message": json.dumps(assignment_payload, ensure_ascii=False),
+                                    "message_type": "text",
+                                    "async_send": False,
+                                },
                             )
-                        else:
-                            failure_rows.append(
-                                f"{session_id}: assignment failed: {send_result.get('error', 'unknown error')}"
-                            )
+                            if send_result.get("success"):
+                                assigned_sessions[session_id] = {
+                                    "recipient_agent_id": recipient_agent_id,
+                                    "message_id": str(send_result.get("message_id") or ""),
+                                    "timestamp": int(send_result.get("timestamp") or 0),
+                                }
+                                assigned_rows.append(
+                                    f"{session_id}->{recipient_agent_id[-6:]} msg={str(send_result.get('message_id') or '')[:8]}"
+                                )
+                            else:
+                                failure_rows.append(
+                                    f"{session_id}: assignment failed: {send_result.get('error', 'unknown error')}"
+                                )
 
                     if not opened_rows and not assigned_rows and not failure_rows:
+                        if _fp_lock.locked():
+                            _fp_lock.release()
                         return None
 
                     payload = {
@@ -5681,12 +5870,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"visible={len(actionable)} opened={len(opened_rows)} "
                         f"assigned={len(assigned_rows)} failures={len(failure_rows)}"
                     )
+                    # Signal any concurrently-running LLM invocation (from the first
+                    # auto-triggered entry) to stop — it would just duplicate work.
+                    if assigned_rows or (not failure_rows and assigned_sessions):
+                        setattr(chosen_session, "_ecan_frontdesk_dispatched_all", True)
+                    if _fp_lock.locked():
+                        _fp_lock.release()
                     return {
                         "final": json.dumps(payload, ensure_ascii=False),
                         "history": "frontdesk_fastpath",
                     }
                 except Exception as _frontdesk_fastpath_err:
                     logger.warning(f"[BrowserAutomation] Front-desk fast-path failed: {_frontdesk_fastpath_err}")
+                    try:
+                        if _fp_lock.locked():
+                            _fp_lock.release()
+                    except Exception:
+                        pass
                     return None
 
             # Determine run mode based on node editor setting (run_environment_setting)
@@ -6732,6 +6932,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         cur_focus = getattr(browser_session, 'agent_focus_target_id', None)
                         valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
+                        # Capture first-invocation flag before preflight may update _last_known_focus_target_id.
+                        _preflight_is_first_invocation = (_last_known_focus_target_id is None)
 
                         def _resolve_target_id_for_assignment(
                             preferred_tab_id: str,
@@ -6762,14 +6964,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                         target_focus = None
                         assignment_target_focus = None
-                        if skill_name == "rt_chat_bot":
-                            try:
-                                assignment_target_focus = _resolve_target_id_for_assignment(
-                                    assignment_tab_id,
-                                    assignment_chat_url,
-                                )
-                            except Exception:
-                                assignment_target_focus = None
+                        try:
+                            assignment_target_focus = _resolve_target_id_for_assignment(
+                                assignment_tab_id,
+                                assignment_chat_url,
+                            )
+                        except Exception:
+                            assignment_target_focus = None
 
                         if assignment_target_focus:
                             target_focus = assignment_target_focus
@@ -6797,19 +6998,79 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             # Warm browser state to repopulate selector/session mapping before TypeTextEvent.
                             await browser_session.get_browser_state_summary(include_screenshot=False)
 
+                            _tab_already_at_correct_url = False
                             if skill_name == "rt_chat_bot" and assignment_chat_url:
-                                latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
-                                focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
-                                focused_url = str(getattr(focused_target, 'url', '') or '').strip()
-                                if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
-                                    await browser_session.event_bus.dispatch(
-                                        NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
+                                if assignment_target_focus:
+                                    # We found the pre-opened tab. Check if URL still matches.
+                                    latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                                    focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
+                                    focused_url = str(getattr(focused_target, 'url', '') or '').strip()
+                                    # Only navigate if the tab is NOT already at the correct URL.
+                                    # The fast-path pre-opens each tab at chat_url, so on first invocation
+                                    # the tab is already loaded — no navigation needed, no lifecycle wait.
+                                    # Only navigate if the URL drifted (e.g., tab reused from a previous session).
+                                    if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
+                                        await browser_session.event_bus.dispatch(
+                                            NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
+                                        )
+                                        logger.info(
+                                            f"[BrowserAutomation] Focus preflight navigated assigned tab to chat_url: "
+                                            f"{assignment_chat_url}"
+                                        )
+                                        await asyncio.sleep(1.0)
+                                        await browser_session.get_browser_state_summary(include_screenshot=False)
+                                    else:
+                                        logger.info(
+                                            f"[BrowserAutomation] Focus preflight: tab already at chat_url, no navigation needed: "
+                                            f"{assignment_chat_url}"
+                                        )
+                                        # Tab is already loaded at the correct URL.
+                                        # 1) Set flag so we can suppress browser-use's auto-navigate after agent creation.
+                                        # 2) Append a note to task so the LLM doesn't try to navigate on its own.
+                                        _tab_already_at_correct_url = True
+                                        task = (
+                                            task
+                                            + "\n\n## Tab Navigation Status\n"
+                                            f"The assigned chat tab is already open and focused at the correct URL ({assignment_chat_url}). "
+                                            "The browser is already showing the correct chat page. "
+                                            "Do NOT call navigate, go_to_url, or any navigation action — "
+                                            "read the page content directly."
+                                        )
+                                else:
+                                    # No pre-opened tab found for this assignment (tab_id was
+                                    # empty or the tab was already closed).  Open a NEW tab at
+                                    # the chat URL so this service agent gets its own dedicated
+                                    # tab instead of hijacking another agent's tab.
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: no matching tab for "
+                                        f"assignment (session={assignment_session_id}, "
+                                        f"tab_id={assignment_tab_id or 'none'}). "
+                                        f"Opening new tab at {assignment_chat_url}"
                                     )
-                                    logger.info(
-                                        f"[BrowserAutomation] Focus preflight re-navigated assigned tab to chat_url: "
-                                        f"{assignment_chat_url}"
+                                    await browser_session.event_bus.dispatch(
+                                        NavigateToUrlEvent(url=assignment_chat_url, new_tab=True)
                                     )
                                     await asyncio.sleep(1.0)
+                                    # Re-read targets so the newly opened tab is visible.
+                                    sm_refresh = getattr(browser_session, 'session_manager', None)
+                                    if sm_refresh:
+                                        all_targets_refresh = sm_refresh.get_all_targets() or {}
+                                        chat_norm = assignment_chat_url.rstrip("/")
+                                        for tid_r, tgt_r in all_targets_refresh.items():
+                                            if getattr(tgt_r, 'target_type', '') not in ('page', 'tab'):
+                                                continue
+                                            tgt_url = str(getattr(tgt_r, 'url', '') or '').strip().rstrip("/")
+                                            if tgt_url == chat_norm:
+                                                target_focus = str(tid_r)
+                                                _last_known_focus_target_id = target_focus
+                                                await browser_session.event_bus.dispatch(
+                                                    SwitchTabEvent(target_id=target_focus)
+                                                )
+                                                logger.info(
+                                                    f"[BrowserAutomation] Focus preflight: opened and focused new tab "
+                                                    f"...{target_focus[-4:]} for {assignment_chat_url}"
+                                                )
+                                                break
                                     await browser_session.get_browser_state_summary(include_screenshot=False)
                         else:
                             logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
@@ -6864,11 +7125,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 setattr(agent, "_ecan_skill_name", skill_name)
                 setattr(agent, "_ecan_node_id", node_name)
                 setattr(agent, "_ecan_owner", owner)
+                # Suppress browser-use's auto-navigate-from-task-URL feature when the
+                # assigned chat tab is already loaded at the correct URL.  Without this,
+                # browser-use appends a navigate initial-action that times out (30s)
+                # because the page is already stable and no lifecycle events fire.
+                if locals().get("_tab_already_at_correct_url"):
+                    agent.directly_open_url = False
+                    logger.info(
+                        "[BrowserAutomation] Suppressed auto-navigate (directly_open_url=False): "
+                        "tab already at correct URL"
+                    )
             except Exception:
                 pass
             _browser_scope_key = _resolve_browser_scope_key(state)
             _cached_browser_session = _cached_browser_sessions.get(_browser_scope_key)
-            _last_known_focus_target_id = _last_known_focus_target_ids.get(_browser_scope_key)
+            # Merge with the dict value rather than overwriting: the focus preflight (which runs
+            # before this point in the CDP/existing-browser path) may have set
+            # _last_known_focus_target_id to the active tab. Re-reading the dict here would
+            # discard that value (the dict is only updated *after* agent.run() completes), so
+            # the per-step refocus would have nothing to refocus to.
+            _last_known_focus_target_id = _last_known_focus_target_id or _last_known_focus_target_ids.get(_browser_scope_key)
 
             try:
                 # Defensive second application after agent construction. Some agent
@@ -6983,9 +7259,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if _event_monitor_configs and hasattr(agent, 'browser_session') and agent.browser_session:
                 try:
                     from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
+                    import copy as _copy_mod
+                    # Deep-copy configs to prevent cross-task mutation (all task instances
+                    # of the same compiled skill share the same closure list).
+                    logger.info(
+                        f"[BrowserAutomation] Pre-copy monitor state: "
+                        f"labels={[c.label for c in _event_monitor_configs]}, "
+                        f"list_id={id(_event_monitor_configs)}, obj_ids={[id(c) for c in _event_monitor_configs]}, "
+                        f"skill={skill_name}, scope={_browser_scope_key}"
+                    )
+                    _monitor_configs_copy = _copy_mod.deepcopy(_event_monitor_configs)
                     capability = get_event_monitor_capability(agent.browser_session, create=True)
                     _active_monitor_set = await capability.ensure_started(
-                        configs=_event_monitor_configs,
+                        configs=_monitor_configs_copy,
                         agent_id=calling_agent_id or "",
                     ) if capability else None
                     if _active_monitor_set:
@@ -7034,21 +7320,100 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     return await run_coro
 
                 # Pass cancellation_event to agents that support it natively;
-                # for native browser-use Agent, patch its step method inline for cancellation only.
+                # for native browser-use Agent, patch its step method inline.
+                # Also add per-step tab refocus for rt_chat_bot to prevent cross-agent
+                # CDP interference when multiple service agents share one Chrome instance.
                 agent_class_name = agent.__class__.__name__
+
+                # Resolve the target tab ID to keep focused across steps.
+                # Uses assignment_target_focus from the focus-preflight block above,
+                # falling back to _last_known_focus_target_id.
+                _step_focus_target = None
+                if hasattr(agent, 'step'):
+                    _step_focus_target = (
+                        locals().get("assignment_target_focus")
+                        or _last_known_focus_target_id
+                        or None
+                    )
+
+                # Patch agent.step for:
+                # - rt_chat_bot: per-step tab refocus (safety net)
+                # - customer_front_desk: abort if fast-path already dispatched
+                # - any skill with cancellation_event
+                # NOTE: No cross-agent step lock needed — each agent now has its own
+                # independent CDP connection (no shared session_manager/event_bus).
+                _needs_step_patch = (
+                    (cancellation_event and hasattr(agent, 'step'))
+                    or (skill_name == "rt_chat_bot" and hasattr(agent, 'step'))
+                    or (skill_name == "customer_front_desk" and hasattr(agent, 'step'))
+                )
+
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
                     history = await _run_agent_call(cancellation_event=cancellation_event)
-                elif cancellation_event and hasattr(agent, 'step'):
+                elif _needs_step_patch:
                     _orig_step = agent.step
+                    _patch_cancel = cancellation_event
+                    _patch_focus = _step_focus_target
+                    _patch_bs = getattr(agent, 'browser_session', None) if _step_focus_target else None
+                    _patch_skill = skill_name
+
                     async def _step_with_cancel(*a, **kw):
-                        if cancellation_event.is_set():
+                        # Front desk: abort if fast-path already dispatched all assignments
+                        # (this invocation is a stale auto-triggered LLM run).
+                        if _patch_skill == "customer_front_desk":
+                            _bs_check = getattr(agent, 'browser_session', None)
+                            if _bs_check and getattr(_bs_check, '_ecan_frontdesk_dispatched_all', False):
+                                logger.info(
+                                    "[BrowserAutomation] Front-desk LLM step aborted: "
+                                    "fast-path already dispatched all assignments"
+                                )
+                                raise asyncio.CancelledError("Front desk work completed by fast-path")
+
+                        # Per-step tab refocus: re-acquire focus on the assigned tab.
+                        # With independent sessions this is a safety net — each session
+                        # maintains its own target attachment, but re-confirm it here.
+                        if _patch_focus and _patch_bs:
+                            try:
+                                from browser_use.browser.events import SwitchTabEvent as _STE
+                                _cur = getattr(_patch_bs, 'agent_focus_target_id', None)
+                                if _cur != _patch_focus:
+                                    await _patch_bs.event_bus.dispatch(_STE(target_id=_patch_focus))
+                                    logger.debug(
+                                        f"[BrowserAutomation] Per-step tab refocus: "
+                                        f"...{_cur[-4:] if _cur else 'None'} → ...{_patch_focus[-4:]}"
+                                    )
+                                else:
+                                    logger.debug(
+                                        f"[BrowserAutomation] Per-step tab refocus: already on ...{_patch_focus[-4:]}"
+                                    )
+                            except Exception as _refocus_err:
+                                logger.debug(f"[BrowserAutomation] Per-step tab refocus skipped: {_refocus_err}")
+                        if _patch_cancel and _patch_cancel.is_set():
                             logger.info(f"[BrowserAutomation] Cancellation requested, stopping")
                             raise asyncio.CancelledError("Task cancelled by user")
                         return await _orig_step(*a, **kw)
+
                     agent.step = _step_with_cancel
-                    logger.info(f"[BrowserAutomation] Modified agent.step to include cancellation checks")
+                    _patch_labels = []
+                    if _patch_cancel:
+                        _patch_labels.append("cancellation")
+                    if _step_focus_target:
+                        _patch_labels.append(f"tab refocus (target=...{_step_focus_target[-4:]})")
+                    if _patch_skill == "customer_front_desk":
+                        _patch_labels.append("fast-path abort guard")
+                    logger.info(
+                        f"[BrowserAutomation] Patched agent.step: {', '.join(_patch_labels) or 'basic'}"
+                    )
                     try:
                         history = await _run_agent_call()
+                    except asyncio.CancelledError as _ce:
+                        _ce_msg = str(_ce) or "CancelledError"
+                        if "fast-path" in _ce_msg:
+                            logger.info(f"[BrowserAutomation] LLM run stopped: {_ce_msg}")
+                            # Return a synthetic result so downstream doesn't crash.
+                            history = None
+                        else:
+                            raise
                     finally:
                         agent.step = _orig_step
                 else:
@@ -7069,8 +7434,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     history_str = history_str[:10000] + '... (truncated)'
                 logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
                 
-                final = history.final_result() if hasattr(history, 'final_result') else None
-                _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
+                final = history.final_result() if (history and hasattr(history, 'final_result')) else None
+                if history:
+                    _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
                 final_str = str(final)
                 if len(final_str) > 10000:
                     final_str = final_str[:10000] + '... (truncated)'
@@ -7773,6 +8139,41 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # these web-centric instructions may conflict with local-only extraction intent.
         if not _local_dir_grounded:
             combined_task = _append_anti_risk_guardrails(combined_task)
+
+        # ── Suppress duplicate initial-URL navigation for reused sessions ──
+        # browser-use auto-detects URLs in the task text and navigates to them
+        # on agent startup.  When a persistent browser session already has the
+        # target tab open, this creates a duplicate tab.  Strip the chat_url
+        # from the task text when we know the session will be reused.
+        try:
+            if skill_name == "rt_chat_bot":
+                _browser_scope_key_check = _resolve_browser_scope_key(state)
+                _existing_session = _cached_browser_sessions.get(_browser_scope_key_check)
+                # Use _is_session_started (not _is_session_alive) to avoid cross-thread
+                # asyncio attribute reads that may incorrectly report the event bus as dead.
+                _session_usable = _existing_session is not None and _is_session_started(_existing_session)
+                logger.debug(
+                    f"[BrowserAutomation] URL strip check: scope={_browser_scope_key_check} "
+                    f"cached={'yes' if _existing_session else 'no'} started={_session_usable}"
+                )
+                if _session_usable:
+                    # Session is cached & started → strip bare chat URLs to avoid
+                    # browser-use auto-opening a duplicate tab.  Keep URLs inside
+                    # JSON payloads (they have surrounding quotes) and inside
+                    # markdown/instruction text (preceded by backtick or colon).
+                    import re as _re_strip
+                    _chat_url_pattern = _re_strip.compile(
+                        r'(?<!["\':`,\\])https?://127\.0\.0\.1:9877/chat\?session=\S+'
+                    )
+                    _stripped = _chat_url_pattern.sub('[assigned chat tab already open]', combined_task)
+                    if _stripped != combined_task:
+                        logger.info(
+                            f"[BrowserAutomation] Stripped bare chat URL from task to prevent "
+                            f"duplicate tab (session reused, scope={_browser_scope_key_check})"
+                        )
+                        combined_task = _stripped
+        except Exception as _strip_err:
+            logger.debug(f"[BrowserAutomation] URL strip failed: {_strip_err}")
 
         # print("final_system_prompt:", final_system_prompt)
         # print("final_user_prompt:", final_user_prompt)
