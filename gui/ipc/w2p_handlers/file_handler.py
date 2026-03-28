@@ -1173,15 +1173,47 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         # Parse source path to find skill root
         # Expected: .../xxx_skill/diagram_dir/xxx_skill.json
-        source_path = Path(source_path).resolve()
-        
-        # Find the skill root directory (parent of diagram_dir)
-        if 'diagram_dir' in str(source_path):
-            diagram_dir = source_path.parent
-            old_skill_root = diagram_dir.parent
-        else:
-            # Fallback: assume source_path is the skill root
-            old_skill_root = source_path.parent.parent if source_path.suffix == '.json' else source_path
+        source_path = Path(source_path).expanduser().resolve()
+
+        # Guardrail: source must be an existing diagram json file under */<name>_skill/diagram_dir/.
+        # Without this check, a stale/invalid sourcePath can resolve to a broad parent directory
+        # (including app root on Windows) and copy unintended content.
+        if not source_path.exists() or not source_path.is_file():
+            return create_error_response(
+                request,
+                'SOURCE_FILE_NOT_FOUND',
+                f'Source skill file not found: {source_path}'
+            )
+
+        if source_path.suffix.lower() != '.json':
+            return create_error_response(
+                request,
+                'INVALID_SOURCE_FILE',
+                f'Source must be a JSON skill file: {source_path}'
+            )
+
+        diagram_dir = source_path.parent
+        if diagram_dir.name != 'diagram_dir':
+            return create_error_response(
+                request,
+                'INVALID_SOURCE_PATH',
+                f'Source must be under diagram_dir: {source_path}'
+            )
+
+        old_skill_root = diagram_dir.parent
+        if not old_skill_root.name.endswith('_skill'):
+            return create_error_response(
+                request,
+                'INVALID_SKILL_ROOT',
+                f'Source parent is not a *_skill directory: {old_skill_root}'
+            )
+
+        if not (old_skill_root / 'diagram_dir').is_dir():
+            return create_error_response(
+                request,
+                'INVALID_SKILL_STRUCTURE',
+                f'Source skill root missing diagram_dir: {old_skill_root}'
+            )
         
         if not old_skill_root.exists():
             return create_error_response(request, 'SOURCE_NOT_FOUND', f'Source skill directory not found: {old_skill_root}')
@@ -1207,6 +1239,15 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         # Rename files inside diagram_dir to match new name
         new_diagram_dir = new_skill_root / "diagram_dir"
+        if not new_diagram_dir.exists():
+            # Defensive rollback: do not keep a partially/incorrectly copied folder.
+            shutil.rmtree(new_skill_root, ignore_errors=True)
+            return create_error_response(
+                request,
+                'INVALID_COPY_RESULT',
+                f'Copied directory is not a valid skill (missing diagram_dir): {new_skill_root}'
+            )
+
         if new_diagram_dir.exists():
             # Get old skill name from directory name
             old_name = old_skill_root.name.replace('_skill', '')
