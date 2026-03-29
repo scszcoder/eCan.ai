@@ -129,6 +129,7 @@
     "layoutOptimized": "Layout optimized",
     "layoutAlreadyOptimal": "Layout is already optimal",
     "layoutOptimizeFailed": "Layout optimization failed",
+    "layoutNoNodes": "No nodes to layout",
     "mouseFriendly": "Mouse-Friendly",
     "touchpadFriendly": "Touchpad-Friendly",
     "addNode": "Add Node",
