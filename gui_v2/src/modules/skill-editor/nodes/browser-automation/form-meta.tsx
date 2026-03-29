@@ -517,17 +517,32 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
-        {/* CDP Port input */}
+        {/* CDP Port: auto-assign checkbox + manual port input */}
         <FormItem name="cdpPort" label={getCommonFieldLabel('cdpPort', t)} type="string" vertical>
-          <Field<string> name="inputsValues.cdpPort.content">
-            {({ field }) => (
-              <input
-                type="text"
-                value={(field.value as string) || '9228'}
-                onChange={(e) => field.onChange(e.target.value)}
-                placeholder={t('nodes.browserAutomation.cdpPortPlaceholder')}
-                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
-              />
+          <Field<boolean> name="inputsValues.cdpPortAuto.content">
+            {({ field: autoField }) => (
+              <>
+                <Checkbox
+                  checked={!!autoField.value}
+                  onChange={(e) => autoField.onChange((e.target as HTMLInputElement).checked)}
+                  style={{ marginBottom: 6 }}
+                >
+                  {t('nodes.browserAutomation.cdpPortAutoDesc')}
+                </Checkbox>
+                {!autoField.value && (
+                  <Field<string> name="inputsValues.cdpPort.content">
+                    {({ field }) => (
+                      <input
+                        type="text"
+                        value={(field.value as string) || '9228'}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        placeholder={t('nodes.browserAutomation.cdpPortPlaceholder')}
+                        style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+                      />
+                    )}
+                  </Field>
+                )}
+              </>
             )}
           </Field>
         </FormItem>
@@ -771,6 +786,38 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
                 min="1"
                 max="20"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* DOM Focus Selector */}
+        <FormItem name="domFocusSelector" label={getCommonFieldLabel('domFocusSelector', t)} type="string" vertical>
+          <Field<string> name="inputsValues.domFocusSelector.content">
+            {({ field }) => (
+              <input
+                type="text"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder={t('nodes.browserAutomation.domFocusSelectorPlaceholder')}
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* DOM Limit */}
+        <FormItem name="domLimit" label={getCommonFieldLabel('domLimit', t)} type="number" vertical>
+          <Field<string> name="inputsValues.domLimit.content">
+            {({ field }) => (
+              <input
+                type="number"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder={t('nodes.browserAutomation.domLimitPlaceholder')}
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+                min="1000"
+                max="50000"
               />
             )}
           </Field>
@@ -1318,6 +1365,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'flashMode',
               'maxSteps',
               'maxActionsPerStep',
+              'domFocusSelector',
+              'domLimit',
               'eventMonitors',
             ];
             
