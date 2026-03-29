@@ -2520,6 +2520,23 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'llm.setTokenAlarmLevels' }, { daily_token_limit, monthly_token_limit });
     }
 
+    // Agent Runtime Status APIs
+    public async getAgentRuntimeStatus<T>(agent_id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_agent_runtime_status' }, { agent_id });
+    }
+
+    public async getAllAgentsRuntimeStatus<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_all_agents_runtime_status' }, {});
+    }
+
+    public async toggleAgentEnabled<T>(agent_id: string, enable: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'toggle_agent_enabled' }, { agent_id, enable });
+    }
+
+    public async setAgentEnabled<T>(agent_id: string, enabled: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'set_agent_enabled' }, { agent_id, enabled });
+    }
+
 }
 
 /**
