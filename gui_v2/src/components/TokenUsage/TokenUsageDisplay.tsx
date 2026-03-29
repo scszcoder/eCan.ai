@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { DollarOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { ipcApi } from '../../services/ipc/api';
 import { logger } from '../../utils/logger';
 
@@ -54,6 +55,11 @@ const Container = styled.div`
     border: 1px solid rgba(255, 255, 255, 0.1);
     font-family: 'Courier New', monospace;
     user-select: none;
+    cursor: pointer;
+
+    &:hover {
+        border-color: rgba(0, 255, 0, 0.3);
+    }
 `;
 
 const LEDDisplay = styled.div<LEDDisplayProps>`
@@ -129,6 +135,11 @@ export const TokenUsageDisplay: React.FC = () => {
     const [data, setData] = useState<TokenUsageData | null>(null);
     const [showDollars, setShowDollars] = useState(false);
     const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+
+    const handleDoubleClick = useCallback(() => {
+        navigate('/account', { state: { scrollToTokenUsage: true } });
+    }, [navigate]);
 
     const fetchTokenUsage = useCallback(async () => {
         try {
@@ -176,7 +187,7 @@ export const TokenUsageDisplay: React.FC = () => {
     const color = getColorForCost(data.cost_usd);
 
     return (
-        <Container>
+        <Container onDoubleClick={handleDoubleClick} title="Double-click to view detailed token usage">
             <LEDDisplay color={color}>
                 {showDollars ? (
                     <>

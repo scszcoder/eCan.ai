@@ -2504,6 +2504,22 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'llm.getMonthlyTokenUsage' }, { month, year });
     }
 
+    public async getTokenUsageTimeSeries<T>(period?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getTokenUsageTimeSeries' }, { period: period || '1m' });
+    }
+
+    public async getTokenUsageBreakdown<T>(start?: string, end?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getTokenUsageBreakdown' }, { start, end });
+    }
+
+    public async getTokenUsageAlarms<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getTokenUsageAlarms' });
+    }
+
+    public async setTokenAlarmLevels<T>(daily_token_limit: number, monthly_token_limit: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.setTokenAlarmLevels' }, { daily_token_limit, monthly_token_limit });
+    }
+
 }
 
 /**
