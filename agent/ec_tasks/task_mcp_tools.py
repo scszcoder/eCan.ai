@@ -78,6 +78,7 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         task_name = effective.get("task_name", "")
         skill_name = effective.get("skill_name", "")
         skill_id = effective.get("skill_id", "")
+        session_id = effective.get("session_id") or effective.get("sessionId") or ""
         task_inputs = effective.get("task_inputs") or {}
 
         logger.info(
@@ -100,7 +101,7 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         # --- Resolve target task ---
         target_task, created = _resolve_or_create_task(
             agent, task_id=task_id, task_name=task_name,
-            skill_name=skill_name, skill_id=skill_id,
+            skill_name=skill_name, skill_id=skill_id, session_id=session_id,
         )
 
         # Fallback: search ALL agents if task not found on the default agent
@@ -110,7 +111,7 @@ def launch_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     continue
                 target_task, created = _resolve_or_create_task(
                     other_agent, task_id=task_id, task_name=task_name,
-                    skill_name=skill_name, skill_id=skill_id,
+                    skill_name=skill_name, skill_id=skill_id, session_id=session_id,
                 )
                 if target_task is not None:
                     agent = other_agent
@@ -273,6 +274,28 @@ def _find_existing_task_across_agents(mainwin, *, skill_name: str, skill_id: str
     return None, None
 
 
+def _find_existing_task_for_session_across_agents(mainwin, *, skill_name: str, skill_id: str, session_id: str):
+    normalized_session_id = (session_id or "").strip()
+    if not normalized_session_id:
+        return None, None
+    for agent in _iter_agents(mainwin):
+        for task in getattr(agent, "tasks", []) or []:
+            if getattr(task, "sessionId", "") != normalized_session_id:
+                continue
+            if (skill_name or skill_id) and not _skill_matches(getattr(task, "skill", None), skill_name, skill_id):
+                continue
+            logger.info(
+                f"[task_mcp_tools] Reusing existing task for session_id={normalized_session_id!r} "
+                f"task_name={getattr(task, 'name', '')!r}"
+            )
+            return task, agent
+    logger.info(
+        f"[task_mcp_tools] No existing task found for session_id={normalized_session_id!r} "
+        f"skill name={skill_name!r}, id={skill_id!r}"
+    )
+    return None, None
+
+
 def _resolve_skill_global(mainwin, skill_name: str, skill_id: str):
     """Search mainwin.agent_skills (global skill list) as fallback when no agent has the skill."""
     global_skills = getattr(mainwin, "agent_skills", []) or []
@@ -342,7 +365,7 @@ def _resolve_agent(mainwin, agent_id: str):
     return None
 
 
-def _resolve_or_create_task(agent, *, task_id, task_name, skill_name, skill_id):
+def _resolve_or_create_task(agent, *, task_id, task_name, skill_name, skill_id, session_id=""):
     """
     Find an existing task or create a new one.
 
@@ -366,8 +389,19 @@ def _resolve_or_create_task(agent, *, task_id, task_name, skill_name, skill_id):
                 logger.info(f"[launch_agent_task] Found task by name: {t.name}")
                 return t, False
 
-    # 3. Find task whose skill matches skill_name / skill_id
-    if skill_name or skill_id:
+    # 3. By session_id + optional skill match
+    if session_id:
+        for t in tasks:
+            if getattr(t, "sessionId", "") != session_id:
+                continue
+            sk = getattr(t, "skill", None)
+            if (skill_name or skill_id) and (sk is None or not _skill_matches(sk, skill_name, skill_id)):
+                continue
+            logger.info(f"[launch_agent_task] Found task by session_id: {session_id}")
+            return t, False
+
+    # 4. Find task whose skill matches skill_name / skill_id
+    if (skill_name or skill_id) and not session_id:
         for t in tasks:
             sk = getattr(t, "skill", None)
             if sk is None:
@@ -376,12 +410,12 @@ def _resolve_or_create_task(agent, *, task_id, task_name, skill_name, skill_id):
                 logger.info(f"[launch_agent_task] Found task by skill name/id: {skill_name or skill_id}")
                 return t, False
 
-    # 4. No existing task — create a new one if we can resolve a skill
+    # 5. No existing task, create a new one if we can resolve a skill
     skill = _resolve_skill(agent, skill_name, skill_id)
     if skill is None:
         return None, False
 
-    return _create_task(agent, skill, task_name), True
+    return _create_task(agent, skill, task_name, session_id=session_id), True
 
 
 def _resolve_skill(agent, skill_name: str, skill_id: str):
@@ -405,14 +439,14 @@ def _resolve_skill(agent, skill_name: str, skill_id: str):
     return None
 
 
-def _create_task(agent, skill, task_name: str, *, trigger: str = "message", initial_state: Optional[dict] = None):
+def _create_task(agent, skill, task_name: str, *, trigger: str = "message", initial_state: Optional[dict] = None, session_id: str = ""):
     """Create a new ManagedTask attached to the agent."""
     from agent.ec_tasks.models import ManagedTask
     from a2a.types import TaskState, TaskStatus as A2ATaskStatus
 
     new_id = str(uuid.uuid4())
     skill_name = getattr(skill, "name", "unknown")
-    name = task_name or f"{skill_name}_task_{new_id[:8]}"
+    name = task_name or (f"{skill_name}:{session_id}" if session_id else f"{skill_name}_task_{new_id[:8]}")
     task_state = initial_state or {}
 
     task = ManagedTask(
@@ -423,7 +457,7 @@ def _create_task(agent, skill, task_name: str, *, trigger: str = "message", init
         description=f"Created via MCP tool using skill '{skill_name}'",
         source="mcp_tool",
         status=A2ATaskStatus(state=TaskState.submitted),
-        sessionId="",
+        sessionId=session_id or "",
         skill=skill,
         metadata={"initial_state": task_state} if task_state else {},
         state=task_state,
@@ -436,7 +470,9 @@ def _create_task(agent, skill, task_name: str, *, trigger: str = "message", init
         agent.tasks = []
     agent.tasks.append(task)
 
-    logger.info(f"[task_mcp_tools] Created new task: {name} (id={new_id}, trigger={trigger})")
+    logger.info(
+        f"[task_mcp_tools] Created new task: {name} (id={new_id}, trigger={trigger}, session_id={session_id or ''})"
+    )
     return task
 
 
@@ -614,6 +650,7 @@ def create_agent_task_with_skill(mainwin, config: Dict[str, Any]) -> Dict[str, A
         task_name = effective_config.get("task_name", "")
         trigger = effective_config.get("trigger", "message")
         initial_state = effective_config.get("initial_state", {})
+        session_id = effective_config.get("session_id") or effective_config.get("sessionId") or ""
 
         if not isinstance(initial_state, dict):
             initial_state = {}
@@ -621,12 +658,20 @@ def create_agent_task_with_skill(mainwin, config: Dict[str, Any]) -> Dict[str, A
         if not skill_name and not skill_id:
             return _error("skill_name or skill_id is required")
 
-        existing_task, existing_agent = _find_existing_task_across_agents(
-            mainwin,
-            skill_name=skill_name,
-            skill_id=skill_id,
-            task_name=task_name,
-        )
+        if session_id:
+            existing_task, existing_agent = _find_existing_task_for_session_across_agents(
+                mainwin,
+                skill_name=skill_name,
+                skill_id=skill_id,
+                session_id=session_id,
+            )
+        else:
+            existing_task, existing_agent = _find_existing_task_across_agents(
+                mainwin,
+                skill_name=skill_name,
+                skill_id=skill_id,
+                task_name=task_name,
+            )
         if existing_task is not None and existing_agent is not None:
             resolved_agent_id = getattr(getattr(existing_agent, "card", None), "id", "") or getattr(existing_task, "agent_id", "") or agent_id
             if resolved_agent_id and not getattr(existing_task, "agent_id", ""):
@@ -676,7 +721,7 @@ def create_agent_task_with_skill(mainwin, config: Dict[str, Any]) -> Dict[str, A
             f"[create_agent_task_with_skill] Decision path: create new task on agent_id={agent_id!r} "
             f"for skill={getattr(skill, 'name', '')!r} task_name={task_name!r}"
         )
-        task = _create_task(agent, skill, task_name, trigger=trigger, initial_state=initial_state)
+        task = _create_task(agent, skill, task_name, trigger=trigger, initial_state=initial_state, session_id=session_id)
         run_id = str(uuid.uuid4())
         task.run_id = run_id
 
@@ -1023,6 +1068,10 @@ def add_launch_agent_task_tool_schema(tool_schemas: list):
                             "type": "string",
                             "description": "ID of the skill. Used to find an existing task or create a new one.",
                         },
+                        "session_id": {
+                            "type": "string",
+                            "description": "Optional stable session/conversation identifier. When provided, task reuse and routing are scoped to this session.",
+                        },
                         "task_inputs": {
                             "type": "object",
                             "description": "JSON object of inputs/parameters to inject into the task.",
@@ -1080,6 +1129,10 @@ def add_create_agent_task_with_skill_tool_schema(tool_schemas: list):
                         "task_name": {
                             "type": "string",
                             "description": "Custom name for the task. Auto-generated if not provided.",
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "Optional stable session/conversation identifier. When provided, create or reuse exactly one task for that session.",
                         },
                         "trigger": {
                             "type": "string",

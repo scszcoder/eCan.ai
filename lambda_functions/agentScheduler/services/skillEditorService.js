@@ -75,8 +75,63 @@ async function getSkillEditorChatHistory(sessionId, limit, offset) {
   return [];
 }
 
-async function writeSkillFile(input) {
-  return buildSkillFileInfo(input?.filePath || "");
+async function writeSkillFile(input, ownerEmail) {
+  const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+  const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
+  const BUCKET = process.env.SKILL_BUCKET || "ecan-skills";
+
+  // Derive the owner's S3 directory prefix (mirrors normalizeEmailForPath in index.js)
+  const ownerDir = ownerEmail ? ownerEmail.replace(/[@.]/g, "_") : null;
+
+  const items = Array.isArray(input) ? input : [input].filter(Boolean);
+  const results = [];
+
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const filePath = item.filePath || "";
+    const content = item.content || "";
+    if (!filePath) continue;
+
+    // Resolve the S3 key: if the caller already sends a fully-qualified key that
+    // starts with the owner dir, use it as-is; otherwise prepend the owner dir.
+    let s3Key = filePath.replace(/^s3:\/\/[^/]+\//, ""); // strip s3://bucket/ prefix if present
+    if (ownerDir && !s3Key.startsWith(ownerDir + "/")) {
+      s3Key = `${ownerDir}/${s3Key}`.replace(/\/+/g, "/");
+    }
+
+    // Security: reject keys that would escape the owner's directory
+    if (ownerDir && !s3Key.startsWith(ownerDir + "/")) {
+      console.error(`[writeSkillFile] DENIED: key '${s3Key}' is outside owner dir '${ownerDir}'`);
+      continue;
+    }
+
+    await s3.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: s3Key,
+      Body: Buffer.from(content, "utf8"),
+      ContentType: "application/json"
+    }));
+
+    const fileName = s3Key.split("/").pop();
+
+    // Extract skillName from canonical path: {owner}/my_skills/{skillDir}/...
+    let skillName = null;
+    const parts = s3Key.split("/");
+    const msIdx = parts.indexOf("my_skills");
+    if (msIdx >= 0 && msIdx + 1 < parts.length) {
+      skillName = parts[msIdx + 1].replace(/_skill$/, "");
+    }
+
+    results.push({
+      filePath: s3Key,
+      fileName,
+      fileSize: Buffer.byteLength(content, "utf8"),
+      skillName,
+      updatedAt: nowIso()
+    });
+  }
+
+  return results;
 }
 
 async function scaffoldSkill(input) {

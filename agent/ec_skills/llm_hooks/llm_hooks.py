@@ -516,12 +516,26 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # Record token usage to database for the top-panel display
         try:
             from agent.ec_skills.token_tracker import token_tracker
+            _task_id = state.get("task_id") if isinstance(state, dict) else None
+            _run_id = state.get("run_id") if isinstance(state, dict) else None
+            _session_id = (
+                state.get("session_id")
+                or state.get("chat_id")
+                or (state.get("attributes", {}) or {}).get("sessionId")
+            ) if isinstance(state, dict) else None
             token_tracker.record_llm_usage(
                 response,
                 source_type="skill_llm_node",
                 source_id=full_node_name,
                 source_name=full_node_name,
-                node_type="llm"
+                session_id=_session_id,
+                node_type="llm",
+                metadata={
+                    "full_node_name": full_node_name,
+                    "task_id": _task_id,
+                    "run_id": _run_id,
+                    "path": "llm_hooks",
+                },
             )
         except Exception as _tk_err:
             logger.debug(f"[TokenTracker] Failed to record LLM usage: {_tk_err}")

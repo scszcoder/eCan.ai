@@ -1,4 +1,4 @@
-"""
+﻿"""
 File operation IPC handlers for the Skill Editor.
 Provides platform-aware file dialogs and file I/O operations.
 """
@@ -156,11 +156,11 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         folder_path = folder_path if folder_path else None
         
         if folder_path:
-            # 用户选择了文件
+            # ç”¨æˆ·é€‰æ‹©äº†æ–‡ä»¶
             file_path = folder_path
             logger.info(f"[SKILL_IO][BACKEND][FILE_SELECTED] {file_path}")
             
-            # 验证文件存在
+            # éªŒè¯æ–‡ä»¶å­˜åœ¨
             if not os.path.exists(file_path):
                 logger.warning(f"[SKILL_IO][BACKEND][FILE_NOT_FOUND] {file_path}")
                 return create_error_response(
@@ -174,17 +174,17 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             # Distinct marker for selected main json path
             logger.info(f"[SKILL_IO][BACKEND][SELECTED_MAIN_JSON] {file_path}")
             
-            # 提取 skillName：从文件路径向上查找 skill 文件夹
-            # 例如：my_skills/abcd/diagram_dir/abcd_skill.json → skillName = "abcd"
-            # 或者：my_skills/abcd/abcd_skill.json → skillName = "abcd"
+            # æå– skillNameï¼šä»Žæ–‡ä»¶è·¯å¾„å‘ä¸ŠæŸ¥æ‰¾ skill æ–‡ä»¶å¤¹
+            # ä¾‹å¦‚ï¼šmy_skills/abcd/diagram_dir/abcd_skill.json â†’ skillName = "abcd"
+            # æˆ–è€…ï¼šmy_skills/abcd/abcd_skill.json â†’ skillName = "abcd"
             file_dir = os.path.dirname(file_path)
             parent_dir = os.path.dirname(file_dir)
             
-            # 如果文件在 diagram_dir 中，skill 文件夹是 diagram_dir 的父目录
+            # å¦‚æžœæ–‡ä»¶åœ¨ diagram_dir ä¸­ï¼Œskill æ–‡ä»¶å¤¹æ˜¯ diagram_dir çš„çˆ¶ç›®å½•
             if os.path.basename(file_dir) == 'diagram_dir':
                 skill_folder_name = os.path.basename(parent_dir)
             else:
-                # 否则，skill 文件夹就是文件所在目录
+                # å¦åˆ™ï¼Œskill æ–‡ä»¶å¤¹å°±æ˜¯æ–‡ä»¶æ‰€åœ¨ç›®å½•
                 skill_folder_name = os.path.basename(file_dir)
             
             logger.info(f"[SKILL_IO][BACKEND][SKILL_NAME_FROM_PATH] {skill_folder_name}")
@@ -454,18 +454,18 @@ def handle_open_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
                 if platform.system() == "Darwin":  # macOS
                     if "/Downloads/" in file_path or file_path.startswith(os.path.expanduser("~/Downloads")):
                         error_message = (
-                            "无法读取 Downloads 文件夹中的文件（权限被拒绝）。\n\n"
-                            "macOS 解决方法：\n"
-                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件（推荐）\n"
-                            "2. 将文件移动到 Documents 或 Desktop 文件夹\n"
-                            "3. 或在「系统设置 → 隐私与安全性 → 文件和文件夹」中授予 eCan.ai 访问下载文件夹的权限"
+                            "æ— æ³•è¯»å– Downloads æ–‡ä»¶å¤¹ä¸­çš„æ–‡ä»¶ï¼ˆæƒé™è¢«æ‹’ç»ï¼‰ã€‚\n\n"
+                            "macOS è§£å†³æ–¹æ³•ï¼š\n"
+                            "1. ä½¿ç”¨ã€Œæ–‡ä»¶ â†’ æ‰“å¼€ã€èœå•é€šè¿‡ç³»ç»Ÿå¯¹è¯æ¡†é€‰æ‹©æ–‡ä»¶ï¼ˆæŽ¨èï¼‰\n"
+                            "2. å°†æ–‡ä»¶ç§»åŠ¨åˆ° Documents æˆ– Desktop æ–‡ä»¶å¤¹\n"
+                            "3. æˆ–åœ¨ã€Œç³»ç»Ÿè®¾ç½® â†’ éšç§ä¸Žå®‰å…¨æ€§ â†’ æ–‡ä»¶å’Œæ–‡ä»¶å¤¹ã€ä¸­æŽˆäºˆ eCan.ai è®¿é—®ä¸‹è½½æ–‡ä»¶å¤¹çš„æƒé™"
                         )
                     else:
                         error_message = (
-                            f"无法读取文件 {os.path.dirname(file_path)}（权限被拒绝）。\n\n"
-                            "建议：\n"
-                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件\n"
-                            "2. 或在系统设置中授予应用相应的文件夹访问权限"
+                            f"æ— æ³•è¯»å–æ–‡ä»¶ {os.path.dirname(file_path)}ï¼ˆæƒé™è¢«æ‹’ç»ï¼‰ã€‚\n\n"
+                            "å»ºè®®ï¼š\n"
+                            "1. ä½¿ç”¨ã€Œæ–‡ä»¶ â†’ æ‰“å¼€ã€èœå•é€šè¿‡ç³»ç»Ÿå¯¹è¯æ¡†é€‰æ‹©æ–‡ä»¶\n"
+                            "2. æˆ–åœ¨ç³»ç»Ÿè®¾ç½®ä¸­æŽˆäºˆåº”ç”¨ç›¸åº”çš„æ–‡ä»¶å¤¹è®¿é—®æƒé™"
                         )
             
             return create_error_response(
@@ -579,18 +579,18 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
                 if platform.system() == "Darwin":  # macOS
                     if "/Downloads/" in file_path or file_path.startswith(os.path.expanduser("~/Downloads")):
                         error_message = (
-                            "无法读取 Downloads 文件夹中的文件（权限被拒绝）。\n\n"
-                            "macOS 解决方法：\n"
-                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件（推荐）\n"
-                            "2. 将文件移动到 Documents 或 Desktop 文件夹\n"
-                            "3. 或在「系统设置 → 隐私与安全性 → 文件和文件夹」中授予 eCan.ai 访问下载文件夹的权限"
+                            "æ— æ³•è¯»å– Downloads æ–‡ä»¶å¤¹ä¸­çš„æ–‡ä»¶ï¼ˆæƒé™è¢«æ‹’ç»ï¼‰ã€‚\n\n"
+                            "macOS è§£å†³æ–¹æ³•ï¼š\n"
+                            "1. ä½¿ç”¨ã€Œæ–‡ä»¶ â†’ æ‰“å¼€ã€èœå•é€šè¿‡ç³»ç»Ÿå¯¹è¯æ¡†é€‰æ‹©æ–‡ä»¶ï¼ˆæŽ¨èï¼‰\n"
+                            "2. å°†æ–‡ä»¶ç§»åŠ¨åˆ° Documents æˆ– Desktop æ–‡ä»¶å¤¹\n"
+                            "3. æˆ–åœ¨ã€Œç³»ç»Ÿè®¾ç½® â†’ éšç§ä¸Žå®‰å…¨æ€§ â†’ æ–‡ä»¶å’Œæ–‡ä»¶å¤¹ã€ä¸­æŽˆäºˆ eCan.ai è®¿é—®ä¸‹è½½æ–‡ä»¶å¤¹çš„æƒé™"
                         )
                     else:
                         error_message = (
-                            f"无法读取文件 {os.path.dirname(file_path)}（权限被拒绝）。\n\n"
-                            "建议：\n"
-                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件\n"
-                            "2. 或在系统设置中授予应用相应的文件夹访问权限"
+                            f"æ— æ³•è¯»å–æ–‡ä»¶ {os.path.dirname(file_path)}ï¼ˆæƒé™è¢«æ‹’ç»ï¼‰ã€‚\n\n"
+                            "å»ºè®®ï¼š\n"
+                            "1. ä½¿ç”¨ã€Œæ–‡ä»¶ â†’ æ‰“å¼€ã€èœå•é€šè¿‡ç³»ç»Ÿå¯¹è¯æ¡†é€‰æ‹©æ–‡ä»¶\n"
+                            "2. æˆ–åœ¨ç³»ç»Ÿè®¾ç½®ä¸­æŽˆäºˆåº”ç”¨ç›¸åº”çš„æ–‡ä»¶å¤¹è®¿é—®æƒé™"
                         )
             
             return create_error_response(
@@ -783,11 +783,11 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
                     if result.get('success'):
                         operation = result.get('operation', 'unknown')
                         skill_id = result.get('skill_id', 'unknown')
-                        logger.info(f"[SKILL_IO][BACKEND] ✅ Skill {operation}d successfully (ID: {skill_id})")
+                        logger.info(f"[SKILL_IO][BACKEND] âœ… Skill {operation}d successfully (ID: {skill_id})")
                     else:
-                        logger.warning(f"[SKILL_IO][BACKEND] ❌ Failed to sync skill: {result.get('error')}")
+                        logger.warning(f"[SKILL_IO][BACKEND] âŒ Failed to sync skill: {result.get('error')}")
                 except Exception as sync_error:
-                    logger.error(f"[SKILL_IO][BACKEND] ❌ Error syncing skill to database: {sync_error}", exc_info=True)
+                    logger.error(f"[SKILL_IO][BACKEND] âŒ Error syncing skill to database: {sync_error}", exc_info=True)
             
             # Use skill_name extracted from content (not from file path)
             # skill_name was already extracted from content in lines 742-754
@@ -816,18 +816,18 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
                 if platform.system() == "Darwin":  # macOS
                     if "/Downloads/" in file_path or file_path.startswith(os.path.expanduser("~/Downloads")):
                         error_message = (
-                            "无法保存到 Downloads 文件夹（权限被拒绝）。\n\n"
-                            "macOS 解决方法：\n"
-                            "1. 使用「另存为」对话框选择保存位置（推荐）\n"
-                            "2. 保存到 Documents 或 Desktop 文件夹\n"
-                            "3. 或在「系统设置 → 隐私与安全性 → 文件和文件夹」中授予 eCan.ai 访问下载文件夹的权限"
+                            "æ— æ³•ä¿å­˜åˆ° Downloads æ–‡ä»¶å¤¹ï¼ˆæƒé™è¢«æ‹’ç»ï¼‰ã€‚\n\n"
+                            "macOS è§£å†³æ–¹æ³•ï¼š\n"
+                            "1. ä½¿ç”¨ã€Œå¦å­˜ä¸ºã€å¯¹è¯æ¡†é€‰æ‹©ä¿å­˜ä½ç½®ï¼ˆæŽ¨èï¼‰\n"
+                            "2. ä¿å­˜åˆ° Documents æˆ– Desktop æ–‡ä»¶å¤¹\n"
+                            "3. æˆ–åœ¨ã€Œç³»ç»Ÿè®¾ç½® â†’ éšç§ä¸Žå®‰å…¨æ€§ â†’ æ–‡ä»¶å’Œæ–‡ä»¶å¤¹ã€ä¸­æŽˆäºˆ eCan.ai è®¿é—®ä¸‹è½½æ–‡ä»¶å¤¹çš„æƒé™"
                         )
                     else:
                         error_message = (
-                            f"无法保存文件到 {os.path.dirname(file_path)}（权限被拒绝）。\n\n"
-                            "建议：\n"
-                            "1. 使用「另存为」对话框选择有权限的位置\n"
-                            "2. 或在系统设置中授予应用相应的文件夹访问权限"
+                            f"æ— æ³•ä¿å­˜æ–‡ä»¶åˆ° {os.path.dirname(file_path)}ï¼ˆæƒé™è¢«æ‹’ç»ï¼‰ã€‚\n\n"
+                            "å»ºè®®ï¼š\n"
+                            "1. ä½¿ç”¨ã€Œå¦å­˜ä¸ºã€å¯¹è¯æ¡†é€‰æ‹©æœ‰æƒé™çš„ä½ç½®\n"
+                            "2. æˆ–åœ¨ç³»ç»Ÿè®¾ç½®ä¸­æŽˆäºˆåº”ç”¨ç›¸åº”çš„æ–‡ä»¶å¤¹è®¿é—®æƒé™"
                         )
             
             return {
@@ -1095,10 +1095,10 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                                     'path': new_skill_file,
                                 })
                                 if update_result.get('success'):
-                                    logger.info(f"[SKILL_RENAME] ✅ Updated local DB (ID: {target_skill_id})")
+                                    logger.info(f"[SKILL_RENAME] âœ… Updated local DB (ID: {target_skill_id})")
                                     db_updated = True
                                 else:
-                                    logger.warning(f"[SKILL_RENAME] ⚠️ Failed to update local DB: {update_result.get('error')}")
+                                    logger.warning(f"[SKILL_RENAME] âš ï¸ Failed to update local DB: {update_result.get('error')}")
                                 break
                 if hasattr(ctx, 'agent_skills'):
                     mem_updated = False
@@ -1116,7 +1116,7 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                                 mem_skill.name = new_name
                             if hasattr(mem_skill, 'path'):
                                 mem_skill.path = new_skill_file
-                            logger.info(f"[SKILL_RENAME] ✅ Updated in-memory skill: {skill_name} -> {mem_skill.name}")
+                            logger.info(f"[SKILL_RENAME] âœ… Updated in-memory skill: {skill_name} -> {mem_skill.name}")
                             mem_updated = True
                             break
                     if not mem_updated:
@@ -1126,13 +1126,13 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         except Exception as sync_err:
             logger.warning(f"[SKILL_RENAME] Failed to update local DB/memory after rename: {sync_err}")
 
-        logger.info(f"[SKILL_RENAME] ✅ File system rename complete. Local DB/memory updated immediately.")
+        logger.info(f"[SKILL_RENAME] âœ… File system rename complete. Local DB/memory updated immediately.")
         
         # Update backend recent files to ensure correct path is loaded after refresh
         try:
             from gui.ipc.w2p_handlers.skill_editor_handler import _update_recent_files
             _update_recent_files(new_skill_file, new_name)
-            logger.info(f"[SKILL_RENAME] ✅ Updated backend recent files with new path: {new_skill_file}")
+            logger.info(f"[SKILL_RENAME] âœ… Updated backend recent files with new path: {new_skill_file}")
         except Exception as rf_err:
             logger.warning(f"[SKILL_RENAME] Failed to update backend recent files: {rf_err}")
         
@@ -1274,6 +1274,8 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
                 # Update skillName in the JSON
                 if isinstance(skill_json, dict):
                     skill_json['skillName'] = new_name
+                    skill_json.pop('skillId', None)
+                    skill_json.pop('id', None)
                 with new_skill_json.open('w', encoding='utf-8') as f:
                     json.dump(skill_json, f, indent=2, ensure_ascii=False)
                 logger.info(f"[SKILL_COPY] Updated skill JSON with new name: {new_name}")
@@ -1291,14 +1293,82 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         skill_id = None
         try:
             from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-            sync_result = sync_skill_from_file(diagram_path, request=request, params=params)
+            sync_params = dict(params or {})
+            sync_params['_skip_cloud_sync'] = True
+            sync_result = sync_skill_from_file(diagram_path, request=request, params=sync_params)
             if sync_result.get('success'):
                 skill_id = sync_result.get('skill_id')
-                logger.info(f"[SKILL_COPY] ✅ New copied skill created in database (ID: {skill_id})")
+                try:
+                    from app_context import AppContext
+                    from agent.cloud_api.cloud_api import (
+                        send_add_skills_request_to_cloud,
+                        upload_skill_files_to_cloud,
+                    )
+
+                    mainwin = AppContext.get_main_window()
+                    token = mainwin.get_auth_token() if mainwin else None
+                    session = getattr(mainwin, 'session', None) if mainwin else None
+                    endpoint = mainwin.getWanApiEndpoint() if mainwin and hasattr(mainwin, 'getWanApiEndpoint') else None
+
+                    if token and session and endpoint:
+                        rel_diagram_path = os.path.relpath(diagram_path, start=Path.cwd())
+                        cloud_skill_payload = {
+                            'id': skill_id,
+                            'name': new_name,
+                            'description': (skill_json or {}).get('description', '') if isinstance(skill_json, dict) else '',
+                            'version': (skill_json or {}).get('version', '1.0.0') if isinstance(skill_json, dict) else '1.0.0',
+                            'path': rel_diagram_path.replace('\\', '/'),
+                            'level': (skill_json or {}).get('level', 'entry') if isinstance(skill_json, dict) else 'entry',
+                            'config': (skill_json or {}).get('config', {}) if isinstance(skill_json, dict) else {},
+                            'diagram': (skill_json or {}).get('workFlow') or (skill_json or {}).get('diagram') or {},
+                            'tags': (skill_json or {}).get('tags', []) if isinstance(skill_json, dict) else [],
+                            'source': 'ui',
+                        }
+                        cloud_result = send_add_skills_request_to_cloud(session, [cloud_skill_payload], token, endpoint)
+                        first = cloud_result[0] if isinstance(cloud_result, list) and cloud_result else {}
+                        if first.get('success'):
+                            username = getattr(mainwin, 'user', '') if mainwin else ''
+                            safe_username = username.replace("@", "_").replace(".", "_") if username else "unknown"
+                            bundle_path = new_diagram_dir / f"{new_name}_skill_bundle.json"
+                            data_mapping_path = new_skill_root / "data_mapping.json"
+                            files_to_upload = []
+                            with new_skill_json.open('r', encoding='utf-8') as f:
+                                files_to_upload.append({
+                                    "filePath": f"{safe_username}/my_skills/{new_name}_skill/diagram_dir/{new_name}_skill.json",
+                                    "content": f.read(),
+                                    "userId": username,
+                                })
+                            if bundle_path.exists():
+                                with bundle_path.open('r', encoding='utf-8') as f:
+                                    files_to_upload.append({
+                                        "filePath": f"{safe_username}/my_skills/{new_name}_skill/diagram_dir/{new_name}_skill_bundle.json",
+                                        "content": f.read(),
+                                        "userId": username,
+                                    })
+                            if data_mapping_path.exists():
+                                with data_mapping_path.open('r', encoding='utf-8') as f:
+                                    files_to_upload.append({
+                                        "filePath": f"{safe_username}/my_skills/{new_name}_skill/data_mapping.json",
+                                        "content": f.read(),
+                                        "userId": username,
+                                    })
+
+                            upload_result = upload_skill_files_to_cloud(session, token, files_to_upload, endpoint)
+                            if upload_result.get('success'):
+                                logger.info(f"[SKILL_COPY] Uploaded copied skill files via writeSkillFile: {new_name} (ID: {skill_id})")
+                            else:
+                                logger.warning(f"[SKILL_COPY] writeSkillFile upload failed for copied skill: {new_name} result={upload_result}")
+                        else:
+                            logger.warning(f"[SKILL_COPY] Cloud add failed for copied skill: {new_name} result={first}")
+                    else:
+                        logger.warning(f"[SKILL_COPY] Missing cloud auth/session context, skipped cloud file upload for copied skill: {new_name}")
+                except Exception as upload_err:
+                    logger.warning(f"[SKILL_COPY] Failed to upload copied skill files to cloud: {upload_err}")
+                logger.info(f"[SKILL_COPY] âœ… New copied skill created in database (ID: {skill_id})")
             else:
-                logger.warning(f"[SKILL_COPY] ⚠️ Failed to sync copied skill to database: {sync_result.get('error')}")
+                logger.warning(f"[SKILL_COPY] âš ï¸ Failed to sync copied skill to database: {sync_result.get('error')}")
         except Exception as sync_err:
-            logger.warning(f"[SKILL_COPY] ⚠️ Error updating skill in database/memory: {sync_err}")
+            logger.warning(f"[SKILL_COPY] âš ï¸ Error updating skill in database/memory: {sync_err}")
         
         return create_success_response(request, {
             'skillRoot': str(new_skill_root),
@@ -1480,3 +1550,5 @@ def handle_open_folder(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
     except Exception as e:
         logger.error(f"[OPEN_FOLDER] Error: {e}")
         return create_error_response(request, 'OPEN_FOLDER_ERROR', str(e))
+
+

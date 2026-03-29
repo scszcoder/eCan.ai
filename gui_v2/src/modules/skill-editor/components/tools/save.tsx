@@ -15,7 +15,7 @@ import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
-import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
+import { sanitizeNodeApiKeys, sanitizeApiKeysDeep, normalizeNodesForSave } from '../../utils/sanitize-utils';
 import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
@@ -550,39 +550,47 @@ async function syncSkillToDBAndStore(
 
     if (resp && resp.success) {
       console.log('[SKILL_IO][DB_SYNC] Skill saved to DB + cloud sync triggered');
-
-      // Update the Skills page store so the list reflects changes immediately
-      const store = useSkillStore.getState();
-      const skillId = String((resp as any).data?.skill_id || skillPayload.id);
-      const storeItem = {
-        id: skillId,
-        name: skillPayload.name,
-        owner,
-        description: skillPayload.description,
-        version: skillPayload.version,
-        path: skillPayload.path,
-        level: skillPayload.level,
-        config: skillPayload.config,
-        diagram: skillPayload.diagram,
-        tags: skillPayload.tags,
-        source: 'ui' as const,
-        status: 'active',
-      };
-
-      const existing = store.items.find((s) => String(s.id) === skillId);
-      if (existing) {
-        store.updateItem(skillId, storeItem);
-        console.log('[SKILL_IO][DB_SYNC] Updated existing skill in store:', skillId);
-      } else {
-        store.addItem(storeItem as any);
-        console.log('[SKILL_IO][DB_SYNC] Added new skill to store:', skillId);
-      }
+      updateSkillStoreFromPayload(skillPayload, owner, (resp as any).data?.skill_id || skillPayload.id);
     } else {
       console.warn('[SKILL_IO][DB_SYNC] saveAgentSkill failed:', resp?.error);
     }
   } catch (e) {
     // Non-fatal: disk save already succeeded
     console.warn('[SKILL_IO][DB_SYNC] Error syncing skill to DB (non-fatal):', e);
+  }
+}
+
+function updateSkillStoreFromPayload(
+  skillPayload: Record<string, any>,
+  owner: string,
+  resolvedSkillId?: string,
+) {
+  const store = useSkillStore.getState();
+  const skillId = String(resolvedSkillId || skillPayload.id || '');
+  if (!skillId) return;
+
+  const storeItem = {
+    id: skillId,
+    name: skillPayload.name,
+    owner,
+    description: skillPayload.description,
+    version: skillPayload.version,
+    path: skillPayload.path,
+    level: skillPayload.level,
+    config: skillPayload.config,
+    diagram: skillPayload.diagram,
+    tags: skillPayload.tags,
+    source: 'ui' as const,
+    status: 'active',
+  };
+
+  const existing = store.items.find((s) => String(s.id) === skillId);
+  if (existing) {
+    store.updateItem(skillId, storeItem);
+    console.log('[SKILL_IO][STORE] Updated existing skill in store:', skillId);
+  } else {
+    store.addItem(storeItem as any);
+    console.log('[SKILL_IO][STORE] Added new skill to store:', skillId);
   }
 }
 
@@ -630,6 +638,7 @@ export const Save = ({ disabled }: SaveProps) => {
       // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+      normalizeNodesForSave(sanitizedDiagram?.nodes);
 
       // 3. Extract config nodes and create updated skillInfo
       const configNodes = extractConfigNodes(diagram);
@@ -821,6 +830,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+      normalizeNodesForSave(sanitizedDiagram?.nodes);
 
       // 3. Extract config nodes
       const configNodes = extractConfigNodes(diagram);
@@ -1067,8 +1077,39 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       console.log('[SKILL_IO][SAVEAS_DONE]', { finalDiagramPath, newSkillName });
       Toast.success({ content: t('saveAs.savedAs', { name: newSkillName }) });
 
-      // Sync to local DB + cloud DB and update Skills page store
-      await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
+      // Desktop Save As now finalizes backend copy/sync/upload inside skills.copyTo.
+      // Only update the local store here to avoid a redundant immediate UPDATE.
+      if (copiedSkillId) {
+        const owner = username || '';
+        const localHelperSkillId = (finalSkillInfo as any).local_helper_skill_id ?? null;
+        const localHelperMachine = (finalSkillInfo as any).local_helper_machine ?? null;
+        const hybridCloudMode = (finalSkillInfo as any).hybrid_cloud_mode ?? false;
+        const runInCloud = (finalSkillInfo as any).run_in_cloud ?? false;
+        const existingConfig = (finalSkillInfo as any).config || {};
+        const skillPayload: Record<string, any> = {
+          id: copiedSkillId,
+          name: finalSkillInfo.skillName || finalSkillInfo.name || 'Unnamed Skill',
+          description: finalSkillInfo.description || '',
+          version: finalSkillInfo.version || '1.0.0',
+          path: finalDiagramPath || finalSkillInfo.path || '',
+          level: finalSkillInfo.level || 'entry',
+          config: {
+            ...existingConfig,
+            run_in_cloud: runInCloud,
+            hybrid_cloud_mode: hybridCloudMode,
+            local_helper_skill_id: localHelperSkillId,
+            local_helper_skill_name: (existingConfig as any)?.local_helper_skill_name ?? null,
+            local_helper_machine: localHelperMachine,
+          },
+          diagram: finalSkillInfo.workFlow || {},
+          tags: finalSkillInfo.tags || [],
+          source: 'ui',
+        };
+        updateSkillStoreFromPayload(skillPayload, owner, copiedSkillId);
+      } else {
+        // Web mode and fallback paths still rely on the generic save handler.
+        await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
+      }
       
     } catch (error) {
       console.error('Failed to save as:', error);

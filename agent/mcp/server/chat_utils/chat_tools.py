@@ -17,6 +17,7 @@ References:
 - my_twin_chatter_skill.py: parrot function (lines 131-142)
 """
 
+import json
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -26,12 +27,58 @@ from mcp.types import TextContent
 
 from utils.logger_helper import logger_helper as logger, get_traceback
 
+# ── Dispatch tracking ──
+# Prevents LLMs from skipping agent discovery and concentrating all work
+# on a single "remembered" agent.  Works for any tool path (bu_send_chat
+# or MCP send_chat).
+#
+# _sender_dispatch_state: per-sender tracking of discovery + recipients
+# _last_discovery_ts:     global fallback — any list_chat_agents call
+#                         within the window counts as discovery for all
+#                         senders (needed because MCP list_chat_agents
+#                         doesn't always carry a sender ID).
+_sender_dispatch_state: Dict[str, Dict[str, Any]] = {}
+_last_discovery_ts: float = 0.0
+
+_DISPATCH_WINDOW_SEC = 30  # reset tracking after this many seconds of inactivity
+
+
+def _get_dispatch_state(sender_id: str) -> Dict[str, Any]:
+    """Get or create dispatch tracking state for a sender, auto-expiring stale entries."""
+    global _last_discovery_ts
+    now = time.time()
+    state = _sender_dispatch_state.get(sender_id)
+    if state is None or (now - state.get("ts", 0)) > _DISPATCH_WINDOW_SEC:
+        state = {"discovered": False, "sent_to": [], "ts": now}
+        _sender_dispatch_state[sender_id] = state
+    # If any list_chat_agents call happened recently, credit this sender
+    if not state.get("discovered") and (now - _last_discovery_ts) < _DISPATCH_WINDOW_SEC:
+        state["discovered"] = True
+        state["sent_to"] = []
+    state["ts"] = now
+    return state
+
+
+def _mark_discovery(sender_id: str, agents: List[Dict[str, Any]]):
+    """Record that a sender performed agent discovery."""
+    global _last_discovery_ts
+    _last_discovery_ts = time.time()
+    state = _get_dispatch_state(sender_id)
+    state["discovered"] = True
+    state["agent_count"] = len(agents)
+    state["sent_to"] = []  # reset recipients on fresh discovery
+
 
 # ==================== Helper Functions ====================
 
-def _get_agent_by_id(agent_id: str):
+def _get_agent_by_id(agent_id: str, mainwin=None):
     """Get agent by ID from the application context."""
     try:
+        if mainwin is not None and getattr(mainwin, "agents", None):
+            return next(
+                (ag for ag in mainwin.agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id),
+                None,
+            )
         from agent.agent_service import get_agent_by_id
         return get_agent_by_id(agent_id)
     except Exception as e:
@@ -39,11 +86,12 @@ def _get_agent_by_id(agent_id: str):
         return None
 
 
-def _get_agent_by_name(agent_name: str):
+def _get_agent_by_name(agent_name: str, mainwin=None):
     """Get agent by name from the application context."""
     try:
-        from app_context import AppContext
-        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            from app_context import AppContext
+            mainwin = AppContext.get_main_window()
         if not mainwin or not mainwin.agents:
             return None
         
@@ -61,11 +109,12 @@ def _get_agent_by_name(agent_name: str):
         return None
 
 
-def _get_all_agents() -> List[Dict[str, Any]]:
+def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
     """Get all available agents."""
     try:
-        from app_context import AppContext
-        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            from app_context import AppContext
+            mainwin = AppContext.get_main_window()
         if not mainwin or not mainwin.agents:
             return []
         
@@ -73,17 +122,97 @@ def _get_all_agents() -> List[Dict[str, Any]]:
         for agent in mainwin.agents:
             card = getattr(agent, 'card', None)
             if card:
+                # Collect task names and skill names so callers can filter
+                task_names = []
+                skill_names = []
+                # agent.tasks is a list of task objects set at init time
+                agent_tasks = getattr(agent, 'tasks', None)
+                if isinstance(agent_tasks, list):
+                    for t in agent_tasks:
+                        tname = getattr(t, 'name', '')
+                        if tname:
+                            task_names.append(tname)
+                        # Skill name from task's skill reference
+                        t_skill = getattr(t, 'skill', None)
+                        sname = ''
+                        if t_skill:
+                            sname = getattr(t_skill, 'name', '') or ''
+                        if not sname:
+                            sname = getattr(t, 'skill_name', '') or ''
+                        if sname and sname not in skill_names:
+                            skill_names.append(sname)
                 agents_info.append({
                     "id": getattr(card, 'id', ''),
                     "name": getattr(card, 'name', 'Unknown'),
                     "description": getattr(card, 'description', ''),
                     "url": getattr(card, 'url', ''),
                     "status": getattr(agent, 'status', 'unknown'),
+                    "tasks": task_names,
+                    "skills": skill_names,
                 })
         return agents_info
     except Exception as e:
         logger.error(f"[chat_tools] Failed to get all agents: {e}")
         return []
+
+
+def _resolve_recipient_fallback(
+    recipient_agent_id: str,
+    recipient_agent_name: str,
+    sender_agent_id: str,
+    mainwin=None,
+):
+    """Resolve a live recipient when a stale agent id is requested."""
+    try:
+        agents = getattr(mainwin, "agents", None) or []
+        if not agents:
+            return None
+
+        sender_agent_id = str(sender_agent_id or "").strip()
+        requested_id = str(recipient_agent_id or "").strip()
+        requested_name = str(recipient_agent_name or "").strip().lower()
+
+        candidates = []
+        for agent in agents:
+            card = getattr(agent, "card", None)
+            if not card:
+                continue
+            agent_id = str(getattr(card, "id", "") or "").strip()
+            if sender_agent_id and agent_id == sender_agent_id:
+                continue
+            candidates.append(agent)
+
+        if not candidates:
+            return None
+
+        if requested_name:
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if name == requested_name:
+                    return agent
+
+        # Legacy front-desk -> service-agent mapping. The service agent id is not stable
+        # across sessions, but the front-desk workflow still carries the historical id.
+        if requested_id == "agent_b31f281332104b93":
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if name == "joan b":
+                    return agent
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if "joan" in name:
+                    return agent
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        return None
+    except Exception as e:
+        logger.error(f"[chat_tools] Failed recipient fallback resolution: {e}")
+        return None
 
 
 def _build_chat_message(
@@ -136,6 +265,23 @@ def _build_chat_message(
             }
         }
     }
+
+
+def _infer_session_chat_id(message_text: str) -> str:
+    """Infer a stable chat/session id from JSON message text when possible."""
+    if not isinstance(message_text, str) or not message_text.strip():
+        return ""
+    try:
+        payload = json.loads(message_text)
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("session_id", "sessionId", "customer_id", "customerId"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 # ==================== Tool Implementations ====================
@@ -199,7 +345,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             }
         
         # Get sender agent
-        sender_agent = _get_agent_by_id(sender_agent_id)
+        sender_agent = _get_agent_by_id(sender_agent_id, mainwin)
         if not sender_agent:
             return {
                 "success": False,
@@ -210,26 +356,114 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         # Get recipient agent
         recipient_agent = None
         if recipient_agent_id:
-            recipient_agent = _get_agent_by_id(recipient_agent_id)
+            recipient_agent = _get_agent_by_id(recipient_agent_id, mainwin)
         if not recipient_agent and recipient_agent_name:
-            recipient_agent = _get_agent_by_name(recipient_agent_name)
+            recipient_agent = _get_agent_by_name(recipient_agent_name, mainwin)
         
+        if not recipient_agent:
+            recipient_agent = _resolve_recipient_fallback(
+                recipient_agent_id=recipient_agent_id,
+                recipient_agent_name=recipient_agent_name,
+                sender_agent_id=sender_agent_id,
+                mainwin=mainwin,
+            )
+
         if not recipient_agent:
             return {
                 "success": False,
                 "error": f"Recipient agent not found: {recipient_agent_id or recipient_agent_name}",
                 "timestamp": int(time.time() * 1000)
             }
+
+        if recipient_agent:
+            resolved_card = getattr(recipient_agent, "card", None)
+            resolved_id = str(getattr(resolved_card, "id", "") or "").strip()
+            resolved_name = str(getattr(resolved_card, "name", "") or "").strip()
+            if resolved_id and resolved_id != recipient_agent_id:
+                logger.info(
+                    f"[send_chat] Recipient fallback resolved requested={recipient_agent_id or recipient_agent_name} "
+                    f"-> live_recipient={resolved_name or resolved_id}"
+                )
         
         # Get sender name
         sender_name = ""
         sender_card = getattr(sender_agent, 'card', None)
         if sender_card:
             sender_name = getattr(sender_card, 'name', '')
-        
+
+        resolved_sender_id = getattr(getattr(sender_agent, "card", None), "id", "") or sender_agent_id
+        resolved_recipient_id = getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id
+
+        # ── General-purpose auto-distribution ──
+        # When a sender targets the same recipient multiple times in quick
+        # succession while peer agents with matching skills exist, transparently
+        # rotate to the next unsent peer.  This prevents LLMs from concentrating
+        # all work on a single "remembered" agent without requiring the LLM
+        # to explicitly call list_chat_agents or implement round-robin logic.
+        #
+        # "Peer agents" = agents that share at least one skill with the original
+        # target (i.e. they have the same capability).  This avoids redistributing
+        # customer-service work to unrelated agents like "cloud B" or "Joe Bo".
+        dispatch = _get_dispatch_state(resolved_sender_id)
+        all_agents = _get_all_agents(mainwin)
+
+        # Determine the target agent's skills so we can find peers
+        # (agents with the same skill = same capability)
+        target_skills = []
+        for a in all_agents:
+            if a.get("id") == resolved_recipient_id:
+                target_skills = a.get("skills", [])
+                break
+        # Peer agents: share at least one skill with the target, excluding sender
+        if target_skills:
+            peer_agents = [
+                a for a in all_agents
+                if a.get("id") != resolved_sender_id
+                and a.get("id") != resolved_recipient_id
+                and any(s in target_skills for s in a.get("skills", []))
+            ]
+        else:
+            peer_agents = []
+        # Include the original target in the pool for tracking
+        eligible_agents = [a for a in all_agents if a.get("id") == resolved_recipient_id] + peer_agents
+
+        if len(eligible_agents) > 1:
+            sent_list = dispatch.setdefault("sent_to", [])
+            if resolved_recipient_id in sent_list:
+                # This recipient was already targeted — auto-rotate to next unsent peer
+                unsent = [a for a in eligible_agents if a["id"] not in sent_list]
+                if unsent:
+                    new_target = unsent[0]
+                    old_name = getattr(getattr(recipient_agent, "card", None), "name", resolved_recipient_id)
+                    logger.info(
+                        f"[send_chat] Auto-distribute: {old_name} already received a message, "
+                        f"redirecting to {new_target['name']} (ID: {new_target['id']})"
+                    )
+                    # Re-resolve recipient agent to the new target
+                    recipient_agent = _get_agent_by_id(new_target["id"], mainwin)
+                    resolved_recipient_id = new_target["id"]
+                    if not recipient_agent:
+                        logger.warning(f"[send_chat] Auto-distribute target not found: {new_target['id']}")
+                # else: all peers already received — allow repeat (natural overflow)
+            sent_list.append(resolved_recipient_id)
+
+        if resolved_sender_id and resolved_recipient_id and resolved_sender_id == resolved_recipient_id:
+            logger.error(
+                f"[send_chat] Blocked self-send sender={resolved_sender_id} recipient={resolved_recipient_id} "
+                f"chat_id={chat_id or '<pending>'} message_preview={str(message_text)[:200]}"
+            )
+            return {
+                "success": False,
+                "error": f"Self-send blocked for agent {resolved_sender_id}",
+                "sender_agent_id": resolved_sender_id,
+                "recipient_agent_id": resolved_recipient_id,
+                "timestamp": int(time.time() * 1000),
+            }
+
         # Generate chat_id if not provided
         if not chat_id:
-            chat_id = f"chat-{str(uuid.uuid4())[:8]}"
+            inferred_chat_id = _infer_session_chat_id(message_text)
+            chat_id = inferred_chat_id or f"chat-{str(uuid.uuid4())[:8]}"
         
         # Build the message
         chat_message = _build_chat_message(
@@ -237,7 +471,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             chat_id=chat_id,
             message_text=message_text,
             sender_name=sender_name,
-            receiver_agent_id=getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id,
+            receiver_agent_id=resolved_recipient_id,
             message_type=message_type,
             attachments=attachments,
         )
@@ -297,7 +531,7 @@ def list_chat_agents(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         mainwin: Main window instance
         config: Configuration dict with:
             - exclude_self: str (optional) - Agent ID to exclude from list
-            - filter_name: str (optional) - Filter agents by name (partial match)
+            - filter_name: str (optional) - Filter agents by id or name (partial match)
             
     Returns:
         Dict with list of agents:
@@ -320,22 +554,39 @@ def list_chat_agents(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         exclude_self = config.get("exclude_self", "")
         filter_name = config.get("filter_name", "").lower()
         
-        agents = _get_all_agents()
+        agents = _get_all_agents(mainwin)
         
         # Apply filters
         if exclude_self:
             agents = [a for a in agents if a["id"] != exclude_self]
         
         if filter_name:
-            agents = [a for a in agents if filter_name in a["name"].lower()]
+            agents = [
+                a for a in agents
+                if filter_name in a["name"].lower() or filter_name in a["id"].lower()
+            ]
         
+        # Record discovery so send_chat's dispatch gate knows the caller
+        # is aware of the available agent pool.
+        caller_id = config.get("exclude_self") or config.get("_sender_id", "")
+        if caller_id:
+            _mark_discovery(caller_id, agents)
+        else:
+            # No sender ID available (MCP path) — record global discovery
+            global _last_discovery_ts
+            _last_discovery_ts = time.time()
+        logger.info(
+            f"[list_chat_agents] Recorded discovery: sender={caller_id or '(global)'}, "
+            f"agent_count={len(agents)}"
+        )
+
         return {
             "success": True,
             "agents": agents,
             "count": len(agents),
             "timestamp": int(time.time() * 1000)
         }
-        
+
     except Exception as e:
         err_trace = get_traceback(e, "ErrorListChatAgents")
         logger.error(err_trace)
@@ -606,7 +857,10 @@ async def async_list_chat_agents(mainwin, args: Dict[str, Any]) -> List[TextCont
         if result.get("success"):
             agents = result.get("agents", [])
             if agents:
-                agent_lines = [f"- {a['name']} (ID: {a['id']})" for a in agents]
+                agent_lines = [
+                    f"- {a['name']} (ID: {a['id']}, tasks: {', '.join(a.get('tasks', [])) or 'none'})"
+                    for a in agents
+                ]
                 msg = f"📋 Available agents ({result.get('count', 0)}):\n" + "\n".join(agent_lines)
             else:
                 msg = "📋 No agents available for chat."

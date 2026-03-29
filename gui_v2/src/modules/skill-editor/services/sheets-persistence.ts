@@ -2,7 +2,7 @@ import { hasIPCSupport, hasFullFilePaths, detectPlatform } from '../../../config
 import '../../../services/ipc/file-api';
 import type { SheetsBundle } from '../utils/bundle-utils';
 import { IPCAPI } from '../../../services/ipc/api';
-import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../utils/sanitize-utils';
+import { sanitizeNodeApiKeys, sanitizeApiKeysDeep, normalizeNodesForSave } from '../utils/sanitize-utils';
 // Re-export SheetsBundle for backward compatibility
 export type { SheetsBundle };
 
@@ -17,6 +17,7 @@ export async function saveSheetsBundleToPath(
     sanitizedBundle.sheets.forEach((sheet: any) => {
       if (sheet.document?.nodes) {
         sanitizeNodeApiKeys(sheet.document.nodes);
+        normalizeNodesForSave(sheet.document.nodes);
       }
     });
   }
@@ -76,6 +77,7 @@ export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: str
     sanitizedBundle.sheets.forEach((sheet: any) => {
       if (sheet.document?.nodes) {
         sanitizeNodeApiKeys(sheet.document.nodes);
+        normalizeNodesForSave(sheet.document.nodes);
       }
     });
   }

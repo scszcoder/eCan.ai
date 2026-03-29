@@ -786,6 +786,159 @@ async def test_hybrid_cloud(request):
         return JSONResponse({"status": "error", "error": str(e), "traceback": tb.format_exc()}, status_code=500)
 
 
+async def direct_service_assign(request):
+    """Test endpoint: send direct customer-service assignment chat_message(s) from the live app process.
+
+    Expected JSON body:
+      {
+        "sender_agent_id": "...",
+        "recipient_agent_id": "...",
+        "assignments": [
+          {
+            "session_id": "cust_xxx",
+            "tab_id": "CDP_TARGET_ID",
+            "chat_url": "http://127.0.0.1:9877/chat?session=cust_xxx",
+            "customer_name": "Alice_xxx"
+          }
+        ]
+      }
+    """
+    import traceback as tb
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        from app_context import AppContext
+        from agent.mcp.server.chat_utils.chat_tools import (
+            send_chat,
+            _get_agent_by_id,
+            _get_all_agents,
+            _build_chat_message,
+        )
+
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            return JSONResponse({"status": "error", "error": "MainWindow not available"}, status_code=500)
+
+        requested_sender_agent_id = str(body.get("sender_agent_id") or "agent_48bdd65f982a4cdb").strip()
+        recipient_agent_id = str(body.get("recipient_agent_id") or "agent_b31f281332104b93").strip()
+        assignments = body.get("assignments") or []
+        if not isinstance(assignments, list) or not assignments:
+            return JSONResponse({"status": "error", "error": "No assignments provided"}, status_code=400)
+
+        sender_agent_id = requested_sender_agent_id
+        sender_agent = _get_agent_by_id(sender_agent_id, mainwin=mainwin) if sender_agent_id else None
+        recipient_agent = _get_agent_by_id(recipient_agent_id, mainwin=mainwin) if recipient_agent_id else None
+        if recipient_agent is None:
+            return JSONResponse({
+                "status": "error",
+                "error": f"Recipient agent not found: {recipient_agent_id}",
+            }, status_code=500)
+
+        carrier_agent = sender_agent
+        if sender_agent is None:
+            live_agents = _get_all_agents(mainwin=mainwin)
+            fallback_sender = next(
+                (
+                    ag for ag in live_agents
+                    if ag.get("id")
+                    and ag.get("id") != recipient_agent_id
+                ),
+                None,
+            )
+            if fallback_sender:
+                sender_agent_id = str(fallback_sender.get("id") or "").strip()
+                sender_agent = _get_agent_by_id(sender_agent_id, mainwin=mainwin)
+                carrier_agent = sender_agent
+                logger.warning(
+                    f"[DirectServiceAssign] Requested sender '{requested_sender_agent_id}' not found; "
+                    f"using fallback sender '{sender_agent_id}'"
+                )
+            else:
+                sender_agent_id = requested_sender_agent_id or f"test_harness_sender_{uuid.uuid4().hex[:8]}"
+                carrier_agent = recipient_agent
+                logger.warning(
+                    f"[DirectServiceAssign] No live sender available for requested sender "
+                    f"'{requested_sender_agent_id}'. Using synthetic sender_id='{sender_agent_id}' "
+                    f"via carrier agent '{getattr(getattr(recipient_agent, 'card', None), 'id', '') or recipient_agent_id}'"
+                )
+
+        logger.info(
+            f"[DirectServiceAssign] Received {len(assignments)} assignment(s) "
+            f"sender={sender_agent_id} recipient={recipient_agent_id}"
+        )
+
+        results = []
+        ok_count = 0
+        for item in assignments:
+            if not isinstance(item, dict):
+                continue
+            payload = {
+                "customer_id": str(item.get("session_id") or "").strip(),
+                "session_id": str(item.get("session_id") or "").strip(),
+                "tab_id": str(item.get("tab_id") or "").strip(),
+                "chat_url": str(item.get("chat_url") or "").strip(),
+                "customer_name": str(item.get("customer_name") or item.get("session_id") or "").strip(),
+            }
+            logger.info(f"[DirectServiceAssign] Sending payload: {payload}")
+            if sender_agent is not None:
+                result = send_chat(mainwin, {
+                    "sender_agent_id": sender_agent_id,
+                    "recipient_agent_id": recipient_agent_id,
+                    "message": json.dumps(payload, ensure_ascii=False),
+                    "message_type": "text",
+                    "async_send": False,
+                })
+            else:
+                synthetic_sender_name = "DirectAssignHarness"
+                chat_message = _build_chat_message(
+                    sender_agent_id=sender_agent_id,
+                    chat_id=str(payload.get("session_id") or ""),
+                    message_text=json.dumps(payload, ensure_ascii=False),
+                    sender_name=synthetic_sender_name,
+                    receiver_agent_id=recipient_agent_id,
+                    message_type="text",
+                    attachments=[],
+                )
+                response = carrier_agent.unified_send_chat_message(
+                    recipient_id=recipient_agent_id,
+                    message=chat_message,
+                    use_wan_fallback=True,
+                )
+                result = {
+                    "success": True,
+                    "message_id": chat_message["messages"][2],
+                    "chat_id": chat_message["messages"][1],
+                    "recipient_id": recipient_agent_id,
+                    "recipient_name": getattr(getattr(recipient_agent, "card", None), "name", "") or recipient_agent_id,
+                    "async": False,
+                    "message": f"Message sent to {getattr(getattr(recipient_agent, 'card', None), 'name', '') or recipient_agent_id}",
+                    "timestamp": int(time.time() * 1000),
+                    "transport_result": response,
+                    "synthetic_sender": True,
+                }
+            merged = dict(item)
+            merged["recipient_agent_id"] = recipient_agent_id
+            merged.update(result or {})
+            if merged.get("success"):
+                ok_count += 1
+            logger.info(f"[DirectServiceAssign] Result: {merged}")
+            results.append(merged)
+
+        return JSONResponse({
+            "status": "ok",
+            "success": ok_count == len(results),
+            "count": len(results),
+            "results": results,
+        })
+    except Exception as e:
+        logger.error(f"[DirectServiceAssign] Error: {e}\n{tb.format_exc()}")
+        return JSONResponse({"status": "error", "error": str(e), "traceback": tb.format_exc()}, status_code=500)
+
+
 async def c2l_ws_test(request):
     """C2L (Cloud to Local) WebSocket Test endpoint.
     
@@ -1013,6 +1166,7 @@ class RouteBuilder:
             Route("/api/test-ocr", test_ocr, methods=['GET', 'POST']),
             Route("/api/test-ocr-local", test_ocr_local, methods=['GET', 'POST']),
             Route("/api/test-hybrid-cloud", test_hybrid_cloud, methods=['GET', 'POST']),
+            Route("/api/test-direct-service-assign", direct_service_assign, methods=['POST']),
             Route("/api/c2l-ws-test", c2l_ws_test, methods=['GET', 'POST']),
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
             WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),
