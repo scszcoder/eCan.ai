@@ -13,6 +13,15 @@ from agent.cloud_api.constants import Operation
 convert_agent_dict_to_ec_agent = None  # Lazy import to avoid circulars
 
 
+def _get_main_window():
+    """Get actual MainWindow for mutations (writing agents list, etc.)."""
+    try:
+        mw = AppContext.get_main_window()
+        return mw
+    except Exception:
+        return None
+
+
 def _get_converter():
     """Lazy import agent converter to reduce circular import risk."""
     global convert_agent_dict_to_ec_agent
@@ -999,6 +1008,25 @@ def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation', call
     manager.sync_to_cloud_async(DataType.AGENT, agent_data, operation, callback=_callback_chain)
 
 
+def _sync_agent_status_to_cloud(agent_service, agent_id: str, status: str) -> None:
+    """Sync agent status change to cloud DB (async, non-blocking).
+
+    Sends a minimal payload (id + status only) to avoid FK constraint issues
+    and validation errors from unrelated fields like avatar_resource_id.
+    """
+    try:
+        from agent.cloud_api.constants import Operation
+        # Minimal payload — only the fields we need to update
+        agent_data = {
+            'id': agent_id,
+            'status': status,
+        }
+        _trigger_cloud_sync(agent_data, Operation.UPDATE)
+        logger.info(f"[agent_handler] Cloud sync triggered for agent {agent_id} status='{status}'")
+    except Exception as e:
+        logger.warning(f"[agent_handler] Cloud sync failed for agent {agent_id}: {e}")
+
+
 def _sync_agent_relations_after_entity_sync(updated_agent_data: Dict[str, Any], input_agent_data: Dict[str, Any]) -> None:
     """Sync agent relations only after agent entity sync is accepted/cached.
 
@@ -1602,3 +1630,458 @@ def handle_query_agent_task_rels(request: IPCRequest, params: Optional[list[Any]
         logger.error(f"[agent_handler] Error querying agent-task relationships: {e}")
         logger.debug(traceback.format_exc())
         return create_error_response(request, 'QUERY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_agent_runtime_status')
+def handle_get_agent_runtime_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get agent runtime status: disabled / stopped / standby / working.
+
+    - disabled: agent DB status is 'disabled' (persistent — won't auto-start on app restart)
+    - stopped: agent is enabled in DB but not loaded/running in memory
+    - standby: agent is running and only has chat/message-trigger tasks (or no tasks)
+    - working: agent is running and has at least one non-chat task
+
+    Params:
+        agent_id: str - agent ID
+    Returns:
+        { agent_id, runtime_status, enabled, active_task_count, detail }
+    """
+    try:
+        agent_id = (params or {}).get('agent_id')
+        if not agent_id:
+            return create_error_response(request, 'MISSING_PARAM', 'agent_id is required')
+
+        mainwin = get_handler_context()
+        if not mainwin:
+            return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
+
+        # Step 1: Check if agent is in memory FIRST (most accurate for runtime status)
+        ec_agent = None
+        agents = mainwin.get_agents() if hasattr(mainwin, 'get_agents') else getattr(mainwin, 'agents', []) or []
+        for ag in agents:
+            cid = getattr(getattr(ag, 'card', None), 'id', None)
+            if cid == agent_id:
+                ec_agent = ag
+                break
+
+        # Step 2: Check DB status for enabled/disabled state
+        ec_db_mgr = AppContext.get_ec_db_mgr()
+        db_status = 'active'
+        if ec_db_mgr:
+            try:
+                agent_service = ec_db_mgr.agent_service
+                result = agent_service.query_agents_with_relations(id=agent_id, include_skills=False, include_tasks=False, include_org=False)
+                if result.get('success') and result.get('data'):
+                    db_agent_dict = result['data'][0]
+                    db_status = db_agent_dict.get('status', 'active') or 'active'
+            except Exception:
+                pass
+
+        is_enabled = db_status != 'disabled'
+
+        # Log for debugging status sync issues
+        agent_name = getattr(getattr(ec_agent, 'card', None), 'name', '?') if ec_agent else '?'
+        # Also log all agent card IDs in memory for diagnosing lookup mismatches
+        mem_ids = [getattr(getattr(ag, 'card', None), 'id', '?') for ag in agents]
+
+        # If DB says disabled, that's the persistent off — regardless of memory state
+        if not is_enabled:
+            logger.info(f"[agent_handler] Status: {agent_id} → disabled (db_status={db_status}, in_memory={ec_agent is not None})")
+            return create_success_response(request, {
+                'agent_id': agent_id,
+                'runtime_status': 'disabled',
+                'enabled': False,
+                'active_task_count': 0,
+                'detail': 'Agent is disabled (will not auto-start)'
+            })
+
+        # Agent is enabled but not in memory → stopped
+        if not ec_agent:
+            logger.info(f"[agent_handler] Status: {agent_id} → stopped (db_status={db_status}, "
+                        f"not found in {len(agents)} agents, mem_ids={mem_ids})")
+            return create_success_response(request, {
+                'agent_id': agent_id,
+                'runtime_status': 'stopped',
+                'enabled': True,
+                'active_task_count': 0,
+                'detail': 'Agent is enabled but not running'
+            })
+
+        # Count active tasks and determine if any are non-chat
+        active_count = 0
+        with ec_agent.task_lock:
+            active_count = len(ec_agent.active_tasks)
+
+        has_non_chat_task = False
+        task_details = []
+        for task in ec_agent.tasks:
+            run_id = getattr(task, 'run_id', None)
+            is_running = ec_agent.is_task_running(run_id) if run_id else False
+            triggers = getattr(task, 'trigger', []) or []
+            task_details.append(f"{getattr(task, 'name', '?')}(run_id={run_id}, running={is_running}, triggers={triggers})")
+            if run_id and is_running:
+                chat_triggers = {'message', 'interaction', 'human chat', 'agent message',
+                                 'a2a_queue', 'chat_queue'}
+                is_chat_only = all(t.lower() in chat_triggers for t in triggers) if triggers else False
+                if not is_chat_only:
+                    has_non_chat_task = True
+
+        runtime_status = 'working' if has_non_chat_task else 'standby'
+
+        logger.info(f"[agent_handler] Status: {agent_name}({agent_id}) → {runtime_status} "
+                    f"(db={db_status}, active_tasks={active_count}, tasks={task_details})")
+
+        return create_success_response(request, {
+            'agent_id': agent_id,
+            'runtime_status': runtime_status,
+            'enabled': True,
+            'active_task_count': active_count,
+            'detail': f'{active_count} active task(s)'
+        })
+
+    except Exception as e:
+        logger.error(f"[agent_handler] Error getting agent runtime status: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'STATUS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_all_agents_runtime_status')
+def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get runtime status for ALL agents in one call (efficient batch endpoint for polling).
+
+    Returns:
+        { agents: [ { agent_id, agent_name, runtime_status, enabled, active_task_count } ] }
+    """
+    try:
+        mainwin = get_handler_context()
+        if not mainwin:
+            return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
+
+        # Get all agents from DB to know enabled/disabled state
+        ec_db_mgr = AppContext.get_ec_db_mgr()
+        db_status_map = {}  # agent_id -> db_status
+        if ec_db_mgr:
+            try:
+                agent_service = ec_db_mgr.agent_service
+                # Get agents for current user
+                # get_username() may return display name, not email — use .user from MainWindow
+                mw = _get_main_window()
+                user = getattr(mw, 'user', None) if mw else None
+                if not user:
+                    user = mainwin.get_username() if hasattr(mainwin, 'get_username') else None
+                if user:
+                    result = agent_service.get_agents_by_owner(user)
+                    if result.get('success'):
+                        for ag_dict in result.get('data', []):
+                            aid = ag_dict.get('id')
+                            if aid:
+                                db_status_map[aid] = ag_dict.get('status', 'active') or 'active'
+            except Exception as e:
+                logger.warning(f"[agent_handler] Failed to load DB agent statuses: {e}")
+
+        # Build in-memory agent map: agent_id -> ec_agent
+        agents = mainwin.get_agents() if hasattr(mainwin, 'get_agents') else getattr(mainwin, 'agents', []) or []
+        mem_agent_map = {}
+        for ag in agents:
+            cid = getattr(getattr(ag, 'card', None), 'id', None)
+            if cid:
+                mem_agent_map[cid] = ag
+
+        # Combine: iterate all known agent IDs from both DB and memory
+        all_ids = set(db_status_map.keys()) | set(mem_agent_map.keys())
+        results = []
+
+        chat_triggers = {'message', 'interaction', 'human chat', 'agent message',
+                         'a2a_queue', 'chat_queue'}
+
+        for agent_id in all_ids:
+            db_status = db_status_map.get(agent_id, 'active')
+            is_enabled = db_status != 'disabled'
+            ec_agent = mem_agent_map.get(agent_id)
+            agent_name = getattr(getattr(ec_agent, 'card', None), 'name', None) if ec_agent else None
+
+            if not is_enabled:
+                results.append({
+                    'agent_id': agent_id,
+                    'agent_name': agent_name,
+                    'runtime_status': 'disabled',
+                    'enabled': False,
+                    'active_task_count': 0,
+                })
+                continue
+
+            if not ec_agent:
+                results.append({
+                    'agent_id': agent_id,
+                    'agent_name': agent_name,
+                    'runtime_status': 'stopped',
+                    'enabled': True,
+                    'active_task_count': 0,
+                })
+                continue
+
+            # Agent is in memory — determine standby/working
+            active_count = 0
+            with ec_agent.task_lock:
+                active_count = len(ec_agent.active_tasks)
+
+            has_non_chat_task = False
+            for task in ec_agent.tasks:
+                run_id = getattr(task, 'run_id', None)
+                if run_id and ec_agent.is_task_running(run_id):
+                    triggers = getattr(task, 'trigger', []) or []
+                    is_chat_only = all(t.lower() in chat_triggers for t in triggers) if triggers else False
+                    if not is_chat_only:
+                        has_non_chat_task = True
+                        break
+
+            runtime_status = 'working' if has_non_chat_task else 'standby'
+            results.append({
+                'agent_id': agent_id,
+                'agent_name': agent_name or getattr(getattr(ec_agent, 'card', None), 'name', '?'),
+                'runtime_status': runtime_status,
+                'enabled': True,
+                'active_task_count': active_count,
+            })
+
+        # Log summary for diagnosing status sync issues
+        summary = [(r['agent_name'] or r['agent_id'][:8], r['runtime_status'], r.get('active_task_count', 0)) for r in results]
+        logger.info(f"[agent_handler] Batch status: db_agents={len(db_status_map)}, mem_agents={len(mem_agent_map)}, "
+                    f"mem_ids={list(mem_agent_map.keys())}, results={summary}")
+
+        return create_success_response(request, {'agents': results})
+
+    except Exception as e:
+        logger.error(f"[agent_handler] Error getting all agent runtime statuses: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'STATUS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('toggle_agent_enabled')
+def handle_toggle_agent_enabled(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Start or stop an agent (runtime control, does NOT change enabled/disabled state).
+
+    - enable=true: set DB status to 'active', load agent into memory, call ec_agent.start()
+    - enable=false: cancel all active tasks, remove agent from memory, set DB status to 'inactive'
+
+    Params:
+        agent_id: str
+        enable: bool
+    Returns:
+        { agent_id, runtime_status }
+    """
+    try:
+        agent_id = (params or {}).get('agent_id')
+        enable = (params or {}).get('enable')
+        if not agent_id or enable is None:
+            return create_error_response(request, 'MISSING_PARAM', 'agent_id and enable are required')
+
+        mainwin = get_handler_context()
+        if not mainwin:
+            return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
+
+        ec_db_mgr = AppContext.get_ec_db_mgr()
+
+        if enable:
+            # --- START ---
+            # Update DB status to active
+            if ec_db_mgr:
+                try:
+                    agent_service = ec_db_mgr.agent_service
+                    agent_service.update_agent(agent_id, {'status': 'active'})
+                    # Sync to cloud
+                    _sync_agent_status_to_cloud(agent_service, agent_id, 'active')
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to update DB status: {e}")
+
+            # Check if already loaded
+            agents = mainwin.get_agents() if hasattr(mainwin, 'get_agents') else getattr(mainwin, 'agents', []) or []
+            ec_agent = None
+            for ag in agents:
+                cid = getattr(getattr(ag, 'card', None), 'id', None)
+                if cid == agent_id:
+                    ec_agent = ag
+                    break
+
+            if ec_agent:
+                # Already in memory - just start if not already running
+                with ec_agent.task_lock:
+                    if len(ec_agent.active_tasks) == 0:
+                        ec_agent.start()
+                return create_success_response(request, {
+                    'agent_id': agent_id,
+                    'runtime_status': 'standby'
+                })
+
+            # Not in memory - load from DB and start
+            if ec_db_mgr:
+                try:
+                    agent_service = ec_db_mgr.agent_service
+                    result = agent_service.query_agents_with_relations(id=agent_id)
+                    if result.get('success') and result.get('data'):
+                        agent_dict = result['data'][0]
+                        converter = _get_converter()
+                        mw = _get_main_window()
+                        if converter and mw:
+                            ec_agent = converter(agent_dict, mw)
+                            if ec_agent:
+                                mw.agents.append(ec_agent)
+                                ec_agent.start()
+                                logger.info(f"[agent_handler] Agent {agent_id} loaded and started")
+                            else:
+                                return create_error_response(request, 'START_ERROR', 'Failed to convert agent from DB')
+                        else:
+                            return create_error_response(request, 'START_ERROR', 'Agent converter not available')
+                    else:
+                        return create_error_response(request, 'START_ERROR', f'Agent {agent_id} not found in database')
+                except Exception as e:
+                    logger.error(f"[agent_handler] Failed to load and start agent: {e}")
+                    logger.debug(traceback.format_exc())
+                    return create_error_response(request, 'START_ERROR', str(e))
+
+            return create_success_response(request, {
+                'agent_id': agent_id,
+                'runtime_status': 'standby'
+            })
+
+        else:
+            # --- STOP ---
+            # Find agent in memory and cancel all tasks
+            agents = mainwin.get_agents() if hasattr(mainwin, 'get_agents') else getattr(mainwin, 'agents', []) or []
+            ec_agent = None
+            for ag in agents:
+                cid = getattr(getattr(ag, 'card', None), 'id', None)
+                if cid == agent_id:
+                    ec_agent = ag
+                    break
+
+            if ec_agent:
+                # Cancel all active task futures
+                with ec_agent.task_lock:
+                    for run_id, future in list(ec_agent.active_tasks.items()):
+                        try:
+                            future.cancel()
+                            logger.info(f"[agent_handler] Cancelled task run_id={run_id}")
+                        except Exception as e:
+                            logger.warning(f"[agent_handler] Failed to cancel task {run_id}: {e}")
+                    ec_agent.active_tasks.clear()
+
+                # Remove from agents list
+                mw = _get_main_window()
+                if mw:
+                    mw.agents = [ag for ag in agents
+                                 if getattr(getattr(ag, 'card', None), 'id', None) != agent_id]
+                logger.info(f"[agent_handler] Agent {agent_id} stopped and removed from memory")
+
+            # Update DB status to inactive (not 'disabled' — that's the persistent off)
+            if ec_db_mgr:
+                try:
+                    agent_service = ec_db_mgr.agent_service
+                    agent_service.update_agent(agent_id, {'status': 'inactive'})
+                    # Sync to cloud
+                    _sync_agent_status_to_cloud(agent_service, agent_id, 'inactive')
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to update DB status: {e}")
+
+            return create_success_response(request, {
+                'agent_id': agent_id,
+                'runtime_status': 'stopped'
+            })
+
+    except Exception as e:
+        logger.error(f"[agent_handler] Error toggling agent: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'TOGGLE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('set_agent_enabled')
+def handle_set_agent_enabled(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Enable or disable an agent (persistent — survives app restart).
+
+    - enabled=true: set DB status to 'active' (agent can be started, will auto-start on next app launch)
+    - enabled=false: set DB status to 'disabled', also stop the agent if running
+
+    Params:
+        agent_id: str
+        enabled: bool
+    Returns:
+        { agent_id, enabled, runtime_status }
+    """
+    try:
+        agent_id = (params or {}).get('agent_id')
+        enabled = (params or {}).get('enabled')
+        if not agent_id or enabled is None:
+            return create_error_response(request, 'MISSING_PARAM', 'agent_id and enabled are required')
+
+        mainwin = get_handler_context()
+        if not mainwin:
+            return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
+
+        ec_db_mgr = AppContext.get_ec_db_mgr()
+
+        if enabled:
+            # --- ENABLE ---
+            # Set DB status to 'active' so agent will auto-start on next app launch
+            if ec_db_mgr:
+                try:
+                    agent_service = ec_db_mgr.agent_service
+                    agent_service.update_agent(agent_id, {'status': 'active'})
+                    logger.info(f"[agent_handler] Agent {agent_id} enabled (status='active')")
+                    # Sync to cloud
+                    _sync_agent_status_to_cloud(agent_service, agent_id, 'active')
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to update DB status: {e}")
+
+            return create_success_response(request, {
+                'agent_id': agent_id,
+                'enabled': True,
+                'runtime_status': 'stopped'  # enabled but not yet started
+            })
+
+        else:
+            # --- DISABLE ---
+            # First stop the agent if it's running
+            agents = mainwin.get_agents() if hasattr(mainwin, 'get_agents') else getattr(mainwin, 'agents', []) or []
+            ec_agent = None
+            for ag in agents:
+                cid = getattr(getattr(ag, 'card', None), 'id', None)
+                if cid == agent_id:
+                    ec_agent = ag
+                    break
+
+            if ec_agent:
+                with ec_agent.task_lock:
+                    for run_id, future in list(ec_agent.active_tasks.items()):
+                        try:
+                            future.cancel()
+                            logger.info(f"[agent_handler] Cancelled task run_id={run_id}")
+                        except Exception:
+                            pass
+                    ec_agent.active_tasks.clear()
+                mw = _get_main_window()
+                if mw:
+                    mw.agents = [ag for ag in agents
+                                 if getattr(getattr(ag, 'card', None), 'id', None) != agent_id]
+                logger.info(f"[agent_handler] Agent {agent_id} stopped (disabling)")
+
+            # Set DB status to 'disabled' — agent won't auto-start on next app launch
+            if ec_db_mgr:
+                try:
+                    agent_service = ec_db_mgr.agent_service
+                    agent_service.update_agent(agent_id, {'status': 'disabled'})
+                    logger.info(f"[agent_handler] Agent {agent_id} disabled (status='disabled')")
+                    # Sync to cloud
+                    _sync_agent_status_to_cloud(agent_service, agent_id, 'disabled')
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to update DB status: {e}")
+
+            return create_success_response(request, {
+                'agent_id': agent_id,
+                'enabled': False,
+                'runtime_status': 'disabled'
+            })
+
+    except Exception as e:
+        logger.error(f"[agent_handler] Error setting agent enabled: {e}")
+        logger.debug(traceback.format_exc())
+        return create_error_response(request, 'ENABLE_ERROR', str(e))

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { App, Button, Card, Col, DatePicker, Form, Input, Radio, Row, Select, Spin, Tag, Tooltip, TreeSelect, Modal } from 'antd';
-import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
+import { App, Badge, Button, Card, Col, DatePicker, Form, Input, Popconfirm, Radio, Row, Select, Spin, Tag, Tooltip, TreeSelect, Modal } from 'antd';
+import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined, PoweroffOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,8 @@ import { useSkillStore } from '@/stores/domain/skillStore';
 import { useVehicleStore } from '@/stores/domain/vehicleStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { get_ipc_api } from '@/services/ipc_api';
+import { ipcApi } from '@/services/ipc/api';
+import { useAgentRuntimeStore, type RuntimeStatus } from '@/stores/agentRuntimeStore';
 import { StyledFormItem } from '@/components/Common/StyledForm';
 import { AvatarManager, AvatarData } from '@/components/Avatar';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -733,10 +735,57 @@ const AgentDetails: React.FC = () => {
   // Avatar Status
   const [avatarData, setAvatarData] = useState<AvatarData | undefined>();
 
+  // Agent runtime status from shared store (batch-polled by OrgNavigator)
+  const [togglingAgent, setTogglingAgent] = useState(false);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
+
   // Ensure we have a stable agentId for AvatarDisplay even before form finishes loading
   const watchedFormId = Form.useWatch('id', form);
   const resolvedAgentId = (id as string) || (watchedFormId as string) || '';
-  
+
+  const runtimeInfo = useAgentRuntimeStore(s => resolvedAgentId ? s.statusMap[resolvedAgentId] : undefined);
+  const setStatus = useAgentRuntimeStore(s => s.setStatus);
+  const runtimeStatus: RuntimeStatus = runtimeInfo?.runtime_status ?? 'stopped';
+  const agentEnabled = runtimeInfo?.enabled ?? true;
+
+  // Start/Stop agent (runtime control)
+  const handleToggleAgent = useCallback(async (enable: boolean) => {
+    if (!resolvedAgentId) return;
+    setTogglingAgent(true);
+    try {
+      const res = await ipcApi.toggleAgentEnabled<{ runtime_status: string }>(resolvedAgentId, enable);
+      if (res.success && res.data) {
+        setStatus(resolvedAgentId, res.data.runtime_status as RuntimeStatus, true);
+        message.success(enable ? 'Agent started' : 'Agent stopped');
+      } else {
+        message.error(res.error?.message || (enable ? 'Failed to start agent' : 'Failed to stop agent'));
+      }
+    } catch (e) {
+      message.error(enable ? 'Failed to start agent' : 'Failed to stop agent');
+    } finally {
+      setTogglingAgent(false);
+    }
+  }, [resolvedAgentId, message, setStatus]);
+
+  // Enable/Disable agent (persistent — survives app restart)
+  const handleSetAgentEnabled = useCallback(async (enabled: boolean) => {
+    if (!resolvedAgentId) return;
+    setTogglingEnabled(true);
+    try {
+      const res = await ipcApi.setAgentEnabled<{ enabled: boolean; runtime_status: string }>(resolvedAgentId, enabled);
+      if (res.success && res.data) {
+        setStatus(resolvedAgentId, res.data.runtime_status as RuntimeStatus, res.data.enabled);
+        message.success(enabled ? 'Agent enabled' : 'Agent disabled');
+      } else {
+        message.error(res.error?.message || 'Failed to change agent enabled state');
+      }
+    } catch (e) {
+      message.error('Failed to change agent enabled state');
+    } finally {
+      setTogglingEnabled(false);
+    }
+  }, [resolvedAgentId, message, setStatus]);
+
   // 确定Page模式：view（查看）、edit（Edit）、create（新增）
   const pageMode = useMemo(() => {
     if (isNew) return 'create';
@@ -1694,8 +1743,103 @@ const AgentDetails: React.FC = () => {
                     aria-required="true"
                   />
                 </Form.Item>
+
+                {/* Agent Runtime Status + Enable/Disable + Start/Stop */}
+                {!isNew && resolvedAgentId && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                    {/* Status badge */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Badge
+                        status={
+                          runtimeStatus === 'working' ? 'processing' :
+                          runtimeStatus === 'standby' ? 'success' :
+                          runtimeStatus === 'stopped' ? 'warning' :
+                          'default'
+                        }
+                        text={
+                          <span style={{
+                            fontSize: 13,
+                            color: runtimeStatus === 'working' ? '#1890ff'
+                              : runtimeStatus === 'standby' ? '#52c41a'
+                              : runtimeStatus === 'stopped' ? '#faad14'
+                              : 'rgba(255,255,255,0.45)',
+                            fontWeight: 500,
+                          }}>
+                            {runtimeStatus === 'working' ? 'Working'
+                              : runtimeStatus === 'standby' ? 'Standby'
+                              : runtimeStatus === 'stopped' ? 'Stopped'
+                              : 'Disabled'}
+                          </span>
+                        }
+                      />
+
+                      {/* Enable/Disable toggle */}
+                      <Tooltip title={agentEnabled ? 'Disable agent (will not auto-start on app restart)' : 'Enable agent (will auto-start on app restart)'}>
+                        <Button
+                          size="small"
+                          type={agentEnabled ? 'default' : 'dashed'}
+                          loading={togglingEnabled}
+                          onClick={() => {
+                            if (agentEnabled) {
+                              // Disabling — show confirmation
+                              Modal.confirm({
+                                title: <span style={{ color: '#fff' }}>Disable Agent</span>,
+                                content: <span style={{ color: 'rgba(255,255,255,0.85)' }}>Disabling this agent will stop all running tasks and prevent it from auto-starting when you reopen the app. Continue?</span>,
+                                okText: 'Disable',
+                                okButtonProps: { danger: true },
+                                cancelText: 'Cancel',
+                                onOk: () => handleSetAgentEnabled(false),
+                              });
+                            } else {
+                              handleSetAgentEnabled(true);
+                            }
+                          }}
+                          style={{
+                            color: agentEnabled ? '#52c41a' : 'rgba(255,255,255,0.45)',
+                            borderColor: agentEnabled ? '#52c41a' : undefined,
+                          }}
+                        >
+                          {agentEnabled ? 'Enabled' : 'Disabled'}
+                        </Button>
+                      </Tooltip>
+
+                      {/* Start/Stop button (only when agent is enabled) */}
+                      {agentEnabled && (
+                        runtimeStatus === 'stopped' ? (
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<PoweroffOutlined />}
+                            loading={togglingAgent}
+                            onClick={() => handleToggleAgent(true)}
+                          >
+                            Start
+                          </Button>
+                        ) : (runtimeStatus === 'standby' || runtimeStatus === 'working') ? (
+                          <Popconfirm
+                            title={<span style={{ color: '#fff' }}>Stop Agent</span>}
+                            description={<span style={{ color: 'rgba(255,255,255,0.85)' }}>All running tasks on this agent will be shut off immediately. Are you sure?</span>}
+                            onConfirm={() => handleToggleAgent(false)}
+                            okText="Stop"
+                            okButtonProps={{ danger: true }}
+                            cancelText="Cancel"
+                          >
+                            <Button
+                              size="small"
+                              danger
+                              icon={<PoweroffOutlined />}
+                              loading={togglingAgent}
+                            >
+                              Stop
+                            </Button>
+                          </Popconfirm>
+                        ) : null
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              
+
               <div className="agent-basic-info-right">
                 <AvatarManager
                   username={username || 'default'}
