@@ -58,7 +58,11 @@ class DBTokenUsageService(BaseService):
         session_id: Optional[str] = None,
         node_type: Optional[str] = None,
         operation: Optional[str] = None,
-        usage_timestamp: Optional[datetime] = None
+        usage_timestamp: Optional[datetime] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        duration_ms: Optional[int] = None,
+        skill_name: Optional[str] = None
     ) -> Optional[TokenUsage]:
         """
         Record a token usage entry.
@@ -97,7 +101,11 @@ class DBTokenUsageService(BaseService):
                     cost_usd=cost_usd,
                     usage_timestamp=usage_timestamp or datetime.utcnow(),
                     node_type=node_type,
-                    operation=operation
+                    operation=operation,
+                    start_time=start_time,
+                    end_time=end_time,
+                    duration_ms=duration_ms,
+                    skill_name=skill_name
                 )
                 
                 session.add(usage)
@@ -307,3 +315,187 @@ class DBTokenUsageService(BaseService):
         except Exception as e:
             logger.error(f"[TokenUsageService] Error getting recent usage: {e}")
             return []
+
+    def get_time_series_usage(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        granularity: str = 'hour',  # 'hour', 'day', 'month'
+        user_email: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get token usage aggregated by time buckets.
+
+        Returns list of dicts: [{period, input_tokens, output_tokens, total_tokens, cost_usd, invocation_count}]
+        """
+        try:
+            with self.session_scope() as session:
+                if granularity == 'hour':
+                    # Group by date + hour
+                    period_expr = func.strftime('%Y-%m-%d %H:00', TokenUsage.usage_timestamp)
+                elif granularity == 'day':
+                    period_expr = func.strftime('%Y-%m-%d', TokenUsage.usage_timestamp)
+                else:  # month
+                    period_expr = func.strftime('%Y-%m', TokenUsage.usage_timestamp)
+
+                query = session.query(
+                    period_expr.label('period'),
+                    func.sum(TokenUsage.input_tokens).label('input_tokens'),
+                    func.sum(TokenUsage.output_tokens).label('output_tokens'),
+                    func.sum(TokenUsage.total_tokens).label('total_tokens'),
+                    func.sum(TokenUsage.cost_usd).label('cost_usd'),
+                    func.count(TokenUsage.id).label('invocation_count')
+                ).filter(
+                    and_(
+                        TokenUsage.usage_timestamp >= start_date,
+                        TokenUsage.usage_timestamp < end_date
+                    )
+                ).group_by('period').order_by('period')
+
+                if user_email:
+                    query = query.filter(TokenUsage.user_email == user_email)
+
+                results = query.all()
+
+                return [
+                    {
+                        'period': r.period,
+                        'input_tokens': int(r.input_tokens or 0),
+                        'output_tokens': int(r.output_tokens or 0),
+                        'total_tokens': int(r.total_tokens or 0),
+                        'cost_usd': float(r.cost_usd or 0.0),
+                        'invocation_count': int(r.invocation_count or 0)
+                    }
+                    for r in results
+                ]
+        except Exception as e:
+            logger.error(f"[TokenUsageService] Error getting time series usage: {e}")
+            return []
+
+    def get_breakdown_for_period(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        user_email: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get per-model and per-skill token breakdown for a specific period.
+        Also returns total invocation count.
+
+        Returns: {
+            'by_model': [{'vendor': str, 'model': str, 'total_tokens': int, 'cost_usd': float, 'count': int}],
+            'by_skill': [{'skill_name': str, 'total_tokens': int, 'cost_usd': float, 'count': int}],
+            'total_invocations': int
+        }
+        """
+        try:
+            with self.session_scope() as session:
+                base_filter = and_(
+                    TokenUsage.usage_timestamp >= start_date,
+                    TokenUsage.usage_timestamp < end_date
+                )
+
+                # Per-model breakdown
+                model_query = session.query(
+                    TokenUsage.vendor,
+                    TokenUsage.model,
+                    func.sum(TokenUsage.input_tokens).label('input_tokens'),
+                    func.sum(TokenUsage.output_tokens).label('output_tokens'),
+                    func.sum(TokenUsage.total_tokens).label('total_tokens'),
+                    func.sum(TokenUsage.cost_usd).label('cost_usd'),
+                    func.count(TokenUsage.id).label('count')
+                ).filter(base_filter).group_by(TokenUsage.vendor, TokenUsage.model)
+
+                if user_email:
+                    model_query = model_query.filter(TokenUsage.user_email == user_email)
+
+                model_results = model_query.all()
+
+                # Per-skill breakdown
+                skill_query = session.query(
+                    TokenUsage.skill_name,
+                    func.sum(TokenUsage.input_tokens).label('input_tokens'),
+                    func.sum(TokenUsage.output_tokens).label('output_tokens'),
+                    func.sum(TokenUsage.total_tokens).label('total_tokens'),
+                    func.sum(TokenUsage.cost_usd).label('cost_usd'),
+                    func.count(TokenUsage.id).label('count')
+                ).filter(base_filter).group_by(TokenUsage.skill_name)
+
+                if user_email:
+                    skill_query = skill_query.filter(TokenUsage.user_email == user_email)
+
+                skill_results = skill_query.all()
+
+                # Total invocation count
+                count_query = session.query(
+                    func.count(TokenUsage.id)
+                ).filter(base_filter)
+
+                if user_email:
+                    count_query = count_query.filter(TokenUsage.user_email == user_email)
+
+                total_invocations = count_query.scalar() or 0
+
+                return {
+                    'by_model': [
+                        {
+                            'vendor': r.vendor,
+                            'model': r.model,
+                            'input_tokens': int(r.input_tokens or 0),
+                            'output_tokens': int(r.output_tokens or 0),
+                            'total_tokens': int(r.total_tokens or 0),
+                            'cost_usd': float(r.cost_usd or 0.0),
+                            'count': int(r.count or 0)
+                        }
+                        for r in model_results
+                    ],
+                    'by_skill': [
+                        {
+                            'skill_name': r.skill_name or 'unknown',
+                            'input_tokens': int(r.input_tokens or 0),
+                            'output_tokens': int(r.output_tokens or 0),
+                            'total_tokens': int(r.total_tokens or 0),
+                            'cost_usd': float(r.cost_usd or 0.0),
+                            'count': int(r.count or 0)
+                        }
+                        for r in skill_results
+                    ],
+                    'total_invocations': int(total_invocations)
+                }
+        except Exception as e:
+            logger.error(f"[TokenUsageService] Error getting breakdown: {e}")
+            return {'by_model': [], 'by_skill': [], 'total_invocations': 0}
+
+    def get_daily_usage(self, user_email: Optional[str] = None) -> Dict[str, Any]:
+        """Get today's total token usage for alarm display."""
+        try:
+            with self.session_scope() as session:
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                tomorrow_start = today_start + timedelta(days=1)
+
+                query = session.query(
+                    func.sum(TokenUsage.input_tokens).label('input_tokens'),
+                    func.sum(TokenUsage.output_tokens).label('output_tokens'),
+                    func.sum(TokenUsage.total_tokens).label('total_tokens'),
+                    func.sum(TokenUsage.cost_usd).label('cost_usd')
+                ).filter(
+                    and_(
+                        TokenUsage.usage_timestamp >= today_start,
+                        TokenUsage.usage_timestamp < tomorrow_start
+                    )
+                )
+
+                if user_email:
+                    query = query.filter(TokenUsage.user_email == user_email)
+
+                result = query.first()
+
+                return {
+                    'input_tokens': int(result.input_tokens or 0),
+                    'output_tokens': int(result.output_tokens or 0),
+                    'total_tokens': int(result.total_tokens or 0),
+                    'cost_usd': float(result.cost_usd or 0.0)
+                }
+        except Exception as e:
+            logger.error(f"[TokenUsageService] Error getting daily usage: {e}")
+            return {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0, 'cost_usd': 0.0}
