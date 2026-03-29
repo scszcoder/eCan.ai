@@ -4766,6 +4766,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     browser_type_setting = ((inputs.get("browser") or {}).get("content") or "new chromium").lower().strip()
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
     cdp_port_setting = ((inputs.get("cdpPort") or {}).get("content") or "").strip()
+    # cdpPortAuto checkbox overrides cdpPort to "auto" when checked
+    _cdp_port_auto_val = (inputs.get("cdpPortAuto") or {}).get("content")
+    if str(_cdp_port_auto_val).lower() in ("true", "1", "yes", "on"):
+        cdp_port_setting = "auto"
     
     # Extract new browser automation options from node editor
     run_environment_setting = ((inputs.get("runEnvironment") or {}).get("content") or "full_local").lower().strip()
@@ -4844,11 +4848,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_timeout_seconds = None
     
+    # DOM reduction settings (data-driven, replaces hardcoded skill-specific limits)
+    node_dom_focus_selector = ""
+    try:
+        node_dom_focus_selector = ((inputs.get("domFocusSelector") or {}).get("content") or "").strip()
+    except Exception:
+        node_dom_focus_selector = ""
+
+    node_dom_limit = None
+    try:
+        dom_limit_val = str((inputs.get("domLimit") or {}).get("content") or "").strip()
+        if dom_limit_val and dom_limit_val.isdigit():
+            node_dom_limit = int(dom_limit_val)
+    except Exception:
+        node_dom_limit = None
+
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
     logger.info(
         f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
         f"max_steps={node_max_steps}, max_actions_per_step={node_max_actions_per_step}, "
-        f"node_timeout_seconds={node_timeout_seconds}"
+        f"node_timeout_seconds={node_timeout_seconds}, "
+        f"dom_focus_selector={node_dom_focus_selector!r}, dom_limit={node_dom_limit}"
     )
     send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
@@ -5229,11 +5249,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
 
-        log_msg = f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}"
+        log_msg = f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port_config={cdp_port_setting}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
         if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
-            mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
+            # Read browser pool config from general settings if available
+            _bm_slots = None
+            _bm_max_agents = 0
+            try:
+                _gs = getattr(getattr(mainwin, 'config_manager', None), 'general_settings', None)
+                if _gs:
+                    _bm_slots = _gs.browser_slots or None
+                    _bm_max_agents = _gs.browser_max_agents_per_instance or 0
+            except Exception:
+                pass
+            mainwin.browser_manager = BrowserManager(
+                default_webdriver_path=mainwin.getWebDriverPath(),
+                slots=_bm_slots,
+                max_agents_per_browser=_bm_max_agents,
+            )
 
         browser_manager: BrowserManager = mainwin.browser_manager
 
@@ -5246,7 +5280,83 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             'multi-login': BrowserType.CHROME,
         }
         browser_type = browser_type_map.get(browser_type_setting, BrowserType.CHROME)
-        cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
+
+        # Runtime browser-slot resolution: task state (assigned by scheduler
+        # or auto-assigned by BrowserManager) takes priority over skill config.
+        _state_cdp_port = ""
+        _state_browser_profile = ""
+        _state_slot_id = ""
+        try:
+            _slot_state = state if isinstance(state, dict) else {}
+            _slot_attrs = _slot_state.get("attributes", {}) if isinstance(_slot_state, dict) else {}
+            _slot_params = _slot_attrs.get("params", {}) if isinstance(_slot_attrs, dict) else {}
+            # Check state root, then attributes, then params for cdp_port
+            _state_cdp_port = str(
+                _slot_state.get("cdp_port")
+                or _slot_attrs.get("cdp_port")
+                or _slot_params.get("cdp_port")
+                or ""
+            ).strip()
+            _state_browser_profile = str(
+                _slot_state.get("browser_profile")
+                or _slot_attrs.get("browser_profile")
+                or _slot_params.get("browser_profile")
+                or ""
+            ).strip()
+            _state_slot_id = str(
+                _slot_state.get("browser_slot_id")
+                or _slot_attrs.get("browser_slot_id")
+                or _slot_params.get("browser_slot_id")
+                or ""
+            ).strip()
+            if _state_cdp_port or _state_slot_id:
+                logger.info(
+                    f"[BrowserAutomation] Runtime browser slot from state: "
+                    f"cdp_port={_state_cdp_port or '(auto)'}, "
+                    f"slot_id={_state_slot_id or '(none)'}, "
+                    f"profile={_state_browser_profile or '(default)'}"
+                )
+        except Exception as _slot_err:
+            logger.debug(f"[BrowserAutomation] Browser slot resolution from state failed: {_slot_err}")
+
+        # If we have a slot_id but no cdp_port, resolve port from the slot
+        if _state_slot_id and not _state_cdp_port:
+            try:
+                _slot_obj = browser_manager.get_slot(_state_slot_id)
+                if _slot_obj:
+                    _state_cdp_port = str(_slot_obj.cdp_port)
+                    if not _state_browser_profile and _slot_obj.profile:
+                        _state_browser_profile = _slot_obj.profile
+                    logger.info(f"[BrowserAutomation] Resolved slot {_state_slot_id} → cdp_port={_state_cdp_port}")
+            except Exception:
+                pass
+
+        # Priority: runtime slot > skill-editor config > default 9228
+        # Special values: "auto" or "0" → cdp_port=0, which tells
+        # BrowserManager to auto-select from its port pool.
+        _cdp_source = "default"
+        if _state_cdp_port:
+            _cdp_source = "state"
+            if _state_cdp_port.lower() == "auto" or _state_cdp_port == "0":
+                cdp_port = 0
+            elif _state_cdp_port.isdigit():
+                cdp_port = int(_state_cdp_port)
+            else:
+                cdp_port = 9228
+        elif cdp_port_setting:
+            _cdp_source = "config"
+            if cdp_port_setting.lower() == "auto" or cdp_port_setting == "0":
+                cdp_port = 0
+            elif cdp_port_setting.isdigit():
+                cdp_port = int(cdp_port_setting)
+            else:
+                cdp_port = 9228
+        else:
+            cdp_port = 9228
+        logger.info(
+            f"[BrowserAutomation] Resolved cdp_port={'auto' if cdp_port == 0 else cdp_port} "
+            f"(from={_cdp_source})"
+        )
 
         _agent_id_base = calling_agent_id or getattr(mainwin, 'current_agent_id', 'default_agent') or 'default_agent'
         _node_agent_id = (
@@ -5260,10 +5370,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             cdp_port=cdp_port,
             webdriver_path=mainwin.getWebDriverPath(),
             downloads_path=downloads_path,
-            profile=node_profile,
+            profile=node_profile or _state_browser_profile,
         )
 
         if auto_browser and auto_browser.status != BrowserStatus.ERROR:
+            # When cdp_port was auto-assigned (0), update to the actual port
+            # so downstream locks and logging use the real value.
+            if cdp_port == 0 and auto_browser.cdp_port:
+                cdp_port = auto_browser.cdp_port
+                logger.info(f"[BrowserAutomation] Auto-assigned browser on cdp_port={cdp_port}")
+
             if auto_browser.webdriver:
                 mainwin.setWebDriver(auto_browser.webdriver)
 
@@ -5497,12 +5613,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     }
 
                 scope_contract_lines = [
-                    "## Runtime Scope Contract",
-                    "This invocation belongs to the customer-service skill.",
-                    "Front-desk routing and assignment are already complete.",
-                    "You must never call `bu_send_chat` in this invocation.",
-                    "You must never assign or re-assign any session.",
-                    "You must ignore any other session IDs, customer names, or assignment payloads that appear in tabs, logs, history, or stale memory.",
+                    "## Runtime Scope Contract (STRICT — follow exactly)",
+                    "",
+                    "You are a customer-service chat agent. Assignment is already done.",
+                    "You MUST complete this task in EXACTLY 2 steps. No more.",
+                    "",
                 ]
                 if assignment_session_id:
                     scope_contract_lines.append(f"Assigned session_id: {assignment_session_id}")
@@ -5513,16 +5628,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 if assignment_customer_name:
                     scope_contract_lines.append(f"Assigned customer_name: {assignment_customer_name}")
                 scope_contract_lines.extend([
-                    "Allowed work only:",
-                    "1. focus the assigned tab or navigate to the assigned chat_url",
-                    "2. read the latest customer message visible on the page",
-                    "3. type your reply into the chat input and send it",
-                    "4. call `done()` after replying",
                     "",
-                    "IMPORTANT: Do NOT spend time validating or repairing monitors.",
-                    "The `chat_message_added` monitor is already configured by the system.",
-                    "Do NOT call bu_list_session_monitors, bu_get_session_monitor_snapshot, or bu_upsert_session_monitor.",
-                    "Your only job is to read the customer message and reply to it. Act immediately.",
+                    "### Step 1: Read the page",
+                    "- If you are not on the assigned chat tab, navigate to it.",
+                    "- Read the latest customer message from the chat messages area.",
+                    "- Decide your reply.",
+                    "",
+                    "### Step 2: Reply and finish",
+                    "- Type your reply into the chat input field.",
+                    "- Click Send (or press Enter).",
+                    "- Immediately call done() with success=true.",
+                    "- Do NOT take another step to verify the send worked.",
+                    "",
+                    "### FORBIDDEN (will waste time and cause errors):",
+                    "- Do NOT call bu_send_chat, bu_list_session_monitors, bu_get_session_monitor_snapshot, or bu_upsert_session_monitor.",
+                    "- Do NOT assign or re-assign sessions.",
+                    "- Do NOT navigate to any page other than the assigned chat.",
+                    "- Do NOT re-type or re-send if you already typed and sent.",
+                    "- Do NOT take a 3rd step. After step 2, you MUST call done().",
+                    "- Do NOT verify, check, or validate that your message appeared.",
+                    "",
+                    "Your ONLY job: read customer message → type reply → send → done().",
                 ])
                 task = f"{task}\n\n" + "\n".join(scope_contract_lines)
                 logger.info(
@@ -6638,12 +6764,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Use unified agent configuration for consistency across local and cloud modes
             from agent.ec_skills.browser_use_extension.agent_config import get_agent_kwargs_with_compaction
             
+            # Data-driven DOM size reduction via node editor settings.
+            # domLimit (chars) caps max_clickable_elements_length; domFocusSelector
+            # prunes non-matching elements via CDP before DOM extraction (see below).
+            if node_dom_limit:
+                logger.info(
+                    f"[BrowserAutomation] DOM limit set to "
+                    f"{node_dom_limit} chars (was default ~18-25K)"
+                )
+            if node_dom_focus_selector:
+                logger.info(
+                    f"[BrowserAutomation] DOM focus selector: {node_dom_focus_selector!r}"
+                )
+
             agent_kwargs = get_agent_kwargs_with_compaction(
                 use_vision=node_use_vision,
                 use_thinking=node_use_thinking,
                 use_judge=enable_judge_setting,
                 llm=llm,  # Pass LLM to auto-detect context_length for adaptive compaction
                 max_actions_per_step=node_max_actions_per_step,  # Performance optimization
+                **({'max_clickable_elements_length': node_dom_limit} if node_dom_limit else {}),
             )
 
             # Debug: Log the actual message_compaction settings
@@ -7346,6 +7486,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     (cancellation_event and hasattr(agent, 'step'))
                     or (skill_name == "rt_chat_bot" and hasattr(agent, 'step'))
                     or (skill_name == "customer_front_desk" and hasattr(agent, 'step'))
+                    or (node_dom_focus_selector and hasattr(agent, 'step'))
                 )
 
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
@@ -7356,6 +7497,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _patch_focus = _step_focus_target
                     _patch_bs = getattr(agent, 'browser_session', None) if _step_focus_target else None
                     _patch_skill = skill_name
+                    _patch_dom_focus = node_dom_focus_selector  # CSS selectors for DOM pruning
 
                     async def _step_with_cancel(*a, **kw):
                         # Front desk: abort if fast-path already dispatched all assignments
@@ -7391,7 +7533,75 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         if _patch_cancel and _patch_cancel.is_set():
                             logger.info(f"[BrowserAutomation] Cancellation requested, stopping")
                             raise asyncio.CancelledError("Task cancelled by user")
-                        return await _orig_step(*a, **kw)
+
+                        # DOM focus selector: hide elements NOT matching the configured
+                        # CSS selectors before browser-use extracts the DOM snapshot.
+                        # After the step completes, restore visibility so the page
+                        # remains usable for user interaction / next steps.
+                        _dom_hidden = False
+                        if _patch_dom_focus:
+                            try:
+                                _dom_bs = getattr(agent, 'browser_session', None)
+                                _dom_page = getattr(_dom_bs, 'current_page', None) if _dom_bs else None
+                                if _dom_page:
+                                    # Escape the selector for safe JS embedding
+                                    _sel_escaped = _patch_dom_focus.replace("\\", "\\\\").replace("'", "\\'")
+                                    _hide_js = f"""(function() {{
+  var sels = '{_sel_escaped}'.split(',').map(function(s) {{ return s.trim(); }}).filter(Boolean);
+  if (!sels.length) return 0;
+  var keep = new Set();
+  sels.forEach(function(sel) {{
+    document.querySelectorAll(sel).forEach(function(el) {{
+      keep.add(el);
+      // Also keep all ancestors so they remain visible
+      var p = el.parentElement;
+      while (p) {{ keep.add(p); p = p.parentElement; }}
+      // Keep all descendants so child content is visible
+      el.querySelectorAll('*').forEach(function(d) {{ keep.add(d); }});
+    }});
+  }});
+  var hidden = 0;
+  document.querySelectorAll('body *').forEach(function(el) {{
+    if (!keep.has(el)) {{
+      var st = el.style;
+      if (st.display !== 'none') {{
+        el.setAttribute('data-ecan-dom-focus-orig', st.display || '');
+        st.display = 'none';
+        hidden++;
+      }}
+    }}
+  }});
+  return hidden;
+}})()"""
+                                    _hide_result = await _dom_page.evaluate(_hide_js)
+                                    _dom_hidden = True
+                                    logger.debug(
+                                        f"[BrowserAutomation] DOM focus: hid {_hide_result} elements "
+                                        f"(selectors={_patch_dom_focus!r})"
+                                    )
+                            except Exception as _dom_hide_err:
+                                logger.debug(f"[BrowserAutomation] DOM focus hide failed: {_dom_hide_err}")
+
+                        try:
+                            return await _orig_step(*a, **kw)
+                        finally:
+                            # Restore hidden elements after DOM extraction
+                            if _dom_hidden:
+                                try:
+                                    _restore_js = """(function() {
+  var els = document.querySelectorAll('[data-ecan-dom-focus-orig]');
+  els.forEach(function(el) {
+    el.style.display = el.getAttribute('data-ecan-dom-focus-orig') || '';
+    el.removeAttribute('data-ecan-dom-focus-orig');
+  });
+  return els.length;
+})()"""
+                                    _dom_page = getattr(getattr(agent, 'browser_session', None), 'current_page', None)
+                                    if _dom_page:
+                                        _restored = await _dom_page.evaluate(_restore_js)
+                                        logger.debug(f"[BrowserAutomation] DOM focus: restored {_restored} elements")
+                                except Exception as _dom_restore_err:
+                                    logger.debug(f"[BrowserAutomation] DOM focus restore failed: {_dom_restore_err}")
 
                     agent.step = _step_with_cancel
                     _patch_labels = []
@@ -7401,6 +7611,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _patch_labels.append(f"tab refocus (target=...{_step_focus_target[-4:]})")
                     if _patch_skill == "customer_front_desk":
                         _patch_labels.append("fast-path abort guard")
+                    if _patch_dom_focus:
+                        _patch_labels.append(f"DOM focus ({_patch_dom_focus})")
                     logger.info(
                         f"[BrowserAutomation] Patched agent.step: {', '.join(_patch_labels) or 'basic'}"
                     )

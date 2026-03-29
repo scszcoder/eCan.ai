@@ -650,6 +650,36 @@ class GeneralSettings:
     def skill_use_git(self, value: bool):
         self._data["skill_use_git"] = value
 
+    # ==================== Browser Pool Settings ====================
+
+    @property
+    def browser_slots(self) -> List[dict]:
+        """Browser slot configuration for multi-instance Chrome management.
+
+        Each entry defines a Chrome instance slot::
+
+            {"cdp_port": 9228, "max_agents": 12, "user_data_dir": "...", "profile": "..."}
+
+        When empty (default), BrowserManager falls back to its legacy
+        port-pool auto-scaling behaviour — fully backward compatible.
+        """
+        return self._data.get("browser_slots", [])
+
+    @browser_slots.setter
+    def browser_slots(self, value: List[dict]):
+        self._data["browser_slots"] = value
+
+    @property
+    def browser_max_agents_per_instance(self) -> int:
+        """Global default for max agents per Chrome instance (legacy pool mode).
+        0 means use BrowserManager's built-in default (12).
+        """
+        return int(self._data.get("browser_max_agents_per_instance", 0))
+
+    @browser_max_agents_per_instance.setter
+    def browser_max_agents_per_instance(self, value: int):
+        self._data["browser_max_agents_per_instance"] = int(value)
+
     # ==================== Convenience Methods ====================
     
     def set_lan_db_server(self, ip: str, port: str = "5080"):

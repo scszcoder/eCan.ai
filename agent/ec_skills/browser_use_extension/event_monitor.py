@@ -1637,6 +1637,68 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     for item in added_items
                 ] if key_field or key_fields else added_keys[:len(added_items)]
 
+        # -----------------------------------------------------------------
+        # Tier-1 Instant ACK: send a canned reply via CDP BEFORE routing
+        # to LangGraph.  This stops the SLA clock on the platform while
+        # the LLM prepares the real answer (Tier 2).
+        #
+        # The ACK is only sent for chat_message_added with actual customer
+        # messages.  It uses the monitor's independent CDP connection so it
+        # doesn't block the agent's main browser session.
+        #
+        # To enable, set `instant_ack` in the monitor config's extractor:
+        #   "extractor": { "instant_ack": "您好！我马上为您查看" }
+        # When not set, no ACK is sent (backward compatible).
+        # -----------------------------------------------------------------
+        if cfg.label == "chat_message_added" and added_items:
+            _ack_text = str(
+                extractor_cfg.get("instant_ack")
+                or getattr(cfg, "instant_ack", "")
+                or ""
+            ).strip()
+            if _ack_text:
+                try:
+                    _target_id = mutation_state.get("target_id") or ""
+                    _ack_client, _ack_sid = await _get_monitor_cdp(
+                        mutation_state, session, _target_id
+                    )
+                    if _ack_client and _ack_sid:
+                        _ack_js = (
+                            "(function(){"
+                            "  var inp = document.querySelector('#msg-input, input[type=\"text\"], textarea, [contenteditable=\"true\"]');"
+                            "  if(!inp) return 'NO_INPUT';"
+                            "  var nativeSet = Object.getOwnPropertyDescriptor("
+                            "    window.HTMLInputElement.prototype, 'value')?.set"
+                            "    || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;"
+                            "  if(nativeSet) nativeSet.call(inp, " + json.dumps(_ack_text) + ");"
+                            "  else inp.value = " + json.dumps(_ack_text) + ";"
+                            "  inp.dispatchEvent(new Event('input', {bubbles:true}));"
+                            "  inp.dispatchEvent(new Event('change', {bubbles:true}));"
+                            "  var btn = document.querySelector('button[onclick*=\"send\"], button[type=\"submit\"], .send-btn');"
+                            "  if(btn){ btn.click(); return 'ACK_SENT'; }"
+                            "  if(typeof sendMessage==='function'){ sendMessage(); return 'ACK_SENT_FN'; }"
+                            "  return 'NO_SEND_BTN';"
+                            "})()"
+                        )
+                        _ack_result = await _ack_client.send_raw(
+                            "Runtime.evaluate",
+                            {"expression": _ack_js, "returnByValue": True},
+                            session_id=_ack_sid,
+                        )
+                        _ack_val = ""
+                        try:
+                            _ack_val = _ack_result.get("result", {}).get("value", "")
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"[EventMonitor] Tier-1 instant ACK sent: result={_ack_val}, "
+                            f"text='{_ack_text[:40]}'"
+                        )
+                    else:
+                        logger.warning("[EventMonitor] Tier-1 ACK skipped: no CDP client available")
+                except Exception as _ack_err:
+                    logger.warning(f"[EventMonitor] Tier-1 instant ACK failed: {_ack_err}")
+
         customer_count = int(data.get("count") or len(items) or 0)
         mutation_state["last_customer_count"] = customer_count
         mutation_state["last_keys"] = current_keys

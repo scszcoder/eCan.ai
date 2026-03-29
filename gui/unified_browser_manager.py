@@ -71,9 +71,10 @@ class LoggingChatOpenAI(ChatOpenAI):
 
 load_dotenv()
 
-# Global Chrome process tracker
+# Global Chrome process tracker (supports multiple instances)
 _chrome_process = None
 _chrome_port = None
+_chrome_processes: Dict[int, Any] = {}  # port -> Popen, tracks all launched instances
 
 
 def _is_port_in_use(port: int) -> bool:
@@ -163,15 +164,18 @@ def _start_chrome_with_cdp(
     logger.info(f"[BrowserManager] Found Chrome at: {chrome_path}")
     
     # Prepare Chrome arguments
+    # Each port gets its own user_data_dir to avoid Chrome lockfile conflicts
+    # when running multiple instances simultaneously.
     if not user_data_dir:
+        _profile_subdir = 'default' if port == 9228 else f'port_{port}'
         try:
             from utils.user_path_helper import ensure_user_data_dir
-            user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', 'default'))
+            user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _profile_subdir))
         except Exception:
             if system == "Windows":
-                user_data_dir = os.path.expandvars("%TEMP%\\chrome-cdp-profile")
+                user_data_dir = os.path.expandvars(f"%TEMP%\\chrome-cdp-{_profile_subdir}")
             else:
-                user_data_dir = "/tmp/chrome-cdp-profile"
+                user_data_dir = f"/tmp/chrome-cdp-{_profile_subdir}"
 
     if not profile_directory:
         profile_directory = "Default"
@@ -201,6 +205,7 @@ def _start_chrome_with_cdp(
             start_new_session=True  # Detach from parent process
         )
         _chrome_port = port
+        _chrome_processes[port] = _chrome_process
         
         # Wait for Chrome to start and CDP to be ready
         max_wait = 10  # seconds

@@ -45,6 +45,8 @@ export function getCommonFieldLabel(key: string, t: TFunction): string {
     'flashMode': t('nodes.browserAutomation.flashMode'),
     'maxSteps': t('nodes.browserAutomation.maxSteps'),
     'maxActionsPerStep': t('nodes.browserAutomation.maxActionsPerStep'),
+    'domFocusSelector': t('nodes.browserAutomation.domFocusSelector'),
+    'domLimit': t('nodes.browserAutomation.domLimit'),
     'promptSelection': t('nodes.llm.promptSelection'),
     'promptId': t('nodes.llm.promptId'),
     'promptId_selector': t('nodes.llm.promptSelector'),
