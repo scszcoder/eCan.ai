@@ -76,6 +76,17 @@ const DEFAULT_PROMPT: Prompt = {
 
 const HISTORY_LIMIT = 250;
 
+const hasUnclosedMarkdownFence = (content: string): boolean => {
+  const lines = (typeof content === 'string' ? content : '').split(/\r?\n/);
+  let fenceCount = 0;
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      fenceCount += 1;
+    }
+  }
+  return fenceCount % 2 !== 0;
+};
+
 const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initialEditMode, onEditModeConsumed }) => {
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username);
@@ -211,33 +222,59 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     });
   }, [onChange]);
 
+  const validatePromptBeforeSave = useCallback((candidate: Prompt, mode: PromptFormat, interactive: boolean) => {
+    if (mode !== 'md') return true;
+
+    const mdContent = candidate.mdContent || '';
+    if (!mdContent.trim()) return true;
+
+    if (hasUnclosedMarkdownFence(mdContent)) {
+      if (interactive) {
+        message.error(
+          t('pages.prompts.invalidMarkdownFence', {
+            defaultValue: 'Markdown has an unclosed code fence. Close the ``` block before saving.',
+          }),
+        );
+      }
+      return false;
+    }
+
+    return true;
+  }, [t]);
+
+  const buildSavePayload = useCallback((currentDraft: Prompt, mode: PromptFormat, interactive: boolean): Prompt | null => {
+    const savePayload = clonePrompt(currentDraft);
+    savePayload.format = mode;
+
+    if (mode === 'md') {
+      savePayload.mdContent = currentDraft.mdContent || '';
+      if (savePayload.mdContent.trim()) {
+        savePayload.sections = [];
+        savePayload.userSections = [];
+      }
+    } else if (savePayload.sections && savePayload.sections.length > 0) {
+      savePayload.mdContent = '';
+    }
+
+    if (!validatePromptBeforeSave(savePayload, mode, interactive)) {
+      return null;
+    }
+
+    return savePayload;
+  }, [clonePrompt, validatePromptBeforeSave]);
+
   const flushAutosave = useCallback(() => {
     cancelAutosave();
     if (!editingRef.current || promptReadOnlyRef.current) return;
     if (!hasPendingChangesRef.current) return;
     const currentDraft = latestDraftRef.current;
     if (!currentDraft) return;
-    
-    // Apply same mode-specific save logic as manual save
-    const savePayload = clonePrompt(currentDraft);
-    savePayload.format = editFormat;
-    
-    if (editFormat === 'md') {
-      // In markdown mode: save mdContent, clear sections
-      savePayload.mdContent = currentDraft.mdContent || '';
-      if (savePayload.mdContent.trim()) {
-        savePayload.sections = [];
-        savePayload.userSections = [];
-      }
-    } else {
-      // In JSON mode: save sections, clear mdContent
-      if (savePayload.sections && savePayload.sections.length > 0) {
-        savePayload.mdContent = '';
-      }
-    }
-    
+
+    const savePayload = buildSavePayload(currentDraft, editFormat, false);
+    if (!savePayload) return;
+
     commitSave(savePayload).catch(() => {});
-  }, [cancelAutosave, clonePrompt, commitSave, editFormat]);
+  }, [buildSavePayload, cancelAutosave, commitSave, editFormat]);
 
   const scheduleAutosave = useCallback(() => {
     // Disable autosave for web app, only allow for desktop/Electron
@@ -882,27 +919,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     }
     if (editing && draft) {
       cancelAutosave();
-      const savePayload = clonePrompt(draft);
-      // Persist format choice
-      savePayload.format = editFormat;
-      
-      // Only save content from the active mode
-      if (editFormat === 'md') {
-        // In markdown mode: save mdContent, clear sections
-        savePayload.mdContent = draft.mdContent || '';
-        // Clear JSON mode content unless mdContent is empty
-        if (savePayload.mdContent.trim()) {
-          savePayload.sections = [];
-          savePayload.userSections = [];
-        }
-      } else {
-        // In JSON mode: save sections, clear mdContent
-        // Clear markdown content unless sections are empty
-        if (savePayload.sections && savePayload.sections.length > 0) {
-          savePayload.mdContent = '';
-        }
-      }
-      
+      const savePayload = buildSavePayload(draft, editFormat, true);
+      if (!savePayload) return;
+
       latestDraftRef.current = savePayload;
       commitSave(savePayload).catch(() => {});
     }
@@ -1050,9 +1069,19 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     if (newFormat === editFormat) return;
 
     if (editing && draft) {
+      const hasAuthoredMarkdown = !!(draft.mdContent && draft.mdContent.trim());
+      if (editFormat === 'md' && newFormat === 'json' && hasAuthoredMarkdown) {
+        message.warning(
+          t('pages.prompts.markdownFormatSwitchBlocked', {
+            defaultValue: 'This prompt already has authored Markdown. Switching to JSON is blocked to avoid overwriting it with generated content.',
+          }),
+        );
+        return;
+      }
+
       if (newFormat === 'md') {
         // Switching JSON → MD: convert current previewText into mdContent
-        const mdText = draft.mdContent || previewText || '';
+        const mdText = draft.mdContent && draft.mdContent.trim() ? draft.mdContent : (previewText || '');
         pushUndoStack(clonePrompt(draft));
         setDraft((prev) => prev ? { ...prev, format: 'md', mdContent: mdText } : prev);
         hasPendingChangesRef.current = true;
@@ -1066,7 +1095,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
       }
     }
     setEditFormat(newFormat);
-  }, [editing, draft, editFormat, previewText, pushUndoStack, clonePrompt, scheduleAutosave]);
+  }, [editing, draft, editFormat, previewText, pushUndoStack, clonePrompt, scheduleAutosave, t]);
 
   // Simple Markdown → HTML renderer for preview panel (MD mode)
   const renderMdPreviewHtml = useMemo(() => {

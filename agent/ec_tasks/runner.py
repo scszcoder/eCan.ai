@@ -799,6 +799,7 @@ class TaskRunner(Generic[Context]):
                 node_match_fields = entry.get("match_fields") or []
                 timer_name = entry.get("timer_name") or ""
                 browser_event_label = entry.get("browser_event_label") or ""
+                task_session_id = self._get_task_session_id(task)
                 
                 # For timer events with a name, use a composite routing key
                 # so multiple tasks can listen for different timer names.
@@ -809,6 +810,32 @@ class TaskRunner(Generic[Context]):
                     routing_key_name = f"{et}:{browser_event_label}"
                 else:
                     routing_key_name = et
+
+                if et in {"chat_message", "human_chat", "channel_message"} and not task_session_id:
+                    existing_rule = self._global_event_routing.get(routing_key_name)
+                    if isinstance(existing_rule, dict):
+                        existing_chain = existing_rule.get("_rule_chain")
+                        if isinstance(existing_chain, list):
+                            filtered_chain = [
+                                r for r in existing_chain
+                                if not (isinstance(r, dict) and r.get("_auto_added_by_task") == task.id)
+                            ]
+                            if filtered_chain:
+                                self._global_event_routing[routing_key_name] = {"_rule_chain": filtered_chain}
+                            else:
+                                self._global_event_routing.pop(routing_key_name, None)
+                        elif existing_rule.get("_auto_added_by_task") == task.id:
+                            self._global_event_routing.pop(routing_key_name, None)
+                    logger.info(
+                        f"[EventRouting] Removed/skipped generic chat routing for task '{task.name}' with no sessionId"
+                    )
+                    amended = True
+                    continue
+
+                # NOTE: browser_event routing is NOT skipped when sessionId is absent.
+                # Unlike chat messages, browser events (e.g. conversation_became_active
+                # on the control page) are often sessionless by design and must still
+                # reach the task's pend_event node.
                 
                 rule: Dict[str, Any] = {
                     "task_selector": f"id:{task.id}",
@@ -833,18 +860,51 @@ class TaskRunner(Generic[Context]):
                     )
                 elif et == "browser_event" and browser_event_label:
                     # Auto-generate match_fields for browser events:
-                    # match event.sub_type == configured label (literal)
-                    be_match = list(node_match_fields) if node_match_fields else []
-                    be_match.append({
-                        "event_path": "context.sub_type",
-                        "literal": browser_event_label,
-                    })
+                    # match browser-event label regardless of whether the normalized event
+                    # keeps sub_type at top level or under context/data. The composite-key
+                    # lookup already supports all of these shapes; the rule matcher needs
+                    # to do the same.
+                    # Do not inherit generic pend_event match_fields here. In practice those
+                    # often contain chat-assignment constraints such as context.senderId, which
+                    # do not exist on emitted browser events and cause routing to miss.
+                    be_match = [
+                        {
+                            "event_path": "sub_type",
+                            "literal": browser_event_label,
+                        },
+                        {
+                            "event_path": "context.sub_type",
+                            "literal": browser_event_label,
+                        },
+                        {
+                            "event_path": "data.sub_type",
+                            "literal": browser_event_label,
+                        },
+                    ]
                     rule["match_fields"] = be_match
-                    rule["match_mode"] = "all"
+                    rule["match_mode"] = "any"
                     logger.info(
                         f"[EventRouting] Added browser_event routing rule: event 'browser_event' "
                         f"(label='{browser_event_label}') -> task '{task.name}'"
                     )
+                elif et in {"chat_message", "human_chat", "channel_message"} and task_session_id:
+                    chat_match = list(node_match_fields) if node_match_fields else []
+                    chat_match.append({
+                        "event_path": "context.chatId",
+                        "task_path": "sessionId",
+                    })
+                    rule["match_fields"] = chat_match
+                    rule["match_mode"] = "all"
+                    logger.info(
+                        f"[EventRouting] Added session-aware chat routing rule: event '{et}' "
+                        f"(chatId -> sessionId='{task_session_id}') -> task '{task.name}'"
+                    )
+                elif et in {"chat_message", "human_chat", "channel_message"} and not task_session_id:
+                    logger.info(
+                        f"[EventRouting] Skipping generic chat routing rule for task '{task.name}' "
+                        f"because it has no sessionId; fallback session-scoped chatter routing will handle assignment"
+                    )
+                    continue
                 elif node_match_fields:
                     # Use match_fields from the node config for declarative matching
                     rule["match_fields"] = node_match_fields
@@ -880,8 +940,28 @@ class TaskRunner(Generic[Context]):
 
                     auto_rules = [r for r in filtered_chain if r.get("_auto_added_by_task")]
                     fallback_rules = [r for r in filtered_chain if not r.get("_auto_added_by_task")]
+
+                    # For browser_event rules, session-specific chatter tasks
+                    # must be tried before static tasks.  Static tasks have no
+                    # customer context and consume the event without acting on it.
+                    if routing_key_name.startswith("browser_event:"):
+                        chatter_auto = [
+                            r for r in auto_rules
+                            if str(r.get("_auto_added_by_task", "")).startswith("auto-chatter-")
+                        ]
+                        static_auto = [
+                            r for r in auto_rules
+                            if not str(r.get("_auto_added_by_task", "")).startswith("auto-chatter-")
+                        ]
+                        if str(rule.get("_auto_added_by_task", "")).startswith("auto-chatter-"):
+                            new_chain = chatter_auto + [rule] + static_auto + fallback_rules
+                        else:
+                            new_chain = chatter_auto + static_auto + [rule] + fallback_rules
+                    else:
+                        new_chain = auto_rules + [rule] + fallback_rules
+
                     self._global_event_routing[routing_key_name] = {
-                        "_rule_chain": auto_rules + [rule] + fallback_rules
+                        "_rule_chain": new_chain
                     }
                     logger.debug(
                         f"[EventRouting] Layered task-specific rule for '{routing_key_name}' "
@@ -889,6 +969,14 @@ class TaskRunner(Generic[Context]):
                     )
                 else:
                     self._global_event_routing[routing_key_name] = rule
+                try:
+                    debug_entry = self._global_event_routing.get(routing_key_name)
+                    logger.info(
+                        f"[EventRouting] routing_key='{routing_key_name}' entry="
+                        f"{json.dumps(debug_entry, default=str)[:1200]}"
+                    )
+                except Exception:
+                    pass
                 amended = True
             
             if amended:
@@ -962,6 +1050,39 @@ class TaskRunner(Generic[Context]):
             return current
         except Exception:
             return None
+
+    def _get_task_session_id(self, task: ManagedTask) -> str:
+        """Best-effort extract a stable session id from a task."""
+        try:
+            for attr in ("sessionId", "session_id"):
+                value = getattr(task, attr, None)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+            metadata = getattr(task, "metadata", None) or {}
+            if isinstance(metadata, dict):
+                ownership_scope = metadata.get("ownership_scope") or {}
+                if isinstance(ownership_scope, dict):
+                    for key in ("session_id", "sessionId"):
+                        value = ownership_scope.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+
+            state = getattr(task, "state", None) or {}
+            if isinstance(state, dict):
+                for key in ("session_id", "sessionId", "chat_id", "chatId"):
+                    value = state.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+
+            task_name = (getattr(task, "name", "") or "").strip()
+            if task_name.startswith("chat:") and ":" in task_name:
+                suffix = task_name.rsplit(":", 1)[-1].strip()
+                if suffix.startswith("cust_"):
+                    return suffix
+        except Exception:
+            pass
+        return ""
     
     @staticmethod
     def _apply_match_transform(value: Any, transform: str) -> Any:
@@ -1162,7 +1283,27 @@ class TaskRunner(Generic[Context]):
                 return None
 
             tasks_list = getattr(self.agent, "tasks", []) or []
+            event_session_id = ""
+            if etype in {"chat_message", "human_chat", "channel_message"}:
+                try:
+                    event_session_id = self._extract_session_key_from_request(etype, request, source)
+                except Exception:
+                    event_session_id = ""
             logger.info(f"[ROUTING] Routing event '{etype}' (rule='{resolved_etype}') - {len(tasks_list)} tasks available")
+            if etype == "browser_event":
+                try:
+                    task_debug = [
+                        {
+                            "id": getattr(t, "id", ""),
+                            "name": getattr(t, "name", ""),
+                            "sessionId": self._get_task_session_id(t),
+                            "skill": getattr(getattr(t, "skill", None), "name", ""),
+                        }
+                        for t in tasks_list if t
+                    ]
+                    logger.info(f"[ROUTING] browser_event tasks_list={json.dumps(task_debug, ensure_ascii=True)}")
+                except Exception:
+                    pass
 
             for idx, candidate_rule in enumerate(candidate_rules, start=1):
                 selector = candidate_rule.get("task_selector") or ""
@@ -1172,9 +1313,31 @@ class TaskRunner(Generic[Context]):
                         logger.debug(
                             f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' matched no task_selector '{selector}'"
                         )
+                        if etype == "browser_event":
+                            try:
+                                logger.info(
+                                    f"[ROUTING] browser_event selector_miss selector='{selector}' "
+                                    f"available_task_ids={[getattr(t, 'id', '') for t in tasks_list if t]}"
+                                )
+                            except Exception:
+                                pass
                         continue
                 else:
                     candidates = [t for t in tasks_list if t]
+
+                if event_session_id and etype in {"chat_message", "human_chat", "channel_message"}:
+                    session_candidates = [
+                        t for t in candidates
+                        if self._get_task_session_id(t) == event_session_id
+                    ]
+                    if session_candidates:
+                        candidates = session_candidates
+                    else:
+                        logger.debug(
+                            f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' "
+                            f"matched only non-session tasks; skipping because event session_id='{event_session_id}'"
+                        )
+                        continue
 
                 match_fields = candidate_rule.get("match_fields")
                 if isinstance(match_fields, list) and match_fields:
@@ -1279,11 +1442,58 @@ class TaskRunner(Generic[Context]):
         logger.error("NO chatter tasks found!")
         return None
 
-    def _ensure_chatter_task(self) -> Optional[ManagedTask]:
+    def _extract_session_key_from_request(self, event_type: str, request: Any, source: str = "") -> str:
+        """Best-effort extract a stable session key from an incoming chat/request event."""
+        try:
+            from .resume import normalize_event
+
+            event = normalize_event(event_type, request, src=source)
+            ctx = event.get("context", {}) if isinstance(event, dict) else {}
+            for key in ("chatId", "sessionId"):
+                value = ctx.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+            data = event.get("data", {}) if isinstance(event, dict) else {}
+            human_text = data.get("human_text")
+            if isinstance(human_text, str) and human_text.strip().startswith("{"):
+                try:
+                    payload = json.loads(human_text)
+                except Exception:
+                    payload = None
+                if isinstance(payload, dict):
+                    for key in ("session_id", "sessionId", "customer_id", "customerId"):
+                        value = payload.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+        except Exception as e:
+            logger.debug(f"[chatter_task] session key extraction skipped: {e}")
+        return ""
+
+    def _find_chatter_task_by_session(self, session_id: str) -> Optional[ManagedTask]:
+        if not session_id:
+            return None
+        for task in getattr(self.agent, "tasks", []) or []:
+            if self._get_task_session_id(task) != session_id:
+                continue
+            task_name = (getattr(task, "name", "") or "").lower()
+            skill_name = (getattr(getattr(task, "skill", None), "name", "") or "").lower()
+            if "chat" in task_name or "chat" in skill_name:
+                logger.debug(f"[find_chatter_task_by_session] Found: {task.id} for session_id={session_id}")
+                return task
+        return None
+
+    def _ensure_chatter_task(self, request: Any = None, event_type: str = "", source: str = "") -> Optional[ManagedTask]:
         """Ensure the agent has a chatter task for routing human_chat/a2a events."""
-        existing = self.find_chatter_tasks()
-        if existing:
-            return existing
+        session_id = self._extract_session_key_from_request(event_type, request, source) if request is not None else ""
+        if session_id:
+            existing = self._find_chatter_task_by_session(session_id)
+            if existing:
+                return existing
+        else:
+            existing = self.find_chatter_tasks()
+            if existing:
+                return existing
 
         skills = getattr(self.agent, "skills", []) or []
         chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
@@ -1301,13 +1511,17 @@ class TaskRunner(Generic[Context]):
         task = ManagedTask(
             id=task_id,
             context_id=task_id,
-            name=f"chat:Auto Chatter Task ({getattr(chatter_skill, 'name', 'chatter')})",
+            name=(
+                f"chat:{getattr(chatter_skill, 'name', 'chatter')}:{session_id}"
+                if session_id else
+                f"chat:Auto Chatter Task ({getattr(chatter_skill, 'name', 'chatter')})"
+            ),
             description="Auto-created chatter task for routing",
             source="code",
             status=A2ATaskStatus(state=TaskState.submitted),
-            sessionId="",
+            sessionId=session_id or "",
             skill=chatter_skill,
-            metadata={"state": {"top": "ready"}},
+            metadata={"state": {"top": "ready"}, "ownership_scope": {"session_id": session_id}} if session_id else {"state": {"top": "ready"}},
             state={"top": "ready"},
             resume_from="",
             trigger="message",
@@ -1317,7 +1531,7 @@ class TaskRunner(Generic[Context]):
         if getattr(self.agent, "tasks", None) is None:
             self.agent.tasks = []
         self.agent.tasks.append(task)
-        logger.info(f"[ensure_chatter_task] Auto-created chatter task: {task.name}")
+        logger.info(f"[ensure_chatter_task] Auto-created chatter task: {task.name} (session_id={session_id or ''})")
 
         # Start the execution loop for this new task so it can consume from its queue
         try:
@@ -1386,6 +1600,15 @@ class TaskRunner(Generic[Context]):
             routing_result = self._resolve_event_routing(event_type, request, source)
             if routing_result:
                 target_task, rule = routing_result
+                try:
+                    logger.info(
+                        f"[QUEUE] Routed event_type={event_type}"
+                        f"{f', sub_type={_sub_type}' if _sub_type else ''} "
+                        f"to task={target_task.name} via rule={getattr(rule, 'event_type', '')}/"
+                        f"{getattr(rule, 'browser_event_label', '')}"
+                    )
+                except Exception:
+                    pass
                 if not hasattr(target_task, "queue") or target_task.queue is None:
                     logger.error(f"[QUEUE] Target task has no queue: {target_task.name}")
                     return
@@ -1397,7 +1620,7 @@ class TaskRunner(Generic[Context]):
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
                 if event_type in {"chat_message", "human_chat", "task_request", "a2a", "channel_message"}:
-                    fallback_task = self._ensure_chatter_task()
+                    fallback_task = self._ensure_chatter_task(request=request, event_type=event_type, source=source)
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:
                             fallback_task.queue.put_nowait(request)
@@ -1690,6 +1913,22 @@ class TaskRunner(Generic[Context]):
             self._dev_exit_requested = False
         
         current_task = task2run
+        # A ManagedTask can be reused across multiple workflow/event invocations.
+        # If a prior run set cooperative cancellation, clear that stale state before
+        # entering a fresh execution loop; otherwise browser/LLM nodes will observe
+        # an already-set cancellation_event and abort immediately.
+        if current_task is not None:
+            try:
+                if hasattr(current_task, "cancellation_event") and current_task.cancellation_event.is_set():
+                    current_task.cancellation_event.clear()
+                    logger.info(f"[WORKER] Cleared stale cancellation_event for task {current_task.id}")
+            except Exception as e:
+                logger.warning(f"[WORKER] Failed clearing cancellation_event for task {getattr(current_task, 'id', '')}: {e}")
+            try:
+                if hasattr(current_task, "pause_event") and not current_task.pause_event.is_set():
+                    current_task.pause_event.set()
+            except Exception:
+                pass
         consecutive_errors = 0
         consecutive_validation_failures = 0
         max_errors = 10

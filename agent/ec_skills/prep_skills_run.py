@@ -118,6 +118,63 @@ def _extract_browser_event_patch(msg: Any) -> Dict[str, Any]:
         return {}
 
 
+def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Fallback injection for chat-message style resumes when mapping leaves state.input empty."""
+    try:
+        existing_input = ""
+        if isinstance(node_state, dict):
+            raw_existing = node_state.get("input")
+            if isinstance(raw_existing, str):
+                existing_input = raw_existing.strip()
+        if existing_input:
+            return {}
+
+        candidates = []
+
+        if isinstance(event, dict):
+            human_text = ((event.get("data") or {}).get("human_text") if isinstance(event.get("data"), dict) else None)
+            if isinstance(human_text, str) and human_text.strip():
+                candidates.append(("event.data.human_text", human_text.strip()))
+
+        if isinstance(msg, dict):
+            text = _safe_get(msg, "params.message.parts.0.text")
+            if isinstance(text, str) and text.strip():
+                candidates.append(("msg.params.message.parts[0].text", text.strip()))
+
+            text = _safe_get(msg, "params.metadata.params.content.text")
+            if isinstance(text, str) and text.strip():
+                candidates.append(("msg.params.metadata.params.content.text", text.strip()))
+
+            text = _safe_get(msg, "params.content")
+            if isinstance(text, str) and text.strip():
+                candidates.append(("msg.params.content", text.strip()))
+
+            if not candidates:
+                raw_content = _safe_get(msg, "params.metadata.params.content")
+                if isinstance(raw_content, dict):
+                    raw_text = raw_content.get("text")
+                    if isinstance(raw_text, str) and raw_text.strip():
+                        candidates.append(("msg.params.metadata.params.content[text]", raw_text.strip()))
+
+        for source, payload in candidates:
+            # Only inject plausible assignment/customer-chat payload text.
+            if payload:
+                logger.info(f"[prep_skills_run] Injecting fallback state.input from {source} (len={len(payload)})")
+                return {
+                    "input": payload,
+                    "attributes": {
+                        "current_invocation_input": payload,
+                        "current_invocation_input_source": source,
+                    },
+                }
+
+        logger.debug("[prep_skills_run] No fallback chat-message input payload found")
+        return {}
+    except Exception as e:
+        logger.debug("[prep_skills_run] chat-message input fallback failed: " + str(e))
+        return {}
+
+
 def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, Any]] = None) -> "NodeState":
     """Provide a NodeState-shaped baseline for a new run.
     
@@ -431,6 +488,10 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
         if browser_event_patch:
             state_patch = _deep_merge(state_patch or {}, browser_event_patch)
             logger.debug("[prep_skills_run] browser_event_patch: ", browser_event_patch)
+        chat_input_patch = _extract_chat_message_input_patch(msg, event, node_state)
+        if chat_input_patch:
+            state_patch = _deep_merge(state_patch or {}, chat_input_patch)
+            logger.debug("[prep_skills_run] chat_input_patch: ", chat_input_patch)
         # 5) Merge mapping outputs into NodeState fields
         # Write to known sections if present in patch
         if isinstance(state_patch, dict):

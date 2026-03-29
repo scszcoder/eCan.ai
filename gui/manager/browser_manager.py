@@ -44,6 +44,72 @@ class BrowserStatus(str, Enum):
     DISCONNECTED = "disconnected"  # Lost connection
 
 
+# =============================================================================
+# Browser Slot — abstraction for a Chrome instance slot on a vehicle
+# =============================================================================
+
+class BrowserSlot(BaseModel):
+    """A configured Chrome instance slot on a machine/vehicle.
+
+    Each slot represents one Chrome process addressable by CDP port.
+    Agents are assigned to slots; once a slot reaches ``max_agents`` the
+    pool spills over to the next available slot (or launches a new Chrome).
+
+    When no slots are explicitly configured the BrowserManager falls back
+    to its legacy ``port_pool`` behaviour (backward-compatible default).
+    """
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    # Slot identity
+    id: str = Field(default="", description="Unique slot id, e.g. 'slot_9228'. Auto-generated from port if blank.")
+    cdp_port: int = Field(default=9228, description="CDP port for this Chrome instance")
+
+    # Capacity
+    max_agents: int = Field(default=12, description="Max concurrent agents on this Chrome")
+
+    # Chrome profile / data dir
+    user_data_dir: Optional[str] = Field(default=None, description="Chrome --user-data-dir. Auto-generated per-port if None.")
+    profile: Optional[str] = Field(default=None, description="Browser profile name (maps to Chrome --profile-directory)")
+
+    # Runtime state (not persisted)
+    assigned_agents: List[str] = Field(default_factory=list, description="Agent IDs currently assigned to this slot")
+    status: str = Field(default="idle", description="idle | active | full | error")
+    last_error: Optional[str] = Field(default=None)
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.id:
+            self.id = f"slot_{self.cdp_port}"
+
+    @property
+    def agent_count(self) -> int:
+        return len(self.assigned_agents)
+
+    @property
+    def has_capacity(self) -> bool:
+        return self.agent_count < self.max_agents
+
+    def assign_agent(self, agent_id: str) -> None:
+        if agent_id not in self.assigned_agents:
+            self.assigned_agents.append(agent_id)
+        self.status = "full" if not self.has_capacity else "active"
+
+    def release_agent(self, agent_id: str) -> None:
+        if agent_id in self.assigned_agents:
+            self.assigned_agents.remove(agent_id)
+        if not self.assigned_agents:
+            self.status = "idle"
+        elif self.has_capacity:
+            self.status = "active"
+
+    def to_state_dict(self) -> dict:
+        """Fields to inject into task state so the agent reconnects to this slot."""
+        return {
+            "browser_slot_id": self.id,
+            "cdp_port": str(self.cdp_port),
+            "browser_profile": self.profile or "",
+        }
+
+
 class AutoBrowser(BaseModel):
     """
     Represents a single browser instance managed by BrowserManager.
@@ -90,9 +156,12 @@ class AutoBrowser(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     last_used_at: Optional[datetime] = Field(default=None)
     
+    # Slot assignment (when using browser slot pool)
+    slot_id: Optional[str] = Field(default=None, description="BrowserSlot.id this browser belongs to")
+
     # AdsPower specific fields
     adspower_profile_id: Optional[str] = Field(default=None, description="AdsPower profile ID")
-    
+
     # Error information
     last_error: Optional[str] = Field(default=None)
     
@@ -201,16 +270,22 @@ def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
                         downloader = WebDriverDownloader()
                         webdriver_dir = get_webdriver_dir()
                         
-                        # Use asyncio to run the async download function
+                        # Use a dedicated thread to run the async download, avoiding
+                        # "Cannot run the event loop while another loop is running" when
+                        # this sync function is called from within an async context.
                         import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            new_driver_path = loop.run_until_complete(
-                                downloader.download_webdriver(chrome_version, webdriver_dir)
-                            )
-                        finally:
-                            loop.close()
+                        import concurrent.futures
+                        def _run_download():
+                            loop = asyncio.new_event_loop()
+                            try:
+                                return loop.run_until_complete(
+                                    downloader.download_webdriver(chrome_version, webdriver_dir)
+                                )
+                            finally:
+                                loop.close()
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(_run_download)
+                            new_driver_path = future.result(timeout=120)
                         
                         if new_driver_path:
                             logger.info(f"[WebDriver] ✅ Downloaded matching ChromeDriver: {new_driver_path}")
@@ -480,18 +555,65 @@ class BrowserManager:
     - Track browser usage across agents
     """
     
-    def __init__(self, default_webdriver_path: Optional[str] = None):
+    # Default port pool and capacity for auto-scaling browser instances.
+    DEFAULT_PORT_POOL = list(range(9228, 9238))  # ports 9228-9237 (10 slots)
+    DEFAULT_MAX_AGENTS_PER_BROWSER = 12
+
+    def __init__(
+        self,
+        default_webdriver_path: Optional[str] = None,
+        port_pool: Optional[List[int]] = None,
+        max_agents_per_browser: int = 0,
+        slots: Optional[List[Dict[str, Any]]] = None,
+    ):
         """
         Initialize BrowserManager.
-        
+
         Args:
             default_webdriver_path: Default path to chromedriver executable
+            port_pool: List of CDP ports available for auto-scaling Chrome instances.
+                       When an agent requests cdp_port=0 (auto), the manager picks
+                       the least-loaded port from this pool, spawning a new Chrome
+                       instance if the current ones are at capacity.
+                       Ignored when ``slots`` is provided.
+            max_agents_per_browser: Max concurrent agents per Chrome instance.
+                                   0 means use DEFAULT_MAX_AGENTS_PER_BROWSER.
+                                   Ignored when ``slots`` is provided.
+            slots: Optional list of BrowserSlot dicts. When provided, these define
+                   the available Chrome instances explicitly (port, capacity,
+                   user_data_dir, profile). Overrides port_pool/max_agents_per_browser.
+                   Example::
+
+                       [
+                           {"cdp_port": 9228, "max_agents": 15, "user_data_dir": "C:\\chrome_data"},
+                           {"cdp_port": 9229, "max_agents": 15, "profile": "slot2"},
+                       ]
         """
         self._lock = Lock()
         self._browsers: Dict[str, AutoBrowser] = {}
         self._default_webdriver_path = default_webdriver_path
-        
-        logger.info("BrowserManager initialized")
+
+        # Slot-based pool (explicit configuration)
+        self._slots: Dict[str, BrowserSlot] = {}
+
+        if slots:
+            self.configure_slots(slots)
+            # Derive legacy fields from slots for backward compat
+            self._port_pool = [s.cdp_port for s in self._slots.values()]
+            self._max_agents_per_browser = max(
+                (s.max_agents for s in self._slots.values()),
+                default=self.DEFAULT_MAX_AGENTS_PER_BROWSER,
+            )
+        else:
+            self._port_pool: List[int] = port_pool or list(self.DEFAULT_PORT_POOL)
+            self._max_agents_per_browser: int = max_agents_per_browser or self.DEFAULT_MAX_AGENTS_PER_BROWSER
+
+        logger.info(
+            f"BrowserManager initialized ("
+            f"slots={len(self._slots) or 'none (legacy pool)'}, "
+            f"port_pool={self._port_pool}, "
+            f"max_agents_per_browser={self._max_agents_per_browser})"
+        )
     
     @property
     def browsers(self) -> Dict[str, AutoBrowser]:
@@ -511,7 +633,199 @@ class BrowserManager:
     def get_browser(self, browser_id: str) -> Optional[AutoBrowser]:
         """Get a browser by its ID"""
         return self._browsers.get(browser_id)
-    
+
+    # -----------------------------------------------------------------
+    # Browser Slot management
+    # -----------------------------------------------------------------
+
+    def configure_slots(self, slot_dicts: List[Dict[str, Any]]) -> None:
+        """Configure browser slots from a list of dicts (e.g. vehicle settings).
+
+        Existing slot runtime state (assigned_agents) is preserved when
+        reconfiguring a slot that already exists with the same id.
+        """
+        with self._lock:
+            for sd in slot_dicts or []:
+                slot = BrowserSlot(**sd)
+                existing = self._slots.get(slot.id)
+                if existing:
+                    # Preserve runtime assignments, update config fields
+                    slot.assigned_agents = list(existing.assigned_agents)
+                    slot.status = existing.status
+                self._slots[slot.id] = slot
+            logger.info(f"[BrowserSlot] Configured {len(self._slots)} slot(s): "
+                        f"{[s.id for s in self._slots.values()]}")
+
+    def get_slot(self, slot_id: str) -> Optional[BrowserSlot]:
+        """Get a slot by ID."""
+        return self._slots.get(slot_id)
+
+    def get_slot_by_port(self, cdp_port: int) -> Optional[BrowserSlot]:
+        """Get the slot assigned to a given CDP port."""
+        for slot in self._slots.values():
+            if slot.cdp_port == cdp_port:
+                return slot
+        return None
+
+    def get_all_slots(self) -> List[BrowserSlot]:
+        """Return all configured slots."""
+        return list(self._slots.values())
+
+    @property
+    def has_slots(self) -> bool:
+        """True if explicit slots are configured (vs legacy port-pool mode)."""
+        return bool(self._slots)
+
+    def get_slots_summary(self) -> List[dict]:
+        """Status summary of all slots, useful for dashboards / logging."""
+        return [
+            {
+                "id": s.id,
+                "cdp_port": s.cdp_port,
+                "max_agents": s.max_agents,
+                "agent_count": s.agent_count,
+                "has_capacity": s.has_capacity,
+                "status": s.status,
+                "assigned_agents": list(s.assigned_agents),
+                "profile": s.profile,
+                "user_data_dir": s.user_data_dir,
+            }
+            for s in self._slots.values()
+        ]
+
+    # -----------------------------------------------------------------
+    # Browser pool: auto-scaling across slots or legacy port set
+    # -----------------------------------------------------------------
+
+    def count_agents_on_port(self, cdp_port: int) -> int:
+        """Count how many agents (IN_USE browsers) are on a given CDP port."""
+        # Prefer slot tracking when available
+        slot = self.get_slot_by_port(cdp_port)
+        if slot:
+            return slot.agent_count
+        with self._lock:
+            return sum(
+                1 for b in self._browsers.values()
+                if b.cdp_port == cdp_port and b.status == BrowserStatus.IN_USE
+            )
+
+    def get_port_load_map(self) -> Dict[int, int]:
+        """Return {port: active_agent_count} for every port that has browsers."""
+        if self._slots:
+            return {s.cdp_port: s.agent_count for s in self._slots.values()}
+        with self._lock:
+            load: Dict[int, int] = {}
+            for b in self._browsers.values():
+                if b.status == BrowserStatus.IN_USE:
+                    load[b.cdp_port] = load.get(b.cdp_port, 0) + 1
+            return load
+
+    def pick_auto_slot(self, agent_id: str = "") -> Optional[BrowserSlot]:
+        """Pick the best slot for a new agent.
+
+        Returns the slot with the most remaining capacity.  If the agent
+        is already assigned to a slot, returns that slot (sticky).
+
+        Only available when explicit slots are configured; returns None
+        otherwise (caller should fall back to ``pick_auto_port``).
+        """
+        if not self._slots:
+            return None
+
+        # Sticky: if agent already assigned, return that slot
+        if agent_id:
+            for slot in self._slots.values():
+                if agent_id in slot.assigned_agents:
+                    logger.debug(f"[BrowserSlot] Agent {agent_id} sticky to slot {slot.id}")
+                    return slot
+
+        # Pick least-loaded slot with capacity
+        best: Optional[BrowserSlot] = None
+        for slot in self._slots.values():
+            if not slot.has_capacity:
+                continue
+            if best is None or slot.agent_count < best.agent_count:
+                best = slot
+
+        if best:
+            logger.info(
+                f"[BrowserSlot] Auto-selected slot {best.id} "
+                f"(port={best.cdp_port}, load={best.agent_count}/{best.max_agents})"
+            )
+        else:
+            logger.warning("[BrowserSlot] All slots at capacity, cannot auto-assign")
+        return best
+
+    def pick_auto_port(self, agent_id: str = "") -> Optional[int]:
+        """Pick the best CDP port from the pool for a new agent.
+
+        When explicit slots are configured, delegates to ``pick_auto_slot``.
+        Otherwise falls back to legacy port-pool scanning.
+
+        Strategy (legacy):
+          1. Prefer a port that already has a running Chrome with room to spare.
+          2. If all running instances are at capacity, pick the first unused port
+             from the pool (a new Chrome will be launched on it).
+          3. If the entire pool is exhausted, return None.
+        """
+        # Slot-based path
+        slot = self.pick_auto_slot(agent_id=agent_id)
+        if slot is not None:
+            return slot.cdp_port
+        if self._slots:
+            # Slots configured but all full
+            return None
+
+        # Legacy port-pool path
+        load_map = self.get_port_load_map()
+
+        # Also count idle browsers — the Chrome process is running even if idle
+        with self._lock:
+            active_ports = {b.cdp_port for b in self._browsers.values()
+                           if b.status in (BrowserStatus.IN_USE, BrowserStatus.IDLE)}
+
+        # Phase 1: find a running Chrome with room
+        best_port = None
+        best_load = self._max_agents_per_browser + 1
+        for port in self._port_pool:
+            if port in active_ports:
+                current_load = load_map.get(port, 0)
+                if current_load < self._max_agents_per_browser and current_load < best_load:
+                    best_port = port
+                    best_load = current_load
+
+        if best_port is not None:
+            logger.info(
+                f"[BrowserPool] Auto-selected port {best_port} "
+                f"(load={load_map.get(best_port, 0)}/{self._max_agents_per_browser})"
+            )
+            return best_port
+
+        # Phase 2: pick first unused port — will trigger Chrome auto-start
+        from gui.unified_browser_manager import _is_port_in_use
+        for port in self._port_pool:
+            if port not in active_ports:
+                # Double-check the port isn't occupied by an external process
+                if not _is_port_in_use(port):
+                    logger.info(
+                        f"[BrowserPool] All active browsers at capacity. "
+                        f"Spawning new Chrome on port {port}"
+                    )
+                    return port
+                else:
+                    # Port occupied externally; treat it as available Chrome
+                    logger.info(
+                        f"[BrowserPool] Port {port} in use externally (existing Chrome?), "
+                        f"selecting it for new agent"
+                    )
+                    return port
+
+        logger.warning(
+            f"[BrowserPool] All {len(self._port_pool)} ports at capacity "
+            f"(max {self._max_agents_per_browser} agents each). Cannot auto-assign."
+        )
+        return None
+
     def find_available_browser(
         self,
         browser_type: Optional[BrowserType] = None,
@@ -564,6 +878,45 @@ class BrowserManager:
                 return browser
         
         return None
+
+    def find_browser_for_owner(
+        self,
+        agent_id: str,
+        task: Optional[str] = None,
+        browser_type: Optional[BrowserType] = None,
+        cdp_port: Optional[int] = None,
+        profile: Optional[str] = None,
+    ) -> Optional[AutoBrowser]:
+        """
+        Find a browser already marked IN_USE by the same scoped owner.
+
+        This is needed for long-lived browser-use nodes that may re-enter after
+        cache churn. Reusing the exact same owned browser avoids creating a new
+        BrowserSession for the same chat/control scope.
+        """
+        if not agent_id:
+            return None
+
+        with self._lock:
+            for browser in self._browsers.values():
+                if browser.status != BrowserStatus.IN_USE:
+                    continue
+                if str(browser.current_agent_id or "") != str(agent_id):
+                    continue
+                if task is not None and str(browser.current_task or "") != str(task):
+                    continue
+                if browser_type and browser.browser_type != browser_type:
+                    continue
+                if cdp_port and browser.cdp_port != cdp_port:
+                    continue
+                if profile:
+                    existing_profile = str(browser.profile or "")
+                    requested_profile = str(profile)
+                    if existing_profile != requested_profile:
+                        continue
+                return browser
+
+        return None
     
     def register_browser(self, browser: AutoBrowser) -> str:
         """
@@ -593,13 +946,14 @@ class BrowserManager:
         connect_webdriver: bool = True,
         connect_browser_session: bool = True,
         downloads_path: Optional[str] = None,
+        slot_id: Optional[str] = None,
     ) -> AutoBrowser:
         """
         Create and register a new AutoBrowser instance with both WebDriver and BrowserSession.
-        
+
         For Chrome/Chromium: Connects to existing browser via CDP port.
         For AdsPower: Launches profile via AdsPower API, then connects via CDP.
-        
+
         Args:
             browser_type: Type of browser (chrome, chromium, adspower)
             cdp_port: CDP port number (for chrome/chromium)
@@ -686,6 +1040,13 @@ class BrowserManager:
                     except Exception as e:
                         logger.warning(f"[BrowserManager] Failed to resolve persistent Chrome profile settings: {e}")
                 
+                # If a slot specifies user_data_dir, use it for Chrome launch
+                if not chrome_user_data_dir and slot_id:
+                    _slot = self.get_slot(slot_id)
+                    if _slot and _slot.user_data_dir:
+                        chrome_user_data_dir = _slot.user_data_dir
+                        logger.info(f"[BrowserManager] Using slot user_data_dir: {chrome_user_data_dir}")
+
                 # Auto-start Chrome if not running
                 from gui.unified_browser_manager import _is_port_in_use, _start_chrome_with_cdp
                 if not _is_port_in_use(final_cdp_port):
@@ -750,11 +1111,16 @@ class BrowserManager:
                     adspower_profile_id=adspower_profile_id,
                     browser_session=session,
                     webdriver=driver,
+                    slot_id=slot_id,
                     status=BrowserStatus.IDLE if (driver or session) else BrowserStatus.ERROR,
                 )
-                
+
                 self._browsers[browser.id] = browser
-                logger.info(f"[BrowserManager] Created browser: {browser.id} (type={browser_type.value}, cdp={final_cdp_url})")
+                logger.info(
+                    f"[BrowserManager] Created browser: {browser.id} "
+                    f"(type={browser_type.value}, cdp={final_cdp_url}"
+                    f"{f', slot={slot_id}' if slot_id else ''})"
+                )
             
         except Exception as e:
             err_trace = get_traceback(e, "BrowserManager.create_browser")
@@ -810,7 +1176,43 @@ class BrowserManager:
         Returns:
             Acquired AutoBrowser instance or None
         """
-        effective_cdp_port = cdp_port or 9228
+        # cdp_port=0 means "auto-assign from pool/slot"
+        _assigned_slot: Optional[BrowserSlot] = None
+        if cdp_port == 0:
+            auto_port = self.pick_auto_port(agent_id=agent_id)
+            if auto_port is None:
+                logger.error(
+                    f"[BrowserManager] Agent {agent_id} requested auto port but pool is exhausted"
+                )
+                return None
+            effective_cdp_port = auto_port
+            _assigned_slot = self.get_slot_by_port(effective_cdp_port)
+            logger.info(
+                f"[BrowserManager] Auto-assigned cdp_port={effective_cdp_port} for agent {agent_id}"
+                f"{f' (slot={_assigned_slot.id})' if _assigned_slot else ''}"
+            )
+        else:
+            effective_cdp_port = cdp_port or 9228
+            # Even with explicit port, resolve the slot if one exists
+            _assigned_slot = self.get_slot_by_port(effective_cdp_port)
+
+        # First, try to reuse a browser already owned by this exact scoped
+        # agent/task. This prevents duplicate BrowserSession creation when the
+        # caller loses its local cache but the BrowserManager still owns the
+        # correct in-use browser for the same scope.
+        browser = self.find_browser_for_owner(
+            agent_id=agent_id,
+            task=task,
+            browser_type=browser_type,
+            cdp_port=effective_cdp_port,
+            profile=profile,
+        )
+        if browser:
+            logger.info(
+                f"[BrowserManager] Agent {agent_id} reusing owned browser {browser.id} "
+                f"(task={task or ''}, profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
+            )
+            return browser
 
         # Try to find an available browser
         browser = self.find_available_browser(
@@ -831,14 +1233,23 @@ class BrowserManager:
                 except Exception as e:
                     logger.warning(f"[BrowserManager] Failed to update downloads_path on browser {browser.id}: {e}")
             browser.mark_in_use(agent_id, task)
+            browser.slot_id = _assigned_slot.id if _assigned_slot else None
+            if _assigned_slot:
+                _assigned_slot.assign_agent(agent_id)
             logger.info(
                 f"[BrowserManager] Agent {agent_id} acquired existing browser {browser.id} "
-                f"(profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
+                f"(profile={profile or browser.profile}, cdp_port={effective_cdp_port}"
+                f"{f', slot={_assigned_slot.id}' if _assigned_slot else ''})"
             )
             return browser
-        
+
         # Create new browser if allowed
         if create_if_not_found:
+            # When slot specifies user_data_dir, pass it as profile hint
+            _slot_profile = profile
+            if not _slot_profile and _assigned_slot and _assigned_slot.profile:
+                _slot_profile = _assigned_slot.profile
+
             browser = self.create_browser(
                 browser_type=browser_type or BrowserType.CHROME,
                 cdp_port=effective_cdp_port,
@@ -846,15 +1257,19 @@ class BrowserManager:
                 adspower_api_key=adspower_api_key,
                 webdriver_path=webdriver_path,
                 downloads_path=downloads_path,
-                profile=profile,
+                profile=_slot_profile,
+                slot_id=_assigned_slot.id if _assigned_slot else None,
             )
-            
+
             # Only mark in use if browser was created successfully
             if browser.status != BrowserStatus.ERROR:
                 browser.mark_in_use(agent_id, task)
+                if _assigned_slot:
+                    _assigned_slot.assign_agent(agent_id)
                 logger.info(
                     f"[BrowserManager] Agent {agent_id} created and acquired new browser {browser.id} "
-                    f"(profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
+                    f"(profile={_slot_profile or browser.profile}, cdp_port={effective_cdp_port}"
+                    f"{f', slot={_assigned_slot.id}' if _assigned_slot else ''})"
                 )
             else:
                 logger.error(f"[BrowserManager] Agent {agent_id} failed to create browser: {browser.last_error}")
@@ -877,6 +1292,11 @@ class BrowserManager:
         with self._lock:
             browser = self._browsers.get(browser_id)
             if browser:
+                # Release agent from slot tracking
+                if browser.slot_id and browser.current_agent_id:
+                    slot = self._slots.get(browser.slot_id)
+                    if slot:
+                        slot.release_agent(browser.current_agent_id)
                 browser.mark_idle()
                 logger.info(f"Released browser: {browser_id}")
                 return True
@@ -1003,7 +1423,7 @@ class BrowserManager:
             for status in BrowserStatus:
                 status_counts[status.value] = sum(1 for b in self._browsers.values() if b.status == status)
             
-            return {
+            summary = {
                 "total": len(self._browsers),
                 "status_counts": status_counts,
                 "browsers": [
@@ -1012,10 +1432,14 @@ class BrowserManager:
                         "type": b.browser_type.value,
                         "status": b.status.value,
                         "cdp_port": b.cdp_port,
+                        "slot_id": b.slot_id,
                         "current_agent": b.current_agent_id,
                         "current_task": b.current_task,
                         "last_used": b.last_used_at.isoformat() if b.last_used_at else None,
                     }
                     for b in self._browsers.values()
-                ]
+                ],
             }
+            if self._slots:
+                summary["slots"] = self.get_slots_summary()
+            return summary

@@ -39,6 +39,7 @@ from agent.ec_skills.label_utils.print_label import (
     reformat_labels_async,
 )
 
+from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 from app_context import AppContext
 
 # Create a shared controller with custom actions for browser_use
@@ -47,6 +48,8 @@ custom_controller = Controller()
 # Global registry to track current agent instance for file path authorization
 _current_agent_instance = None
 _current_runtime_context: Dict[str, Any] = {}
+
+
 
 def set_current_agent(agent):
     """Set the current agent instance for fi
@@ -375,6 +378,242 @@ def _compact_monitor_summary_text(snapshot: Dict[str, Any], include_configs: boo
     return "\n".join(lines)
 
 
+def _get_frontdesk_dispatch_latch(session: Any) -> Dict[str, Any]:
+    state = getattr(session, "_ecan_frontdesk_dispatch_latch", None)
+    if not isinstance(state, dict):
+        state = {}
+        setattr(session, "_ecan_frontdesk_dispatch_latch", state)
+    return state
+
+
+def _get_frontdesk_dispatch_state(session: Any) -> Dict[str, Any]:
+    state = getattr(session, "_ecan_frontdesk_dispatch_state", None)
+    if not isinstance(state, dict):
+        state = {
+            "assigned_sessions": {},
+        }
+        setattr(session, "_ecan_frontdesk_dispatch_state", state)
+    return state
+
+
+def _is_frontdesk_runtime_context() -> tuple[bool, str]:
+    runtime_ctx = get_current_runtime_context()
+    skill_name = str(runtime_ctx.get("skill_name") or "").strip()
+    task_id = str(runtime_ctx.get("task_id") or "").strip()
+    return (skill_name == "customer_front_desk"), task_id
+
+
+def _extract_control_monitor_instance(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    instances = snapshot.get("instances") or {}
+    if not isinstance(instances, dict):
+        return {}
+    for instance in instances.values():
+        if not isinstance(instance, dict):
+            continue
+        if str(instance.get("label") or "").strip() != "conversation_became_active":
+            continue
+        return instance
+    return {}
+
+
+def _mark_frontdesk_dispatch_ready(session: Any, snapshot: Dict[str, Any], task_id: str) -> None:
+    if not task_id:
+        return
+    latch = _get_frontdesk_dispatch_latch(session)
+    instance = _extract_control_monitor_instance(snapshot)
+    latch[task_id] = {
+        "ready": True,
+        "status": str(instance.get("status") or snapshot.get("status") or ""),
+        "current_url": str(instance.get("current_url") or ""),
+        "customer_count": int(instance.get("last_customer_count") or 0),
+    }
+
+
+def _extract_frontdesk_visible_sessions(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
+    instance = _extract_control_monitor_instance(snapshot)
+    raw_items = instance.get("items") or []
+    if not isinstance(raw_items, list):
+        return []
+
+    sessions: List[Dict[str, Any]] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        session_id = str(
+            item.get("session")
+            or item.get("session_id")
+            or item.get("customer_id")
+            or ""
+        ).strip()
+        if not session_id:
+            continue
+        customer_name = str(
+            item.get("customer_name")
+            or item.get("name")
+            or item.get("customer")
+            or ""
+        ).strip()
+        chat_url = str(item.get("chat_url") or "").strip() or f"http://127.0.0.1:9877/chat?session={session_id}"
+        sessions.append({
+            "customer_id": session_id,
+            "session_id": session_id,
+            "chat_url": chat_url,
+            "customer_name": customer_name,
+        })
+    return sessions
+
+
+def _find_frontdesk_open_tab_id(browser_session: BrowserSession, chat_url: str) -> str:
+    try:
+        sm = getattr(browser_session, "session_manager", None)
+        all_targets = sm.get_all_targets() if sm else {}
+        for tid, target in (all_targets or {}).items():
+            if getattr(target, "target_type", "") not in ("page", "tab"):
+                continue
+            target_url = str(getattr(target, "url", "") or "").strip()
+            if target_url == chat_url:
+                return str(tid or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _maybe_frontdesk_auto_assign(snapshot: Dict[str, Any], browser_session: BrowserSession, task_id: str) -> Dict[str, Any]:
+    is_frontdesk, runtime_task_id = _is_frontdesk_runtime_context()
+    if not is_frontdesk or not runtime_task_id or runtime_task_id != task_id:
+        return {"attempted": False}
+
+    latch = _get_frontdesk_dispatch_latch(browser_session)
+    latch_state = latch.get(task_id) if isinstance(latch, dict) else None
+    if not isinstance(latch_state, dict) or not latch_state.get("ready"):
+        return {"attempted": False}
+
+    visible_sessions = _extract_frontdesk_visible_sessions(snapshot)
+    if not visible_sessions:
+        return {"attempted": False}
+
+    runtime_ctx = get_current_runtime_context()
+    sender_agent_id = str(runtime_ctx.get("agent_id") or "").strip()
+    if not sender_agent_id:
+        logger.info("[ExtensionTools] Front-desk auto-assign skipped: missing runtime sender agent id")
+        return {"attempted": False, "reason": "missing_sender"}
+
+    dispatch_state = _get_frontdesk_dispatch_state(browser_session)
+    assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
+    recipient_agent_id = "agent_b31f281332104b93"
+
+    from agent.mcp.server.chat_utils.chat_tools import send_chat
+
+    assigned_rows: List[str] = []
+    failure_rows: List[str] = []
+    tab_rows: List[str] = []
+    pending_sessions: List[str] = []
+    open_session_items: List[Tuple[Dict[str, Any], str]] = []
+
+    for item in visible_sessions:
+        session_id = item["session_id"]
+        chat_url = item["chat_url"]
+        tab_id = _find_frontdesk_open_tab_id(browser_session, chat_url)
+        if tab_id:
+            tab_rows.append(f"{session_id}->{tab_id[-4:]}")
+            if not assigned_sessions.get(session_id):
+                open_session_items.append((item, tab_id))
+        else:
+            if not assigned_sessions.get(session_id):
+                pending_sessions.append(session_id)
+
+    if not open_session_items and pending_sessions:
+        logger.info(
+            f"[ExtensionTools] Front-desk auto-assign waiting for tabs: "
+            f"visible={len(visible_sessions)} tab_hits={len(tab_rows)} pending={len(pending_sessions)}"
+        )
+        return {
+            "attempted": True,
+            "visible_count": len(visible_sessions),
+            "tab_rows": tab_rows,
+            "assigned_rows": [],
+            "failure_rows": [],
+            "pending_sessions": pending_sessions,
+            "waiting_for_tabs": True,
+        }
+
+    for item, tab_id in open_session_items:
+        session_id = item["session_id"]
+        chat_url = item["chat_url"]
+
+        payload = {
+            "customer_id": item["customer_id"],
+            "session_id": session_id,
+            "tab_id": tab_id,
+            "chat_url": chat_url,
+        }
+        if item.get("customer_name"):
+            payload["customer_name"] = item["customer_name"]
+
+        result = send_chat(
+            AppContext.login.main_win,
+            {
+                "sender_agent_id": sender_agent_id,
+                "recipient_agent_id": recipient_agent_id,
+                "chat_id": session_id,
+                "message": json.dumps(payload, ensure_ascii=False),
+                "message_type": "text",
+                "async_send": False,
+            },
+        )
+        if result.get("success"):
+            assigned_sessions[session_id] = {
+                "recipient_agent_id": recipient_agent_id,
+                "message_id": str(result.get("message_id") or ""),
+                "timestamp": int(result.get("timestamp") or 0),
+            }
+            assigned_rows.append(f"{session_id}->{recipient_agent_id[-6:]}")
+        else:
+            failure_rows.append(f"{session_id}: {result.get('error', 'assignment failed')}")
+
+    if assigned_rows or failure_rows:
+        logger.info(
+            f"[ExtensionTools] Front-desk auto-assign: visible={len(visible_sessions)} "
+            f"tab_hits={len(tab_rows)} assigned={len(assigned_rows)} "
+            f"failures={len(failure_rows)} pending={len(pending_sessions)}"
+        )
+
+    return {
+        "attempted": True,
+        "visible_count": len(visible_sessions),
+        "tab_rows": tab_rows,
+        "assigned_rows": assigned_rows,
+        "failure_rows": failure_rows,
+        "pending_sessions": pending_sessions,
+        "waiting_for_tabs": bool(pending_sessions),
+    }
+
+
+def _frontdesk_dispatch_notice(session: Any, task_id: str) -> str:
+    if not task_id:
+        return ""
+    latch = _get_frontdesk_dispatch_latch(session)
+    state = latch.get(task_id) if isinstance(latch, dict) else None
+    if not isinstance(state, dict) or not state.get("ready"):
+        return ""
+    customer_count = int(state.get("customer_count") or 0)
+    current_url = str(state.get("current_url") or "http://127.0.0.1:9877/control")
+    status = str(state.get("status") or "ok")
+    return (
+        "CONTROL MONITOR ALREADY VALIDATED FOR THIS INVOCATION.\n"
+        f"- current_url={current_url}\n"
+        f"- runtime_status={status}\n"
+        f"- visible_customer_count={customer_count}\n"
+        "Dispatch phase is unlocked now.\n"
+        "Do not call monitor-validation tools again in this invocation.\n"
+        "Next allowed work is only:\n"
+        "- extract actionable visible sessions\n"
+        "- open required chat tabs\n"
+        "- send assignments\n"
+        "- done()\n"
+    )
+
+
 def _clip_text(value: str, limit: int) -> str:
     value = str(value or "").strip().replace("\r", " ").replace("\n", " ")
     return value if len(value) <= limit else (value[: limit - 3] + "...")
@@ -475,6 +714,69 @@ def _normalize_monitor_raw_for_skill(record_raw: Dict[str, Any]) -> Dict[str, An
     if "source_type" in cleaned and "sourceType" not in cleaned:
         cleaned["sourceType"] = cleaned.pop("source_type")
     return cleaned
+
+
+def _canonicalize_monitor_raw_for_skill(record_raw: Dict[str, Any]) -> Dict[str, Any]:
+    raw = _normalize_monitor_raw_for_skill(record_raw)
+    label = str(raw.get("label") or "").strip()
+    if label != "chat_message_added":
+        return raw
+
+    enabled = raw.get("enabled")
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in ("1", "true", "yes", "on")
+    if enabled is None:
+        enabled = True
+
+    extractor_cfg = {
+        "page_url_patterns": ["/chat?session="],
+        "roots": ["#messages"],
+        "item_selector": ".msg",
+        "fields": {
+            "msg_id": {"attr": "data-msg-id"},
+            "from": {"attr": "data-from"},
+            "text": {"text": True},
+            "timestamp": {"attr": "data-ts"},
+        },
+        "key_field": "msg_id",
+        "emit_on": "added",
+        "filters": {"from_equals": "customer"},
+    }
+    # Apply canonicalized defaults for chat_message_added monitors:
+    # preserve caller-supplied url_patterns (session-specific) but fill in
+    # sensible defaults for fields the LLM typically leaves empty.
+    raw.setdefault("sourceType", "dom_mutation")
+    raw.setdefault("domSelector", "#messages")
+    raw.setdefault("domChildList", True)
+    raw.setdefault("domSubtree", True)
+    raw.setdefault("domCheckIntervalMs", 2000)
+    if not raw.get("cdpFilterExpr"):
+        raw["cdpFilterExpr"] = json.dumps(extractor_cfg, ensure_ascii=False, separators=(",", ":"))
+    return raw
+
+
+def _dedupe_monitor_raws(raw_monitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen_keys = set()
+    for item in reversed(list(raw_monitors or [])):
+        raw = _canonicalize_monitor_raw_for_skill(item or {})
+        label = str(raw.get("label") or "").strip()
+        item_id = str(raw.get("id") or "").strip()
+        source_type = str(raw.get("sourceType") or raw.get("source_type") or "").strip()
+        if label == "chat_message_added":
+            key = ("label", label, source_type or "dom_mutation")
+        else:
+            key = ("id", item_id or label, source_type)
+        if key in seen_keys:
+            logger.warning(
+                f"[ExtensionTools] Dropping duplicate monitor raw before apply: "
+                f"id={item_id}, label={label}, source={source_type}"
+            )
+            continue
+        seen_keys.add(key)
+        deduped.append(raw)
+    deduped.reverse()
+    return deduped
 
 
 def _update_skill_node_monitors(payload: Dict[str, Any], node_id: str, monitor_raws: List[Dict[str, Any]]) -> bool:
@@ -1109,7 +1411,24 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
 
     runtime_ctx = get_current_runtime_context()
     bound_sender_agent_id = str(runtime_ctx.get("agent_id") or "").strip()
+    runtime_skill_name = str(runtime_ctx.get("skill_name") or "").strip()
     explicit_sender_agent_id = str(params.sender_agent_id or "").strip()
+
+    if runtime_skill_name == "rt_chat_bot":
+        logger.warning(
+            f"[bu_send_chat] Routing disabled for customer-service skill. "
+            f"skill={runtime_skill_name}, task_id={runtime_ctx.get('task_id', '')}, "
+            f"node_id={runtime_ctx.get('node_id', '')}, recipient_id={params.recipient_agent_id or ''}"
+        )
+        return ActionResult(
+            extracted_content=(
+                "Routing tools are disabled for the customer-service skill. "
+                "This task already owns the assigned customer session. "
+                "Do not send assignment chat messages. Stay on the assigned customer tab, "
+                "reply to the customer message in the browser chat, "
+                "and call done() when finished."
+            )
+        )
 
     if not bound_sender_agent_id:
         return ActionResult(
@@ -1129,16 +1448,106 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
         "sender_agent_id": bound_sender_agent_id,
         "message": params.message,
     }
-    if params.recipient_agent_id is not None:
-        config["recipient_agent_id"] = params.recipient_agent_id
-    if params.recipient_agent_name is not None:
-        config["recipient_agent_name"] = params.recipient_agent_name
+    normalized_recipient_id = str(params.recipient_agent_id or "").strip()
+    normalized_recipient_name = str(params.recipient_agent_name or "").strip()
+    if not normalized_recipient_id and normalized_recipient_name.startswith("agent_"):
+        normalized_recipient_id = normalized_recipient_name
+        normalized_recipient_name = ""
+        logger.info(
+            f"[bu_send_chat] Normalized recipient_agent_name-looking-like-id into recipient_agent_id: "
+            f"{normalized_recipient_id}"
+        )
+    if normalized_recipient_id:
+        config["recipient_agent_id"] = normalized_recipient_id
+    if normalized_recipient_name:
+        config["recipient_agent_name"] = normalized_recipient_name
     if params.chat_id is not None:
         config["chat_id"] = params.chat_id
     if params.message_type is not None:
         config["message_type"] = params.message_type
     if params.async_send is not None:
         config["async_send"] = params.async_send
+
+    # Front-desk service assignment hardening:
+    # browser-use sometimes tries to send the assignment payload before it carries a
+    # resolved tab_id. That causes the service agent to start from an ambiguous page
+    # and drift into front-desk behavior. Before sending, enrich the payload from the
+    # live browser session; if the tab still is not open, fail fast so front desk
+    # keeps opening/locating tabs instead of dispatching a broken assignment.
+    try:
+        if runtime_skill_name == "customer_front_desk":
+            payload_obj = None
+            if isinstance(config.get("message"), str):
+                payload_obj = try_parse_json(config.get("message"))
+            # Reject batched multi-customer assignments: LLM must send one per call
+            if isinstance(payload_obj, list):
+                return ActionResult(
+                    error=(
+                        "Assignment payload contains multiple customers in a single message. "
+                        "Send exactly ONE assignment per bu_send_chat call. "
+                        "Call bu_send_chat once for each customer with their individual assignment payload."
+                    )
+                )
+            if isinstance(payload_obj, dict):
+                _assignments_list = payload_obj.get("assignments") or payload_obj.get("customers")
+                if isinstance(_assignments_list, list) and len(_assignments_list) > 1:
+                    return ActionResult(
+                        error=(
+                            "Assignment payload contains multiple customers in a single message. "
+                            "Send exactly ONE assignment per bu_send_chat call. "
+                            "Call bu_send_chat once for each customer with their individual assignment payload."
+                        )
+                    )
+            if isinstance(payload_obj, dict):
+                payload_session_id = str(
+                    payload_obj.get("session_id")
+                    or payload_obj.get("sessionId")
+                    or payload_obj.get("customer_id")
+                    or ""
+                ).strip()
+                payload_chat_url = str(
+                    payload_obj.get("chat_url")
+                    or payload_obj.get("chatUrl")
+                    or ""
+                ).strip()
+                payload_tab_id = str(
+                    payload_obj.get("tab_id")
+                    or payload_obj.get("tabId")
+                    or ""
+                ).strip()
+
+                recipient_for_service = str(config.get("recipient_agent_id") or "").strip() or str(
+                    config.get("recipient_agent_name") or ""
+                ).strip()
+                if payload_session_id and payload_chat_url and recipient_for_service:
+                    if not payload_tab_id:
+                        current_agent = get_current_agent()
+                        browser_session = getattr(current_agent, "browser_session", None) if current_agent else None
+                        resolved_tab_id = _find_frontdesk_open_tab_id(browser_session, payload_chat_url) if browser_session else ""
+                        if resolved_tab_id:
+                            payload_obj["tab_id"] = resolved_tab_id
+                            config["message"] = json.dumps(payload_obj, ensure_ascii=False)
+                            logger.info(
+                                f"[bu_send_chat] Enriched front-desk assignment with resolved tab_id: "
+                                f"session_id={payload_session_id} tab_id=...{resolved_tab_id[-4:]}"
+                            )
+                        else:
+                            logger.info(
+                                f"[bu_send_chat] Refusing to send assignment without resolved tab_id: "
+                                f"session_id={payload_session_id} chat_url={payload_chat_url}"
+                            )
+                            return ActionResult(
+                                error=(
+                                    "Assignment payload is missing a resolved tab_id and the chat tab is not open yet. "
+                                    "Open or locate the customer's chat tab first, then send the assignment."
+                                )
+                            )
+    except Exception as _assignment_enrich_err:
+        logger.warning(f"[bu_send_chat] Failed to normalize front-desk assignment payload: {_assignment_enrich_err}")
+
+    # Discovery gate and duplicate-recipient detection are now handled
+    # in chat_tools.send_chat() — the common path for both bu_send_chat
+    # and MCP send_chat.  No need to duplicate here.
 
     login = AppContext.login
     logger.info(
@@ -1181,8 +1590,18 @@ async def bu_list_chat_agents(params: ListChatAgentsAction) -> ActionResult:
 
     if result.get("success"):
         agents = result.get("agents", [])
+        # Also mark discovery at the chat_tools level (via sender agent ID)
+        # so the dispatch gate in send_chat() recognises this caller.
+        ctx = get_current_runtime_context()
+        sender_id = str(ctx.get("agent_id") or "").strip()
+        if sender_id:
+            from agent.mcp.server.chat_utils.chat_tools import _mark_discovery
+            _mark_discovery(sender_id, agents)
         if agents:
-            agent_lines = [f"- {a['name']} (ID: {a['id']})" for a in agents]
+            agent_lines = [
+                f"- {a['name']} (ID: {a['id']}, tasks: {', '.join(a.get('tasks', [])) or 'none'})"
+                for a in agents
+            ]
             msg = f"Available agents ({result.get('count', 0)}):\n" + "\n".join(agent_lines)
         else:
             msg = "No agents available for chat."
@@ -1295,11 +1714,15 @@ async def bu_list_session_monitors(params: ListSessionMonitorsAction, browser_se
     try:
         from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
 
+        is_frontdesk, task_id = _is_frontdesk_runtime_context()
+        dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
         capability = get_event_monitor_capability(browser_session, create=True)
         payload = capability.snapshot()
         if not params.include_configs:
             payload.pop("monitor_configs", None)
         summary_text = _compact_monitor_summary_text(payload, include_configs=params.include_configs)
+        if dispatch_notice:
+            summary_text = dispatch_notice + "\n" + summary_text
         logger.info(
             f"[ExtensionTools] Listed session monitors: "
             f"configured_count={payload.get('configured_count', 0)}, "
@@ -1328,16 +1751,44 @@ async def bu_upsert_session_monitor(params: UpsertSessionMonitorAction, browser_
             if isinstance(item, dict)
         ]
 
-        raw_item = _build_monitor_raw_from_params(params)
+        raw_item = _canonicalize_monitor_raw_for_skill(_build_monitor_raw_from_params(params))
+        target_id = str(raw_item.get("id") or raw_item.get("label") or "")
+        target_label = str(raw_item.get("label") or "")
+
+        # Guard: never replace a working dom_mutation monitor with http_polling
+        new_source = str(raw_item.get("sourceType") or "").lower()
+        for item in raw_existing:
+            item_label2 = str(item.get("label") or "")
+            item_source = str(item.get("sourceType") or "").lower()
+            if (item_label2 == target_label and item_source == "dom_mutation"
+                    and new_source != "dom_mutation"):
+                logger.warning(
+                    f"[ExtensionTools] Blocked upsert: cannot replace dom_mutation monitor "
+                    f"'{target_label}' with source_type='{new_source}'"
+                )
+                return _json_result({
+                    "success": True,
+                    "replaced": False,
+                    "monitor_id": target_id,
+                    "label": target_label,
+                    "message": f"Monitor '{target_label}' already exists as dom_mutation and is managed by the system. No changes made.",
+                    "configured_count": len(raw_existing),
+                })
+
+        filtered_existing = []
         replaced = False
-        for idx, item in enumerate(raw_existing):
+        removed_duplicates = 0
+        for item in raw_existing:
             item_id = str(item.get("id") or item.get("label") or "")
-            if item_id == raw_item["id"] or item.get("label") == raw_item["label"]:
-                raw_existing[idx] = raw_item
+            item_label = str(item.get("label") or "")
+            if item_id == target_id or item_label == target_label:
                 replaced = True
-                break
-        if not replaced:
-            raw_existing.append(raw_item)
+                removed_duplicates += 1
+                continue
+            filtered_existing.append(item)
+        raw_existing = filtered_existing
+        raw_existing.append(raw_item)
+        raw_existing = _dedupe_monitor_raws(raw_existing)
 
         configs = parse_monitor_configs({"eventMonitors": {"content": raw_existing}})
         if params.auto_start:
@@ -1347,7 +1798,8 @@ async def bu_upsert_session_monitor(params: UpsertSessionMonitorAction, browser_
         logger.info(
             f"[ExtensionTools] Upserted session monitor: "
             f"id={raw_item['id']}, label={raw_item['label']}, source={raw_item.get('sourceType')}, "
-            f"replaced={replaced}, auto_start={params.auto_start}, configured_count={len(configs)}"
+            f"replaced={replaced}, removed_duplicates={removed_duplicates}, "
+            f"auto_start={params.auto_start}, configured_count={len(configs)}"
         )
 
         return _json_result({
@@ -1415,8 +1867,20 @@ async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotActio
     try:
         from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
 
+        is_frontdesk, task_id = _is_frontdesk_runtime_context()
         capability = get_event_monitor_capability(browser_session, create=True)
         full_payload = capability.snapshot()
+        if is_frontdesk:
+            instance = _extract_control_monitor_instance(full_payload)
+            status = str(instance.get("status") or "").strip()
+            current_url = str(instance.get("current_url") or "").strip()
+            if status in ("ok", "empty", "no_match") and "/control" in current_url:
+                _mark_frontdesk_dispatch_ready(browser_session, full_payload, task_id)
+                auto_assign_result = _maybe_frontdesk_auto_assign(full_payload, browser_session, task_id)
+            else:
+                auto_assign_result = {"attempted": False}
+        else:
+            auto_assign_result = {"attempted": False}
         payload = dict(full_payload)
         if not params.include_configs:
             payload.pop("monitor_configs", None)
@@ -1429,6 +1893,30 @@ async def bu_get_session_monitor_snapshot(params: GetSessionMonitorSnapshotActio
             full_payload if params.include_runtime else payload,
             include_configs=params.include_configs,
         )
+        if auto_assign_result.get("attempted"):
+            assigned_rows = auto_assign_result.get("assigned_rows") or []
+            failure_rows = auto_assign_result.get("failure_rows") or []
+            tab_rows = auto_assign_result.get("tab_rows") or []
+            pending_sessions = auto_assign_result.get("pending_sessions") or []
+            auto_lines = [
+                "FRONT-DESK AUTO-ASSIGN CHECK:",
+                f"- visible_session_count={auto_assign_result.get('visible_count', 0)}",
+                f"- open_tab_hits={len(tab_rows)}",
+                f"- assigned_now={len(assigned_rows)}",
+                f"- assignment_failures={len(failure_rows)}",
+            ]
+            if auto_assign_result.get("waiting_for_tabs"):
+                auto_lines.append(f"- waiting_for_tabs={len(pending_sessions)}")
+            if assigned_rows:
+                auto_lines.append("- assigned_sessions=" + ", ".join(assigned_rows))
+            if pending_sessions:
+                auto_lines.append("- pending_sessions=" + ", ".join(str(x) for x in pending_sessions))
+            if failure_rows:
+                auto_lines.append("- failures=" + " | ".join(str(x) for x in failure_rows))
+            summary_text = "\n".join(auto_lines) + "\n\n" + summary_text
+        dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
+        if dispatch_notice:
+            summary_text = dispatch_notice + "\n" + summary_text
         logger.info(
             f"[ExtensionTools] Session monitor snapshot: "
             f"configured_count={payload.get('configured_count', 0)}, "
@@ -1459,7 +1947,7 @@ async def bu_persist_session_monitors_to_skill(
         for item in configured:
             if not isinstance(item, dict):
                 continue
-            raw = _normalize_monitor_raw_for_skill(item.get("raw") or {})
+            raw = _canonicalize_monitor_raw_for_skill(item.get("raw") or {})
             item_id = str(raw.get("id") or raw.get("label") or "")
             label = str(raw.get("label") or "")
             if wanted and item_id not in wanted and label not in wanted:
@@ -1532,6 +2020,7 @@ async def bu_persist_session_monitors_to_skill(
 )
 async def bu_inspect_dom_regions(params: InspectDomRegionsAction, browser_session: BrowserSession) -> ActionResult:
     try:
+        is_frontdesk, task_id = _is_frontdesk_runtime_context()
         expression = _build_dom_region_inspection_expression(
             max_regions=params.max_regions,
             max_text_length=params.max_text_length,
@@ -1544,12 +2033,14 @@ async def bu_inspect_dom_regions(params: InspectDomRegionsAction, browser_sessio
             f"regions={len(summary.get('regions', []) if isinstance(summary, dict) else [])}, "
             f"max_regions={params.max_regions}"
         )
-        return ActionResult(
-            extracted_content=_compact_dom_region_summary_text(
-                summary,
-                max_regions=params.max_regions,
-            )
+        summary_text = _compact_dom_region_summary_text(
+            summary,
+            max_regions=params.max_regions,
         )
+        dispatch_notice = _frontdesk_dispatch_notice(browser_session, task_id) if is_frontdesk else ""
+        if dispatch_notice:
+            summary_text = dispatch_notice + "\n" + summary_text
+        return ActionResult(extracted_content=summary_text)
     except Exception as e:
         logger.error(f"[ExtensionTools] Error inspecting DOM regions: {e}")
         return ActionResult(error=f"Failed to inspect DOM regions: {str(e)}")

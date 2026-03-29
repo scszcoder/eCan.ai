@@ -13,6 +13,7 @@
     "llm": ["default_llm", "default_llm_model"],
     "embedding": ["default_embedding", "default_embedding_model"],
     "skill": ["skill_use_git"],
+    "browser": ["browser_slots", "browser_max_agents_per_instance"],
     "internal": ["last_bots_file", "last_bots_file_time", "last_order_file", "last_order_file_time", "mids_forced_to_run"]
   },
 
@@ -61,7 +62,10 @@
   "default_embedding_model": "text-embedding-3-small",
   
   "skill_use_git": false,
-  
+
+  "browser_slots": [],
+  "browser_max_agents_per_instance": 0,
+
   "last_bots_file": "",
   "last_bots_file_time": 0,
   "last_order_file": "",

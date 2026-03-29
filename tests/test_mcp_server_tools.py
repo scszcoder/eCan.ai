@@ -1089,7 +1089,10 @@ def list_chat_agents_standalone(mainwin, config: Dict[str, Any]) -> Dict[str, An
             agents = [a for a in agents if a["id"] != exclude_self]
         
         if filter_name:
-            agents = [a for a in agents if filter_name in a["name"].lower()]
+            agents = [
+                a for a in agents
+                if filter_name in a["name"].lower() or filter_name in a["id"].lower()
+            ]
         
         return {
             "success": True,
@@ -1373,6 +1376,20 @@ class TestListChatAgents(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["agents"][0]["name"], "SpecialHelper")
+
+    def test_list_agents_filter_by_id(self):
+        """Test filtering agents by id."""
+        agents = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = agents
+
+        result = self.list_chat_agents(mock_mainwin, {
+            "filter_name": "agent_1"
+        })
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["agents"][0]["id"], "agent_1")
     
     def test_list_agents_empty(self):
         """Test listing when no agents available."""

@@ -7383,15 +7383,15 @@ def gen_write_skill_file_mutation_string(files: list) -> str:
     """
     rec_string = ""
     for i, file_item in enumerate(files):
-        file_path = file_item.get('filePath', '').replace('"', '\\"').replace('\\', '\\\\')
-        content = file_item.get('content', '').replace('\\', '\\\\').replace('"', '\\"')
-        user_id = file_item.get('userId', '').replace('"', '\\"')
+        file_path = json.dumps(file_item.get('filePath', ''))
+        content = json.dumps(file_item.get('content', ''))
+        user_id = json.dumps(file_item.get('userId', '')) if file_item.get('userId', '') else ''
         
         rec_string += '{'
-        rec_string += f'filePath: "{file_path}", '
-        rec_string += f'content: "{content}"'
+        rec_string += f'filePath: {file_path}, '
+        rec_string += f'content: {content}'
         if user_id:
-            rec_string += f', userId: "{user_id}"'
+            rec_string += f', userId: {user_id}'
         rec_string += '}'
         if i < len(files) - 1:
             rec_string += ','
@@ -7461,11 +7461,28 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
     Returns:
         Response from cloud with uploaded file info
     """
-    mutation_string = gen_write_skill_file_mutation_string(files)
+    mutation_string = """
+        mutation WriteSkillFile($input: [SkillFileInput!]!) {
+          writeSkillFile(input: $input) {
+            filePath
+            fileName
+            fileSize
+            skillName
+            updatedAt
+          }
+        }
+    """
     logger.info(f"[CloudSkill] Uploading {len(files)} skill files to cloud")
-    logger.debug(f"[CloudSkill] writeSkillFile mutation: {mutation_string[:300]}...")
+    logger.debug(f"[CloudSkill] writeSkillFile using variables, fileCount={len(files)}")
     
-    jresp = appsync_http_request(mutation_string, session, token, endpoint, timeout=timeout)
+    jresp = appsync_http_request(
+        mutation_string,
+        session,
+        token,
+        endpoint,
+        timeout=timeout,
+        variables={"input": files},
+    )
     
     if "errors" in jresp:
         logger.error(f"[CloudSkill] writeSkillFile error: {jresp['errors']}")
@@ -7473,7 +7490,10 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
     
     try:
         result = jresp.get("data", {}).get("writeSkillFile")
-        logger.info(f"[CloudSkill] writeSkillFile success: {len(result) if result else 0} files uploaded")
+        uploaded_count = len(result) if result else 0
+        logger.info(f"[CloudSkill] writeSkillFile success: {uploaded_count} files uploaded")
+        if uploaded_count == 0:
+            return {"success": False, "error": "writeSkillFile returned zero uploaded files", "data": result}
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"[CloudSkill] Failed to parse writeSkillFile response: {e}")

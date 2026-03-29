@@ -13,6 +13,29 @@ from .session_capabilities import get_or_create_session_capability_registry
 _COMPAT_MONITOR_ATTR = "_ecan_event_monitors"
 
 
+def _dedupe_monitor_configs(configs: List[Any]) -> List[Any]:
+    deduped: List[Any] = []
+    seen_keys = set()
+    for cfg in reversed(list(configs or [])):
+        label = str(getattr(cfg, "label", "") or "").strip()
+        cfg_id = str(getattr(cfg, "id", "") or "").strip()
+        source_type = str(getattr(cfg, "source_type", "") or "").strip()
+        if label == "chat_message_added":
+            key = ("label", label, source_type or "dom_mutation")
+        else:
+            key = ("id", cfg_id or label, source_type)
+        if key in seen_keys:
+            logger.warning(
+                f"[EventMonitorCapability] Dropping duplicate monitor config: "
+                f"id={cfg_id}, label={label}, source_type={source_type}"
+            )
+            continue
+        seen_keys.add(key)
+        deduped.append(cfg)
+    deduped.reverse()
+    return deduped
+
+
 def get_attached_monitor_set(session: Any) -> Any:
     return getattr(session, _COMPAT_MONITOR_ATTR, None)
 
@@ -53,6 +76,7 @@ class EventMonitorCapability:
         return self._active_monitor_set
 
     def configure(self, configs: List[Any]) -> None:
+        configs = _dedupe_monitor_configs(configs)
         records: List[MonitorConfigRecord] = []
         for cfg in configs or []:
             record = MonitorConfigRecord(
@@ -70,6 +94,7 @@ class EventMonitorCapability:
         return [asdict(item) for item in self.state.monitor_configs]
 
     def _config_signature(self, configs: List[Any]) -> str:
+        configs = _dedupe_monitor_configs(configs)
         normalized = []
         for cfg in configs or []:
             raw = getattr(cfg, "__dict__", {}).copy() if hasattr(cfg, "__dict__") else {}
@@ -80,10 +105,34 @@ class EventMonitorCapability:
             return str(normalized)
 
     async def ensure_started(self, configs: List[Any], agent_id: str = "") -> Any:
-        self.configure(configs)
+        logger.info(
+            f"[EventMonitorCapability] ensure_started called: "
+            f"incoming_labels={[getattr(c, 'label', '') for c in (configs or [])]}, "
+            f"session_id={id(self.session)}"
+        )
+        configs = _dedupe_monitor_configs(configs)
         current = self.get_active_monitor_set()
+        current_active_configs = list(getattr(current, "configs", []) or []) if current else []
+
+        # Preserve any monitors added by the LLM at runtime (not in the incoming skill-file list).
+        # If the currently active set is a superset of the incoming configs, merge so that
+        # runtime-added monitors (e.g. chat_message_added for a specific session) are not lost.
+        if current_active_configs:
+            incoming_labels = {str(getattr(c, "label", "") or "") for c in configs}
+            extra_configs = [
+                c for c in current_active_configs
+                if str(getattr(c, "label", "") or "") not in incoming_labels
+            ]
+            if extra_configs:
+                logger.info(
+                    f"[EventMonitorCapability] Preserving {len(extra_configs)} runtime-added monitor(s) "
+                    f"not in skill-file: {[getattr(c, 'label', '') for c in extra_configs]}"
+                )
+                configs = _dedupe_monitor_configs(list(configs) + extra_configs)
+
+        self.configure(configs)
         desired_sig = self._config_signature(configs)
-        current_sig = self._config_signature(list(getattr(current, "configs", []) or [])) if current else ""
+        current_sig = self._config_signature(current_active_configs) if current else ""
         if current and getattr(current, "monitors", None):
             logger.info(
                 f"[EventMonitorCapability] Active monitor set present: "
@@ -168,6 +217,8 @@ class EventMonitorCapability:
                 "enabled": bool(state.get("enabled", False)),
                 "status": str(state.get("last_status") or ("running" if state.get("enabled", False) else "idle")),
                 "current_url": str(state.get("last_current_url") or ""),
+                "items": list(state.get("last_items") or []),
+                "added_items": list(state.get("last_added_items") or []),
                 "last_customer_count": int(state.get("last_customer_count") or 0),
                 "last_keys_count": len(state.get("last_keys") or []),
                 "last_removed_count": len(state.get("last_removed_keys") or []),
