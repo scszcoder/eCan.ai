@@ -13,6 +13,8 @@ import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 
 import { useNodeRenderContext } from '../../../hooks';
+import { useConditionPortOrderStore } from '../../../stores/condition-port-order-store';
+import { getConditionType, getOrderedConditions } from '../port-order';
 // No port rendering here; ports are handled by engine via node meta defaultPorts
 
 interface ConditionValue {
@@ -20,47 +22,17 @@ interface ConditionValue {
   value?: ConditionRowValueType;
 }
 
-type ConditionType = 'if' | 'elif' | 'else';
-
-const getConditionType = (key: string): ConditionType => {
-  if (key.startsWith('if_')) return 'if';
-  if (key.startsWith('elif_')) return 'elif';
-  if (key.startsWith('else_')) return 'else';
-  return 'elif'; // default to elif for backward compatibility
-};
-
-const sortConditions = (conditions: ConditionValue[]): ConditionValue[] => {
-  // Create a map to preserve existing values
-  const valueMap = new Map(conditions.map(condition => [condition.key, condition.value]));
-  
-  // Sort the conditions
-  const sorted = [...conditions].sort((a, b) => {
-    const typeA = getConditionType(a.key);
-    const typeB = getConditionType(b.key);
-    if (typeA === 'if') return -1;
-    if (typeB === 'if') return 1;
-    if (typeA === 'else') return 1;
-    if (typeB === 'else') return -1;
-    return 0;
-  });
-
-  // Restore the values from the map
-  return sorted.map(condition => ({
-    key: condition.key,
-    value: valueMap.get(condition.key)
-  }));
-};
-
 export function ConditionInputs() {
   const { t } = useTranslation('skillEditor');
-  const { readonly } = useNodeRenderContext();
+  const { readonly, node } = useNodeRenderContext();
+  const preferredPortOrder = useConditionPortOrderStore((state) => state.getPortOrder(node.id));
 
   const handleValueChange = useCallback((field: any, value: ConditionValue, newValue: any) => {
     const newValues = [...(field.value || [])];
     const targetIndex = newValues.findIndex(item => item.key === value.key);
     if (targetIndex !== -1) {
       newValues[targetIndex] = { ...newValues[targetIndex], value: newValue };
-      field.onChange(sortConditions(newValues));
+      field.onChange(getOrderedConditions(newValues));
     }
   }, []);
 
@@ -68,25 +40,15 @@ export function ConditionInputs() {
     <FieldArray<ConditionValue> name="conditions">
       {({ field }) => {
         // Sort conditions to ensure proper order
-        const sortedValues = sortConditions(field.value || []);
-        console.log('Conditions:', field.value, 'Sorted:', sortedValues);
+        const sortedValues = getOrderedConditions(field.value || [], preferredPortOrder);
 
         return (
           <>
             {sortedValues.map((value, index) => {
-              // Enforce standard syntax: 
-              // 1. First item is IF
-              // 2. Last item is ELSE (if there's more than one item)
-              // 3. Others are ELSIF
-              const isFirst = index === 0;
-              const isLast = index === sortedValues.length - 1;
-              
-              // We treat the last item as ELSE to ensure valid structure, unless it's the only item (IF)
-              const treatAsElse = isLast && sortedValues.length > 1;
-              
-              const displayType = isFirst ? 'if' : (treatAsElse ? 'else' : 'elsif');
-              const isElse = treatAsElse; 
-              const isIf = isFirst;
+              const conditionType = getConditionType(value.key);
+              const displayType = conditionType === 'elif' ? 'elsif' : conditionType;
+              const isElse = conditionType === 'else';
+              const isIf = conditionType === 'if';
               
               return (
                 <div key={value.key} style={{ position: 'relative', width: '100%', maxWidth: '100%', overflow: 'visible' }}>
@@ -148,7 +110,7 @@ export function ConditionInputs() {
                           onClick={() => {
                             if (field.value) {
                               const newValue = field.value.filter(v => v.key !== value.key);
-                              field.onChange(sortConditions(newValue));
+                              field.onChange(getOrderedConditions(newValue));
                             }
                           }}
                         />
@@ -178,7 +140,7 @@ export function ConditionInputs() {
                       value: {}
                     });
                     
-                    field.onChange(sortConditions(newValue));
+                    field.onChange(getOrderedConditions(newValue));
                   }}
                 >
                   {t('nodes.condition.addElsif')}

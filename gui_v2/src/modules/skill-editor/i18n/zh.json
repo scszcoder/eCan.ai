@@ -129,6 +129,7 @@
     "layoutOptimized": "布局已优化",
     "layoutAlreadyOptimal": "布局已是最优，无需调整",
     "layoutOptimizeFailed": "布局优化失败",
+    "layoutNoNodes": "没有可布局的节点",
     "mouseFriendly": "鼠标友好",
     "touchpadFriendly": "触控板友好",
     "addNode": "添加节点",

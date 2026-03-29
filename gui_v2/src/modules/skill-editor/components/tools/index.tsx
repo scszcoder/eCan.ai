@@ -145,7 +145,23 @@ const ToolsInner = () => {
   const ipcApi = IPCAPI.getInstance();
 
   const handleRunControl = async (action: 'cancel' | 'pause' | 'resume' | 'step') => {
-    if (!skillInfoFromStore || !username) return;
+    // For cancel, always try best-effort stop first even if context is incomplete.
+    if (action === 'cancel') {
+      try {
+        await ipcApi.cancelRunSkillViaIPC();
+        console.log('[ToolBar] cancel_run_skill via IPC sent');
+      } catch (err) {
+        console.warn('[ToolBar] cancel_run_skill via IPC failed:', err);
+      }
+    }
+
+    if (!skillInfoFromStore || !username) {
+      if (action !== 'cancel') return;
+      // cancel already attempted via IPC above
+      useRunningNodeStore.getState().setActiveRunId(null);
+      useRunningNodeStore.getState().setRunningNodeId(null);
+      return;
+    }
 
     // Create a new skill info object with the latest diagram
     const skillInfo = {
