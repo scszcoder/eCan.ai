@@ -210,6 +210,22 @@ class LoggerHelper:
             msg = self._join_message_args(message, *args)
             self.logger.critical(msg, **kwargs)
 
+    def isEnabledFor(self, level):
+        """Check if the underlying logger is enabled for the specified level.
+        
+        This method is required for compatibility with third-party libraries
+        that may call isEnabledFor() directly on the logger instance.
+        
+        Args:
+            level: Logging level to check (e.g., logging.DEBUG, logging.INFO)
+            
+        Returns:
+            bool: True if logging is enabled for the specified level
+        """
+        if hasattr(self, 'logger') and self.logger:
+            return self.logger.isEnabledFor(level)
+        return False
+
     def _setup_crash_logging(self):
         """Setup crash logging functionality"""
         # Record environment information
