@@ -83,6 +83,10 @@ class TokenTracker:
         session_id: Optional[str] = None,
         node_type: Optional[str] = "llm",
         metadata: Optional[Dict[str, Any]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        duration_ms: Optional[int] = None,
+        skill_name: Optional[str] = None,
     ) -> bool:
         """
         Record token usage from an LLM response.
@@ -131,7 +135,11 @@ class TokenTracker:
                 user_email=user_email,
                 session_id=session_id,
                 node_type=node_type,
-                usage_timestamp=usage_timestamp
+                usage_timestamp=usage_timestamp,
+                start_time=start_time,
+                end_time=end_time,
+                duration_ms=duration_ms,
+                skill_name=skill_name
             )
 
             jsonl_payload = {
@@ -148,6 +156,10 @@ class TokenTracker:
                 "output_tokens": output_tokens,
                 "total_tokens": input_tokens + output_tokens,
                 "cost_usd": cost_usd,
+                "start_time": start_time.isoformat() + "Z" if start_time else None,
+                "end_time": end_time.isoformat() + "Z" if end_time else None,
+                "duration_ms": duration_ms,
+                "skill_name": skill_name,
                 "metadata": metadata or {},
             }
             self._append_jsonl(jsonl_payload)
@@ -171,7 +183,11 @@ class TokenTracker:
         source_name: Optional[str] = None,
         user_email: Optional[str] = None,
         session_id: Optional[str] = None,
-        operation: Optional[str] = None
+        operation: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        duration_ms: Optional[int] = None,
+        skill_name: Optional[str] = None
     ) -> bool:
         """
         Record token usage from MCP tool metadata.
@@ -237,7 +253,11 @@ class TokenTracker:
                 user_email=user_email,
                 session_id=session_id,
                 operation=operation,
-                usage_timestamp=usage_timestamp
+                usage_timestamp=usage_timestamp,
+                start_time=start_time,
+                end_time=end_time,
+                duration_ms=duration_ms,
+                skill_name=skill_name
             )
 
             jsonl_payload = {
@@ -255,6 +275,10 @@ class TokenTracker:
                 "output_tokens": output_tokens,
                 "total_tokens": input_tokens + output_tokens,
                 "cost_usd": cost_usd,
+                "start_time": start_time.isoformat() + "Z" if start_time else None,
+                "end_time": end_time.isoformat() + "Z" if end_time else None,
+                "duration_ms": duration_ms,
+                "skill_name": skill_name,
                 "metadata": metadata or {},
             }
             self._append_jsonl(jsonl_payload)

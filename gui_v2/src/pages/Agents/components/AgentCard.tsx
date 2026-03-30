@@ -8,9 +8,9 @@
  */
 
 import React, { useMemo, memo, useState, useEffect, useCallback } from 'react';
-import { App, Button, Dropdown, Popover, Tooltip, Tag, Spin, Empty } from 'antd';
+import { App, Badge, Button, Dropdown, Popover, Tooltip, Tag, Spin, Empty } from 'antd';
 import type { MenuProps } from 'antd';
-import { MessageOutlined, MoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { MessageOutlined, MoreOutlined, PoweroffOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTaskStore } from '@/stores/domain/taskStore';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -19,6 +19,8 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
+import { ipcApi } from '@/services/ipc/api';
+import { useAgentRuntimeStore, type RuntimeStatus } from '@/stores/agentRuntimeStore';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import './AgentCard.css';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
@@ -51,15 +53,6 @@ function getAgentId(agent: Agent | AgentCardType): string {
 function getAgentName(agent: Agent | AgentCardType): string {
   if ('name' in agent && typeof agent.name === 'string') return agent.name;
   if ('card' in agent && typeof agent.card?.name === 'string') return agent.card.name;
-  return '';
-}
-
-/**
- * SecurityGet Agent Description
- */
-function getAgentDescription(agent: Agent | AgentCardType): string {
-  if ('description' in agent && typeof agent.description === 'string') return agent.description;
-  if ('card' in agent && typeof agent.card?.description === 'string') return agent.card.description;
   return '';
 }
 
@@ -274,10 +267,96 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   const location = useLocation();
   const username = useUserStore((state) => state.username);
 
+  const { message: messageApi, modal } = App.useApp();
+
   // SecurityGetProperty
   const id = getAgentId(agent);
   const name = getAgentName(agent);
-  const description = getAgentDescription(agent);
+  // Agent runtime status from shared store (batch-polled)
+  const runtimeInfo = useAgentRuntimeStore(s => id ? s.statusMap[id] : undefined);
+  const setStatus = useAgentRuntimeStore(s => s.setStatus);
+  const runtimeStatus: RuntimeStatus = runtimeInfo?.runtime_status ?? 'stopped';
+  const agentEnabled = runtimeInfo?.enabled ?? true;
+
+  // Start/Stop agent
+  const handleToggleAgent = useCallback(async (enable: boolean) => {
+    if (!id) return;
+    if (!enable) {
+      modal.confirm({
+        title: <span style={{ color: '#fff' }}>Stop Agent</span>,
+        content: <span style={{ color: 'rgba(255,255,255,0.85)' }}>All running tasks on this agent will be shut off immediately. Are you sure?</span>,
+        okText: 'Stop',
+        okButtonProps: { danger: true },
+        cancelText: 'Cancel',
+        centered: true,
+        onOk: async () => {
+          try {
+            const res = await ipcApi.toggleAgentEnabled<{ runtime_status: string }>(id, false);
+            if (res.success && res.data) {
+              setStatus(id, res.data.runtime_status as RuntimeStatus, true);
+              messageApi.success('Agent stopped');
+            } else {
+              messageApi.error(res.error?.message || 'Failed to stop agent');
+            }
+          } catch (_) {
+            messageApi.error('Failed to stop agent');
+          }
+        },
+      });
+    } else {
+      try {
+        const res = await ipcApi.toggleAgentEnabled<{ runtime_status: string }>(id, true);
+        if (res.success && res.data) {
+          setStatus(id, res.data.runtime_status as RuntimeStatus, true);
+          messageApi.success('Agent started');
+        } else {
+          messageApi.error(res.error?.message || 'Failed to start agent');
+        }
+      } catch (_) {
+        messageApi.error('Failed to start agent');
+      }
+    }
+  }, [id, messageApi, modal, setStatus]);
+
+  // Enable/Disable agent (persistent)
+  const handleSetAgentEnabled = useCallback(async (enabled: boolean) => {
+    if (!id) return;
+    if (!enabled) {
+      modal.confirm({
+        title: <span style={{ color: '#fff' }}>Disable Agent</span>,
+        content: <span style={{ color: 'rgba(255,255,255,0.85)' }}>Disabling this agent will stop all running tasks and prevent it from auto-starting when you reopen the app. Continue?</span>,
+        okText: 'Disable',
+        okButtonProps: { danger: true },
+        cancelText: 'Cancel',
+        centered: true,
+        onOk: async () => {
+          try {
+            const res = await ipcApi.setAgentEnabled<{ enabled: boolean; runtime_status: string }>(id, false);
+            if (res.success && res.data) {
+              setStatus(id, res.data.runtime_status as RuntimeStatus, res.data.enabled);
+              messageApi.success('Agent disabled');
+            } else {
+              messageApi.error(res.error?.message || 'Failed to disable agent');
+            }
+          } catch (_) {
+            messageApi.error('Failed to disable agent');
+          }
+        },
+      });
+    } else {
+      try {
+        const res = await ipcApi.setAgentEnabled<{ enabled: boolean; runtime_status: string }>(id, true);
+        if (res.success && res.data) {
+          setStatus(id, res.data.runtime_status as RuntimeStatus, res.data.enabled);
+          messageApi.success('Agent enabled');
+        } else {
+          messageApi.error(res.error?.message || 'Failed to enable agent');
+        }
+      } catch (_) {
+        messageApi.error('Failed to enable agent');
+      }
+    }
+  }, [id, messageApi, modal, setStatus]);
 
   // Scene playback state
   const videoRef = React.useRef<HTMLVideoElement>(null);
@@ -495,9 +574,22 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     });
   };
   
-  // Menu项
+  // Menu items
   const menuItems: MenuProps['items'] = [
     { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
+    // Enable/Disable toggle
+    agentEnabled
+      ? { key: 'disable', label: 'Disable Agent', onClick: () => handleSetAgentEnabled(false) }
+      : { key: 'enable', label: 'Enable Agent', onClick: () => handleSetAgentEnabled(true) },
+    // Start/Stop (only when enabled)
+    ...(agentEnabled ? [
+      (runtimeStatus === 'stopped')
+        ? { key: 'start', icon: <PoweroffOutlined />, label: 'Start Agent', onClick: () => handleToggleAgent(true) }
+        : (runtimeStatus === 'standby' || runtimeStatus === 'working')
+          ? { key: 'stop', icon: <PoweroffOutlined />, label: 'Stop Agent', onClick: () => handleToggleAgent(false), danger: true }
+          : null
+    ].filter(Boolean) : []),
+    { type: 'divider' as const },
     { key: 'delete', label: t('common.delete') || 'Delete', onClick: handleDelete, danger: true },
   ];
   
@@ -619,22 +711,33 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           width: '100%',
         }}
       >
-        {/* Name (left-aligned, takes remaining space) */}
+        {/* Name + status dot (left-aligned, takes remaining space) */}
         <div
           className="agent-name"
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
             fontSize: '16px',
             fontWeight: 600,
             color: 'rgba(255, 255, 255, 0.95)',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
             flex: 1,
             minWidth: 0,
           }}
-          title={name ? t(name) : ''}
+          title={name ? `${t(name)} (${runtimeStatus})` : ''}
         >
-          {name ? t(name) : ''}
+          <Badge
+            status={
+              runtimeStatus === 'working' ? 'processing' :
+              runtimeStatus === 'standby' ? 'success' :
+              runtimeStatus === 'stopped' ? 'warning' :
+              'default'
+            }
+          />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {name ? t(name) : ''}
+          </span>
         </div>
 
         {/* Buttons (right-aligned) */}

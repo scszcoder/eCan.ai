@@ -804,6 +804,13 @@ try:
         ctx.set_login(login)
         ctx.set_main_loop(loop)
 
+        # Start memory monitor (background thread, logs to memory.log)
+        try:
+            from utils.memory_monitor import start_memory_monitor
+            start_memory_monitor()
+        except Exception as e:
+            logger.warning(f"Failed to start memory monitor: {e}")
+
         # Print current running mode
         progress_manager.update_progress(65, "Configuring runtime mode...")
         if app_settings.is_dev_mode:
