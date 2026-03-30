@@ -529,6 +529,26 @@ class GeneralSettings:
     def llm_provider_settings(self, value: dict):
         self._data["llm_provider_settings"] = value
 
+    # ==================== Cloud LLM Proxy Settings ====================
+
+    @property
+    def use_lambda_proxy(self) -> bool:
+        """Route LLM/embedding calls through the cloud Lambda proxy"""
+        return self._data.get("use_lambda_proxy", False)
+
+    @use_lambda_proxy.setter
+    def use_lambda_proxy(self, value: bool):
+        self._data["use_lambda_proxy"] = value
+
+    @property
+    def lambda_proxy_endpoint(self) -> str:
+        """Lambda Function URL for the cloud LLM proxy"""
+        return self._data.get("lambda_proxy_endpoint", "")
+
+    @lambda_proxy_endpoint.setter
+    def lambda_proxy_endpoint(self, value: str):
+        self._data["lambda_proxy_endpoint"] = value
+
     # ==================== Embedding Settings ====================
     
     @property

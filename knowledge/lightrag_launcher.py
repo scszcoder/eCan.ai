@@ -337,6 +337,46 @@ def patch_rerank_binding_for_proxy():
         logger.warning(traceback.format_exc())
 
 
+def patch_openai_client_for_lambda_proxy():
+    """Inject X-User-Id and X-Provider headers into OpenAI client when Lambda proxy is active.
+
+    LightRAG uses AsyncOpenAI(base_url=LLM_BINDING_HOST). When LLM_BINDING_HOST
+    points to our Lambda Function URL, we patch the OpenAI client constructor to
+    add per-user headers so the Lambda can do token accounting.
+    """
+    proxy_host = os.environ.get('LLM_BINDING_HOST', '')
+    if not proxy_host or 'lambda-url' not in proxy_host and 'execute-api' not in proxy_host:
+        logger.info('[Launcher] Lambda proxy not detected, skipping OpenAI header patch')
+        return
+
+    user_id = os.environ.get('ECAN_USER_ID', '')
+    llm_provider = os.environ.get('ECAN_LLM_PROVIDER', '')
+    logger.info(f'[Launcher] Lambda proxy detected ({proxy_host}), injecting user headers (user={user_id})')
+
+    try:
+        import openai
+        _original_init = openai.AsyncOpenAI.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            # Merge our headers into default_headers
+            extra = {
+                'X-User-Id': user_id,
+                'X-Provider': llm_provider or 'openai',
+            }
+            existing = kwargs.get('default_headers') or {}
+            if isinstance(existing, dict):
+                existing = {**existing, **extra}
+            else:
+                existing = extra
+            kwargs['default_headers'] = existing
+            return _original_init(self, *args, **kwargs)
+
+        openai.AsyncOpenAI.__init__ = _patched_init
+        logger.info('[Launcher] Patched AsyncOpenAI.__init__ with proxy headers')
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to patch OpenAI client for proxy: {e}')
+
+
 def apply_all_patches():
     """Apply all customizations"""
     logger.info('[Launcher] ==================== Applying Customizations ====================')
@@ -373,7 +413,10 @@ def apply_all_patches():
     
     # 7. Confidence scoring support (官方未实现)
     patch_utils_for_confidence_scoring()
-    
+
+    # 8. Lambda proxy header injection (inject X-User-Id for per-user accounting)
+    patch_openai_client_for_lambda_proxy()
+
     logger.info('[Launcher] ==================== Complete ====================')
 
 

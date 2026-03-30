@@ -400,8 +400,31 @@ class LightragServer:
         else:
              logger.warning("[LightragServer] ⚠️ No LLM_BINDING_API_KEY found.")
 
+        # 10. Lambda proxy metadata for per-user accounting headers
+        # The launcher's patch_openai_client_for_lambda_proxy() reads these
+        try:
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+            if main_window:
+                # User ID for token accounting
+                user_id = ''
+                if hasattr(main_window, 'config_manager') and main_window.config_manager:
+                    gs = main_window.config_manager.general_settings
+                    user_id = getattr(gs, 'user_id', '') or ''
+                if not user_id and hasattr(main_window, 'user_email'):
+                    user_id = main_window.user_email or ''
+                if user_id:
+                    env['ECAN_USER_ID'] = user_id
+
+                # LLM provider name (so Lambda knows which backend to call)
+                llm_provider = env.get('LLM_BINDING', '')
+                if llm_provider:
+                    env['ECAN_LLM_PROVIDER'] = llm_provider
+        except Exception as e:
+            logger.debug(f"[LightragServer] Could not set proxy metadata env vars: {e}")
+
         self._sync_restart_settings(env)
-        
+
         return env
 
     def _sync_restart_settings(self, env):

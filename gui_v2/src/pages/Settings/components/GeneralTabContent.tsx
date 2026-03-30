@@ -343,9 +343,9 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
                         tooltip={
                           <span>
                             {t('pages.settings.lan_api_endpoint_tooltip')}
-                            <Button 
-                              type="link" 
-                              size="small" 
+                            <Button
+                              type="link"
+                              size="small"
                               onClick={() => handleOpenUrl('http://192.168.1.100:8848')}
                               style={{ padding: 0, marginLeft: 4 }}
                             >
@@ -355,6 +355,33 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
                         }
                       >
                         <Input size="small" placeholder="http://192.168.1.100:8848/graphql" />
+                      </StyledFormItem>
+                    </Col>
+                  </Row>
+
+                  <Divider orientation="left" style={{ margin: '24px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
+                    Cloud LLM Proxy
+                  </Divider>
+                  <Row gutter={[16, 4]}>
+                    <Col span={8}>
+                      <StyledFormItem
+                        name="use_lambda_proxy"
+                        label="Use Cloud LLM Proxy"
+                        valuePropName="checked"
+                        style={{ marginBottom: '8px' }}
+                        tooltip="Route LLM and embedding calls through a managed cloud proxy instead of using local API keys"
+                      >
+                        <Switch size="small" />
+                      </StyledFormItem>
+                    </Col>
+                    <Col span={16}>
+                      <StyledFormItem
+                        name="lambda_proxy_endpoint"
+                        label="Proxy Endpoint"
+                        style={{ marginBottom: '8px' }}
+                        tooltip="Lambda Function URL for the cloud LLM proxy"
+                      >
+                        <Input size="small" placeholder="https://xxxxxxxxxx.lambda-url.us-east-1.on.aws" />
                       </StyledFormItem>
                     </Col>
                   </Row>

@@ -1736,6 +1736,99 @@ const Tests: React.FC = () => {
                             Test Task
                         </Button>
                     </Space>
+                    {/* LLM Proxy Test Buttons - 5th row */}
+                    <Space style={{ marginBottom: '8px' }}>
+                        <Button
+                            onClick={async () => {
+                                setTestOutput('Pinging Lambda proxy...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testLambdaProxyPing(),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('PING_TIMEOUT (10s)')), 10000))
+                                    ]);
+                                    setTestOutput('Proxy Ping:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Proxy Ping error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                                color: '#fff',
+                            }}
+                        >
+                            Ping Proxy
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                const prompt = testArgument || undefined;
+                                setTestOutput('Testing LLM via proxy...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testLambdaProxyLlm(prompt ? { prompt } : undefined),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('LLM_TIMEOUT (60s)')), 60000))
+                                    ]);
+                                    setTestOutput('Proxy LLM Test:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Proxy LLM error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                                color: '#fff',
+                            }}
+                        >
+                            Proxy LLM
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                const prompt = testArgument || undefined;
+                                setTestOutput('Testing browser-use LLM via proxy...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testLambdaProxyBrowserUse(prompt ? { prompt } : undefined),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('BU_TIMEOUT (60s)')), 60000))
+                                    ]);
+                                    setTestOutput('Proxy Browser-Use Test:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Proxy Browser-Use error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                                color: '#fff',
+                            }}
+                        >
+                            Proxy BU LLM
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                const text = testArgument || undefined;
+                                setTestOutput('Testing embedding via proxy...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testLambdaProxyEmbedding(text ? { text } : undefined),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('EMBED_TIMEOUT (30s)')), 30000))
+                                    ]);
+                                    setTestOutput('Proxy Embedding Test:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Proxy Embedding error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                                color: '#fff',
+                            }}
+                        >
+                            Proxy Embed
+                        </Button>
+                    </Space>
                     {/* Test Selection */}
                     <Space align="center" style={{ width: '100%', marginBottom: '16px' }}>
                         <Text style={{ color: 'white', marginRight: '8px' }}>{t('pages.tests.testsToRun')}:</Text>
