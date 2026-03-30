@@ -516,16 +516,15 @@ async def wan_a2a_subscribe(
         auth_headers: Optional auth headers (API key or JWT)
         endpoints: Optional AppSync endpoints
     """
-    # Apply nest_asyncio to fix Python 3.11+ timeout context manager issues
-    # This must be called in the same thread/context where the event loop runs
-    nest_asyncio.apply()
-    
     endpoints = endpoints or get_a2a_appsync_endpoints()
     if on_message_callback is None and mainwin is None:
         raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
     retry_count = 0
     base_backoff = 5
-    
+
+    # Build SSL context once; reuse across reconnect attempts.
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+
     while retry_count < max_retries:
         try:
             # Build WebSocket connection URL with auth headers
@@ -533,21 +532,19 @@ async def wan_a2a_subscribe(
 
             header_b64 = base64.b64encode(json.dumps(api_headers).encode('utf-8')).decode('utf-8')
             ws_url = f"{endpoints['ws']}?header={header_b64}&payload=e30="
-            
-            # SSL context
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
-            
-            # Note: Don't pass timeout to ClientSession constructor in Python 3.11+
-            # as it can cause "Timeout context manager should be used inside a task" errors
-            # Instead, pass timeout directly to ws_connect
+
+            # Do NOT set heartbeat here: AWS AppSync realtime API uses its own application-layer
+            # keep-alive ("ka" messages) and does not reliably respond to WebSocket PING frames.
+            # An aiohttp heartbeat would send PING every N seconds and close the connection if PONG
+            # is not received within N/2 seconds — this causes spurious disconnects, especially
+            # when the event loop is briefly busy with other I/O.  The recv_timeout below (based on
+            # ka_timeout_sec) is sufficient to detect a truly dead connection.
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
                     ws_url,
                     protocols=['graphql-ws'],
                     ssl=ssl_context,
-                    heartbeat=20,  # Send PING every 20s (well before 30s PONG timeout)
-                    autoping=True,  # Automatically respond to server PINGs
-                    timeout=120,  # Overall connection timeout
+                    timeout=aiohttp.ClientTimeout(total=120, connect=30),
                 ) as websocket:
                     logger.info(f"[wan_a2a] Connected to WebSocket for channel: {channel_id}")
 

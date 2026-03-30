@@ -84,6 +84,22 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "privacy_reserve": ("agent.mcp.server.Privacy.privacy_reserve", "privacy_reserve"),
 }
 
+# ==================== Module-level LLM + API Key Caches ====================
+# Cache LLM instances per (provider, model, host, api_key_preview) so repeated
+# invocations of the same LLM node don't pay the constructor + HTTP client setup
+# cost every step.  Cache is invalidated when the skill graph re-compiles.
+_LLM_INSTANCE_CACHE: dict[str, Any] = {}
+_LLM_CACHE_TTL_SECONDS = 300.0  # Invalidate after 5 min to avoid stale credentials
+
+# Cache resolved API keys per provider so we don't hit the LLM Manager / secure
+# store on every tool call or LLM invocation.  Key = provider string.
+_API_KEY_CACHE: dict[str, str] = {}
+_API_KEY_CACHE_TTL_SECONDS = 120.0  # Re-resolve after 2 min
+
+# Cache the LLM manager singleton so we don't call get_llm_manager() on every
+# LLM invocation (each call parses settings.json and builds provider maps).
+_LLM_MANAGER_CACHE: dict[str, Any] = {}  # key is always "" for the singleton slot
+
 
 def _resolve_cloud_tool_func(tool_name: str):
     """Resolve a tool handler function for cloud-direct invocation.
@@ -1009,7 +1025,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     
     # Guardrail timer configuration
     enable_guardrail_timer = False
-    llm_timeout_seconds = 150.0
+    llm_timeout_seconds = float(os.getenv("ECAN_LLM_TIMEOUT_SEC", "150"))
     hard_timeout_config = False  # If True, cancel operation on timeout (like browser-use)
     try:
         enable_guardrail_timer = (config_metadata.get('enable_guardrail_timer')
@@ -1105,9 +1121,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             Dictionary mapping various provider name formats to canonical provider identifiers
         """
         try:
-            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-            llm_manager = get_llm_manager()
-            
+            llm_manager = _get_llm_manager_singleton()
+
             if not llm_manager:
                 logger.warning("[build_llm_node] LLM manager not available, using fallback mapping")
                 return {}
@@ -1208,29 +1223,52 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
 
-    def _get_runtime_provider_info(provider_name: str) -> dict:
-        provider_name_l = (provider_name or "").lower()
+    # ── Per-provider-info cache: LLM manager lookups are slow (JSON parsing, regex) ──
+    _PROVIDER_INFO_CACHE: dict[str, dict] = {}
+    _PROVIDER_SPEC_CACHE: dict[str, dict] = {}
+
+    def _get_llm_manager_singleton():
+        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
+        if "singleton" in _LLM_MANAGER_CACHE:
+            return _LLM_MANAGER_CACHE["singleton"]
         try:
             from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-            llm_manager = get_llm_manager()
-            if llm_manager:
-                provider_info = llm_manager.get_provider(provider_name_l)
-                if isinstance(provider_info, dict):
-                    return provider_info
-                for item in llm_manager.get_all_providers() or []:
-                    if not isinstance(item, dict):
-                        continue
-                    pid = (item.get("provider") or "").lower()
-                    name = (item.get("name") or "").lower()
-                    display_name = (item.get("display_name") or "").lower()
-                    if provider_name_l in {pid, name, display_name}:
-                        return item
+            mgr = get_llm_manager()
+            _LLM_MANAGER_CACHE["singleton"] = mgr
+            return mgr
         except Exception as e:
-            logger.debug(f"[build_llm_node] Failed to load provider info for '{provider_name}': {e}")
+            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
+            return None
+
+    def _get_runtime_provider_info(provider_name: str) -> dict:
+        provider_name_l = (provider_name or "").lower()
+        # Fast path: already cached
+        if provider_name_l in _PROVIDER_INFO_CACHE:
+            return _PROVIDER_INFO_CACHE[provider_name_l]
+        llm_manager = _get_llm_manager_singleton()
+        if llm_manager:
+            provider_info = llm_manager.get_provider(provider_name_l)
+            if isinstance(provider_info, dict):
+                _PROVIDER_INFO_CACHE[provider_name_l] = provider_info
+                return provider_info
+            for item in llm_manager.get_all_providers() or []:
+                if not isinstance(item, dict):
+                    continue
+                pid = (item.get("provider") or "").lower()
+                name = (item.get("name") or "").lower()
+                display_name = (item.get("display_name") or "").lower()
+                if provider_name_l in {pid, name, display_name}:
+                    _PROVIDER_INFO_CACHE[provider_name_l] = item
+                    return item
         return {}
 
     def _normalize_provider_runtime_spec(provider_name: str, provider_info: dict) -> dict:
-        return {
+        # Cache the normalized spec — it's a pure function of the provider_info dict
+        # which itself is cached by _get_runtime_provider_info.
+        cache_key = str(id(provider_info))
+        if cache_key in _PROVIDER_SPEC_CACHE:
+            return _PROVIDER_SPEC_CACHE[cache_key]
+        spec = {
             "provider_key": (provider_info.get("provider") or provider_name or "").strip().lower(),
             "runtime_kind": (provider_info.get("runtime_kind") or "").strip(),
             "param_mapping": provider_info.get("param_mapping") or {},
@@ -1240,6 +1278,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             "default_params": provider_info.get("default_params") or {},
             "special_features": provider_info.get("special_features") or {},
         }
+        _PROVIDER_SPEC_CACHE[cache_key] = spec
+        return spec
 
     def _prepare_llm_extra_params(runtime_spec: dict, use_thinking: bool) -> dict:
         extra_params = {}
@@ -1282,16 +1322,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         This runs once at module load time.
         """
         try:
-            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-
-            llm_manager = get_llm_manager()
+            llm_manager = _get_llm_manager_singleton()
+            if not llm_manager:
+                return
             all_providers = llm_manager.get_all_providers() or []
-
             runtime_registry_keys = {
                 "openai_compatible", "anthropic", "google_genai", "deepseek",
                 "qwq_compatible", "ollama_native", "zhipuai", "bedrock_converse", "azure_openai"
             }
-
             missing_constructors = []
             for provider in all_providers:
                 if not isinstance(provider, dict):
@@ -1300,7 +1338,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 if runtime_kind and runtime_kind not in runtime_registry_keys:
                     provider_name = provider.get("name") or provider.get("provider") or "Unknown"
                     missing_constructors.append(f"{provider_name} (runtime_kind: {runtime_kind})")
-
             if missing_constructors:
                 logger.warning(
                     f"[build_llm_node] Runtime registry missing constructors for: {', '.join(missing_constructors)}. "
@@ -1355,20 +1392,36 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         return [str(v).strip() for v in env_vars if isinstance(v, str) and str(v).strip()]
 
     def _resolve_api_key_from_provider_env_vars(provider_name: str, username: str | None = None) -> str | None:
+        # ── API key cache: avoid hitting secure_store on every LLM invocation ──
+        # Cache keyed by (provider, username) with a 2-min TTL so credential
+        # rotation is picked up without a process restart.
+        _now = time.time()
+        _ak_cache_key = f"{provider_name}|{username or ''}"
+        _ak_cached = _API_KEY_CACHE.get(_ak_cache_key)
+        if _ak_cached is not None:
+            _ak_cached_at, _ak_cached_val = _ak_cached
+            if _now - _ak_cached_at < _API_KEY_CACHE_TTL_SECONDS and _ak_cached_val is not None:
+                return _ak_cached_val
+
         env_vars = _get_runtime_provider_env_vars(provider_name)
+        resolved = None
         for env_var in env_vars:
             if "ENDPOINT" in env_var.upper():
                 continue
             env_value = (os.getenv(env_var) or "").strip()
             if env_value:
-                return env_value
+                resolved = env_value
+                break
             try:
                 secure_value = secure_store.get(env_var, username=username)
                 if secure_value and str(secure_value).strip():
-                    return str(secure_value).strip()
+                    resolved = str(secure_value).strip()
+                    break
             except Exception:
                 pass
-        return None
+
+        _API_KEY_CACHE[_ak_cache_key] = (_now, resolved)
+        return resolved
 
     def _build_runtime_llm(
         *,
@@ -1381,6 +1434,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         raw_provider_name: str | None,
         allow_default_openai: bool,
     ):
+        # ── LLM instance cache: skip re-construction for repeated invocations ──
+        # Build a stable cache key from the parameters that define the LLM identity.
+        # API key is deliberately excluded from the key: the cached instance still
+        # calls the same endpoint with the same model; if credentials rotate the
+        # TTL (5 min) handles stale-key cleanup.
+        _now = time.time()
+        _raw_key = (
+            f"{provider_name}|{model_name_value or ''}|"
+            f"{(host_value or '').rstrip('/')}|"
+            f"{temperature_value}|{use_thinking}"
+        )
+        _cached = _LLM_INSTANCE_CACHE.get(_raw_key)
+        if _cached is not None:
+            _cached_at, _cached_llm = _cached
+            if _now - _cached_at < _LLM_CACHE_TTL_SECONDS:
+                return _cached_llm
+
+        # ── Full construction (cache miss) ─────────────────────────────────────
         provider_info = _get_runtime_provider_info(provider_name)
         runtime_spec = _normalize_provider_runtime_spec(provider_name, provider_info)
         runtime_kind = runtime_spec.get("runtime_kind") or ""
@@ -1409,18 +1480,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             constructor = ChatOpenAI
 
         special_features = runtime_spec.get("special_features") or {}
-        
+
         if special_features.get("check_import"):
             import_name = special_features["check_import"]
             if globals().get(import_name) is None:
                 raise ImportError(f"{import_name} is not available. Please install the required package.")
-        
+
         if special_features.get("requires_api_key") and not api_key_value:
             raise ValueError(f"{provider_name} requires an API key")
-        
+
         if special_features.get("requires_model") and not model_name_value:
             raise ValueError(f"{provider_name} requires a model/deployment name")
-        
+
         if special_features.get("requires_azure_endpoint"):
             azure_endpoint = host_value or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if api_key_value else None)
             if not azure_endpoint:
@@ -1437,7 +1508,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             temperature_value=temperature_value,
             use_thinking=use_thinking,
         )
-        return constructor(**kwargs)
+        llm = constructor(**kwargs)
+
+        # Store in cache with timestamp for TTL enforcement
+        _LLM_INSTANCE_CACHE[_raw_key] = (_now, llm)
+        return llm
 
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
@@ -1755,16 +1830,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     # Try provider settings (LLM Manager stores full key)
                     resolved_key = None
                     try:
-                        from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-                        llm_manager = get_llm_manager()
-                        provider_info = llm_manager.get_provider(provider_l)
-                        if provider_info:
-                            env_vars = provider_info.get("api_key_env_vars", [])
-                            for env_var in env_vars:
-                                candidate = llm_manager.retrieve_api_key(env_var)
-                                if candidate and candidate.strip():
-                                    resolved_key = candidate.strip()
-                                    break
+                        llm_manager = _get_llm_manager_singleton()
+                        if llm_manager:
+                            provider_info = llm_manager.get_provider(provider_l)
+                            if provider_info:
+                                env_vars = provider_info.get("api_key_env_vars", [])
+                                for env_var in env_vars:
+                                    candidate = llm_manager.retrieve_api_key(env_var)
+                                    if candidate and candidate.strip():
+                                        resolved_key = candidate.strip()
+                                        break
                     except Exception as settings_err:
                         logger.debug(f"Failed to load API key from provider settings: {settings_err}")
 
@@ -1829,68 +1904,83 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 import asyncio
 
                 def _invoke_with_thread(llm_to_use, timeout_sec: float):
-                    """Sync LLM invocation with thread-based timeout (legacy)."""
-                    result_queue = queue.Queue()
-                    exception_queue = queue.Queue()
+                    """LLM sync invocation via persistent worker thread (no thread-per-call)."""
+                    from agent.ec_skills.llm_utils.llm_utils import (
+                        _PersistentAsyncWorkerThread,
+                        _persistent_worker_runners,
+                        _persistent_worker_runners_lock,
+                    )
 
-                    def invoke_llm():
-                        try:
-                            log_msg = "🔄 LLM invocation thread started"
-                            logger.debug(log_msg)
-                            send_skill_editor_log("log", log_msg)
+                    worker_name = f"llm-sync-{id(llm_to_use)}"
+                    with _persistent_worker_runners_lock:
+                        runner = _persistent_worker_runners.get(worker_name)
+                        if runner is None or runner._closed:
+                            runner = _PersistentAsyncWorkerThread(name=worker_name)
+                            _persistent_worker_runners[worker_name] = runner
 
-                            logger.debug(f"llm_to_use: {llm_to_use}")
-                            result = llm_to_use.invoke(recent_context)
-                            result_queue.put(result)
-
-                            log_msg = f"✅ LLM invocation thread completed {result}"
-                            logger.debug(log_msg)
-                            send_skill_editor_log("log", log_msg)
-                        except Exception as e:
-                            # Log detailed error context at ERROR level for quick problem identification
-                            error_type = type(e).__name__
-                            error_msg = str(e)
-                            
-                            logger.error(
-                                f"❌ LLM Invocation Failed in Thread\n"
-                                f"   Provider: {llm_provider}\n"
-                                f"   Model: {model_name}\n"
-                                f"   Base URL: {api_host or 'default'}\n"
-                                f"   Error Type: {error_type}\n"
-                                f"   Error Message: {error_msg}"
-                            )
-                            
-                            # Technical details in debug
-                            import traceback
-                            logger.debug(f"LLM invocation traceback: {traceback.format_exc()}")
-                            
-                            # Send concise message to skill editor
-                            send_skill_editor_log("error", f"LLM error: {error_type}: {error_msg}")
-                            exception_queue.put(e)
+                    async def _call_llm():
+                        return llm_to_use.invoke(recent_context)
 
                     start_time = time.time()
-                    th = threading.Thread(target=invoke_llm, daemon=True)
-                    th.start()
-                    th.join(timeout=timeout_sec)
-                    elapsed = time.time() - start_time
+                    try:
+                        # Ensure the worker loop is running
+                        runner.start()
+                        loop = runner._loop
+                        if loop is None:
+                            raise RuntimeError(f"Persistent worker loop is unavailable: {worker_name}")
 
-                    if th.is_alive():
-                        # Get LLM info for detailed error message
+                        import asyncio as _aio
+
+                        async def _invoke_inner():
+                            if callable(_call_llm):
+                                return await _call_llm()
+                            return await _call_llm
+
+                        future = _aio.run_coroutine_threadsafe(_invoke_inner(), loop)
+                        # ── Timeout guard: prevent indefinite blocking ──
+                        resp = future.result(timeout=timeout_sec)
+                        elapsed = time.time() - start_time
+                        log_msg = f"⏱️ Request completed in {elapsed:.2f}s"
+                        logger.debug(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                        return resp
+
+                    except TimeoutError:
+                        # future.result(timeout=...) raises concurrent.futures.TimeoutError
+                        elapsed = time.time() - start_time
                         llm_info = f"{llm_provider}/{model_name}"
                         base_url_info = f" (base_url: {api_host})" if api_host else ""
-                        timeout_msg = f"⏱️ LLM request timed out after {timeout_sec}s: {llm_info}{base_url_info} - thread still running"
+                        timeout_msg = (
+                            f"⏱️ LLM request timed out after {elapsed:.1f}s "
+                            f"(limit {timeout_sec}s): {llm_info}{base_url_info} - worker thread still running"
+                        )
                         logger.error(timeout_msg)
                         send_skill_editor_log("error", timeout_msg)
                         raise TimeoutError(timeout_msg)
-                    if not exception_queue.empty():
-                        raise exception_queue.get()
-                    if result_queue.empty():
-                        raise RuntimeError("❌ LLM thread completed but no result available")
-                    resp = result_queue.get()
-                    log_msg = f"⏱️ Request completed in {elapsed:.2f}s"
-                    logger.debug(log_msg)
-                    send_skill_editor_log("log", log_msg)
-                    return resp
+
+                    except Exception as exc:
+                        elapsed = time.time() - start_time
+                        error_type = type(exc).__name__
+                        error_msg = str(exc)
+                        logger.error(
+                            f"❌ LLM Invocation Failed\n"
+                            f"   Provider: {llm_provider}\n"
+                            f"   Model: {model_name}\n"
+                            f"   Base URL: {api_host or 'default'}\n"
+                            f"   Error Type: {error_type}\n"
+                            f"   Error Message: {error_msg}\n"
+                            f"   Elapsed: {elapsed:.2f}s"
+                        )
+                        import traceback
+                        logger.debug(f"LLM invocation traceback: {traceback.format_exc()}")
+                        send_skill_editor_log("error", f"LLM error: {error_type}: {error_msg}")
+
+                        # Runner failed (loop died) — clear it so next call creates a fresh one
+                        with _persistent_worker_runners_lock:
+                            if _persistent_worker_runners.get(worker_name) is runner:
+                                runner._closed = True
+                                del _persistent_worker_runners[worker_name]
+                        raise
 
                 async def _invoke_async(llm_to_use, timeout_sec: float):
                     """Async LLM invocation using ainvoke with timeout."""
@@ -1979,7 +2069,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     state=state,
                     tool_input=None,  # LLM nodes don't have tool_input
                     config_timeout=llm_timeout_seconds,
-                    default_timeout=150.0
+                    default_timeout=150.0  # hardcoded final fallback (config_timeout already carries env var)
                 )
                 
                 # Resolve hard timeout mode
@@ -3710,9 +3800,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
 
             try:
-                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-                llm_manager = get_llm_manager()
-                all_providers = llm_manager.get_all_providers() or []
+                llm_manager = _get_llm_manager_singleton()
+                all_providers = (llm_manager.get_all_providers() or []) if llm_manager else []
             except Exception:
                 pass
 
@@ -4838,6 +4927,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     # Optional node-level hard timeout for browser automation runtime (seconds).
     # Keep this separate from LLM request timeout so we can cap the whole node duration.
+    # Minimum floor: browser automation involves multiple LLM calls + page navigations,
+    # so timeouts below 300s typically cause premature failures.
+    _BROWSER_MIN_TIMEOUT_SEC = 300
     node_timeout_seconds = None
     try:
         timeout_val = ((inputs.get("nodeTimeoutSeconds") or {}).get("content")
@@ -4845,6 +4937,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if timeout_val not in (None, ""):
             _timeout = float(timeout_val)
             node_timeout_seconds = _timeout if _timeout > 0 else None
+            if node_timeout_seconds and node_timeout_seconds < _BROWSER_MIN_TIMEOUT_SEC:
+                logger.warning(
+                    f"[BrowserAutomation] node_timeout_seconds={node_timeout_seconds}s is below "
+                    f"minimum {_BROWSER_MIN_TIMEOUT_SEC}s for browser automation. "
+                    f"Bumping to {_BROWSER_MIN_TIMEOUT_SEC}s to prevent premature timeout."
+                )
+                send_skill_editor_log(
+                    "warning",
+                    f"[BrowserAutomation] Timeout {node_timeout_seconds}s too short, "
+                    f"raised to {_BROWSER_MIN_TIMEOUT_SEC}s minimum"
+                )
+                node_timeout_seconds = _BROWSER_MIN_TIMEOUT_SEC
     except Exception:
         node_timeout_seconds = None
     
@@ -6862,6 +6966,40 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                 agent_kwargs["register_done_callback"] = _on_browser_done
 
+            # Step progress callback: send intermediate update_run_stat so the
+            # skill editor shows real-time progress during long browser automation.
+            def _on_browser_step(browser_state_summary, model_output, step_number):
+                """Sync callback invoked after each browser-use step."""
+                try:
+                    from agent.cloud_worker.cloud_logger import is_cloud_mode
+                    if is_cloud_mode():
+                        return
+                    from gui.ipc.api import IPCAPI
+                    import time as _t
+                    ipc = IPCAPI.get_instance()
+                    # Build a concise step summary from model_output actions
+                    action_summary = ""
+                    try:
+                        actions = getattr(model_output, "action", None)
+                        if actions and isinstance(actions, list):
+                            names = [getattr(a, "name", "") or type(a).__name__ for a in actions[:3]]
+                            action_summary = ", ".join(n for n in names if n)
+                    except Exception:
+                        pass
+                    step_label = f"step {step_number}" + (f" ({action_summary})" if action_summary else "")
+                    send_skill_editor_log("log", f"[BrowserAutomation] 📍 {node_name}: {step_label}")
+                    ipc.update_run_stat(
+                        agent_task_id=run_id or "0123456789",
+                        current_node=node_name,
+                        status="running",
+                        langgraph_state={"_browser_step": step_number, "_browser_action": action_summary},
+                        timestamp=int(_t.time() * 1000),
+                    )
+                except Exception:
+                    pass
+
+            agent_kwargs["register_new_step_callback"] = _on_browser_step
+
             # Populate available_file_paths so the agent can upload local images.
             # Extract product_dir from state (set by init_params / analyze_product),
             # then allowlist every image file in that directory.
@@ -8105,6 +8243,47 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             state['error'] = err_msg
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
+
+        # --- Data Availability Summary ---
+        # After resolving template variables, check which ones are empty and inject
+        # a summary so the browser agent knows what upstream data is missing and can
+        # skip impossible steps (e.g. image upload when no images were downloaded).
+        try:
+            if variables and format_context:
+                # Deduplicate variable names while preserving order
+                unique_vars = list(dict.fromkeys(variables))
+                _empty_vars = [
+                    v for v in unique_vars
+                    if not str(format_context.get(v) or "").strip()
+                ]
+                _present_vars = [
+                    v for v in unique_vars
+                    if str(format_context.get(v) or "").strip()
+                ]
+                if _empty_vars:
+                    _availability_lines = []
+                    if _present_vars:
+                        _availability_lines.append(f"✅ Available: {', '.join(_present_vars)}")
+                    _availability_lines.append(f"❌ Missing/empty: {', '.join(_empty_vars)}")
+                    _availability_lines.append(
+                        "IMPORTANT: Do NOT attempt to use or search for missing data. "
+                        "Skip any steps that depend on missing variables. "
+                        "For example, if original_images or product_dir is missing, "
+                        "skip the image upload phase entirely and proceed to the next phase."
+                    )
+                    _data_avail_section = "\n[DATA AVAILABILITY]\n" + "\n".join(_availability_lines) + "\n"
+                    # Append to user prompt so it's visible in the task
+                    final_user_prompt = (final_user_prompt or "") + _data_avail_section
+                    logger.info(
+                        f"[BrowserAutomation] Injected data availability summary for node={node_name}: "
+                        f"empty={_empty_vars}, present={_present_vars}"
+                    )
+                    send_skill_editor_log(
+                        "warning",
+                        f"[BrowserAutomation] {node_name}: missing upstream data: {', '.join(_empty_vars)}"
+                    )
+        except Exception as _data_avail_err:
+            logger.debug(f"[BrowserAutomation] Data availability check failed: {_data_avail_err}")
 
         # Combine prompts into task instructions for browser_use agent
         task_instructions = final_user_prompt.strip() or task_text or final_system_prompt.strip()

@@ -54,7 +54,9 @@ Context = TypeVar('Context')
 # Timeouts and polling intervals
 DEV_EVENT_TIMEOUT_SEC = int(os.getenv("DEV_EVENT_TIMEOUT_SEC", "300"))
 DEV_EVENT_POLL_INTERVAL_SEC = float(os.getenv("DEV_EVENT_POLL_INTERVAL_SEC", "0.5"))
-RUN_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
+# Per-skill override: pass "_runtime_event_timeout" in task state dict.
+# Falls back to this global default (also configurable via env var).
+DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
 
 
 class TaskRunnerRegistry:
@@ -230,6 +232,8 @@ class TaskRunner(Generic[Context]):
             "justStarted": True,
             "dev_auto_started": False,
             "pending_since": None,
+            # Allow per-task timeout override (set by skill config); falls back to global default
+            "_runtime_event_timeout": DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC,
         }
 
         # Kick off the unified runner in dev mode with prepared state
@@ -1495,16 +1499,36 @@ class TaskRunner(Generic[Context]):
             if existing:
                 return existing
 
-        skills = getattr(self.agent, "skills", []) or []
-        chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
-        if not chat_candidates:
-            logger.error("[ensure_chatter_task] No chat skill found; cannot auto-create chatter task")
-            return None
-        # Prefer a skill that has a compiled runnable
-        chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
+        # Strategy: prefer the skill from a pre-configured chat task (which may reference
+        # the full workflow, e.g. gooflish_listing_v3) over a name-matched skill from
+        # agent.skills (which may be a simpler chatter like gooflish_listing_chatter).
+        chatter_skill = None
+
+        # 1. Check agent's pre-configured tasks for a chat task with a runnable skill
+        for t in getattr(self.agent, "tasks", []) or []:
+            t_name = (getattr(t, "name", "") or "").lower()
+            t_trigger = getattr(t, "trigger", []) or []
+            if isinstance(t_trigger, str):
+                t_trigger = [t_trigger]
+            is_chat_task = "chat" in t_name or "message" in t_trigger
+            t_skill = getattr(t, "skill", None)
+            if is_chat_task and t_skill and getattr(t_skill, "runnable", None) is not None:
+                chatter_skill = t_skill
+                logger.info(f"[ensure_chatter_task] Using skill '{getattr(t_skill, 'name', '?')}' "
+                            f"from pre-configured task '{getattr(t, 'name', '?')}'")
+                break
+
+        # 2. Fallback: search agent.skills for a skill with "chat" in the name
         if not chatter_skill:
-            logger.error(f"[ensure_chatter_task] Found {len(chat_candidates)} chat skill(s) but none have a compiled runnable: "
-                         f"{[getattr(sk, 'name', '?') for sk in chat_candidates]}")
+            skills = getattr(self.agent, "skills", []) or []
+            chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
+            if chat_candidates:
+                chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
+                if chatter_skill:
+                    logger.info(f"[ensure_chatter_task] Fallback: using name-matched skill '{getattr(chatter_skill, 'name', '?')}' from agent.skills")
+
+        if not chatter_skill:
+            logger.error("[ensure_chatter_task] No chat skill found (checked tasks and skills); cannot auto-create chatter task")
             return None
 
         task_id = f"auto-chatter-{uuid.uuid4()}"
@@ -2122,16 +2146,20 @@ class TaskRunner(Generic[Context]):
         return None, None, False
     
     def _check_pending_timeout(self, task: ManagedTask, trigger_type: str):
-        """Check if a pending task has timed out."""
+        """Check if a pending task has timed out.
+
+        Timeout is taken from state['_runtime_event_timeout'] if set (allows per-task
+        override), otherwise falls back to the global DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC.
+        """
         try:
             state = self._task_states.get(task.id, {})
             pending_since = state.get('pending_since')
-            
+
             if not pending_since:
                 return
-            
+
             elapsed = time.time() - pending_since
-            
+
             if trigger_type == "dev":
                 if elapsed > DEV_EVENT_TIMEOUT_SEC:
                     from gui.ipc.api import IPCAPI
@@ -2146,15 +2174,17 @@ class TaskRunner(Generic[Context]):
                     self._emit_task_status(task, "failed")
                     self._dev_exit_requested = True
             else:
-                if elapsed > RUN_EVENT_TIMEOUT_SEC:
-                    logger.error(f"[RUN] Timeout after {RUN_EVENT_TIMEOUT_SEC}s")
+                # Per-task override from state (set by skill config / env), else global default
+                timeout_sec = float(state.get("_runtime_event_timeout", DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC))
+                if elapsed > timeout_sec:
+                    logger.error(f"[RUN] Timeout after {timeout_sec}s (task={task.name})")
                     logger.error("[FAIL_REASON] reason=timeout scope=runtime_event_wait")
                     task.status.state = TaskState.failed
                     state['justStarted'] = True
                     state['pending_since'] = None
                     state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
                     self._emit_task_status(task, "failed")
-                    
+
         except Exception:
             pass
     

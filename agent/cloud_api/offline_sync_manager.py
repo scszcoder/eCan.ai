@@ -47,6 +47,8 @@ class OfflineSyncManager:
         """Check whether the error list indicates a permanent authorization/configuration failure."""
         error_str = ' '.join(str(e) for e in errors).lower()
         non_retryable_markers = (
+            'forbidden',
+            'not the owner',
             'not authorized to perform',
             'no identity-based policy allows',
             'accessdenied',
@@ -288,7 +290,12 @@ class OfflineSyncManager:
                         synced_count += 1
                         logger.info(f"[OfflineSyncManager] ✅ Queue task: record already exists in cloud (duplicate key), marking as success: {task_id}")
                     elif self._is_non_retryable_error(errors):
-                        self.sync_queue.mark_failed(task_id, error_str or 'Non-retryable authorization/configuration error', max_retries=1)
+                        self.sync_queue.mark_failed(
+                            task_id,
+                            error_str or 'Non-retryable authorization/configuration error',
+                            max_retries=1,
+                            non_retryable=True,
+                        )
                         failed_count += 1
                         logger.error(f"[OfflineSyncManager] ❌ Queue task hit non-retryable cloud error, stopping retries: {task_id}")
                     elif 'NOT_FOUND' in error_str and operation == 'update':
