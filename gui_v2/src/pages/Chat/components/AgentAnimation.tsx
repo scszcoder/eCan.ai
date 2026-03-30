@@ -168,13 +168,16 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
         video.removeEventListener('loadedmetadata', onLoadedMetadata);
       };
     } else {
-      // Not playing scene, ensure we're on original src
-      if (video && originalSrcRef.current && video.src !== originalSrcRef.current) {
-        console.log('[AgentAnimation] Restoring to original (no scene)');
-        video.src = originalSrcRef.current;
-        video.loop = true;
-        video.currentTime = 0;
-        video.play().catch(() => {});
+      // Not playing scene, ensure we're on original src only if src changed
+      if (video && originalSrcRef.current) {
+        const currentSrc = video.currentSrc || video.src;
+        if (currentSrc !== originalSrcRef.current) {
+          console.log('[AgentAnimation] Restoring to original (no scene)');
+          video.src = originalSrcRef.current;
+          video.loop = true;
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
       }
     }
   }, [isPlayingScene, currentScene, agentId]);
