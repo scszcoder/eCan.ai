@@ -18,23 +18,34 @@ interface AgentRuntimeState {
   polling: boolean;
   /** Interval handle */
   _intervalId: ReturnType<typeof setInterval> | null;
+  /** Whether page is visible */
+  _pageVisible: boolean;
 
   /** Fetch all agent statuses from backend (batch) */
   fetchAll: () => Promise<void>;
   /** Directly update a single agent's status (optimistic / immediate) */
   setStatus: (agentId: string, status: RuntimeStatus, enabled: boolean) => void;
-  /** Start polling every intervalMs (default 30000) */
+  /** Start polling every intervalMs (default 60000) */
   startPolling: (intervalMs?: number) => void;
   /** Stop polling */
   stopPolling: () => void;
+  /** Set page visibility state */
+  setPageVisible: (visible: boolean) => void;
 }
+
+// Module-level visibility state for page visibility events
+let _visibilityHandler: (() => void) | null = null;
 
 export const useAgentRuntimeStore = create<AgentRuntimeState>((set, get) => ({
   statusMap: {},
   polling: false,
   _intervalId: null,
+  _pageVisible: true,
 
   fetchAll: async () => {
+    // Skip fetch when page is hidden to save resources
+    if (!get()._pageVisible) return;
+    
     try {
       const res = await ipcApi.getAllAgentsRuntimeStatus<{ agents: AgentRuntimeInfo[] }>();
       if (res.success && res.data?.agents) {
@@ -63,9 +74,19 @@ export const useAgentRuntimeStore = create<AgentRuntimeState>((set, get) => ({
     });
   },
 
-  startPolling: (intervalMs = 30000) => {
+  startPolling: (intervalMs = 60 * 1000) => {
     const state = get();
     if (state._intervalId) return;
+    
+    // Setup page visibility listener if not already done
+    if (!_visibilityHandler && typeof document !== 'undefined') {
+      _visibilityHandler = () => {
+        const visible = !document.hidden;
+        get().setPageVisible(visible);
+      };
+      document.addEventListener('visibilitychange', _visibilityHandler);
+    }
+    
     state.fetchAll();
     const id = setInterval(() => {
       get().fetchAll();
@@ -78,6 +99,20 @@ export const useAgentRuntimeStore = create<AgentRuntimeState>((set, get) => ({
     if (state._intervalId) {
       clearInterval(state._intervalId);
       set({ polling: false, _intervalId: null });
+    }
+    
+    // Cleanup visibility listener
+    if (_visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', _visibilityHandler);
+      _visibilityHandler = null;
+    }
+  },
+  
+  setPageVisible: (visible: boolean) => {
+    set({ _pageVisible: visible });
+    // Immediately fetch when page becomes visible again
+    if (visible) {
+      get().fetchAll();
     }
   },
 }));

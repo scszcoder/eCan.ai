@@ -269,7 +269,7 @@ class WebEngineView(QWebEngineView):
 
         # Graphics acceleration (Qt built-in support)
         QWebEngineSettings.Accelerated2dCanvasEnabled: True,  # Qt WebEngine built-in
-        QWebEngineSettings.WebGLEnabled: True,                # Qt WebEngine built-in
+        QWebEngineSettings.WebGLEnabled: True,                # Qt WebEngine built-in (needed for Monaco editor)
 
         # Error handling
         QWebEngineSettings.ErrorPageEnabled: True,
