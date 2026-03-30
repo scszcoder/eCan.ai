@@ -1321,6 +1321,24 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'test_task' }, { skill_name: skillName || 'my_test_bu_tools' });
     }
 
+    // --- Lambda LLM Proxy Tests ---
+
+    public async testLambdaProxyPing<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_lambda_proxy_ping' }, {});
+    }
+
+    public async testLambdaProxyLlm<T>(params?: { prompt?: string; provider?: string; model?: string }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_lambda_proxy_llm' }, params || {});
+    }
+
+    public async testLambdaProxyBrowserUse<T>(params?: { prompt?: string; provider?: string; model?: string }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_lambda_proxy_browser_use' }, params || {});
+    }
+
+    public async testLambdaProxyEmbedding<T>(params?: { text?: string; model?: string }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_lambda_proxy_embedding' }, params || {});
+    }
+
     public async saveAgent<T>(username: string, agent: T[]): Promise<APIResponse<void>> {
         return apiRouter.execute(
       {

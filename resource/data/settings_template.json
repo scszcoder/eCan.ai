@@ -10,6 +10,7 @@
     "api_keys": ["wan_api_key", "ocr_api_key"],
     "engines": ["network_api_engine", "schedule_engine"],
     "ocr": ["ocr_api_endpoint"],
+    "cloud_proxy": ["use_lambda_proxy", "lambda_proxy_endpoint"],
     "llm": ["default_llm", "default_llm_model"],
     "embedding": ["default_embedding", "default_embedding_model"],
     "skill": ["skill_use_git"],
@@ -55,6 +56,9 @@
   
   "ocr_api_endpoint": "http://52.204.81.197:8848/graphql/reqScreenTxtRead",
   
+  "use_lambda_proxy": false,
+  "lambda_proxy_endpoint": "",
+
   "default_llm": "openai",
   "default_llm_model": "gpt-5",
   

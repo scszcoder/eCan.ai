@@ -161,6 +161,30 @@ def ensure_user_env_file() -> Optional[Path]:
                                                 break
                             
                             logger.info(f"[LightRAG] Using default Embedding: {default_embed_provider} / {default_embed_model}")
+
+                        # Override with Lambda proxy if enabled
+                        if general_settings.use_lambda_proxy:
+                            proxy_endpoint = general_settings.lambda_proxy_endpoint
+                            if proxy_endpoint:
+                                proxy_base = proxy_endpoint.rstrip('/') + '/v1'
+                                # Get auth token for Lambda
+                                auth_token = ''
+                                if hasattr(main_window, 'get_auth_token'):
+                                    auth_token = main_window.get_auth_token() or ''
+                                # Override LLM binding
+                                provider_configs['LLM_BINDING'] = 'openai'
+                                provider_configs['LLM_BINDING_HOST'] = proxy_base
+                                if auth_token:
+                                    provider_configs['LLM_BINDING_API_KEY'] = auth_token
+                                # Override Embedding binding
+                                provider_configs['EMBEDDING_BINDING'] = 'openai'
+                                provider_configs['EMBEDDING_BINDING_HOST'] = proxy_base
+                                if auth_token:
+                                    provider_configs['EMBEDDING_BINDING_API_KEY'] = auth_token
+                                logger.info(f"[LightRAG] Lambda proxy enabled — routing LLM+Embedding to {proxy_base}")
+                            else:
+                                logger.warning("[LightRAG] Lambda proxy enabled but no endpoint configured")
+
                 except Exception as provider_error:
                     logger.warning(f"Failed to get default providers: {provider_error}")
                 

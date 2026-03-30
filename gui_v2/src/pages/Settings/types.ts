@@ -75,6 +75,10 @@ export interface Settings {
   // OCR
   ocr_api_endpoint: string;
   
+  // Cloud LLM Proxy
+  use_lambda_proxy: boolean;
+  lambda_proxy_endpoint: string;
+
   // LLM
   default_llm: string;
   default_llm_model: string;
