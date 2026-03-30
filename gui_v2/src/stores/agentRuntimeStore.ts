@@ -23,7 +23,7 @@ interface AgentRuntimeState {
   fetchAll: () => Promise<void>;
   /** Directly update a single agent's status (optimistic / immediate) */
   setStatus: (agentId: string, status: RuntimeStatus, enabled: boolean) => void;
-  /** Start polling every intervalMs (default 5000) */
+  /** Start polling every intervalMs (default 30000) */
   startPolling: (intervalMs?: number) => void;
   /** Stop polling */
   stopPolling: () => void;
@@ -63,7 +63,7 @@ export const useAgentRuntimeStore = create<AgentRuntimeState>((set, get) => ({
     });
   },
 
-  startPolling: (intervalMs = 5000) => {
+  startPolling: (intervalMs = 30000) => {
     const state = get();
     if (state._intervalId) return;
     state.fetchAll();

@@ -35,6 +35,12 @@ from agent.ec_skills.browser_use_extension.event_monitor_capability import (
 )
 from agent.ec_skills.browser_use_extension.event_models import NormalizedBrowserEvent
 
+# ── Top-level import for websocket health-check (avoids import overhead on every poll) ──
+try:
+    from websockets.protocol import State as _WsState
+except ImportError:
+    _WsState = None
+
 
 # Global registry of active monitor sets keyed by monitor_set_id
 # Used for cleanup when sessions close or runners shut down
@@ -58,6 +64,8 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
 
     The client and session_id are cached in *mutation_state* so they persist
     across polling cycles.  If the connection drops they are recreated.
+    The WebSocket state is checked before each use — no keep-alive ping is sent
+    to avoid adding per-cycle CDP round-trips.
     """
     cached_client = mutation_state.get("_mon_cdp_client")
     cached_sid = mutation_state.get("_mon_cdp_session_id")
@@ -65,15 +73,13 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
     # Quick health check — is the cached client still alive?
     if cached_client and cached_sid:
         ws = getattr(cached_client, "ws", None)
-        if ws is not None:
+        if ws is not None and _WsState is not None:
             try:
-                from websockets.protocol import State as _WsState
                 if ws.state is _WsState.OPEN:
                     return cached_client, cached_sid
             except Exception:
-                # If we can't check state, try to use it anyway
-                return cached_client, cached_sid
-        # Dead — clean up
+                pass
+        # Dead — clean up and recreate
         try:
             await cached_client.stop()
         except Exception:
@@ -84,16 +90,11 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
     # Resolve Chrome's debugging WebSocket URL from the BrowserSession.
     cdp_url = getattr(session, "cdp_url", None)
     if not cdp_url:
-        # Try to reconstruct from CDP port
-        cdp_port = None
-        try:
-            bp = getattr(session, "browser_profile", None)
-            cdp_port = getattr(bp, "cdp_url", None) if bp else None
-        except Exception:
-            pass
+        bp = getattr(session, "browser_profile", None)
+        cdp_port = getattr(bp, "cdp_url", None) if bp else None
         if not cdp_port:
             return None, None
-        cdp_url = cdp_port  # Already a ws:// URL
+        cdp_url = cdp_port
 
     try:
         from cdp_use import CDPClient as _MonCDPClient
@@ -101,7 +102,6 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
         client = _MonCDPClient(url=cdp_url)
         await client.start()
 
-        # Attach to the specific target to get a flat session
         attach_result = await client.send_raw(
             "Target.attachToTarget",
             {"targetId": target_id, "flatten": True},
@@ -115,7 +115,6 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
             await client.stop()
             return None, None
 
-        # Enable Runtime domain on the attached session
         await client.send_raw("Runtime.enable", {}, session_id=sid)
 
         mutation_state["_mon_cdp_client"] = client
@@ -1303,8 +1302,23 @@ async def _start_dom_mutation_monitor(
         
         logger.debug(f"[EventMonitor] CDP client found for DOM monitor '{cfg.label}'")
         
-        # Store mutation state
-        mutation_state = {
+        # Pre-cache the extractor config once at startup (avoids json.loads on every 250ms poll)
+        extractor_cfg = None
+        try:
+            extractor_cfg = _resolve_dom_extractor_config(cfg)
+        except Exception as _ec_err:
+            logger.warning(f"[EventMonitor] Failed to pre-resolve extractor for '{cfg.label}': {_ec_err}")
+        if extractor_cfg is None:
+            extractor_cfg = _default_dom_extractor_config(cfg)
+
+        # Pre-build the JS expression once — the config never changes at runtime
+        try:
+            runtime_expr = _build_dom_runtime_expression(extractor_cfg)
+        except Exception as _expr_err:
+            logger.warning(f"[EventMonitor] Failed to pre-build JS expr for '{cfg.label}': {_expr_err}")
+            runtime_expr = None
+
+        mutation_state.update({
             "enabled": True,
             "callback": bridge_callback,
             "config": cfg,
@@ -1322,9 +1336,13 @@ async def _start_dom_mutation_monitor(
             "last_added_items": [],
             "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
             "page_mismatch_count": 0,
-        }
+            # ── Perf caches: avoid re-parsing/re-building every 250ms ──────────
+            "_cached_extractor_cfg": extractor_cfg,
+            "_cached_runtime_expr": runtime_expr,
+            "_cached_extractor_cfg_str": str(id(extractor_cfg)),  # invalidation sentinel
+        })
+        # Resolve target_id from the pre-cached config
         try:
-            extractor_cfg = _resolve_dom_extractor_config(cfg)
             mutation_state["target_id"] = _resolve_monitor_target_id(session, cfg, extractor_cfg)
             logger.info(
                 f"[EventMonitor] Bound DOM monitor '{cfg.label}' to target_id="
@@ -1441,8 +1459,28 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
     """Check for real customer changes in the control panel DOM."""
     try:
         logger.debug(f"[EventMonitor] _check_for_customer_changes called")
-        
-        extractor_cfg = _resolve_dom_extractor_config(cfg)
+
+        # ── Skip if poll interval hasn't elapsed yet ──────────────────────────
+        current_time = time.time()
+        time_since_last = current_time - mutation_state["last_check"]
+        interval_s = max(0.05, float(mutation_state.get("check_interval_ms", 250)) / 1000.0)
+        if time_since_last < interval_s:
+            return
+        mutation_state["last_check"] = current_time
+
+        # ── Use pre-cached extractor config (built once at startup) ───────────
+        extractor_cfg = mutation_state.get("_cached_extractor_cfg")
+        if extractor_cfg is None:
+            # Defensive: rebuild if somehow missing (shouldn't happen in normal flow)
+            extractor_cfg = _resolve_dom_extractor_config(cfg)
+            mutation_state["_cached_extractor_cfg"] = extractor_cfg
+
+        # ── Use pre-built JS expression (avoids _build_dom_runtime_expression on every cycle) ──
+        runtime_expr = mutation_state.get("_cached_runtime_expr")
+        if runtime_expr is None:
+            runtime_expr = _build_dom_runtime_expression(extractor_cfg)
+            mutation_state["_cached_runtime_expr"] = runtime_expr
+
         target_id = str(mutation_state.get("target_id") or "")
         if not target_id:
             target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
@@ -1476,6 +1514,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             logger.debug(f"[EventMonitor] Independent CDP not available for '{cfg.label}', deferring")
             return
 
+        # ── Only fetch URL if actually going to poll (moved after interval check) ──
         current_url = "unknown"
         try:
             url_result = await mon_client.send_raw(
@@ -1490,18 +1529,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             await _cleanup_monitor_cdp(mutation_state)
 
         current_count = mutation_state["last_customer_count"]
-        current_time = time.time()
-        time_since_last = current_time - mutation_state["last_check"]
 
-        interval_s = max(0.05, float(mutation_state.get("check_interval_ms", 250)) / 1000.0)
-        if time_since_last < interval_s:
-            return
-
-        mutation_state["last_check"] = current_time
-
-        # --- DOM extractor query via independent CDP ---
+        # --- DOM extractor query via independent CDP (use pre-built expression) ---
         try:
-            runtime_expr = _build_dom_runtime_expression(extractor_cfg)
+            if not runtime_expr:
+                runtime_expr = _build_dom_runtime_expression(extractor_cfg)
             result = await mon_client.send_raw(
                 "Runtime.evaluate",
                 {"expression": runtime_expr, "awaitPromise": True},

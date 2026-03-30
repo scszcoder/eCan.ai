@@ -9,6 +9,7 @@ import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
+import { useConditionPortOrderStore } from '../../stores/condition-port-order-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
@@ -47,6 +48,7 @@ export const Open = ({ disabled }: OpenProps) => {
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
+  const clearConditionPortOrders = useConditionPortOrderStore((s) => s.clear);
   
   // Use global store for picker state so it persists across error boundary recoveries
   const pickerVisible = useOpenPickerStore((s) => s.visible);
@@ -128,6 +130,7 @@ export const Open = ({ disabled }: OpenProps) => {
           
           // Restore flip states from saved node data (including subcanvas)
           clearFlipStore();
+          clearConditionPortOrders();
           useNodeNoteStore.getState().clear();
           setTimeout(() => {
             const restoreFlipStates = (nodes: any[]) => {
@@ -164,6 +167,7 @@ export const Open = ({ disabled }: OpenProps) => {
           workflowDocument.clear();
           workflowDocument.fromJSON(data as any);
           clearFlipStore();
+          clearConditionPortOrders();
           useNodeNoteStore.getState().clear();
           if ((data as any).nodes) {
             const restoreStates = (nodes: any[]) => {
@@ -191,6 +195,7 @@ export const Open = ({ disabled }: OpenProps) => {
   }, [
     addRecentFile,
     clearFlipStore,
+    clearConditionPortOrders,
     loadBundle,
     setBreakpoints,
     setCurrentFilePath,

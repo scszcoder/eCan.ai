@@ -15,6 +15,7 @@ import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
+import { useConditionPortOrderStore } from '../../stores/condition-port-order-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
 
@@ -47,6 +48,7 @@ const OpenPickerModalContent = () => {
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
+  const clearConditionPortOrders = useConditionPortOrderStore((s) => s.clear);
   
   // Use global store for picker state
   const { t } = useTranslation('skillEditor');
@@ -116,6 +118,7 @@ const OpenPickerModalContent = () => {
           }
           
           clearFlipStore();
+          clearConditionPortOrders();
           useNodeNoteStore.getState().clear();
           setTimeout(() => {
             if (!workflowDocument) return;
@@ -152,6 +155,7 @@ const OpenPickerModalContent = () => {
             workflowDocument.fromJSON(data as any);
           }
           clearFlipStore();
+          clearConditionPortOrders();
           useNodeNoteStore.getState().clear();
           if ((data as any).nodes && workflowDocument) {
             (data as any).nodes.forEach((node: any) => {
@@ -173,6 +177,7 @@ const OpenPickerModalContent = () => {
   }, [
     addRecentFile,
     clearFlipStore,
+    clearConditionPortOrders,
     workflowDocument,
     loadBundle,
     setBreakpoints,
