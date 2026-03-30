@@ -1,55 +1,161 @@
 import React, { Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
-import { Spin } from 'antd';
+import { Button, Spin } from 'antd';
 import { userStorageManager } from '../services/storage/UserStorageManager';
 import AgentsRouteWrapper from './AgentsRouteWrapper';
 import MainRouteWrapper from './MainRouteWrapper';
 
+const VITE_LAZY_RELOAD_KEY = 'vite:lazy-reload-once';
+
+const lazyWithRetry = <T extends React.ComponentType<any>>(
+    importer: () => Promise<{ default: T }>
+) => React.lazy(async () => {
+    try {
+        const module = await importer();
+        if (typeof window !== 'undefined') {
+            sessionStorage.removeItem(VITE_LAZY_RELOAD_KEY);
+        }
+        return module;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isLazyImportFetchError =
+            message.includes('Failed to fetch dynamically imported module') ||
+            message.includes('Outdated Optimize Dep') ||
+            message.includes('Importing a module script failed');
+
+        if (isLazyImportFetchError && typeof window !== 'undefined') {
+            const hasRetried = sessionStorage.getItem(VITE_LAZY_RELOAD_KEY) === '1';
+            if (!hasRetried) {
+                sessionStorage.setItem(VITE_LAZY_RELOAD_KEY, '1');
+                window.location.reload();
+                await new Promise<never>(() => {});
+            }
+        }
+
+        throw error;
+    }
+});
+
 // PageComponent懒Load
-const Login = React.lazy(() => import('../pages/Login/index'));
-const AuthCallback = React.lazy(() => import('../pages/AuthCallback'));
-const Dashboard = React.lazy(() => import('../pages/Dashboard/Dashboard'));
-const Vehicles = React.lazy(() => import('../pages/Vehicles/Vehicles'));
-const Schedule = React.lazy(() => import('../pages/Schedule/Schedule'));
-const Chat = React.lazy(() => import('../pages/Chat/index'));
-const Skills = React.lazy(() => import('../pages/Skills/Skills'));
-const SkillEditor = React.lazy(() => import('../pages/SkillEditor/SkillEditor'));
-const Analytics = React.lazy(() => import('../pages/Analytics/Analytics'));
-const Tasks = React.lazy(() => import('../pages/Tasks/Tasks'));
-const Tools = React.lazy(() => import('../pages/Tools/Tools'));
-const Settings = React.lazy(() => import('../pages/Settings/Settings'));
-const Console = React.lazy(() => import('../pages/Console/Console'));
-const KnowledgePorted = React.lazy(() => import('../pages/Knowledge/LightRAGPorted'));
-const Tests = React.lazy(() => import('../pages/Tests/Tests'));
-const ChatTest = React.lazy(() => import('../pages/ChatTest'));
-const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
-const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
-const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
-const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
-const Products = React.lazy(() => import('../pages/Products/Products'));
-const Prompts = React.lazy(() => import('../pages/Prompts/PromptsEnhanced'));
-const Avatars = React.lazy(() => import('../pages/Avatars/Avatars'));
-const Account = React.lazy(() => import('../pages/Account/Account'));
-const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
-const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
-const RAGDocuments = React.lazy(() => import('../pages/RAG/RAGDocuments'));
+const Login = lazyWithRetry(() => import('../pages/Login/index'));
+const AuthCallback = lazyWithRetry(() => import('../pages/AuthCallback'));
+const Dashboard = lazyWithRetry(() => import('../pages/Dashboard/Dashboard'));
+const Vehicles = lazyWithRetry(() => import('../pages/Vehicles/Vehicles'));
+const Schedule = lazyWithRetry(() => import('../pages/Schedule/Schedule'));
+const Chat = lazyWithRetry(() => import('../pages/Chat/index'));
+const Skills = lazyWithRetry(() => import('../pages/Skills/Skills'));
+const SkillEditor = lazyWithRetry(() => import('../pages/SkillEditor/SkillEditor'));
+const Analytics = lazyWithRetry(() => import('../pages/Analytics/Analytics'));
+const Tasks = lazyWithRetry(() => import('../pages/Tasks/Tasks'));
+const Tools = lazyWithRetry(() => import('../pages/Tools/Tools'));
+const Settings = lazyWithRetry(() => import('../pages/Settings/Settings'));
+const Console = lazyWithRetry(() => import('../pages/Console/Console'));
+const KnowledgePorted = lazyWithRetry(() => import('../pages/Knowledge/LightRAGPorted'));
+const Tests = lazyWithRetry(() => import('../pages/Tests/Tests'));
+const ChatTest = lazyWithRetry(() => import('../pages/ChatTest'));
+const OrgNavigator = lazyWithRetry(() => import('../pages/Agents/OrgNavigator'));
+const AgentDetails = lazyWithRetry(() => import('../pages/Agents/components/AgentDetails'));
+const Orgs = lazyWithRetry(() => import('../pages/Orgs/Orgs'));
+const Warehouses = lazyWithRetry(() => import('../pages/Warehouses/Warehouses'));
+const Products = lazyWithRetry(() => import('../pages/Products/Products'));
+const Prompts = lazyWithRetry(() => import('../pages/Prompts/PromptsEnhanced'));
+const Avatars = lazyWithRetry(() => import('../pages/Avatars/Avatars'));
+const Account = lazyWithRetry(() => import('../pages/Account/Account'));
+const PaymentPlan = lazyWithRetry(() => import('../pages/Account/PaymentPlan'));
+const ShippingLabel = lazyWithRetry(() => import('../pages/ShippingLabel/ShippingLabel'));
+const RAGDocuments = lazyWithRetry(() => import('../pages/RAG/RAGDocuments'));
+
+interface LazyErrorBoundaryState {
+    hasError: boolean;
+    errorMessage: string;
+}
+
+class LazyErrorBoundary extends React.Component<{ children: React.ReactNode }, LazyErrorBoundaryState> {
+    state: LazyErrorBoundaryState = {
+        hasError: false,
+        errorMessage: ''
+    };
+
+    static getDerivedStateFromError(error: unknown): LazyErrorBoundaryState {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+            hasError: true,
+            errorMessage: message
+        };
+    }
+
+    componentDidCatch(error: unknown) {
+        console.error('[LazyErrorBoundary] Route lazy load failed:', error);
+    }
+
+    handleRetry = () => {
+        this.setState({ hasError: false, errorMessage: '' });
+    };
+
+    handleReload = () => {
+        if (typeof window !== 'undefined') {
+            window.location.reload();
+        }
+    };
+
+    render() {
+        if (this.state.hasError) {
+            const isImportError =
+                this.state.errorMessage.includes('Failed to fetch dynamically imported module') ||
+                this.state.errorMessage.includes('Outdated Optimize Dep') ||
+                this.state.errorMessage.includes('Importing a module script failed');
+
+            return (
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '12px',
+                    height: '260px',
+                    color: 'var(--text-primary, #e2e8f0)',
+                    background: 'var(--bg-primary, #0f172a)',
+                    borderRadius: '8px',
+                    padding: '16px'
+                }}>
+                    <div style={{ fontSize: '16px', fontWeight: 600 }}>
+                        {isImportError ? '页面资源加载失败' : '页面渲染失败'}
+                    </div>
+                    <div style={{ fontSize: '13px', opacity: 0.85, textAlign: 'center', maxWidth: '560px' }}>
+                        {isImportError
+                            ? '检测到前端依赖缓存失效，请点击“刷新页面”恢复。'
+                            : '检测到组件渲染异常，请点击“重试加载”或“刷新页面”。'}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <Button onClick={this.handleRetry}>重试加载</Button>
+                        <Button type="primary" onClick={this.handleReload}>刷新页面</Button>
+                    </div>
+                </div>
+            );
+        }
+
+        return this.props.children;
+    }
+}
 
 // LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <Suspense fallback={
-        <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '200px',
-            background: 'var(--bg-primary, #0f172a)'
-        }}>
-            <Spin size="large" />
-        </div>
-    }>
-        {children}
-    </Suspense>
+    <LazyErrorBoundary>
+        <Suspense fallback={
+            <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                height: '200px',
+                background: 'var(--bg-primary, #0f172a)'
+            }}>
+                <Spin size="large" />
+            </div>
+        }>
+            {children}
+        </Suspense>
+    </LazyErrorBoundary>
 );
 
 // 路由ConfigurationType

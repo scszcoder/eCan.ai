@@ -43,6 +43,7 @@ class LocalWebSocketClient {
   private options: Required<LocalWebSocketClientOptions>;
   private subscribedChannels: Set<string> = new Set();
   private isConnecting = false;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
 
   private constructor(options: LocalWebSocketClientOptions = {}) {
     this.options = {
@@ -134,6 +135,9 @@ class LocalWebSocketClient {
           this.subscribedChannels.forEach(channel => {
             this.subscribe(channel);
           });
+
+          // Start keepalive ping to prevent idle disconnections
+          this.startPing();
           
           resolve(true);
         };
@@ -151,6 +155,7 @@ class LocalWebSocketClient {
           console.log('[LocalWS] Connection closed:', event.code, event.reason);
           this.isConnecting = false;
           this.ws = null;
+          this.stopPing();
           
           if (this.options.autoReconnect && this.reconnectAttempts < this.options.maxReconnectAttempts) {
             this.scheduleReconnect();
@@ -171,6 +176,7 @@ class LocalWebSocketClient {
    * Disconnect from the WebSocket server
    */
   disconnect(): void {
+    this.stopPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -384,6 +390,28 @@ class LocalWebSocketClient {
     );
     
     unifiedEventHandler.handle(standardizedEvent);
+  }
+
+  /**
+   * Start keepalive ping to prevent idle WebSocket disconnections
+   */
+  private startPing(): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30_000);
+  }
+
+  /**
+   * Stop keepalive ping
+   */
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   /**

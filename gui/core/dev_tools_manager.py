@@ -14,66 +14,94 @@ if TYPE_CHECKING:
     from gui.WebGUI import WebGUI
 
 class DevToolsManager(QWidget):
-    """DevTools Manager class responsible for managing developer tools lifecycle and state"""
+    """DevTools Manager class responsible for managing developer tools lifecycle and state.
+
+    DevTools WebEngine components are created lazily — only when the user first opens
+    the DevTools panel.  This saves a full QtWebEngine rendering process when the
+    panel is never used.
+    """
 
     # Define signals
     closed = Signal()
-    
+
     def __init__(self, parent: 'WebGUI'):
         super().__init__(parent)
         self.parent: 'WebGUI' = parent
 
         # Get parent window size to calculate appropriate default height
         parent_height = parent.height() if parent else 800
-        # Set default height to 30% of parent window height, minimum 280px, maximum 450px
+        # Set default height to 25% of parent window height, minimum 280px, maximum 400px
         default_height = max(280, min(400, int(parent_height * 0.25)))
 
-        # Set default size
-        self.setMinimumSize(QSize(800, 280))  # Set appropriate minimum height
-        self.resize(QSize(1000, default_height))  # Set initial size
+        # Set default size on self (widget container)
+        self.setMinimumSize(QSize(800, 280))
+        self.resize(QSize(1000, default_height))
 
         # Create layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Create developer tools page and view
-        self.dev_tools_page = QWebEnginePage(self)
-        self.dev_tools_view = QWebEngineView()
-        self.dev_tools_view.setPage(self.dev_tools_page)
+        # DevTools components are created lazily on first open (lazy pattern:
+        # avoids a second QtWebEnginePage + QWebEngineView process until needed).
+        self.dev_tools_page: QWebEnginePage | None = None
+        self.dev_tools_view: QWebEngineView | None = None
+        self.dev_tools_dock: QDockWidget | None = None
 
-        # Set developer tools page
-        self.parent.web_engine_view.page().setDevToolsPage(self.dev_tools_page)
-
-        # Add view to layout
-        layout.addWidget(self.dev_tools_view)
-
-        # Create Dock Widget
+        # Create Dock Widget shell immediately (so toggle/hide can work before first open)
         self.dev_tools_dock = QDockWidget("Developer Tools", self.parent)
         self.dev_tools_dock.setWidget(self)
-        # Set appropriate minimum height and default height
         self.dev_tools_dock.setMinimumHeight(280)
         self.dev_tools_dock.resize(1000, default_height)
         self.parent.addDockWidget(Qt.BottomDockWidgetArea, self.dev_tools_dock)
         self.dev_tools_dock.hide()
 
-        # Setup shortcuts
+        # Setup keyboard shortcuts (before lazy creation so shortcuts work immediately)
         self._setup_shortcuts()
 
-        # Connect title change signal using lambda function
-        self.dev_tools_page.titleChanged.connect(
-            lambda title: self.dev_tools_dock.setWindowTitle(f"Developer Tools - {title}")
+        logger.info("DevTools manager created (DevTools view will be created lazily on first open)")
+
+    # ── Lazy initialiser ──────────────────────────────────────────────────────────
+
+    def _ensure_devtools(self) -> None:
+        """Create DevTools WebEngine components on first use (lazy init).
+
+        This avoids keeping a second QtWebEnginePage + QWebEngineView process alive
+        when the user never opens the DevTools panel.
+        """
+        if self.dev_tools_page is not None:
+            return  # Already initialised
+
+        from PySide6.QtWebEngineCore import QWebEnginePage
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+
+        page = QWebEnginePage(self)
+        view = QWebEngineView()
+        view.setPage(page)
+        page.setParent(self)  # Ownership to self so they are cleaned up with the widget
+
+        # Attach DevTools to the main page (this can be called at any time)
+        self.parent.web_engine_view.page().setDevToolsPage(page)
+
+        # Connect title-changed signal
+        page.titleChanged.connect(
+            lambda title: self.dev_tools_dock.setWindowTitle(f"Developer Tools - {title}") if self.dev_tools_dock else None
         )
 
-        # Set developer tools view style
-        self.dev_tools_view.setStyleSheet("""
-            QWebEngineView {
-                border: none;
-            }
-        """)
+        # Apply minimal styling
+        view.setStyleSheet("QWebEngineView { border: none; }")
 
-        logger.info("DevTools initialized")
-    
+        # Store references
+        self.dev_tools_page = page
+        self.dev_tools_view = view
+
+        # Add the DevTools view to our layout
+        self.layout().addWidget(view)
+
+        logger.info("DevTools lazy-initialised (WebEngine page + view created)")
+
+    # ── Shortcuts ─────────────────────────────────────────────────────────────────
+
     def _setup_shortcuts(self):
         """Setup keyboard shortcuts"""
         # F12 key to toggle developer tools
@@ -87,7 +115,9 @@ class DevToolsManager(QWidget):
         close_action.setShortcut(QKeySequence(Qt.Key_Escape))
         close_action.triggered.connect(self.hide)
         self.addAction(close_action)
-    
+
+    # ── Public API ───────────────────────────────────────────────────────────────
+
     def toggle(self):
         """Toggle developer tools display state"""
         logger.info("Toggling developer tools...")
@@ -97,8 +127,8 @@ class DevToolsManager(QWidget):
             self.show()
 
     def show(self):
-        """Show developer tools"""
-        # Adjust window size before showing
+        """Show developer tools (lazy: creates WebEngine components on first call)"""
+        self._ensure_devtools()
         self._adjust_window_size()
         self.dev_tools_dock.show()
         self.raise_()
@@ -106,7 +136,7 @@ class DevToolsManager(QWidget):
 
     def _adjust_window_size(self):
         """Adjust developer tools window size based on current parent window size"""
-        if not self.parent:
+        if not self.parent or not self.dev_tools_dock:
             return
 
         parent_height = self.parent.height()
@@ -114,27 +144,25 @@ class DevToolsManager(QWidget):
 
         # Calculate appropriate height: 25-35% of parent window height
         optimal_height = max(280, min(400, int(parent_height * 0.25)))
-
-        # Calculate appropriate width: at least 800px, but not exceeding parent window width
         optimal_width = max(800, min(parent_width, 1200))
 
-        # Set dock widget size
         self.dev_tools_dock.resize(optimal_width, optimal_height)
 
-        # If dock widget is already visible, try to adjust its proportion in parent window
         if self.dev_tools_dock.isVisible():
-            # Get dock widget size policy and adjust
-            self.dev_tools_dock.setMaximumHeight(int(parent_height * 0.5))  # Maximum not exceeding 50%
-    
+            self.dev_tools_dock.setMaximumHeight(int(parent_height * 0.5))
+
     def hide(self):
         """Hide developer tools"""
-        self.dev_tools_dock.hide()
+        if self.dev_tools_dock:
+            self.dev_tools_dock.hide()
         self.closed.emit()
 
     def is_visible(self):
         """Check if developer tools is visible"""
-        return self.dev_tools_dock.isVisible()
+        return bool(self.dev_tools_dock and self.dev_tools_dock.isVisible())
 
     def clear_all(self):
         """Clear all data (reload developer tools)"""
-        self.parent.web_engine_view.page().setDevToolsPage(self.dev_tools_page)
+        self._ensure_devtools()
+        if self.dev_tools_page:
+            self.parent.web_engine_view.page().setDevToolsPage(self.dev_tools_page)

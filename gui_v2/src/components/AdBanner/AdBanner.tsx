@@ -62,11 +62,11 @@ const AdBanner: React.FC = () => {
     const [isVisible, setIsVisible] = useState(false);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     
-    // Check for expired ads periodically
+    // Check for expired ads periodically (30s is sufficient — ads expire on minute/hour scale)
     useEffect(() => {
         intervalRef.current = setInterval(() => {
             clearExpiredAds();
-        }, 1000);
+        }, 30_000);
         
         return () => {
             if (intervalRef.current) {
