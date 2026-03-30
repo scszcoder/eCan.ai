@@ -68,11 +68,14 @@ def handle_test_lambda_proxy_ping(request: IPCRequest, params: Optional[Dict[str
         })
         latency_ms = int((time.time() - t0) * 1000)
 
+        token = config['auth_token']
         result = {
             'status': resp.status_code,
             'latency_ms': latency_ms,
             'body': resp.text[:500],
             'endpoint': url,
+            'has_token': bool(token),
+            'token_preview': (token[:20] + '...') if token else None,
         }
         return create_success_response(request, result)
 
@@ -91,14 +94,16 @@ def handle_test_lambda_proxy_llm(request: IPCRequest, params: Optional[Dict[str,
         model: str (optional, override default LLM model)
     """
     try:
-        import asyncio
         from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+        from langchain_core.messages import HumanMessage
 
         config = _get_proxy_config()
         p = params or {}
         prompt = p.get('prompt', 'Say hello in one sentence.')
         provider = p.get('provider', config['provider'])
         model = p.get('model', config['model'])
+
+        logger.info(f"[llm_proxy_test] LLM test: provider={provider}, model={model}, endpoint={config['endpoint']}")
 
         llm = create_lambda_proxy_langchain(
             provider=provider,
@@ -110,12 +115,9 @@ def handle_test_lambda_proxy_llm(request: IPCRequest, params: Optional[Dict[str,
             timeout=60.0,
         )
 
-        # Run async invoke
-        loop = asyncio.new_event_loop()
-        try:
-            response = loop.run_until_complete(llm.ainvoke(prompt))
-        finally:
-            loop.close()
+        # Use sync invoke — background_handler already runs in a thread
+        messages = [HumanMessage(content=prompt)]
+        response = llm.invoke(messages)
 
         result = {
             'provider': provider,
@@ -151,7 +153,7 @@ def handle_test_lambda_proxy_browser_use(request: IPCRequest, params: Optional[D
     try:
         import asyncio
         from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
-        from browser_use.llm.messages import HumanMessage
+        from browser_use.llm.messages import UserMessage
 
         config = _get_proxy_config()
         p = params or {}
@@ -171,7 +173,7 @@ def handle_test_lambda_proxy_browser_use(request: IPCRequest, params: Optional[D
         loop = asyncio.new_event_loop()
         try:
             result = loop.run_until_complete(
-                llm.ainvoke([HumanMessage(content=prompt)])
+                llm.ainvoke([UserMessage(content=prompt)])
             )
         finally:
             loop.close()
@@ -213,26 +215,30 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
         p = params or {}
         text = p.get('text', 'Hello world')
 
-        # Get embedding model from settings
-        from app_context import AppContext
-        main_window = AppContext.get_main_window()
-        gs = main_window.config_manager.general_settings
-        embed_model = p.get('model', gs.default_embedding_model or 'text-embedding-3-small')
+        # Use explicit provider/model for embedding test
+        # Local-only providers (ollama) don't work through the proxy
+        embed_provider = p.get('provider', 'openai')
+        embed_model = p.get('model', 'text-embedding-3-small')
 
         url = config['endpoint'].rstrip('/') + '/v1/embeddings'
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f"Bearer {config['auth_token']}",
             'X-User-Id': config['user_id'],
-            'X-Provider': gs.default_embedding or 'openai',
+            'X-Provider': embed_provider,
         }
         payload = {
             'model': embed_model,
             'input': text,
         }
 
+        logger.info(f"[llm_proxy_test] Embedding test: model={embed_model}, provider={headers['X-Provider']}, url={url}")
         resp = httpx.post(url, json=payload, headers=headers, timeout=30.0)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            body = resp.text[:500]
+            logger.error(f"[llm_proxy_test] Embedding error {resp.status_code}: {body}")
+            return create_error_response(request, 'PROXY_EMBEDDING_ERROR',
+                f"HTTP {resp.status_code}: {body}")
         data = resp.json()
 
         # Extract embedding info
