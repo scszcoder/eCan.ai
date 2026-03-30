@@ -94,6 +94,15 @@ export default defineConfig(({ mode }) => {
     }
   },
   optimizeDeps: {
+    // Pre-scan lazy-route/page modules so third-party deps are discovered at startup
+    // instead of being discovered on first navigation (which can cause 504 Outdated Optimize Dep).
+    entries: [
+      'index.html',
+      'src/main.tsx',
+      'src/routes/**/*.tsx',
+      'src/pages/**/*.tsx',
+      'src/pages/**/*.ts'
+    ],
     include: [
       'monaco-editor/esm/vs/editor/editor.worker',
       'monaco-editor/esm/vs/language/json/json.worker',
@@ -126,7 +135,15 @@ export default defineConfig(({ mode }) => {
       'react-i18next',
       'i18next',
       // date
-      'dayjs'
+      'dayjs',
+      'dayjs/plugin/relativeTime',
+      'dayjs/plugin/isoWeek',
+      'dayjs/plugin/weekday',
+      'dayjs/plugin/isSameOrBefore',
+      'dayjs/plugin/isSameOrAfter',
+      'dayjs/plugin/isBetween',
+      'dayjs/locale/en',
+      'dayjs/locale/zh-cn'
     ],
     exclude: [],
     // Force re-optimize after dependency changes to avoid stale optimized deps
