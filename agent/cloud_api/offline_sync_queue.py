@@ -152,6 +152,10 @@ class OfflineSyncQueue:
         with self._lock:
             for task in self.failed_queue:
                 if task['id'] == task_id:
+                    # Never retry permanent failures (auth/ownership/configuration, etc.)
+                    if bool(task.get('non_retryable')):
+                        logger.info(f"[OfflineSyncQueue] Skip retry non-retryable task: {task_id}")
+                        break
                     # Reset status
                     task['status'] = 'pending'
                     task['retry_count'] = 0
@@ -193,7 +197,7 @@ class OfflineSyncQueue:
             self._save_queue()
             logger.info(f"[OfflineSyncQueue] Task succeeded: {task_id}")
     
-    def mark_failed(self, task_id: str, error: str, max_retries: int = 3):
+    def mark_failed(self, task_id: str, error: str, max_retries: int = 3, non_retryable: bool = False):
         """
         Mark task as failed
         
@@ -208,13 +212,18 @@ class OfflineSyncQueue:
                     task['retry_count'] += 1
                     task['last_error'] = error
                     task['last_retry_at'] = datetime.now().isoformat()
+                    if non_retryable:
+                        task['non_retryable'] = True
                     
-                    if task['retry_count'] >= max_retries:
+                    if non_retryable or task['retry_count'] >= max_retries:
                         # Exceeded max retries, move to failed queue
-                        task['status'] = 'failed'
+                        task['status'] = 'failed_non_retryable' if non_retryable else 'failed'
                         self.failed_queue.append(task)
                         self.pending_queue.remove(task)
-                        logger.warning(f"[OfflineSyncQueue] Task failed after {max_retries} retries: {task_id}")
+                        if non_retryable:
+                            logger.warning(f"[OfflineSyncQueue] Task marked non-retryable and moved to failed queue: {task_id}")
+                        else:
+                            logger.warning(f"[OfflineSyncQueue] Task failed after {max_retries} retries: {task_id}")
                     else:
                         logger.warning(f"[OfflineSyncQueue] Task retry {task['retry_count']}/{max_retries}: {task_id}")
                     

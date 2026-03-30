@@ -145,7 +145,24 @@ const ToolsInner = () => {
   const ipcApi = IPCAPI.getInstance();
 
   const handleRunControl = async (action: 'cancel' | 'pause' | 'resume' | 'step') => {
-    if (!skillInfoFromStore || !username) return;
+    // For cancel with missing context, use lightweight IPC fallback (no payload needed).
+    // When context IS available, use the full cancelRunSkill() with run_id/skill_id.
+    // This avoids sending two cancel requests on a single click.
+    if (action === 'cancel' && (!skillInfoFromStore || !username)) {
+      try {
+        await ipcApi.cancelRunSkillViaIPC();
+        console.log('[ToolBar] cancel_run_skill via IPC sent (no context fallback)');
+      } catch (err) {
+        console.warn('[ToolBar] cancel_run_skill via IPC failed:', err);
+      }
+      useRunningNodeStore.getState().setActiveRunId(null);
+      useRunningNodeStore.getState().setRunningNodeId(null);
+      return;
+    }
+
+    if (!skillInfoFromStore || !username) {
+      return;
+    }
 
     // Create a new skill info object with the latest diagram
     const skillInfo = {

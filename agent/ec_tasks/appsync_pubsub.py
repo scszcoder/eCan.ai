@@ -332,14 +332,14 @@ async def _subscribe(
 
             ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-            timeout = aiohttp.ClientTimeout(total=60, connect=60, sock_read=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Do NOT set heartbeat: AppSync uses app-layer "ka" messages and may not respond to
+            # WebSocket PING frames — a heartbeat would cause spurious PONG-timeout disconnects.
+            async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
                     ws_url,
                     protocols=["graphql-ws"],
                     ssl=ssl_context,
-                    heartbeat=25,
-                    autoping=True,
+                    timeout=aiohttp.ClientTimeout(total=60, connect=30),
                 ) as websocket:
                     await websocket.send_str(json.dumps({"type": "connection_init"}))
 
