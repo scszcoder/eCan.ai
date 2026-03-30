@@ -295,7 +295,8 @@ class LocalWebSocketClient {
       const messageType = message.type;
       
       // Filter out routine/noisy events from logging
-      const routineEvents = ['skill_editor_log', 'push_account_info', 'update_skill_run_stat', 'subscribed'];
+      // IMPORTANT: 'pong' and 'ping' are WebSocket heartbeat events - always silent
+      const routineEvents = ['skill_editor_log', 'push_account_info', 'update_skill_run_stat', 'subscribed', 'pong', 'ping'];
       const shouldLog = !routineEvents.includes(messageType);
       
       if (shouldLog) {
@@ -362,6 +363,11 @@ class LocalWebSocketClient {
     
     if (shouldLog) {
       console.log(`[LocalWS] Processing event: ${eventType}`, { sessionId });
+    }
+    
+    // Handle WebSocket heartbeat ping/pong - consume silently without logging
+    if (eventType === 'pong' || eventType === 'ping') {
+      return;
     }
     
     // Handle special cases that don't go through unified handler
