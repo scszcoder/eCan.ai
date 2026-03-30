@@ -13,6 +13,8 @@ import { FlowNodeJSON } from '../../typings';
 import { FormHeader, FormContent } from '../../form-components';
 import { ConditionInputs } from './condition-inputs';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { useConditionPortOrderStore } from '../../stores/condition-port-order-store';
+import { getOrderedConditions } from './port-order';
 
 // Constants for port positioning
 const HEADER_HEIGHT = 40;  // Height of FormHeader
@@ -25,28 +27,6 @@ interface ConditionValue {
   value?: any;
 }
 
-// Helper to get condition type from key
-const getConditionType = (key: string): 'if' | 'elif' | 'else' => {
-  if (key.startsWith('if_')) return 'if';
-  if (key.startsWith('elif_')) return 'elif';
-  if (key.startsWith('else_')) return 'else';
-  return 'elif';
-};
-
-// Sort conditions: if first, else last, elif in between
-const sortConditions = (conditions: ConditionValue[]): ConditionValue[] => {
-  if (!conditions || !Array.isArray(conditions)) return [];
-  return [...conditions].sort((a, b) => {
-    const typeA = getConditionType(a.key);
-    const typeB = getConditionType(b.key);
-    if (typeA === 'if') return -1;
-    if (typeB === 'if') return 1;
-    if (typeA === 'else') return 1;
-    if (typeB === 'else') return -1;
-    return 0;
-  });
-};
-
 /**
  * Dynamic output port markers for Condition Node.
  * Renders one port per condition (if, elsif, else) with dynamic positioning.
@@ -54,6 +34,7 @@ const sortConditions = (conditions: ConditionValue[]): ConditionValue[] => {
 const ConditionPortMarkers: React.FC<{ expanded: boolean }> = ({ expanded }) => {
   const { node } = useNodeRenderContext();
   const { isFlipped } = useNodeFlipStore();
+  const preferredPortOrder = useConditionPortOrderStore((state) => state.getPortOrder(node.id));
   const hFlip = isFlipped(node.id);
   
   // Calculate port vertical position based on index and expanded state
@@ -91,7 +72,7 @@ const ConditionPortMarkers: React.FC<{ expanded: boolean }> = ({ expanded }) => 
   return (
     <Field<ConditionValue[]> name="conditions">
       {({ field }) => {
-        const conditions = sortConditions(field.value || []);
+        const conditions = getOrderedConditions(field.value || [], preferredPortOrder);
         
         return (
           <div className="se-condition-ports" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>

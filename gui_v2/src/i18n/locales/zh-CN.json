@@ -597,8 +597,11 @@
       "validation_hint": "这些项在数据库中不存在，请移除它们后重试。",
       "save_failed": "保存失败",
       "startChat": "开始对话",
-      "tasks": "任务",
-      "noTaskAssigned": "暂无分配任务"
+      "noTaskAssigned": "暂无分配任务",
+      "enableAgent": "启用代理",
+      "disableAgent": "禁用代理",
+      "startAgent": "启动代理",
+      "stopAgent": "停止代理"
     },
     "analytics": {
       "activeAgents": "活跃代理",

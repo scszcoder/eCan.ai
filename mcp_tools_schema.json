@@ -1,0 +1,5622 @@
+{
+  "generated_at": "2026-03-29T23:09:30.912506",
+  "total_tools": 124,
+  "tools": [
+    {
+      "name": "rpa_supervisor_scheduling_work",
+      "title": null,
+      "description": "<category>RPA</category><sub-category>Supervisor</sub-category>As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "rpa_operator_dispatch_works",
+      "title": null,
+      "description": "<category>RPA</category><sub-category>Supervisor</sub-category>As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "works"
+            ],
+            "properties": {
+              "works": {
+                "type": "object",
+                "description": "work to be dones"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "rpa_supervisor_process_work_results",
+      "title": null,
+      "description": "<category>RPA</category><sub-category>Operator</sub-category>As an RPA supervisor, update overall result with received operator work report.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "URL to fetch"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "rpa_supervisor_run_daily_housekeeping",
+      "title": null,
+      "description": "<category>RPA</category><sub-category>Operator</sub-category>As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "URL to fetch"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "rpa_operator_report_work_results",
+      "title": null,
+      "description": "<category>RPA</category><sub-category>Operator</sub-category>As an RPA operator, report work results to supervisor",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "URL to fetch"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_screen_capture",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Screen Capture</sub-category>Do a screen shot, save to a png file and stores into a cv2 image data structure",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "win_title_kw",
+              "sub_area",
+              "file"
+            ],
+            "properties": {
+              "win_title_kw": {
+                "type": "string",
+                "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)"
+              },
+              "sub_area": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "sub area of screen shot with relative offset [left, top, right, bottom]"
+              },
+              "file": {
+                "type": "string",
+                "description": "full path of screen shot file name"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_screen_analyze",
+      "title": null,
+      "description": "<category>OS</category><sub-category>OCR</sub-category>do OCR and icon match on an image and result in structured text in the image",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "win_title_kw",
+              "sub_area",
+              "site",
+              "engine"
+            ],
+            "properties": {
+              "win_title_kw": {
+                "type": "string",
+                "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "mouse_click",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse click function using pyautogui.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "click_type",
+              "loc",
+              "post_move_delay",
+              "post_click_delay"
+            ],
+            "properties": {
+              "click_type": {
+                "type": "string",
+                "description": "click type, can be 'left', 'right', 'double'"
+              },
+              "loc": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "coordinates of [x, y]"
+              },
+              "post_move_delay": {
+                "type": "integer",
+                "description": "wait some seconds after mouse move to the location"
+              },
+              "post_click_delay": {
+                "type": "integer",
+                "description": "wait some seconds after mouse click"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "mouse_move",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse move/hover function using pyautogui.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "location",
+              "post_wait"
+            ],
+            "properties": {
+              "location": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "coordinates of [x, y]"
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "wait number of seconds after movement"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "mouse_drag_drop",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse drag and drop function using pyautogui.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "pick_loc",
+              "drop_loc",
+              "duration",
+              "post_wait"
+            ],
+            "properties": {
+              "pick_loc": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "coordinates mouse pick up locationof [x, y]"
+              },
+              "drop_loc": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "coordinates mouse drop locationof [x, y]"
+              },
+              "duration": {
+                "type": "number",
+                "description": "time interval in seconds (could be fractional) between pick up and drop off"
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "wait number of seconds after post movement"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "mouse_scroll",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse scroll function using pyautogui.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "direction",
+              "amount",
+              "post_wait"
+            ],
+            "properties": {
+              "direction": {
+                "type": "string",
+                "description": "either up or down"
+              },
+              "duration": {
+                "type": "integer",
+                "description": "amount of mouse wheel scroll units"
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "wait number of seconds after post movement"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "keyboard_text_input",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>direct drive keyboard type in text string.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "text",
+              "interval",
+              "post_wait"
+            ],
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "text string to be typed in"
+              },
+              "interval": {
+                "type": "number",
+                "description": "amount of time interval in seconds(can be fractional number) between key strokes"
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "wait number of seconds after post movement"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "keyboard_keys_input",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>direct drive keyboard type combo hot keys.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "keys",
+              "post_wait"
+            ],
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "list of keys to be keyed in, for example ['ctrl', 'x']"
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "wait number of seconds after post movement"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "solve_px_captcha",
+      "title": null,
+      "description": "<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>solve px captcha, PerimeterX Captcha, by read screen, and emulate pressing and holding button for certin amount of time.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "keyword",
+              "duration"
+            ],
+            "properties": {
+              "keyword": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "the text on the button to where the mouse will be pressed and held down"
+              },
+              "duration": {
+                "type": "integer",
+                "description": "press and hold for this number of seconds before releasing"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_wait",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>wait a few seconds.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "seconds"
+            ],
+            "properties": {
+              "seconds": {
+                "type": "integer",
+                "description": "URL of the web page to open"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "say_hello",
+      "title": null,
+      "description": "<category>OS</category><sub-category>General</sub-category>just a test.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "get_current_time",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>Get the current date and time in yyyy-mm-dd hh:mm:ss format.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_wait_for_element",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Search Action</sub-category>use webdriver or cdp to wait for web elements.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "element_type",
+              "element_name",
+              "timeout"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "element_type": {
+                "type": "string",
+                "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath"
+              },
+              "element_name": {
+                "type": "string",
+                "description": "name of the element"
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_click_element_by_index",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on a web element based on index in the selector map.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "dom_index",
+              "timeout"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "dom_index": {
+                "type": "integer",
+                "description": "dom index of the element in the dom tree"
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_click_element_by_selector",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on an web element based on css selector.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "element_type",
+              "element_name",
+              "timeout"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "element_type": {
+                "type": "string",
+                "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath"
+              },
+              "element_name": {
+                "type": "string",
+                "description": "name of the element"
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_click_element_by_xpath",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on an web element based on xpath.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "element_type",
+              "element_name",
+              "timeout"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "element_type": {
+                "type": "string",
+                "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath"
+              },
+              "element_name": {
+                "type": "string",
+                "description": "name of the element"
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_click_element_by_text",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use webdriver or cdp to click on an web element based on text",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "element_type",
+              "element_name",
+              "timeout"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "element_type": {
+                "type": "string",
+                "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath"
+              },
+              "element_name": {
+                "type": "string",
+                "description": "name of the element"
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_input_text",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Keyboard Action</sub-category>use webdriver or cdp to key in text on a web page's input field.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "element_type",
+              "element_name",
+              "element_text",
+              "nth",
+              "timeout"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "element_type": {
+                "type": "string",
+                "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath"
+              },
+              "element_name": {
+                "type": "string",
+                "description": "name of the element"
+              },
+              "element_text": {
+                "type": "string",
+                "description": "text of the web element"
+              },
+              "nth": {
+                "type": "integer",
+                "description": "nth element of the list of elements of same type and same name"
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_scroll",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to scroll within the browser.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "direction",
+              "amount",
+              "post_wait"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "direction": {
+                "type": "string",
+                "description": "scroll direction of either up or down"
+              },
+              "amount": {
+                "type": "integer",
+                "description": "number of scroll units"
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "max wait time(seconds) to find element on the page"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_send_keys",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Keyboard Action</sub-category>use webdriver or cdp to send hot keys to the web page.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "keys"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "keys": {
+                "type": "array",
+                "description": "list of combo keys to send. the special keyboard keys are: <ctrl> <alt> <shift> <meta> <enter> <esc> <backspace> <tab> <space> <up> <down> <left> <right> <home> <end> <pageup> <pagedown> <insert> <delete> <f1> <f2> <f3> <f4> <f5> <f6> <f7> <f8> <f9> <f10> <f11> <f12>",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_scroll_to_text",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to scroll to the specified text location.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "text"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "text": {
+                "type": "string",
+                "description": "URL of the web page to open"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_get_dropdown_options",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to obtains the list of selection options on the drop down list.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "pulldown_menu_name"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "pulldown_menu_name": {
+                "type": "string",
+                "description": "pull down menu name"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_select_dropdown_option",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to select an item on the drop down selection list.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "pulldown_item"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "pulldown_item": {
+                "type": "string",
+                "description": "to be selected item text on the drop down list"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_drag_drop",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to drag and drop an item. Supports both element-based (CSS selectors) and coordinate-based drag and drop.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "source_selector": {
+                "type": "string",
+                "description": "CSS selector of the source element to drag (use this OR source_x/source_y)"
+              },
+              "target_selector": {
+                "type": "string",
+                "description": "CSS selector of the target element to drop onto (use this OR target_x/target_y)"
+              },
+              "source_x": {
+                "type": "integer",
+                "description": "X coordinate of source position (use with source_y instead of source_selector)"
+              },
+              "source_y": {
+                "type": "integer",
+                "description": "Y coordinate of source position (use with source_x instead of source_selector)"
+              },
+              "target_x": {
+                "type": "integer",
+                "description": "X coordinate of target position (use with target_y instead of target_selector)"
+              },
+              "target_y": {
+                "type": "integer",
+                "description": "Y coordinate of target position (use with target_x instead of target_selector)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_extract_content",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Extract Content</sub-category>use cdp to extract dom tree from the web page.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "url"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the web page to open, if this is empty, then whatever currently opened page will be extracted."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_switch_tab",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to switch to a tab in a browser.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "tab_title"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "tab_title": {
+                "type": "string",
+                "description": "the title of the tab to switch to. and its dom tree will be automatically extracted after the page loads."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_open_tab",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to open a new tab in a browser and open an specified URL.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "url"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the web page to be opened"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_close_tab",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to close a tab in a browser.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "tab_title"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "tab_title": {
+                "type": "string",
+                "description": "title of the browser tab to be closed"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_execute_javascript",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Run Code Action</sub-category>use webdriver or cdp to execute a javascript on a web page.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "script_code"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "script_code": {
+                "type": "string",
+                "description": "js script code to be executed in browser"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_save_href_to_file",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Download Action</sub-category>use webdriver or cdp to download a href pointed file on a web page.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "href",
+              "saved_file_path"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "href": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the file to be downloaded"
+              },
+              "saved_file_path": {
+                "type": "string",
+                "description": "Full path to save the downloaded file"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_upload_file",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Upload Action</sub-category>use webdriver or cdp to upload a file.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "href",
+              "upload_file_path"
+            ],
+            "properties": {
+              "driver_type": {
+                "type": "string",
+                "enum": [
+                  "webdriver",
+                  "cdp"
+                ],
+                "default": "webdriver",
+                "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession"
+              },
+              "browser_type": {
+                "type": "string",
+                "enum": [
+                  "adspower",
+                  "existing chrome",
+                  "chromium"
+                ],
+                "default": "existing chrome",
+                "description": "Browser type to use (only applicable when driver_type is 'cdp')"
+              },
+              "href": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the file upload element"
+              },
+              "upload_file_path": {
+                "type": "string",
+                "description": "Full path to the file to be uploaded"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "in_browser_go_to_url",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to open a new url site.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_type",
+              "browser_type",
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the web page to open"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_connect_to_adspower",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>ADSPower Action</sub-category>connect to an already opened and logged in ADS Power and open a new tab in URL.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the web page to open"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_connect_to_chrome",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>Chrome Connection</sub-category>connect to an already opened chrome and open a new tab in URL.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_path",
+              "url"
+            ],
+            "properties": {
+              "driver_path": {
+                "type": "string",
+                "description": "full path to web driver to use"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the web page to open"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ecan_ai_new_chromiunm",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>Launch New Chromium</sub-category>launch a new instance of chromium and open a new tab in URL.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "driver_path",
+              "url",
+              "profile"
+            ],
+            "properties": {
+              "driver_path": {
+                "type": "string",
+                "description": "full path to web driver to use"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the web page to open"
+              },
+              "profile": {
+                "type": "string",
+                "description": "json string of the browser profile to be used. "
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_reconnect_wifi",
+      "title": null,
+      "description": "<category>System</category><sub-category>Network</sub-category>use shell command to reconnect wifi (assume wifi access point porfiles exist).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "network_name",
+              "post_wait"
+            ],
+            "properties": {
+              "network_name": {
+                "type": "string",
+                "description": "name of the wifi access point."
+              },
+              "post_wait": {
+                "type": "integer",
+                "description": "wait number of seconds after attempting to open the url site"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_open_app",
+      "title": null,
+      "description": "<category>System</category><sub-category>General Applications</sub-category>Open an app in the OS. Smart: first checks if a matching window is already open (brings to front), then checks running processes, and only launches the executable if needed. Supports common app aliases (WeChat/微信, DingTalk/钉钉, etc.) and searches typical installation directories as fallback.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "app_name"
+            ],
+            "properties": {
+              "app_name": {
+                "type": "string",
+                "description": "The name of the app to open (e.g. 'WeChat', '微信', 'chrome') or a full executable path (e.g. 'C:\\Program Files\\Tencent\\WeChat\\WeChat.exe')."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_close_app",
+      "title": null,
+      "description": "<category>System</category><sub-category>General Applications</sub-category>in OS, close an app.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "app_name"
+            ],
+            "properties": {
+              "app_name": {
+                "type": "string",
+                "description": "the name of the app to close."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_switch_to_app",
+      "title": null,
+      "description": "<category>System</category><sub-category>General Applications</sub-category>in OS, switch an app to foreground.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "win_title"
+            ],
+            "properties": {
+              "win_title": {
+                "type": "string",
+                "description": "the title of the app window."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "python_run_extern",
+      "title": null,
+      "description": "<category>System</category><sub-category>Run Code</sub-category>run a python script",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "syntax free python script's source code in string format, ready to be called by exec()"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_list_dir",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>in OS, list files and directories in a given path. Returns a list of file/directory names with optional filtering by pattern.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "dir_path"
+            ],
+            "properties": {
+              "dir_path": {
+                "type": "string",
+                "description": "the directory path to list contents of"
+              },
+              "pattern": {
+                "type": "string",
+                "description": "optional glob pattern to filter files (e.g., '*.txt', '*.py'). Default is '*' for all files."
+              },
+              "recursive": {
+                "type": "boolean",
+                "description": "if true, list files recursively in subdirectories. Default is false."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_make_dir",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>in OS, make a directory",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "dir_path"
+            ],
+            "properties": {
+              "dir_path": {
+                "type": "string",
+                "description": "the dir path to be created"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_delete_dir",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>in OS, delete a directory recursively",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "dir_path"
+            ],
+            "properties": {
+              "dir_path": {
+                "type": "string",
+                "description": "the dir path to be deleted"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_delete_file",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>in OS, delete a file",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "the full path of the file to be deleted"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_move_file",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>in OS, move a file from one location to anther",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "src",
+              "dest"
+            ],
+            "properties": {
+              "src": {
+                "type": "string",
+                "description": "the full path of the file to be moved"
+              },
+              "dest": {
+                "type": "string",
+                "description": "the full path of the dir the file will be moved to"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_copy_file_dir",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>in OS, copy a file or directory from one location to anther",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "src",
+              "dest"
+            ],
+            "properties": {
+              "src": {
+                "type": "string",
+                "description": "the full path of the file or dirto be copied"
+              },
+              "dest": {
+                "type": "string",
+                "description": "the full path of the file or dir will be copied to"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_seven_zip",
+      "title": null,
+      "description": "<category>System</category><sub-category>File System</sub-category>Compress or extract files using 7-Zip. Operation is determined by dest extension: if dest ends with .7z/.zip/.tar/.gz/.bz2/.xz, it compresses src into dest archive; otherwise it extracts src archive to dest directory. Wildcards (*, ?) in src are auto-expanded.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "src",
+              "dest"
+            ],
+            "properties": {
+              "src": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "For compression: a file path, directory, wildcard pattern (e.g. C:/dir/*.txt), or array of paths. Wildcards are auto-expanded. For extraction: the archive file path."
+              },
+              "dest": {
+                "type": "string",
+                "description": "For compression: the output archive path (must end with .7z, .zip, .tar, .gz, .bz2, or .xz). For extraction: the output directory path."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_kill_processes",
+      "title": null,
+      "description": "<category>System</category><sub-category>Process Management</sub-category>OS kill processes",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "apps"
+            ],
+            "properties": {
+              "apps": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "the processes to be killed, all digits meaning process ID, otherwise, process name"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "api_ecan_ai_query_components",
+      "title": null,
+      "description": "<category>API</category><sub-category>ECAN Search</sub-category>send ecan_ai API to query components and get their parametric filter values.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "components"
+            ],
+            "properties": {
+              "components": {
+                "type": "array",
+                "description": "list of components with basic attributes.",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "api_ecan_ai_query_fom",
+      "title": null,
+      "description": "<category>API</category><sub-category>ECAN Search</sub-category>send ecan_ai API to query figure of merit for an component.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "component_results_info"
+            ],
+            "properties": {
+              "input": {
+                "type": "object",
+                "required": [
+                  "component_name",
+                  "product_app",
+                  "params"
+                ],
+                "properties": {
+                  "component_name": {
+                    "type": "string",
+                    "description": "name of the component."
+                  },
+                  "product_app": {
+                    "type": "array",
+                    "description": "list of products or applications.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "params": {
+                    "type": "array",
+                    "description": "list of parameters in dict.",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "api_ecan_ai_img2text_icons",
+      "title": null,
+      "description": "<category>API</category><sub-category>ECAN OCR</sub-category>run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "win_title_keyword"
+            ],
+            "properties": {
+              "win_title_keyword": {
+                "type": "string",
+                "description": "do OCR on the window whose window title with the keyword"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "api_ecan_ai_cloud_search",
+      "title": null,
+      "description": "<category>API</category><sub-category>ECAN Search</sub-category>run API to search components.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "setup"
+            ],
+            "properties": {
+              "setup": {
+                "type": "object",
+                "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "api_ecan_ai_rerank_results",
+      "title": null,
+      "description": "<category>API</category><sub-category>ECAN Search</sub-category>run cloud API to re-rank search results based on human boss specified figure of merit.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "agent_id",
+              "setup"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "calling agent id"
+              },
+              "setup": {
+                "type": "object",
+                "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "api_ecan_ai_cloud_search",
+      "title": null,
+      "description": "<category>API</category><sub-category>ECAN Search</sub-category>run cloud API to do search using cloud hosted search specialist agent.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "setup"
+            ],
+            "properties": {
+              "setup": {
+                "type": "object",
+                "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ecan_local_search_components",
+      "title": null,
+      "description": "<category>Local Search</category><sub-category>ECAN Search</sub-category>Locally search components on designated site with parametric filters.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "components",
+              "urls",
+              "parametric_filters",
+              "fom_form",
+              "max_n_results"
+            ],
+            "properties": {
+              "components": {
+                "type": "array",
+                "description": "optional: list of components with basic attributes.",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "urls": {
+                "type": "object",
+                "description": "categories dict with site names as the keys"
+              },
+              "parametric_filters": {
+                "type": "array",
+                "description": "parametric filters to be used in search."
+              },
+              "fom_form": {
+                "type": "object",
+                "description": "figure of merit data to be used in ranking search results."
+              },
+              "max_n_results": {
+                "type": "integer",
+                "description": "max number of results to return."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ecan_local_sort_search_results",
+      "title": null,
+      "description": "<category>Local Search</category><sub-category>ECAN Search</sub-category>locally sort search results based on certain column header text either in ascending order or descending order, then extract top max_n rows of results.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "sites"
+            ],
+            "properties": {
+              "sites": {
+                "type": "array",
+                "description": "list of json objects with basic attributes of url, header_text, ascending, and max_n.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "url",
+                    "header_text",
+                    "ascending",
+                    "max_n"
+                  ],
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "header_text": {
+                      "type": "string"
+                    },
+                    "ascending": {
+                      "type": "boolean"
+                    },
+                    "max_n": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "print_labels",
+      "title": null,
+      "description": "<category>Label</category><sub-category>Print</sub-category>Print label files to a specified printer. Supports PDF, PNG, JPG files. Cross-platform: Windows, macOS, Linux. Compatible with laser, inkjet, and thermal printers via USB, LAN, or Bluetooth.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "file_names"
+            ],
+            "properties": {
+              "file_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of file paths to print (PDF, PNG, JPG, etc.)"
+              },
+              "printer": {
+                "type": "string",
+                "description": "Target printer name. If empty or not specified, uses system default printer."
+              },
+              "n_copies": {
+                "type": "integer",
+                "description": "Number of copies for each file. Default is 1.",
+                "default": 1
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "reformat_labels",
+      "title": null,
+      "description": "<category>Label</category><sub-category>Reformat</sub-category>Reformat label PDFs to fit on multi-label sheets. Supports configurable sheet sizes, label layouts (rows/columns), margins, and optional backup copies with per-file note text.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "in_files"
+            ],
+            "properties": {
+              "in_files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "file_name"
+                  ],
+                  "properties": {
+                    "file_name": {
+                      "type": "string",
+                      "description": "Path to the PDF file"
+                    },
+                    "added_note_text": {
+                      "type": "string",
+                      "description": "Note text to add to backup label (e.g., order number)"
+                    },
+                    "added_note_font": {
+                      "type": "string",
+                      "description": "Path to TTF font file for note text (optional)"
+                    },
+                    "added_note_size": {
+                      "type": "integer",
+                      "description": "Font size for note text. Default: 24",
+                      "default": 24
+                    }
+                  }
+                },
+                "description": "List of input file specifications with per-file note settings"
+              },
+              "out_dir": {
+                "type": "string",
+                "description": "Output directory path. If not specified, uses same directory as first input file."
+              },
+              "sheet_width": {
+                "type": "number",
+                "description": "Sheet width in inches (e.g., 8.5 for letter size). Default: 8.5",
+                "default": 8.5
+              },
+              "sheet_height": {
+                "type": "number",
+                "description": "Sheet height in inches (e.g., 11.0 for letter size). Default: 11.0",
+                "default": 11.0
+              },
+              "label_width": {
+                "type": "number",
+                "description": "Label width in inches. Default: 8.5",
+                "default": 8.5
+              },
+              "label_height": {
+                "type": "number",
+                "description": "Label height in inches. Default: 5.5",
+                "default": 5.5
+              },
+              "label_orientation": {
+                "type": "string",
+                "enum": [
+                  "landscape",
+                  "portrait"
+                ],
+                "description": "Label orientation. Default: landscape",
+                "default": "landscape"
+              },
+              "label_rows_per_sheet": {
+                "type": "integer",
+                "description": "Number of label rows per sheet. Default: 2",
+                "default": 2
+              },
+              "label_cols_per_sheet": {
+                "type": "integer",
+                "description": "Number of label columns per sheet. Default: 1",
+                "default": 1
+              },
+              "label_rows_pitch": {
+                "type": "number",
+                "description": "Row pitch in inches. If 0 or not specified, auto-calculated for even distribution."
+              },
+              "label_cols_pitch": {
+                "type": "number",
+                "description": "Column pitch in inches. If 0 or not specified, auto-calculated for even distribution."
+              },
+              "top_side_margin": {
+                "type": "number",
+                "description": "Top margin in inches. Default: 0.25 inches"
+              },
+              "left_side_margin": {
+                "type": "number",
+                "description": "Left margin in inches. Default: 0.25 inches"
+              },
+              "add_backup": {
+                "type": "boolean",
+                "description": "Create backup copies with note text on same sheet. Default: true",
+                "default": true
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ecan_ai_api_get_agent_status",
+      "title": null,
+      "description": "Get an agent's current status, such as running tasks, scheduled tasks, finished tasks, chat interactions etc.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "agent_id"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "agent id"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": null,
+      "execution": null
+    },
+    {
+      "name": "ecan_ai_api_req_create_scene",
+      "title": null,
+      "description": "Request cloud-side multi-modal scene generation (text2image, text2video, image2image, image2video, video2video).\n\nComplete flow handled in a single call:\n1. Sends initReqScene to cloud to get presigned upload URLs (if refs needed)\n2. Automatically uploads reference files to S3 using presigned URLs\n3. Sends readyReqScene to confirm uploads and start processing\n\nFor text-only prompts (no refs), cloud starts processing immediately.\nResults are delivered via pub/sub subscription when generation completes.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "agent_id",
+              "description",
+              "output_format"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "Agent ID requesting the scene generation"
+              },
+              "description": {
+                "type": "string",
+                "description": "Text prompt describing the desired scene/image/video"
+              },
+              "output_format": {
+                "type": "string",
+                "enum": [
+                  "IMAGE",
+                  "VIDEO"
+                ],
+                "description": "Output format: IMAGE or VIDEO"
+              },
+              "output_resolution": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "Output resolution as [width, height], e.g. [1920, 1080]"
+              },
+              "duration_hint_ms": {
+                "type": "integer",
+                "description": "Hint for video duration in milliseconds"
+              },
+              "emotion": {
+                "type": "string",
+                "description": "Emotional tone for the scene (e.g., 'happy', 'sad', 'neutral')"
+              },
+              "mind_state": {
+                "type": "string",
+                "description": "Mental state context for the scene"
+              },
+              "style": {
+                "type": "string",
+                "enum": [
+                  "REALISTIC",
+                  "CARTOON",
+                  "ANIME",
+                  "ARTISTIC",
+                  "CINEMATIC"
+                ],
+                "description": "Visual style for the generated content"
+              },
+              "context": {
+                "type": "object",
+                "description": "Additional context for generation (gemini_job spec, etc.)"
+              },
+              "refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string",
+                      "description": "Local file path to the reference image/video"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "image",
+                        "video"
+                      ],
+                      "description": "Type of reference asset"
+                    },
+                    "mime_type": {
+                      "type": "string",
+                      "description": "MIME type (e.g., 'image/jpeg', 'video/mp4')"
+                    }
+                  }
+                },
+                "description": "Reference assets with local file_path for upload (images/videos to use as input)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": null,
+      "execution": null
+    },
+    {
+      "name": "gmail_read_titles",
+      "title": null,
+      "description": "read titles of unread gmails for the past N hours.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "gmail_url",
+              "recent",
+              "options"
+            ],
+            "properties": {
+              "gmail_url": {
+                "type": "string",
+                "description": "gmail inbox page URL (can be blank if using default)."
+              },
+              "recent": {
+                "type": "integer",
+                "description": "number of hours to look back and search unread emails in inbox"
+              },
+              "options": {
+                "type": "object",
+                "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gmail_read_full_email",
+      "title": null,
+      "description": "read the unread gmail full contents given the email title, sender and datetime.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "from",
+              "from_email",
+              "title",
+              "datetime"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "from whom (nick name) this email is sent."
+              },
+              "from_email": {
+                "type": "string",
+                "description": "the email of the sender."
+              },
+              "title": {
+                "type": "string",
+                "description": "the title of the email."
+              },
+              "datetime": {
+                "type": "string",
+                "description": "example: Mon, Dec 8, 2025, 8:15 PM"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gmail_respond",
+      "title": null,
+      "description": "gmail respond to an email",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "from",
+              "from_email",
+              "title",
+              "datetime",
+              "response_text",
+              "response_attachments"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "from whom (nick name) this email is sent."
+              },
+              "from_email": {
+                "type": "string",
+                "description": "the email of the sender."
+              },
+              "title": {
+                "type": "string",
+                "description": "the title of the email."
+              },
+              "datetime": {
+                "type": "string",
+                "description": "example: Mon, Dec 8, 2025, 8:15 PM"
+              },
+              "response_text": {
+                "type": "string",
+                "description": "the response text."
+              },
+              "response_attachments": {
+                "type": "array",
+                "description": "the response attachments."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gmail_write_new",
+      "title": null,
+      "description": "gmail write an new email.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "store_url",
+              "options"
+            ],
+            "properties": {
+              "store_url": {
+                "type": "string",
+                "description": "ebay store url"
+              },
+              "options": {
+                "type": "object",
+                "description": "some options in json format"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gmail_move_email",
+      "title": null,
+      "description": "gmail move email to a different folder.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "options"
+            ],
+            "properties": {
+              "options": {
+                "type": "object",
+                "description": "some options in json format"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gmail_mark_status",
+      "title": null,
+      "description": "gmail mark en email as read/unread.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "title",
+              "from",
+              "datetime",
+              "status"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "the title of the email."
+              },
+              "from": {
+                "type": "string",
+                "description": "from whom (nick name) this email is sent."
+              },
+              "datetime": {
+                "type": "string",
+                "description": "example: Mon, Dec 8, 2025, 8:15 PM"
+              },
+              "status": {
+                "type": "string",
+                "description": "read/unread"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gmail_delete_email",
+      "title": null,
+      "description": "gmail delete emails.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "options"
+            ],
+            "properties": {
+              "options": {
+                "type": "object",
+                "description": "some options in json format"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "privacy_reserve",
+      "title": null,
+      "description": "preserve privacy by either removing or anonymizing related contents from a dom-tree.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "options"
+            ],
+            "properties": {
+              "options": {
+                "type": "object",
+                "description": "some options in json format"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ragify",
+      "title": null,
+      "description": "Ingest documents or text into LightRAG for RAG indexing. Supports file upload or direct text insertion. Returns a track_id for monitoring processing status.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "file_paths": {
+                "type": "array",
+                "description": "List of file paths to upload and index. Supports: pdf, doc, docx, txt, md, html, csv, json, xml, py, js, etc.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "type": "string",
+                "description": "Direct text content to insert into the knowledge base (alternative to file_paths)."
+              },
+              "file_source": {
+                "type": "string",
+                "description": "Optional source identifier for the inserted text."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "rag_query",
+      "title": null,
+      "description": "Query LightRAG knowledge base using RAG. Retrieves relevant documents and generates natural language answers.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "query"
+            ],
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 3,
+                "description": "The query text to search for in the knowledge base."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "global",
+                  "hybrid",
+                  "naive",
+                  "mix",
+                  "bypass"
+                ],
+                "default": "mix",
+                "description": "Query mode: local (entity-focused), global (relationship patterns), hybrid (combined), naive (vector search), mix (knowledge graph + vector), bypass (direct LLM)."
+              },
+              "only_need_context": {
+                "type": "boolean",
+                "default": false,
+                "description": "If true, only returns the retrieved context without generating a response."
+              },
+              "only_need_prompt": {
+                "type": "boolean",
+                "default": false,
+                "description": "If true, only returns the generated prompt without producing a response."
+              },
+              "response_type": {
+                "type": "string",
+                "description": "Defines the response format. Examples: 'Multiple Paragraphs', 'Single Paragraph', 'Bullet Points'."
+              },
+              "top_k": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of top items to retrieve. Represents entities in 'local' mode and relationships in 'global' mode."
+              },
+              "chunk_top_k": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of text chunks to retrieve from vector search."
+              },
+              "max_entity_tokens": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum tokens for entity context."
+              },
+              "max_relation_tokens": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum tokens for relationship context."
+              },
+              "max_total_tokens": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Maximum total tokens budget for query context."
+              },
+              "hl_keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "High-level keywords to prioritize in retrieval."
+              },
+              "ll_keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Low-level keywords to refine retrieval focus."
+              },
+              "conversation_history": {
+                "type": "array",
+                "description": "Past conversation history for context. Format: [{'role': 'user/assistant', 'content': 'message'}].",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ]
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "content"
+                  ]
+                }
+              },
+              "user_prompt": {
+                "type": "string",
+                "description": "Custom user prompt to guide LLM response generation (does not affect retrieval)."
+              },
+              "enable_rerank": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable reranking for retrieved text chunks."
+              },
+              "include_references": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, includes reference list in responses."
+              },
+              "include_chunk_content": {
+                "type": "boolean",
+                "default": false,
+                "description": "If true, includes actual chunk text content in references."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "wait_for_rag_completion",
+      "title": null,
+      "description": "Wait for RAG ingestion to complete by polling track_id status. Blocks until all documents are processed/failed or timeout. Use this when you need to query the documents immediately after ingestion. Timeout is auto-calculated: (file_size_kb / 10) * 60 + 180 seconds.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "track_id"
+            ],
+            "properties": {
+              "track_id": {
+                "type": "string",
+                "description": "The track_id returned from ragify or ragify_async tool."
+              },
+              "poll_interval_seconds": {
+                "type": "integer",
+                "default": 15,
+                "minimum": 5,
+                "description": "How often to check status (default: 15 seconds)."
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 60,
+                "description": "Max time to wait in seconds. If not provided, defaults to 600 seconds (10 minutes)."
+              },
+              "max_retries": {
+                "type": "integer",
+                "default": 3,
+                "minimum": 1,
+                "description": "Max consecutive poll failures before giving up (default: 3)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ragify_async",
+      "title": null,
+      "description": "Ingest documents into LightRAG with optional async completion notification. Fire-and-forget by default. Set on_complete=true to receive a notification in the task queue when processing finishes. Timeout is auto-calculated from file size: (size_kb / 10) * 60 + 180 seconds.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "file_paths": {
+                "type": "array",
+                "description": "List of file paths to upload and index.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "type": "string",
+                "description": "Direct text content to insert (alternative to file_paths)."
+              },
+              "file_source": {
+                "type": "string",
+                "description": "Optional source identifier for the inserted text."
+              },
+              "on_complete": {
+                "type": "boolean",
+                "default": false,
+                "description": "If true, monitor completion and send notification to task queue when done."
+              },
+              "notify_task_id": {
+                "type": "string",
+                "description": "Target task ID for completion notification. If task ends, falls back to chat task."
+              },
+              "notify_chat_id": {
+                "type": "string",
+                "description": "Fallback chat ID for notification if original task is ended."
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 60,
+                "description": "Max time to monitor for completion. Auto-calculated from file size if not provided."
+              },
+              "poll_interval_seconds": {
+                "type": "integer",
+                "default": 15,
+                "minimum": 5,
+                "description": "How often to check status when monitoring (default: 15 seconds)."
+              },
+              "notification_message": {
+                "type": "string",
+                "description": "Custom message to include in the completion notification."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "describe_self",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Self</sub-category>Get a structured description of the agent system including any combination of: agents, skills, tasks, tools, knowledge_base, prompts. Supports 'all' to show everything. Output in json, txt, or md format. Useful for agent self-introspection and capability discovery.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "Agent ID to describe. If not provided, uses the first available agent."
+              },
+              "sections": {
+                "description": "Which sections to include. Use 'all' for everything, or a comma-separated string or array from: agents, skills, tasks, tools, knowledge_base, prompts, llm, network, diagnostics. The 'llm' section shows default LLM/embedding/reranking providers and available providers with masked API keys. The 'network' section shows endpoint URLs, DB hosts, ports. The 'diagnostics' section runs a live LLM connection test (~1k tokens in/out) and reports latency and throughput.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "default": "all"
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "json",
+                  "txt",
+                  "md"
+                ],
+                "default": "json",
+                "description": "Output format: 'json' (structured), 'txt' (plain text), 'md' (markdown)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "diagnose_llm",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Diagnostics</sub-category>Run a self-diagnostic test against the current default LLM. Sends a ~1k-token translation prompt and measures response time, token throughput (tok/s), and returns a snippet of the reply. Use this to verify LLM connectivity and performance.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {}
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "create_agent",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Management</sub-category>Create a new agent with the given name, description, role, skills, and personality.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name for the new agent."
+              },
+              "description": {
+                "type": "string",
+                "description": "Description of the agent's purpose."
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "Commander",
+                  "Platoon"
+                ],
+                "default": "Platoon",
+                "description": "Agent role in the hierarchy."
+              },
+              "title": {
+                "type": "string",
+                "description": "Job title for the agent."
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of skill IDs to assign to the agent."
+              },
+              "personality": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Personality traits (e.g. ['friendly', 'professional'])."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "delete_agent",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Management</sub-category>Delete an existing agent by its agent ID. The agent will be stopped and removed.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "agent_id"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "The ID of the agent to delete."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "find_skill",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Skills</sub-category>Search for skills by name, tag, or keyword. Searches the agent's own skillset and optionally the skill market (cloud). Useful for discovering available capabilities before assigning them to agents or tasks.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search term (name, tag, keyword). Empty string returns all skills."
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "market",
+                  "all"
+                ],
+                "default": "all",
+                "description": "Where to search: 'local' (own skillset), 'market' (skill market), 'all' (both)."
+              },
+              "agent_id": {
+                "type": "string",
+                "description": "Scope local search to a specific agent's skills."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "open_channel",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Channels</sub-category>Open (start) a communication channel so the agent can send and receive messages through it. Supported channels: telegram, slack, discord, whatsapp, webchat, dingtalk, messenger, twitter.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "channel_id"
+            ],
+            "properties": {
+              "channel_id": {
+                "type": "string",
+                "enum": [
+                  "telegram",
+                  "slack",
+                  "discord",
+                  "whatsapp",
+                  "webchat",
+                  "dingtalk",
+                  "messenger",
+                  "twitter"
+                ],
+                "description": "The communication channel to open."
+              },
+              "channel_config": {
+                "type": "object",
+                "description": "Optional channel-specific configuration overrides (e.g. bot_token, webhook_url). If omitted, uses saved config from channels.json."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "close_channel",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Channels</sub-category>Close (stop) an active communication channel. The channel will stop receiving messages and release resources.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "channel_id"
+            ],
+            "properties": {
+              "channel_id": {
+                "type": "string",
+                "enum": [
+                  "telegram",
+                  "slack",
+                  "discord",
+                  "whatsapp",
+                  "webchat",
+                  "dingtalk",
+                  "messenger",
+                  "twitter"
+                ],
+                "description": "The communication channel to close."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "launch_agent_task",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Task Management</sub-category>Launch an agent task. Can target an existing task by task_id or task_name, or create a new task from a skill. Optionally injects task_inputs into the task queue to provide initial data. Returns a run_id that uniquely identifies this invocation and can be used to poll or subscribe for status updates.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "ID of the agent. Optional — defaults to the first available agent."
+              },
+              "task_id": {
+                "type": "string",
+                "description": "ID of an existing task to launch."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Name of an existing task to launch."
+              },
+              "skill_name": {
+                "type": "string",
+                "description": "Name of the skill. Used to find an existing task or create a new one."
+              },
+              "skill_id": {
+                "type": "string",
+                "description": "ID of the skill. Used to find an existing task or create a new one."
+              },
+              "task_inputs": {
+                "type": "object",
+                "description": "JSON object of inputs/parameters to inject into the task."
+              },
+              "correlation_id": {
+                "type": "string",
+                "description": "Correlation ID for tracking nested task chains. If omitted, the new task becomes the root of its own chain."
+              },
+              "parent_run_id": {
+                "type": "string",
+                "description": "Run ID of the parent task that is launching this one. Used for lineage tracking."
+              },
+              "parent_depth": {
+                "type": "integer",
+                "description": "Nesting depth of the parent task (0 = root). The child will be depth+1."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "create_agent_task_with_skill",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Task Management</sub-category>Create a new agent task from a skill and start its execution loop. Returns task_id and run_id for tracking.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "ID of the agent. Optional — defaults to the first available agent."
+              },
+              "skill_name": {
+                "type": "string",
+                "description": "Name of the skill to use. Required if skill_id not provided."
+              },
+              "skill_id": {
+                "type": "string",
+                "description": "ID of the skill to use. Alternative to skill_name."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Custom name for the task. Auto-generated if not provided."
+              },
+              "trigger": {
+                "type": "string",
+                "enum": [
+                  "message",
+                  "auto",
+                  "schedule"
+                ],
+                "description": "Trigger type for the task. Default: 'message'."
+              },
+              "initial_state": {
+                "type": "object",
+                "description": "Optional initial state/parameters for the task."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "schedule_agent_task",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Task Management</sub-category>Create a scheduled task from a skill. Supports repeat intervals: seconds, minutes, hours, daily, weekly, monthly, yearly.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "schedule"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "ID of the agent. Optional."
+              },
+              "skill_name": {
+                "type": "string",
+                "description": "Name of the skill. Required if skill_id not provided."
+              },
+              "skill_id": {
+                "type": "string",
+                "description": "ID of the skill. Alternative to skill_name."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Custom name for the task."
+              },
+              "initial_state": {
+                "type": "object",
+                "description": "Optional initial state for the task."
+              },
+              "schedule": {
+                "type": "object",
+                "required": [
+                  "repeat_type"
+                ],
+                "description": "Schedule configuration.",
+                "properties": {
+                  "repeat_type": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "seconds",
+                      "minutes",
+                      "hours",
+                      "daily",
+                      "weekly",
+                      "monthly",
+                      "yearly"
+                    ],
+                    "description": "How often to repeat."
+                  },
+                  "repeat_number": {
+                    "type": "integer",
+                    "description": "Units between runs. Default: 1."
+                  },
+                  "start_date_time": {
+                    "type": "string",
+                    "description": "Start datetime (ISO or 'YYYY-MM-DD HH:MM:SS'). Default: now."
+                  },
+                  "end_date_time": {
+                    "type": "string",
+                    "description": "End datetime. Default: 10 years from now."
+                  },
+                  "time_out": {
+                    "type": "integer",
+                    "description": "Timeout in seconds per run. Default: 120."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "delete_agent_task",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Task Management</sub-category>Delete (remove) a task from the agent. Stops the task first if running.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "ID of the agent. Optional."
+              },
+              "task_id": {
+                "type": "string",
+                "description": "ID of the task to delete."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Name of the task to delete."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "stop_agent_task",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Task Management</sub-category>Stop / cancel a running task. Returns the previous state of the task.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "agent_id": {
+                "type": "string",
+                "description": "ID of the agent. Optional."
+              },
+              "task_id": {
+                "type": "string",
+                "description": "ID of the task to stop."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Name of the task to stop."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "Force stop even in critical section. Default: false."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "get_task_progress",
+      "title": null,
+      "description": "<category>Agent</category><sub-category>Task Management</sub-category>Get the progress of a launched task and its nested sub-tasks. Query by run_id for a single task or correlation_id for the entire chain. Returns current node, status, child tasks, and recent events.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "description": "Run ID of a specific task to query (returned by launch_agent_task)."
+              },
+              "correlation_id": {
+                "type": "string",
+                "description": "Correlation ID for the entire task chain (returned by launch_agent_task)."
+              },
+              "include_events": {
+                "type": "boolean",
+                "description": "Include recent progress events. Default: true."
+              },
+              "event_limit": {
+                "type": "integer",
+                "description": "Max number of recent events to return. Default: 20."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "spawn_worker_agent",
+      "title": null,
+      "description": "<category>Managerial</category><sub-category>Agent Management</sub-category>Spawn a worker agent with a skill to run in parallel. Creates a new EC_Agent instance, registers it globally, and starts skill execution. The worker runs independently in parallel with the orchestrator agent. Use this for multi-customer chat, parallel data processing, distributed task execution, etc. Returns worker_id and task_id for tracking.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "orchestrator_agent_id": {
+                "type": "string",
+                "description": "ID of the orchestrator agent spawning this worker. Optional — defaults to current agent."
+              },
+              "worker_id": {
+                "type": "string",
+                "description": "Custom ID for the worker agent. Auto-generated if not provided."
+              },
+              "worker_name": {
+                "type": "string",
+                "description": "Display name for the worker agent."
+              },
+              "skill": {
+                "type": "object",
+                "description": "Complete skill definition with nodes, edges, and config. Provide this OR skill_name/skill_id."
+              },
+              "skill_name": {
+                "type": "string",
+                "description": "Name of an existing skill to load for the worker."
+              },
+              "skill_id": {
+                "type": "string",
+                "description": "ID of an existing skill to load for the worker."
+              },
+              "timeout": {
+                "type": "integer",
+                "description": "Timeout in seconds for the worker task (default: 60)."
+              },
+              "metadata": {
+                "type": "object",
+                "description": "Additional metadata to attach to the worker (e.g., customer_id, job_id)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "stop_worker_agents",
+      "title": null,
+      "description": "<category>Managerial</category><sub-category>Agent Management</sub-category>Stop one or more worker agents. Can stop by worker_id, list of worker_ids, all workers for an orchestrator, or all workers globally. Stops tasks and unregisters agents to free resources.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "worker_id": {
+                "type": "string",
+                "description": "Single worker ID to stop."
+              },
+              "worker_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of worker IDs to stop."
+              },
+              "orchestrator_agent_id": {
+                "type": "string",
+                "description": "Stop all workers spawned by this orchestrator."
+              },
+              "stop_all": {
+                "type": "boolean",
+                "description": "Stop ALL workers globally (use with caution)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "get_worker_agent_status",
+      "title": null,
+      "description": "<category>Managerial</category><sub-category>Agent Management</sub-category>Get status of worker agents. Returns detailed status including task state, elapsed time, and metadata. Can query by worker_id, list of worker_ids, or all workers for an orchestrator.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "worker_id": {
+                "type": "string",
+                "description": "Single worker ID to check status."
+              },
+              "worker_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of worker IDs to check status."
+              },
+              "orchestrator_agent_id": {
+                "type": "string",
+                "description": "Check status of all workers for this orchestrator."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "list_worker_agents",
+      "title": null,
+      "description": "<category>Managerial</category><sub-category>Agent Management</sub-category>List all active worker agents. Can filter by orchestrator and optionally include completed workers. Returns summary with active count and total count.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "orchestrator_agent_id": {
+                "type": "string",
+                "description": "Filter workers by orchestrator agent ID."
+              },
+              "include_completed": {
+                "type": "boolean",
+                "description": "Include completed workers in the list (default: false)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "create_custom_platform_profile",
+      "title": null,
+      "description": "<category>Platform</category><sub-category>Configuration</sub-category>Create a custom platform profile for a new e-commerce platform. This allows monitoring chat messages on platforms not natively supported. Requires CSS selectors for the chat interface elements.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "platform_id",
+          "display_name",
+          "url_pattern",
+          "chat_container_selector",
+          "chat_id_selector"
+        ],
+        "properties": {
+          "platform_id": {
+            "type": "string",
+            "description": "Unique identifier for this platform (e.g., 'my_custom_store'). Use lowercase with underscores."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable name for this platform (e.g., 'My Custom Store Chat')."
+          },
+          "url_pattern": {
+            "type": "string",
+            "description": "URL pattern to match this platform (e.g., 'mystore.com/messages'). Can use wildcards with *."
+          },
+          "chat_container_selector": {
+            "type": "string",
+            "description": "CSS selector for the message container element (e.g., 'div.message-list')."
+          },
+          "chat_id_selector": {
+            "type": "string",
+            "description": "CSS selector for the element containing the chat/customer ID (e.g., 'div.active-chat')."
+          },
+          "chat_id_attribute": {
+            "type": "string",
+            "description": "Optional. Attribute name containing the chat ID (default: 'data-chat-id')."
+          },
+          "polling_interval_ms": {
+            "type": "integer",
+            "description": "Optional. Polling interval in milliseconds (default: 3000)."
+          },
+          "region": {
+            "type": "string",
+            "description": "Optional. Platform region: 'global' or 'china' (default: 'global')."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "test_platform_detection",
+      "title": null,
+      "description": "<category>Platform</category><sub-category>Testing</sub-category>Test platform detection and validate configuration. Use this to verify that a platform profile is correctly configured and can detect the platform from the current page URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Optional. URL to test detection against. If not provided, uses current browser URL."
+          },
+          "platform_id": {
+            "type": "string",
+            "description": "Optional. Specific platform ID to test. If not provided, will auto-detect."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "list_available_platforms",
+      "title": null,
+      "description": "<category>Platform</category><sub-category>Query</sub-category>List all available platform profiles including built-in and custom platforms. Shows platform capabilities (event-driven vs polling, region, etc.).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "get_platform_profile",
+      "title": null,
+      "description": "<category>Platform</category><sub-category>Query</sub-category>Get detailed configuration for a specific platform profile. Returns full profile including selectors, extraction rules, and polling configuration.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "platform_id"
+        ],
+        "properties": {
+          "platform_id": {
+            "type": "string",
+            "description": "Platform identifier (e.g., 'amazon_seller_central', 'ebay_messages')."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "run_code",
+      "title": null,
+      "description": "<category>Code</category><sub-category>Execution</sub-category>Execute code in a controlled environment. Supports multiple languages: python (sandboxed, default), power_shell, bash, zsh, sh, cmd. For Python: code runs with access to common safe modules (os, json, math, re, datetime, collections, itertools, functools, random, string, uuid, hashlib, base64). Input arguments are accessible via 'args' dict or as individual variables. Use 'result' variable to return a value. For shell languages: executes the code as a shell script with the specified shell.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "language": {
+                "type": "string",
+                "enum": [
+                  "python",
+                  "power_shell",
+                  "powershell",
+                  "bash",
+                  "zsh",
+                  "sh",
+                  "cmd",
+                  "javascript",
+                  "node"
+                ],
+                "description": "Language/shell to execute. Default: 'python'."
+              },
+              "code": {
+                "type": "string",
+                "description": "Code to execute. For python: use 'result' variable to return a value. For shell: a shell script."
+              },
+              "args": {
+                "description": "For python: dict of input arguments accessible as 'args' dict and as individual variables. For shell: a string prepended to the script."
+              },
+              "timeout": {
+                "type": "number",
+                "description": "Maximum execution time in seconds. Default: 30 for python, 60 for shell."
+              },
+              "allowed_imports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Additional module names to allow importing (python only)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "run_shell_script",
+      "title": null,
+      "description": "<category>Code</category><sub-category>Execution</sub-category>Execute a shell script with multi-OS support. Automatically detects the OS and uses the appropriate shell: PowerShell on Windows, bash on Linux, zsh on macOS. You can also explicitly specify the shell (powershell, pwsh, bash, zsh, sh, cmd). Returns stdout, stderr, return code, and execution time.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "script"
+            ],
+            "properties": {
+              "script": {
+                "type": "string",
+                "description": "Shell script to execute."
+              },
+              "shell": {
+                "type": "string",
+                "enum": [
+                  "powershell",
+                  "pwsh",
+                  "bash",
+                  "zsh",
+                  "sh",
+                  "cmd"
+                ],
+                "description": "Shell to use. Auto-detected based on OS if not specified."
+              },
+              "timeout": {
+                "type": "number",
+                "description": "Maximum execution time in seconds. Default: 60."
+              },
+              "working_dir": {
+                "type": "string",
+                "description": "Working directory for script execution."
+              },
+              "env_vars": {
+                "type": "object",
+                "description": "Additional environment variables as key-value pairs."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "grep_search",
+      "title": null,
+      "description": "<category>Search</category><sub-category>Content Search</sub-category>Search for patterns within files. Supports literal text and regex patterns. Can search recursively in directories with file type filtering. Returns matching lines with file paths and line numbers.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "Pattern to search for (text or regex)."
+              },
+              "path": {
+                "type": "string",
+                "description": "File or directory path to search in."
+              },
+              "recursive": {
+                "type": "boolean",
+                "description": "Search recursively in subdirectories. Default: true."
+              },
+              "file_pattern": {
+                "type": "string",
+                "description": "Glob pattern to filter files (e.g., '*.py', '*.txt'). Default: '*'."
+              },
+              "case_sensitive": {
+                "type": "boolean",
+                "description": "Case-sensitive search. Default: false."
+              },
+              "is_regex": {
+                "type": "boolean",
+                "description": "Treat pattern as regex. Default: false."
+              },
+              "max_results": {
+                "type": "integer",
+                "description": "Maximum matches to return. Default: 100."
+              },
+              "context_lines": {
+                "type": "integer",
+                "description": "Number of context lines before/after match. Default: 0."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "find_files",
+      "title": null,
+      "description": "<category>Search</category><sub-category>File Search</sub-category>Find files and directories by name pattern. Supports glob patterns like '*.py', 'test_*'. Can filter by file type (file/directory) and search recursively. Returns file paths with optional size and modification time.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Directory path to search in."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "Glob pattern to match (e.g., '*.py', 'test_*'). Default: '*'."
+              },
+              "recursive": {
+                "type": "boolean",
+                "description": "Search recursively. Default: true."
+              },
+              "file_type": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "directory",
+                  "any"
+                ],
+                "description": "Filter by type. Default: 'any'."
+              },
+              "max_results": {
+                "type": "integer",
+                "description": "Maximum results to return. Default: 100."
+              },
+              "include_size": {
+                "type": "boolean",
+                "description": "Include file sizes. Default: true."
+              },
+              "include_modified": {
+                "type": "boolean",
+                "description": "Include modification times. Default: false."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "send_chat",
+      "title": null,
+      "description": "<category>Communication</category><sub-category>Chat</sub-category>Send a chat message to another agent. This enables inter-agent communication where one agent can message another agent as part of a workflow or when instructed. The message is sent via the A2A (Agent-to-Agent) protocol. Use async_send=True (default) for fire-and-forget, or False to wait for delivery confirmation.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "sender_agent_id",
+              "message"
+            ],
+            "properties": {
+              "sender_agent_id": {
+                "type": "string",
+                "description": "ID of the agent sending the message."
+              },
+              "recipient_agent_id": {
+                "type": "string",
+                "description": "ID of the recipient agent. Either this or recipient_agent_name is required."
+              },
+              "recipient_agent_name": {
+                "type": "string",
+                "description": "Name of the recipient agent. Either this or recipient_agent_id is required."
+              },
+              "chat_id": {
+                "type": "string",
+                "description": "Existing chat ID. If not provided, a new chat will be created."
+              },
+              "message": {
+                "type": "string",
+                "description": "The message text to send."
+              },
+              "message_type": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "form",
+                  "notification"
+                ],
+                "description": "Type of message. Default: text."
+              },
+              "attachments": {
+                "type": "array",
+                "description": "File attachments to include with the message."
+              },
+              "async_send": {
+                "type": "boolean",
+                "description": "If True (default), send asynchronously. If False, wait for delivery."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "list_chat_agents",
+      "title": null,
+      "description": "<category>Communication</category><sub-category>Chat</sub-category>List all available agents that can receive chat messages. Use this to discover which agents are available for communication.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "exclude_self": {
+                "type": "string",
+                "description": "Agent ID to exclude from the list (typically the calling agent)."
+              },
+              "filter_name": {
+                "type": "string",
+                "description": "Filter agents by name (partial match, case-insensitive)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "get_chat_history",
+      "title": null,
+      "description": "<category>Communication</category><sub-category>Chat</sub-category>Get the message history for a chat conversation. Useful for reviewing past interactions or providing context.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "chat_id"
+            ],
+            "properties": {
+              "chat_id": {
+                "type": "string",
+                "description": "The chat ID to get history for."
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Maximum number of messages to return. Default: 50."
+              },
+              "offset": {
+                "type": "integer",
+                "description": "Offset for pagination. Default: 0."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "aws_read_billing",
+      "title": null,
+      "description": "<category>AWS</category><sub-category>Cost Management</sub-category>Read detailed AWS billing information including costs by service, daily breakdown, and budget status. Requires AWS credentials with Cost Explorer permissions.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "days": {
+                "type": "integer",
+                "description": "Number of days to look back for billing data (default: 30)",
+                "default": 30
+              },
+              "region": {
+                "type": "string",
+                "description": "AWS region for Cost Explorer API (default: us-east-1)",
+                "default": "us-east-1"
+              },
+              "profile": {
+                "type": "string",
+                "description": "AWS profile name to use (optional, uses default if not specified)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "aws_shutdown",
+      "title": null,
+      "description": "<category>AWS</category><sub-category>Cost Management</sub-category>Emergency shutdown of AWS services to prevent runaway costs. \n        \nSUPPORTED SERVICES:\n- ec2: Stop all running EC2 instances\n- sagemaker: Delete endpoints and stop notebooks\n- sagemaker_autoscaling: Deregister autoscaling targets\n- ecs: Scale services to 0\n- eks: Scale node groups to 0\n- nat_gateway: Delete NAT gateways (WARNING: breaks private subnet access)\n- rds: Stop RDS instances and Aurora clusters\n- lambda: Set function concurrency to 0\n- opensearch: Delete OpenSearch/Elasticsearch domains (WARNING: data loss)\n- kinesis: Delete Data Streams and Firehose\n- step_functions: Stop running executions\n- api_gateway: Throttle to 0\n- sns_sqs: Purge SQS queues\n- cloudwatch_logs: Set retention to 1 day\n- s3: Add expiration lifecycle (WARNING: deletes objects after 1 day)\n\n⚠️ CAUTION: This tool can cause service disruption and data loss. Use dry_run=true first!",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of services to shutdown. Use ['all'] for all services. Options: ec2, sagemaker, sagemaker_autoscaling, ecs, eks, nat_gateway, rds, lambda, opensearch, kinesis, step_functions, api_gateway, sns_sqs, cloudwatch_logs, s3"
+              },
+              "regions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of AWS regions to target. If empty, targets all regions."
+              },
+              "dry_run": {
+                "type": "boolean",
+                "description": "If true, only simulates the shutdown without making changes (default: true for safety)",
+                "default": true
+              },
+              "profile": {
+                "type": "string",
+                "description": "AWS profile name to use (optional)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "add_timer",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>Create and start a named repeating interval timer. The timer fires periodically and generates timer events that can resume pend_event nodes configured to listen for the specified timer name.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "timer_name",
+          "period_ms"
+        ],
+        "properties": {
+          "timer_name": {
+            "type": "string",
+            "description": "Human-readable name for this timer (e.g. 'check_orders', 'poll_inbox'). Must be unique per agent."
+          },
+          "timer_id": {
+            "type": "string",
+            "description": "Optional explicit timer ID. If not provided, one will be auto-generated."
+          },
+          "period_ms": {
+            "type": "integer",
+            "description": "Interval between fires in milliseconds (e.g. 15000 for 15 seconds, 60000 for 1 minute)."
+          },
+          "repeat_count": {
+            "type": "integer",
+            "description": "Number of times to fire. -1 means continuous non-stop (default), 0 means create but don't start, positive integer means fire that many times then stop.",
+            "default": -1
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "remove_timer",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>Stop and remove a named repeating timer by its timer_id or timer_name. The timer will stop firing and be removed from the system.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "timer_id": {
+            "type": "string",
+            "description": "The ID of the timer to remove. Either timer_id or timer_name must be provided."
+          },
+          "timer_name": {
+            "type": "string",
+            "description": "The name of the timer to remove. Either timer_id or timer_name must be provided."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "update_timer",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>Update a repeating timer's period and/or repeat count. The timer will be restarted with the new parameters. To pause a timer, set repeat_count to 0. To resume, set repeat_count to -1 (continuous) or a positive number.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "timer_id"
+        ],
+        "properties": {
+          "timer_id": {
+            "type": "string",
+            "description": "The ID of the timer to update."
+          },
+          "period_ms": {
+            "type": "integer",
+            "description": "New interval between fires in milliseconds. Leave unset to keep current value."
+          },
+          "repeat_count": {
+            "type": "integer",
+            "description": "New repeat count. -1 = continuous, 0 = pause/stop, positive = fire N more times."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "list_timers",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>List all repeating timers for the current agent. Returns timer_id, timer_name, period_ms, repeat_count, fire_count, and active status for each timer.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "pause_timer",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>Pause a repeating timer so it stops firing events. The timer remains registered and can be resumed later. Use this before long-running operations (e.g. LLM + MCP tool calls) to prevent timer events from accumulating in the queue.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "timer_id": {
+            "type": "string",
+            "description": "The ID of the timer to pause. Either timer_id or timer_name must be provided."
+          },
+          "timer_name": {
+            "type": "string",
+            "description": "The name of the timer to pause. Either timer_id or timer_name must be provided."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "resume_timer",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Timer</sub-category>Resume a previously paused repeating timer so it starts firing events again. Call this after long-running operations complete to restart periodic polling.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "timer_id": {
+            "type": "string",
+            "description": "The ID of the timer to resume. Either timer_id or timer_name must be provided."
+          },
+          "timer_name": {
+            "type": "string",
+            "description": "The name of the timer to resume. Either timer_id or timer_name must be provided."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "subscribe_browser_event",
+      "title": null,
+      "description": "<category>Browser</category><sub-category>Events</sub-category>Subscribe to a Chrome DevTools Protocol (CDP) event. When the browser fires the specified event, it generates a 'browser_event' message that can resume pend_event nodes configured to listen for browser events. Useful for monitoring network requests, DOM changes, console messages, page navigation, downloads, etc. in real-time without polling.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "domain",
+          "event_method",
+          "label"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "CDP domain to subscribe to. Common domains: 'Network' (requests/responses), 'Page' (navigation/lifecycle), 'DOM' (mutations), 'Runtime' (console/exceptions), 'Console' (console messages)."
+          },
+          "event_method": {
+            "type": "string",
+            "description": "Full CDP event method in 'Domain.eventName' format. Examples: 'Network.responseReceived', 'Page.frameNavigated', 'Runtime.consoleAPICalled', 'DOM.attributeModified', 'Page.javascriptDialogOpening'."
+          },
+          "label": {
+            "type": "string",
+            "description": "User-friendly label for this subscription, used as routing key (e.g. 'price_api', 'page_loaded', 'dom_change'). Must be unique per agent."
+          },
+          "filter_expr": {
+            "type": "string",
+            "description": "Optional filter expression. Syntax: '<field> <op> <value>' where op is contains/==/!=//startswith/endswith. Nested fields use dots. Examples: \"response.url contains 'api/price'\", \"response.status == 200\", \"type == XHR\". If omitted, all events of this method will match."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "unsubscribe_browser_event",
+      "title": null,
+      "description": "<category>Browser</category><sub-category>Events</sub-category>Remove a browser event subscription by its sub_id or label. The CDP event handler will stop dispatching events for this subscription.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "sub_id": {
+            "type": "string",
+            "description": "The subscription ID to remove. Either sub_id or label must be provided."
+          },
+          "label": {
+            "type": "string",
+            "description": "The label of the subscription to remove. Either sub_id or label must be provided."
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "list_browser_event_subscriptions",
+      "title": null,
+      "description": "<category>Browser</category><sub-category>Events</sub-category>List all active browser event subscriptions for the current agent. Shows sub_id, label, CDP method, filter, and fire count for each.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "wechat_send",
+      "title": null,
+      "description": "<category>WeChat</category><sub-category>Messaging</sub-category>Send a text message and/or file attachments to a WeChat contact or group. Handles opening WeChat, finding the chat, navigating to it, typing the message, and pressing Send — all in one tool call. Returns pixel_per_scroll (calibrated scroll resolution) in output — pass it back on subsequent calls for precise scrolling.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "chatter_name",
+              "chat_msg"
+            ],
+            "properties": {
+              "chatter_name": {
+                "type": "string",
+                "description": "Display name of the WeChat contact or group to message"
+              },
+              "chat_msg": {
+                "type": "string",
+                "description": "Text message to send (can be empty if only sending attachments)"
+              },
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional list of full file paths to send as attachments"
+              },
+              "pixel_per_scroll": {
+                "type": "integer",
+                "description": "Pixels moved per scroll unit. 0 means unknown — the tool will auto-calibrate on first scroll and return the measured value. Pass the returned value back on subsequent calls for precise scrolling.",
+                "default": 0
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "wechat_receive",
+      "title": null,
+      "description": "<category>WeChat</category><sub-category>Messaging</sub-category>Read new messages from a WeChat contact or group. Opens WeChat, navigates to the specified chat, and extracts structured messages with sender identification (me/them) and type detection (text/file/audio). If last_sent_msg is provided, scrolls UP to find it as an anchor, then collects everything after it (scrolling DOWN as needed). Long text messages are read via double-click + clipboard copy for full accuracy. File attachments are detected by extension + size pattern and can optionally be saved via right-click → Save As. Returns new_msgs as [{sender, text, type}, ...]. Returns pixel_per_scroll in output — pass it back on subsequent calls.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "chatter_name"
+            ],
+            "properties": {
+              "chatter_name": {
+                "type": "string",
+                "description": "Display name of the WeChat contact or group"
+              },
+              "last_sent_msg": {
+                "type": "string",
+                "description": "Your last sent message text — used as an anchor. The tool scrolls up to find this message, then returns everything after it. Leave empty to return all visible messages."
+              },
+              "save_files_to": {
+                "type": "string",
+                "description": "Optional directory path to save incoming file attachments to. If provided, detected file attachments will be right-click → Save As'd to this directory. Leave empty to skip file saving."
+              },
+              "pixel_per_scroll": {
+                "type": "integer",
+                "description": "Pixels moved per scroll unit. 0 means unknown — the tool will auto-calibrate on first scroll and return the measured value. Pass the returned value back on subsequent calls for precise scrolling.",
+                "default": 0
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "azure_read_billing",
+      "title": null,
+      "description": "<category>Azure</category><sub-category>Cost Management</sub-category>Read detailed Azure billing information including costs by service and budget status. Requires Azure credentials.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "days": {
+                "type": "integer",
+                "description": "Number of days to look back for billing data (default: 30)",
+                "default": 30
+              },
+              "subscription_id": {
+                "type": "string",
+                "description": "Azure subscription ID (optional, queries all accessible subscriptions if not specified)"
+              },
+              "tenant_id": {
+                "type": "string",
+                "description": "Azure AD tenant ID for service principal auth (optional)"
+              },
+              "client_id": {
+                "type": "string",
+                "description": "Azure AD client/app ID for service principal auth (optional)"
+              },
+              "client_secret": {
+                "type": "string",
+                "description": "Azure AD client secret for service principal auth (optional)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "azure_shutdown",
+      "title": null,
+      "description": "<category>Azure</category><sub-category>Cost Management</sub-category>Emergency shutdown of Azure services to prevent runaway costs.\n\nSUPPORTED SERVICES:\n- vms: Deallocate Virtual Machines\n- aks: Stop AKS clusters\n- aci: Stop Container Instances\n- app_services: Stop App Services (Web Apps, Functions)\n- sql: Pause SQL Data Warehouses\n- cosmosdb: Note Cosmos DB (manual throughput reduction)\n- ml: Stop ML compute instances\n- event_hubs: Disable auto-inflate\n- service_bus: Note Service Bus namespaces\n- logic_apps: Disable Logic Apps\n- data_factory: Stop Data Factory triggers\n- api_management: Note APIM services\n\n⚠️ CAUTION: This tool can cause service disruption. Use dry_run=true first!",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of services to shutdown. Use ['all'] for all services."
+              },
+              "subscription_id": {
+                "type": "string",
+                "description": "Azure subscription ID (optional, targets all if not specified)"
+              },
+              "resource_groups": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of resource groups to target (optional, targets all if not specified)"
+              },
+              "dry_run": {
+                "type": "boolean",
+                "description": "If true, only simulates shutdown (default: true)",
+                "default": true
+              },
+              "tenant_id": {
+                "type": "string",
+                "description": "Azure AD tenant ID (optional)"
+              },
+              "client_id": {
+                "type": "string",
+                "description": "Azure AD client ID (optional)"
+              },
+              "client_secret": {
+                "type": "string",
+                "description": "Azure AD client secret (optional)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gcloud_read_billing",
+      "title": null,
+      "description": "<category>GCP</category><sub-category>Cost Management</sub-category>Read GCP billing account information and linked projects.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "billing_account_id": {
+                "type": "string",
+                "description": "GCP billing account ID (e.g., 01A2B3-C4D5E6-F7G8H9)"
+              },
+              "service_account_file": {
+                "type": "string",
+                "description": "Path to service account JSON key file (optional)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "gcloud_shutdown",
+      "title": null,
+      "description": "<category>GCP</category><sub-category>Cost Management</sub-category>Emergency shutdown of GCP services.\n\nSUPPORTED SERVICES:\n- compute: Stop Compute Engine VMs\n- gke: Scale GKE node pools to 0\n- cloud_run: Set min instances to 0\n- cloud_functions: Set max instances to 0\n- cloud_sql: Stop SQL instances\n- dataproc: Delete Dataproc clusters\n- pubsub: Note Pub/Sub subscriptions\n\n⚠️ CAUTION: Use dry_run=true first!",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Services to shutdown. Use ['all'] for all."
+              },
+              "project_id": {
+                "type": "string",
+                "description": "GCP project ID"
+              },
+              "regions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Regions to target (optional)"
+              },
+              "zones": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Zones to target for Compute Engine (optional)"
+              },
+              "dry_run": {
+                "type": "boolean",
+                "description": "Simulate only (default: true)",
+                "default": true
+              },
+              "service_account_file": {
+                "type": "string",
+                "description": "Path to service account JSON key file"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_read_file",
+      "title": null,
+      "description": "<category>OS</category><sub-category>File</sub-category>Read the contents of a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text files the content is returned as a string. For binary files the content is returned as a base64-encoded string. Paths can use forward slashes on all platforms.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "file_path"
+            ],
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "Full path of the file to read"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "binary"
+                ],
+                "default": "text",
+                "description": "Read mode: 'text' returns UTF-8 string, 'binary' returns base64-encoded string"
+              },
+              "encoding": {
+                "type": "string",
+                "default": "utf-8",
+                "description": "Text encoding to use when mode is 'text' (e.g. 'utf-8', 'gbk', 'latin-1')"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_write_file",
+      "title": null,
+      "description": "<category>OS</category><sub-category>File</sub-category>Write contents to a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text mode, provide a string. For binary mode, provide base64-encoded data. Parent directories are created automatically if they do not exist. Safe-write: when overwriting (not append), if the target file already exists it is backed up as name(1), name(2), etc. Paths can use forward slashes on all platforms.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "file_path",
+              "content"
+            ],
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "Full path of the file to write"
+              },
+              "content": {
+                "type": "string",
+                "description": "Content to write. Plain text when mode is 'text', base64-encoded string when mode is 'binary'"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "binary"
+                ],
+                "default": "text",
+                "description": "Write mode: 'text' writes a UTF-8 string, 'binary' decodes base64 and writes raw bytes"
+              },
+              "encoding": {
+                "type": "string",
+                "default": "utf-8",
+                "description": "Text encoding to use when mode is 'text' (e.g. 'utf-8', 'gbk', 'latin-1')"
+              },
+              "append": {
+                "type": "boolean",
+                "default": false,
+                "description": "If true, append to the file instead of overwriting it"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    }
+  ]
+}
