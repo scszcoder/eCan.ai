@@ -121,6 +121,13 @@ export class UnifiedEventHandler {
       case 'subscribed':
         break;
       
+      // WebSocket ping/pong heartbeat - no action needed, just consume silently
+      case 'pong':
+      case 'ping':
+        // These are routine heartbeat events from WebSocket keepalive
+        // No logging needed to reduce noise
+        return;
+      
       default:
         logger.warn(`[UnifiedEventHandler] Unknown event type: ${type}`);
     }

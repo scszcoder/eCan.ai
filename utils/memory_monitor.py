@@ -67,6 +67,8 @@ class MemoryMonitor:
         rss_warn_mb: float = 1500,
         growth_warn_mb_per_min: float = 50,
         top_n: int = 15,
+        enable_tracemalloc: bool = False,
+        tracemalloc_frames: int = 5,
     ):
         """
         Args:
@@ -75,6 +77,8 @@ class MemoryMonitor:
             rss_warn_mb: Warn when RSS exceeds this (MB).
             growth_warn_mb_per_min: Warn when RSS grows faster than this (MB/min).
             top_n: Number of top allocations to show in snapshot diffs.
+            enable_tracemalloc: Enable tracemalloc (disabled by default — adds significant CPU overhead).
+            tracemalloc_frames: Number of frames to capture when tracemalloc is enabled (default 5).
         """
         self.interval = interval
         self.snapshot_interval = snapshot_interval
@@ -96,6 +100,8 @@ class MemoryMonitor:
         self._baseline_snapshot: Optional[tracemalloc.Snapshot] = None
         self._last_snapshot_time: float = 0
         self._tracemalloc_enabled = False
+        self._enable_tracemalloc = enable_tracemalloc
+        self._tracemalloc_frames = tracemalloc_frames
 
     def start(self, log_dir: Optional[str] = None):
         """Start the background monitoring thread."""
@@ -113,19 +119,23 @@ class MemoryMonitor:
         os.makedirs(log_dir, exist_ok=True)
         _setup_mem_logger(log_dir)
 
-        # Start tracemalloc
-        if not tracemalloc.is_tracing():
-            tracemalloc.start(25)  # 25 frames deep for useful stack traces
-            self._tracemalloc_enabled = True
-            _mem_logger.info('tracemalloc started (25 frames)')
-        else:
-            self._tracemalloc_enabled = True
-            _mem_logger.info('tracemalloc was already running')
+        # Start tracemalloc only if explicitly enabled (adds significant CPU overhead)
+        if self._enable_tracemalloc:
+            if not tracemalloc.is_tracing():
+                tracemalloc.start(self._tracemalloc_frames)
+                self._tracemalloc_enabled = True
+                _mem_logger.info(f'tracemalloc started ({self._tracemalloc_frames} frames)')
+            else:
+                self._tracemalloc_enabled = True
+                _mem_logger.info('tracemalloc was already running')
 
-        # Take baseline snapshot
-        self._baseline_snapshot = tracemalloc.take_snapshot()
-        self._prev_snapshot = self._baseline_snapshot
-        self._last_snapshot_time = time.time()
+            # Take baseline snapshot
+            self._baseline_snapshot = tracemalloc.take_snapshot()
+            self._prev_snapshot = self._baseline_snapshot
+            self._last_snapshot_time = time.time()
+        else:
+            _mem_logger.info('tracemalloc disabled (use enable_tracemalloc=True to enable)')
+            self._last_snapshot_time = time.time()
 
         # Log initial state
         mem = self._process.memory_info()

@@ -320,7 +320,7 @@ def get_compaction_settings_for_context_size(
     # Use balanced chars_per_token for e-commerce pages
     default_chars_per_token = TokenEstimationConfig.DEFAULT_CHARS_PER_TOKEN
     
-    # IMPORTANT: browser-use 0.12.0 only supports trigger_char_count, not trigger_token_count
+    # IMPORTANT: browser-use 0.12.5 only supports trigger_char_count, not trigger_token_count
     # We must use trigger_char_count directly to ensure compaction triggers correctly
     
     if context_length >= CompressionConfig.LARGE_CONTEXT_THRESHOLD:
@@ -413,7 +413,7 @@ def get_ultra_aggressive_compaction_settings() -> MessageCompactionSettings:
     # Use balanced chars_per_token for e-commerce pages
     default_chars_per_token = TokenEstimationConfig.DEFAULT_CHARS_PER_TOKEN
     
-    # IMPORTANT: browser-use 0.12.0 only supports trigger_char_count
+    # IMPORTANT: browser-use 0.12.5 only supports trigger_char_count
     # Use 15000 chars ≈ 4300 tokens to trigger aggressively
     settings = MessageCompactionSettings(
         enabled=True,

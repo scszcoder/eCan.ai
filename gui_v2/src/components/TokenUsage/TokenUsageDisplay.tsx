@@ -62,12 +62,13 @@ const Container = styled.div`
     }
 `;
 
-const LEDDisplay = styled.div<LEDDisplayProps>`
+const LEDDisplay = styled.div<LEDDisplayProps & { isHovered?: boolean }>`
     display: flex;
     flex-direction: column;
     gap: 2px;
     color: #00ff00;
     animation: ${ledGlow} 2s ease-in-out infinite;
+    animation-play-state: ${props => props.isHovered ? 'running' : 'paused'};
     font-size: 11px;
     font-weight: bold;
     line-height: 1.2;
@@ -135,6 +136,8 @@ export const TokenUsageDisplay: React.FC = () => {
     const [data, setData] = useState<TokenUsageData | null>(null);
     const [showDollars, setShowDollars] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [isHovered, setIsHovered] = useState(false);
+    const [isPageVisible, setIsPageVisible] = useState(true);
     const navigate = useNavigate();
 
     const handleDoubleClick = useCallback(() => {
@@ -142,6 +145,9 @@ export const TokenUsageDisplay: React.FC = () => {
     }, [navigate]);
 
     const fetchTokenUsage = useCallback(async () => {
+        // Skip fetch when page is hidden to save resources
+        if (!isPageVisible) return;
+        
         try {
             const response = await ipcApi.getMonthlyTokenUsage<TokenUsageData>();
             if (response.success && response.data) {
@@ -155,6 +161,17 @@ export const TokenUsageDisplay: React.FC = () => {
         } finally {
             setLoading(false);
         }
+    }, [isPageVisible]);
+
+    // Page visibility handler - pause animations and fetches when hidden
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            const visible = !document.hidden;
+            setIsPageVisible(visible);
+        };
+        
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, []);
 
     // Initial fetch
@@ -162,11 +179,11 @@ export const TokenUsageDisplay: React.FC = () => {
         fetchTokenUsage();
     }, [fetchTokenUsage]);
 
-    // Auto-refresh every 60 seconds
+    // Auto-refresh every 5 minutes (token usage doesn't change rapidly)
     useEffect(() => {
         const interval = setInterval(() => {
             fetchTokenUsage();
-        }, 60 * 1000); // 60 seconds
+        }, 5 * 60 * 1000); // 5 minutes
 
         return () => clearInterval(interval);
     }, [fetchTokenUsage]);
@@ -187,8 +204,13 @@ export const TokenUsageDisplay: React.FC = () => {
     const color = getColorForCost(data.cost_usd);
 
     return (
-        <Container onDoubleClick={handleDoubleClick} title="Double-click to view detailed token usage">
-            <LEDDisplay color={color}>
+        <Container
+            onDoubleClick={handleDoubleClick}
+            title="Double-click to view detailed token usage"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <LEDDisplay color={color} isHovered={isHovered && isPageVisible}>
                 {showDollars ? (
                     <>
                         <LEDRow>

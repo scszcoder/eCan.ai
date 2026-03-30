@@ -7,7 +7,7 @@ the latest version.
 """
 
 # Current supported latest database version
-LATEST_DATABASE_VERSION = "3.0.9"
+LATEST_DATABASE_VERSION = "3.1.0"
 
 # Version history (for quick version comparison and path calculation)
 VERSION_HISTORY = [
@@ -23,7 +23,8 @@ VERSION_HISTORY = [
     "3.0.6",
     "3.0.7",
     "3.0.8",
-    "3.0.9"
+    "3.0.9",
+    "3.1.0"
 ]
 
 # Version dependencies (version -> previous_version)
@@ -39,7 +40,8 @@ VERSION_DEPENDENCIES = {
     "3.0.6": "3.0.5",
     "3.0.7": "3.0.6",
     "3.0.8": "3.0.7",
-    "3.0.9": "3.0.8"
+    "3.0.9": "3.0.8",
+    "3.1.0": "3.0.9"
 }
 
 def get_latest_version() -> str:
