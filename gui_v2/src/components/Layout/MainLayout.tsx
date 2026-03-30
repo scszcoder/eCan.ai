@@ -35,7 +35,6 @@ import PageBackBreadcrumb from './PageBackBreadcrumb';
 import QuickActionMenu from './QuickActionMenu';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { logoutManager } from '../../services/LogoutManager';
-import { pushTestAds } from '../../stores/adStore';
 import { isDesktopPlatform, isWebPlatform } from '../../config/platform';
 
 
@@ -69,24 +68,29 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         };
     }, [location.pathname]);
     
-    // 从 window 对象GetSearchStatus（由 OrgNavigator Settings）
-    // Optimize：RemoveDependency项避免重复Create定时器，增加轮询Interval减少 CPU 占用
+    // Listen for search query changes via CustomEvent (event-driven, no polling)
     useEffect(() => {
-        const interval = setInterval(() => {
-            const query = (window as any).__agentsSearchQuery;
-            if (query !== undefined && query !== searchQuery) {
-                setSearchQuery(query);
-            }
-        }, 300); // 从 100ms 增加到 300ms，减少 CPU 占用
-        return () => clearInterval(interval);
-    }, []); // Remove searchQuery Dependency，避免每次Status变化都重新Create定时器
+        const handler = (e: Event) => {
+            const query = (e as CustomEvent).detail ?? '';
+            setSearchQuery(query);
+        };
+        window.addEventListener('agentsSearchQueryChanged', handler);
+
+        // Seed initial value in case it was set before this component mounted
+        const initial = (window as any).__agentsSearchQuery;
+        if (initial !== undefined) {
+            setSearchQuery(initial);
+        }
+
+        return () => window.removeEventListener('agentsSearchQueryChanged', handler);
+    }, []);
     
     // ProcessSearch变化
     const handleSearchChange = (query: string) => {
         setSearchQuery(query);
-        if ((window as any).__setAgentsSearchQuery) {
-            (window as any).__setAgentsSearchQuery(query);
-        }
+        // Keep window global for backward compat + dispatch event for listeners
+        (window as any).__agentsSearchQuery = query;
+        window.dispatchEvent(new CustomEvent('agentsSearchQueryChanged', { detail: query }));
     };
 
     useEffect(() => {

@@ -1,3 +1,4 @@
+import logging
 import traceback
 import uuid
 from collections import defaultdict
@@ -1745,6 +1746,10 @@ def handle_get_agent_runtime_status(request: IPCRequest, params: Optional[Dict[s
         return create_error_response(request, 'STATUS_ERROR', str(e))
 
 
+# Cache for batch status DB query to avoid hitting SQLite every poll cycle
+_batch_status_db_cache = {'data': {}, 'timestamp': 0.0, 'ttl': 30.0}  # 30s TTL
+
+
 @IPCHandlerRegistry.handler('get_all_agents_runtime_status')
 def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get runtime status for ALL agents in one call (efficient batch endpoint for polling).
@@ -1757,27 +1762,35 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
         if not mainwin:
             return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
 
-        # Get all agents from DB to know enabled/disabled state
-        ec_db_mgr = AppContext.get_ec_db_mgr()
+        # Get all agents from DB to know enabled/disabled state (with cache)
+        import time as _time
+        now = _time.time()
         db_status_map = {}  # agent_id -> db_status
-        if ec_db_mgr:
-            try:
-                agent_service = ec_db_mgr.agent_service
-                # Get agents for current user
-                # get_username() may return display name, not email — use .user from MainWindow
-                mw = _get_main_window()
-                user = getattr(mw, 'user', None) if mw else None
-                if not user:
-                    user = mainwin.get_username() if hasattr(mainwin, 'get_username') else None
-                if user:
-                    result = agent_service.get_agents_by_owner(user)
-                    if result.get('success'):
-                        for ag_dict in result.get('data', []):
-                            aid = ag_dict.get('id')
-                            if aid:
-                                db_status_map[aid] = ag_dict.get('status', 'active') or 'active'
-            except Exception as e:
-                logger.warning(f"[agent_handler] Failed to load DB agent statuses: {e}")
+
+        if now - _batch_status_db_cache['timestamp'] < _batch_status_db_cache['ttl']:
+            # Use cached DB status
+            db_status_map = _batch_status_db_cache['data']
+        else:
+            # Refresh from DB
+            ec_db_mgr = AppContext.get_ec_db_mgr()
+            if ec_db_mgr:
+                try:
+                    agent_service = ec_db_mgr.agent_service
+                    mw = _get_main_window()
+                    user = getattr(mw, 'user', None) if mw else None
+                    if not user:
+                        user = mainwin.get_username() if hasattr(mainwin, 'get_username') else None
+                    if user:
+                        result = agent_service.get_agents_by_owner(user)
+                        if result.get('success'):
+                            for ag_dict in result.get('data', []):
+                                aid = ag_dict.get('id')
+                                if aid:
+                                    db_status_map[aid] = ag_dict.get('status', 'active') or 'active'
+                except Exception as e:
+                    logger.warning(f"[agent_handler] Failed to load DB agent statuses: {e}")
+            _batch_status_db_cache['data'] = db_status_map
+            _batch_status_db_cache['timestamp'] = now
 
         # Build in-memory agent map: agent_id -> ec_agent
         agents = mainwin.get_agents() if hasattr(mainwin, 'get_agents') else getattr(mainwin, 'agents', []) or []
@@ -1844,10 +1857,10 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
                 'active_task_count': active_count,
             })
 
-        # Log summary for diagnosing status sync issues
+        # Log summary at debug level to avoid I/O overhead on every poll
         summary = [(r['agent_name'] or r['agent_id'][:8], r['runtime_status'], r.get('active_task_count', 0)) for r in results]
-        logger.info(f"[agent_handler] Batch status: db_agents={len(db_status_map)}, mem_agents={len(mem_agent_map)}, "
-                    f"mem_ids={list(mem_agent_map.keys())}, results={summary}")
+        logger.debug(f"[agent_handler] Batch status: db_agents={len(db_status_map)}, mem_agents={len(mem_agent_map)}, "
+                     f"mem_ids={list(mem_agent_map.keys())}, results={summary}")
 
         return create_success_response(request, {'agents': results})
 
@@ -1879,6 +1892,9 @@ def handle_toggle_agent_enabled(request: IPCRequest, params: Optional[Dict[str, 
         mainwin = get_handler_context()
         if not mainwin:
             return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
+
+        # Invalidate DB cache so next poll gets fresh data
+        _batch_status_db_cache['timestamp'] = 0.0
 
         ec_db_mgr = AppContext.get_ec_db_mgr()
 
@@ -2016,6 +2032,9 @@ def handle_set_agent_enabled(request: IPCRequest, params: Optional[Dict[str, Any
         mainwin = get_handler_context()
         if not mainwin:
             return create_error_response(request, 'CONTEXT_ERROR', 'Handler context not available')
+
+        # Invalidate DB cache so next poll gets fresh data
+        _batch_status_db_cache['timestamp'] = 0.0
 
         ec_db_mgr = AppContext.get_ec_db_mgr()
 

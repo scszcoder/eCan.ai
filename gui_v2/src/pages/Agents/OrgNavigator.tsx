@@ -203,7 +203,7 @@ const OrgNavigator: React.FC = () => {
   const startStatusPolling = useAgentRuntimeStore(s => s.startPolling);
   const stopStatusPolling = useAgentRuntimeStore(s => s.stopPolling);
   useEffect(() => {
-    startStatusPolling(5000);
+    startStatusPolling(30000);
     return () => stopStatusPolling();
   }, [startStatusPolling, stopStatusPolling]);
 

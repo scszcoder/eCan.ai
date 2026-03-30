@@ -27,7 +27,8 @@ export class AvatarEventManager {
   private readonly maxProcessPerTick = 10; // 每个 tick Process的MaximumEvent数，避免长帧
 
   constructor() {
-    this.startEventProcessor();
+    // Event processor is now started on-demand when events are emitted,
+    // NOT eagerly at 60fps. See _ensureProcessorRunning().
     this.registerLogoutCleanup();
   }
 
@@ -135,6 +136,9 @@ export class AvatarEventManager {
     
     // Sort queue by priority (highest first)
     this.eventQueue.sort((a, b) => b.priority - a.priority);
+
+    // Start the processor on-demand (it auto-stops when queue drains)
+    this._ensureProcessorRunning();
 
     logger.debug(`[AvatarEventManager] Event emitted`, {
       type,
@@ -288,6 +292,11 @@ export class AvatarEventManager {
       logger.error('[AvatarEventManager] Error processing event queue', error);
     } finally {
       this.isProcessing = false;
+
+      // Auto-stop processor when queue is drained to save CPU
+      if (this.eventQueue.length === 0) {
+        this.stopEventProcessor();
+      }
     }
   }
 
@@ -328,12 +337,17 @@ export class AvatarEventManager {
   }
 
   /**
-   * Start event processor
+   * Ensure the event processor is running. Called on-demand when events
+   * are emitted. The processor auto-stops once the queue is empty,
+   * avoiding the previous always-on 16ms (60fps) timer that wasted CPU.
    */
-  private startEventProcessor(): void {
+  private _ensureProcessorRunning(): void {
+    if (this.processorIntervalId) {
+      return; // Already running
+    }
     this.processorIntervalId = setInterval(() => {
       this.processEventQueue();
-    }, 16); // ~60fps processing
+    }, 16); // ~60fps while events are queued
   }
 
   /**

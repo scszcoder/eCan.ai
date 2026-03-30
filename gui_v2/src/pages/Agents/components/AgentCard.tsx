@@ -579,14 +579,14 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
     // Enable/Disable toggle
     agentEnabled
-      ? { key: 'disable', label: 'Disable Agent', onClick: () => handleSetAgentEnabled(false) }
-      : { key: 'enable', label: 'Enable Agent', onClick: () => handleSetAgentEnabled(true) },
+      ? { key: 'disable', label: t('pages.agents.disableAgent', 'Disable Agent'), onClick: () => handleSetAgentEnabled(false) }
+      : { key: 'enable', label: t('pages.agents.enableAgent', 'Enable Agent'), onClick: () => handleSetAgentEnabled(true) },
     // Start/Stop (only when enabled)
     ...(agentEnabled ? [
       (runtimeStatus === 'stopped')
-        ? { key: 'start', icon: <PoweroffOutlined />, label: 'Start Agent', onClick: () => handleToggleAgent(true) }
+        ? { key: 'start', icon: <PoweroffOutlined />, label: t('pages.agents.startAgent', 'Start Agent'), onClick: () => handleToggleAgent(true) }
         : (runtimeStatus === 'standby' || runtimeStatus === 'working')
-          ? { key: 'stop', icon: <PoweroffOutlined />, label: 'Stop Agent', onClick: () => handleToggleAgent(false), danger: true }
+          ? { key: 'stop', icon: <PoweroffOutlined />, label: t('pages.agents.stopAgent', 'Stop Agent'), onClick: () => handleToggleAgent(false), danger: true }
           : null
     ].filter(Boolean) : []),
     { type: 'divider' as const },
