@@ -4,6 +4,7 @@ import { ReloadOutlined, DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOu
 import { useNavigate } from 'react-router-dom';
 import { useAccountStore } from '../../stores/accountStore';
 import { ipcApi } from '../../services/ipc/api';
+import TokenUsageSection from './TokenUsageSection';
 
 const { Title, Text } = Typography;
 
@@ -245,6 +246,9 @@ const Account: React.FC = () => {
                     </Card>
                 </Col>
             </Row>
+
+            {/* Token Usage Analytics - expandable section at the bottom */}
+            <TokenUsageSection />
         </div>
     );
 };

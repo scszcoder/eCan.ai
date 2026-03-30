@@ -12,6 +12,7 @@ import AgentCard from './components/AgentCard';
 import './OrgNavigator.css';
 import { logger } from '../../utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
+import { useAgentRuntimeStore } from '@/stores/agentRuntimeStore';
 import { DisplayNode, GetAllOrgAgentsResponse, OrgAgent, TreeOrgNode } from '../Orgs/types';
 import type { Agent } from './types';
 import { extractAllAgents } from './utils/orgTreeUtils';
@@ -198,6 +199,14 @@ const OrgNavigator: React.FC = () => {
   const username = useUserStore((state) => state.username);
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Agent runtime status polling (batch endpoint, 5s interval)
+  const startStatusPolling = useAgentRuntimeStore(s => s.startPolling);
+  const stopStatusPolling = useAgentRuntimeStore(s => s.stopPolling);
+  useEffect(() => {
+    startStatusPolling(5000);
+    return () => stopStatusPolling();
+  }, [startStatusPolling, stopStatusPolling]);
+
   // ScrollPositionSave
   const navigatorRef = useRef<HTMLDivElement>(null);
   const savedScrollPosition = useRef<number>(0);

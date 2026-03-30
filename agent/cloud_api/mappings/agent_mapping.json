@@ -27,7 +27,16 @@
     "created_at",
     "updated_at",
     "default_input_modes",
-    "default_output_modes"
+    "default_output_modes",
+    "supervisor",
+    "organizations",
+    "skills_count",
+    "tasks_count",
+    "active_tasks_count",
+    "ext",
+    "rank",
+    "url",
+    "version"
   ],
   
   "operation_specific_exclusions": {

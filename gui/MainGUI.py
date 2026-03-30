@@ -2887,10 +2887,17 @@ class MainWindow:
         """
         async def launch_all_async():
             """Internal async function to launch all agents"""
-            launchable_agents = [
-                (f"Agent_{i}", agent) for i, agent in enumerate(agents_list)
-                if hasattr(agent, 'launch') or hasattr(agent, 'start')
-            ]
+            # Skip disabled agents for launching, but keep them in self.agents
+            # (the batch status handler uses DB status to report them as 'disabled')
+            launchable_agents = []
+            for i, agent in enumerate(agents_list):
+                agent_status = getattr(agent, 'status', 'active') or 'active'
+                if agent_status == 'disabled':
+                    agent_name = getattr(getattr(agent, 'card', None), 'name', '?')
+                    logger.info(f"[MainWindow] Skipping disabled agent: {agent_name}")
+                    continue
+                if hasattr(agent, 'launch') or hasattr(agent, 'start'):
+                    launchable_agents.append((f"Agent_{i}", agent))
             
             if not launchable_agents:
                 logger.info("[MainWindow] ðŸ” No launchable agents found")
@@ -2913,6 +2920,27 @@ class MainWindow:
         asyncio.create_task(launch_all_async())
         logger.info(f"[MainWindow] ðŸ”¥ Agent launch task created (running in background)")
     
+    def _sync_agent_db_status_active(self, agent):
+        """Ensure DB status is 'active' for a successfully launched agent.
+
+        This fixes stale 'inactive' status from previous sessions so that
+        the runtime status handler correctly detects the agent as running.
+        """
+        try:
+            card = getattr(agent, 'card', None)
+            agent_id = getattr(card, 'id', None) if card else None
+            if not agent_id:
+                return
+            from app_context import AppContext
+            ec_db_mgr = AppContext.get_ec_db_mgr()
+            if ec_db_mgr:
+                agent_service = ec_db_mgr.agent_service
+                agent_service.update_agent(agent_id, {'status': 'active'})
+                # Also update in-memory status
+                agent.status = 'active'
+        except Exception as e:
+            logger.warning(f"[MainWindow] Failed to sync agent DB status: {e}")
+
     async def _launch_single_agent_with_name_async(self, agent_name: str, agent):
         """Asynchronously launch a single Agent (returns launch result)"""
         try:
@@ -2949,6 +2977,7 @@ class MainWindow:
                 await loop.run_in_executor(None, agent.launch)
                 # Wait for server to be ready
                 await self.wait_for_server_async(agent, timeout=10.0)
+                self._sync_agent_db_status_active(agent)
                 return True
             elif hasattr(agent, 'start') and callable(agent.start):
                 loop = asyncio.get_event_loop()
@@ -2962,6 +2991,7 @@ class MainWindow:
                 
                 if server_ready:
                     logger.info(f"[MainWindow] âœ… {agent.get_card().name}'s A2A server is ready")
+                    self._sync_agent_db_status_active(agent)
                     return True
                 else:
                     logger.error(f"[MainWindow] âŒ {agent.get_card().name}'s A2A server failed to start within 10s")

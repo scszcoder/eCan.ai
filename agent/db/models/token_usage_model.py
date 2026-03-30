@@ -48,7 +48,15 @@ class TokenUsage(BaseModel):
     # Additional metadata
     node_type = Column(String, nullable=True, comment="For skills: node type (llm, browser_automation)")
     operation = Column(String, nullable=True, comment="Operation type: embedding, re-ranking, generation, chat, etc.")
-    
+
+    # Fine-grained timing
+    start_time = Column(DateTime, nullable=True, comment="LLM call start time (ms precision)")
+    end_time = Column(DateTime, nullable=True, comment="LLM call end time (ms precision)")
+    duration_ms = Column(Integer, nullable=True, comment="Duration in milliseconds")
+
+    # Skill name for analytics grouping
+    skill_name = Column(String, nullable=True, comment="Skill name for per-skill analytics")
+
     # Indexes for efficient querying
     __table_args__ = (
         Index('idx_token_usage_timestamp', 'usage_timestamp'),
@@ -56,6 +64,7 @@ class TokenUsage(BaseModel):
         Index('idx_token_usage_source', 'source_type', 'source_id'),
         Index('idx_token_usage_model', 'vendor', 'model'),
         Index('idx_token_usage_month', 'usage_timestamp'),  # For monthly aggregation
+        Index('idx_token_usage_skill', 'skill_name'),
     )
     
     def __repr__(self):
