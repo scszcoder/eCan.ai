@@ -257,3 +257,49 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
     except Exception as e:
         logger.error(f"[llm_proxy_test] Embedding test error: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'PROXY_EMBEDDING_ERROR', str(e))
+
+
+IPCHandlerRegistry.add_to_whitelist('test_lambda_proxy_health_check')
+
+
+@IPCHandlerRegistry.background_handler('test_lambda_proxy_health_check')
+def handle_test_lambda_proxy_health_check(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Trigger the Lambda's /v1/test health-check endpoint.
+
+    The Lambda itself visits all configured providers with cheap models
+    and returns the results. We just forward the request.
+    """
+    try:
+        import httpx
+        import time
+
+        config = _get_proxy_config()
+        url = config['endpoint'].rstrip('/') + '/v1/test'
+
+        # Forward optional params: prompt, providers
+        p = params or {}
+        body = {}
+        if p.get('prompt'):
+            body['prompt'] = p['prompt']
+        if p.get('providers'):
+            body['providers'] = p['providers']
+
+        t0 = time.time()
+        resp = httpx.post(url, json=body, headers={
+            'Content-Type': 'application/json',
+            'Authorization': f"Bearer {config['auth_token']}",
+            'X-User-Id': config['user_id'],
+        }, timeout=120.0)
+        latency_ms = int((time.time() - t0) * 1000)
+
+        if resp.status_code >= 400:
+            return create_error_response(request, 'PROXY_HEALTH_ERROR',
+                f"HTTP {resp.status_code}: {resp.text[:500]}")
+
+        data = resp.json()
+        data['total_latency_ms'] = latency_ms
+        return create_success_response(request, data)
+
+    except Exception as e:
+        logger.error(f"[llm_proxy_test] Health check error: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'PROXY_HEALTH_ERROR', str(e))

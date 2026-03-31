@@ -1828,6 +1828,28 @@ const Tests: React.FC = () => {
                         >
                             Proxy Embed
                         </Button>
+                        <Button
+                            onClick={async () => {
+                                setTestOutput('Running health check on all cloud providers...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testLambdaProxyHealthCheck(),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('HEALTH_TIMEOUT (120s)')), 120000))
+                                    ]);
+                                    setTestOutput('Provider Health Check:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Health Check error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#389e0d',
+                                borderColor: '#389e0d',
+                                color: '#fff',
+                            }}
+                        >
+                            Health Check
+                        </Button>
                     </Space>
                     {/* Test Selection */}
                     <Space align="center" style={{ width: '100%', marginBottom: '16px' }}>

@@ -1339,6 +1339,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'test_lambda_proxy_embedding' }, params || {});
     }
 
+    public async testLambdaProxyHealthCheck<T>(params?: { providers?: string[] }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_lambda_proxy_health_check' }, params || {});
+    }
+
     public async saveAgent<T>(username: string, agent: T[]): Promise<APIResponse<void>> {
         return apiRouter.execute(
       {
