@@ -356,17 +356,52 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
         # Create agent task schedule if available
         schedule_data = db_agent_task_dict.get('schedule', {})
         if schedule_data:
-            # Handle None values for date fields - convert to empty string
-            start_date = schedule_data.get('start_date_time')
-            end_date = schedule_data.get('end_date_time')
-            
+            from datetime import datetime, timedelta
+
+            # Parse repeat_type by value (e.g. 'by minutes') not by attribute name
+            repeat_type_raw = (schedule_data.get('repeat_type') or 'none').lower().strip()
+            try:
+                repeat_type = RepeatType(repeat_type_raw)
+            except ValueError:
+                repeat_type = RepeatType.NONE
+
+            # Normalize datetime strings to scheduler's expected format
+            _fmt = "%Y-%m-%d %H:%M:%S:%f"
+
+            def _norm_dt(dt_str, default_dt):
+                if not dt_str:
+                    return default_dt.strftime(_fmt)[:-3] + "000"
+                for f in (_fmt, "%Y-%m-%d %H:%M:%S"):
+                    try:
+                        return datetime.strptime(dt_str, f).strftime(_fmt)[:-3] + "000"
+                    except ValueError:
+                        pass
+                try:
+                    dt = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00"))
+                    # Convert to local time before stripping tzinfo so the resulting
+                    # naive datetime is in local time, matching datetime.now() comparisons
+                    # in the scheduler.  Without this, a UTC timestamp like "18:47Z" is
+                    # stored as "18:47" and compared against local "13:44", so the task
+                    # appears not ready on any machine that is behind UTC.
+                    if dt.tzinfo is not None:
+                        dt = dt.astimezone().replace(tzinfo=None)
+                    else:
+                        dt = dt.replace(tzinfo=None)
+                    return dt.strftime(_fmt)[:-3] + "000"
+                except Exception:
+                    return default_dt.strftime(_fmt)[:-3] + "000"
+
+            now = datetime.now()
+            start_date = _norm_dt(schedule_data.get('start_date_time'), now)
+            end_date = _norm_dt(schedule_data.get('end_date_time'), now + timedelta(days=365 * 10))
+
             schedule = TaskSchedule(
-                repeat_type=getattr(RepeatType, schedule_data.get('repeat_type', 'NONE'), RepeatType.NONE),
-                repeat_number=schedule_data.get('repeat_number', 1),
-                repeat_unit=schedule_data.get('repeat_unit', 'day'),
-                start_date_time=start_date if start_date is not None else '',
-                end_date_time=end_date if end_date is not None else '',
-                time_out=schedule_data.get('time_out', 120)
+                repeat_type=repeat_type,
+                repeat_number=int(schedule_data.get('repeat_number', 1)),
+                repeat_unit=repeat_type_raw,
+                start_date_time=start_date,
+                end_date_time=end_date,
+                time_out=int(schedule_data.get('time_out', 120))
             )
         else:
             schedule = None

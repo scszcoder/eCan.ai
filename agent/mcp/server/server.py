@@ -2329,6 +2329,274 @@ async def ecan_ai_new_chromiunm(mainwin, args):
 
 
 
+async def os_media_preview(mainwin, args):
+    """Display or play a media file in a Qt popup with thumb-up/down feedback buttons."""
+    try:
+        file_path = args["input"]["file_path"]
+        logger.info(f"[os_media_preview] Opening media: {file_path}")
+
+        import os
+        if not os.path.isfile(file_path):
+            return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+
+        # Determine media type from extension
+        ext = os.path.splitext(file_path)[1].lower()
+        IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
+        AUDIO_EXTS = {'.mp3', '.wav', '.ogg', '.flac', '.m4a'}
+        VIDEO_EXTS = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+
+        if ext in IMAGE_EXTS:
+            media_type = 'image'
+        elif ext in AUDIO_EXTS:
+            media_type = 'audio'
+        elif ext in VIDEO_EXTS:
+            media_type = 'video'
+        else:
+            return [TextContent(type="text", text=f"Error: Unsupported file type '{ext}'")]
+
+        # On Linux, QMultimedia requires GStreamer — detect early
+        import sys as _sys
+        _gstreamer_missing = (
+            _sys.platform.startswith('linux')
+            and media_type in ('audio', 'video')
+            and not __import__('shutil').which('gst-launch-1.0')
+            and not __import__('shutil').which('gst-inspect-1.0')
+        )
+        if _gstreamer_missing:
+            logger.warning("[os_media_preview] GStreamer not detected on Linux — will show install prompt")
+
+        # Feedback file path: strip extension, append _feedback.txt
+        base = os.path.splitext(file_path)[0]
+        feedback_path = base + "_feedback.txt"
+
+        def _write_feedback(vote: str):
+            try:
+                with open(feedback_path, 'w', encoding='utf-8') as f:
+                    f.write(vote)
+                logger.info(f"[os_media_preview] Feedback '{vote}' written to {feedback_path}")
+            except Exception as fe:
+                logger.error(f"[os_media_preview] Failed to write feedback: {fe}")
+
+        def _show_popup():
+            from PySide6.QtWidgets import (
+                QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+                QLabel, QSizePolicy, QScrollArea, QMessageBox,
+                QApplication, QTextEdit, QFrame
+            )
+            from PySide6.QtGui import QPixmap, QIcon, QFont, QClipboard
+            from PySide6.QtCore import Qt, QUrl
+            from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+            from PySide6.QtMultimediaWidgets import QVideoWidget
+
+            # ── GStreamer missing warning (Linux only) ──
+            if _gstreamer_missing:
+                # Detect distro for the right install command
+                install_cmd_ubuntu  = "sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav"
+                install_cmd_fedora  = "sudo dnf install gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly-free gstreamer1-plugin-openh264"
+                install_cmd_arch    = "sudo pacman -S gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly"
+
+                distro_id = ''
+                try:
+                    import distro as _distro  # pip install distro
+                    distro_id = _distro.id().lower()
+                except ImportError:
+                    try:
+                        with open('/etc/os-release') as _f:
+                            for _line in _f:
+                                if _line.startswith('ID='):
+                                    distro_id = _line.split('=', 1)[1].strip().strip('"').lower()
+                                    break
+                    except Exception:
+                        pass
+
+                if distro_id in ('fedora', 'rhel', 'centos', 'rocky', 'almalinux'):
+                    primary_cmd = install_cmd_fedora
+                elif distro_id in ('arch', 'manjaro', 'endeavouros'):
+                    primary_cmd = install_cmd_arch
+                else:
+                    primary_cmd = install_cmd_ubuntu  # default to Debian/Ubuntu
+
+                warn_dialog = QDialog()
+                warn_dialog.setWindowTitle("GStreamer Not Found")
+                warn_dialog.setMinimumWidth(620)
+                wlayout = QVBoxLayout(warn_dialog)
+                wlayout.setSpacing(10)
+                wlayout.setContentsMargins(16, 16, 16, 16)
+
+                icon_lbl = QLabel("⚠️  GStreamer is required to play audio/video on Linux but was not found.")
+                icon_lbl.setWordWrap(True)
+                icon_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #d97706;")
+                wlayout.addWidget(icon_lbl)
+
+                desc = QLabel("Install GStreamer using the command below, then try again:")
+                desc.setWordWrap(True)
+                wlayout.addWidget(desc)
+
+                cmd_box = QTextEdit()
+                cmd_box.setPlainText(primary_cmd)
+                cmd_box.setReadOnly(True)
+                cmd_box.setFixedHeight(52)
+                cmd_box.setStyleSheet(
+                    "font-family: monospace; font-size: 12px; "
+                    "background: #1e1e1e; color: #d4d4d4; border-radius: 4px; padding: 4px;"
+                )
+                wlayout.addWidget(cmd_box)
+
+                # Show all three distro variants collapsed
+                other_lbl = QLabel("Other distros:")
+                other_lbl.setStyleSheet("font-size: 11px; color: #6b7280; margin-top: 4px;")
+                wlayout.addWidget(other_lbl)
+
+                for label, cmd in [("Ubuntu / Debian", install_cmd_ubuntu),
+                                   ("Fedora / RHEL",  install_cmd_fedora),
+                                   ("Arch / Manjaro", install_cmd_arch)]:
+                    row = QHBoxLayout()
+                    lbl = QLabel(f"<b>{label}:</b>")
+                    lbl.setFixedWidth(120)
+                    lbl.setStyleSheet("font-size: 11px;")
+                    cmd_lbl = QLabel(f"<code>{cmd}</code>")
+                    cmd_lbl.setWordWrap(True)
+                    cmd_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                    cmd_lbl.setStyleSheet("font-size: 11px; color: #374151;")
+                    row.addWidget(lbl)
+                    row.addWidget(cmd_lbl, stretch=1)
+                    wlayout.addLayout(row)
+
+                sep = QFrame()
+                sep.setFrameShape(QFrame.HLine)
+                sep.setStyleSheet("color: #e5e7eb;")
+                wlayout.addWidget(sep)
+
+                btn_row = QHBoxLayout()
+                copy_btn = QPushButton("📋  Copy Command")
+                copy_btn.clicked.connect(
+                    lambda: QApplication.clipboard().setText(primary_cmd)
+                )
+                ok_btn = QPushButton("OK")
+                ok_btn.setFixedWidth(70)
+                ok_btn.clicked.connect(warn_dialog.accept)
+                btn_row.addWidget(copy_btn)
+                btn_row.addStretch()
+                btn_row.addWidget(ok_btn)
+                wlayout.addLayout(btn_row)
+
+                warn_dialog.exec()
+                return  # don't attempt to open media player
+
+            dialog = QDialog()
+            dialog.setWindowTitle(f"Media Preview — {os.path.basename(file_path)}")
+            dialog.setMinimumSize(640, 480)
+            dialog.setAttribute(Qt.WA_DeleteOnClose)
+
+            layout = QVBoxLayout(dialog)
+            layout.setSpacing(8)
+            layout.setContentsMargins(12, 12, 12, 12)
+
+            # ── Media area ──
+            if media_type == 'image':
+                pixmap = QPixmap(file_path)
+                if pixmap.isNull():
+                    lbl = QLabel(f"Could not load image: {file_path}")
+                    layout.addWidget(lbl)
+                else:
+                    scroll = QScrollArea()
+                    scroll.setWidgetResizable(True)
+                    img_label = QLabel()
+                    img_label.setAlignment(Qt.AlignCenter)
+                    # Scale down if larger than 900x700, keep aspect ratio
+                    scaled = pixmap.scaled(900, 700, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    img_label.setPixmap(scaled)
+                    scroll.setWidget(img_label)
+                    layout.addWidget(scroll, stretch=1)
+
+            elif media_type in ('audio', 'video'):
+                player = QMediaPlayer(dialog)
+                audio_out = QAudioOutput(dialog)
+                player.setAudioOutput(audio_out)
+                audio_out.setVolume(0.8)
+
+                if media_type == 'video':
+                    video_widget = QVideoWidget()
+                    video_widget.setMinimumHeight(360)
+                    player.setVideoOutput(video_widget)
+                    layout.addWidget(video_widget, stretch=1)
+                else:
+                    # Audio — show filename label
+                    lbl = QLabel(f"🎵  {os.path.basename(file_path)}")
+                    lbl.setAlignment(Qt.AlignCenter)
+                    font = QFont()
+                    font.setPointSize(14)
+                    lbl.setFont(font)
+                    layout.addWidget(lbl, stretch=1)
+
+                player.setSource(QUrl.fromLocalFile(file_path))
+                player.play()
+
+                # Stop player when dialog closes
+                dialog.finished.connect(player.stop)
+
+            # ── Feedback + Close row ──
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(16)
+
+            # Pick an emoji-capable font available on each platform
+            import sys as _sys
+            if _sys.platform == 'darwin':
+                emoji_font = QFont("Apple Color Emoji", 18)
+            elif _sys.platform.startswith('linux'):
+                emoji_font = QFont("Noto Color Emoji", 18)
+            else:
+                emoji_font = QFont("Segoe UI Emoji", 18)
+
+            thumb_up = QPushButton("👍")
+            thumb_up.setToolTip("Good quality")
+            thumb_up.setFixedSize(48, 48)
+            thumb_up.setFont(emoji_font)
+            thumb_up.setFlat(True)
+            thumb_up.clicked.connect(lambda: (_write_feedback("up"), dialog.accept()))
+
+            thumb_down = QPushButton("👎")
+            thumb_down.setToolTip("Poor quality")
+            thumb_down.setFixedSize(48, 48)
+            thumb_down.setFont(emoji_font)
+            thumb_down.setFlat(True)
+            thumb_down.clicked.connect(lambda: (_write_feedback("down"), dialog.accept()))
+
+            close_btn = QPushButton("Close")
+            close_btn.setFixedWidth(80)
+            close_btn.clicked.connect(dialog.reject)
+
+            btn_row.addWidget(thumb_up)
+            btn_row.addWidget(thumb_down)
+            btn_row.addStretch()
+            btn_row.addWidget(close_btn)
+            layout.addLayout(btn_row)
+
+            dialog.exec()
+
+        # Must run on Qt main thread
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _show_popup)
+
+        # Check if feedback was written
+        import os as _os
+        if _os.path.isfile(feedback_path):
+            with open(feedback_path, 'r', encoding='utf-8') as f:
+                vote = f.read().strip()
+            msg = f"Media preview closed. Feedback: {vote}"
+        else:
+            msg = "Media preview closed. No feedback given."
+
+        logger.info(f"[os_media_preview] {msg}")
+        return [TextContent(type="text", text=msg)]
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOsMediaPreview")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def os_open_app(mainwin, args):
     """Open an application — smart: check windows/processes first, then launch with fallback paths."""
     try:
@@ -3417,6 +3685,7 @@ tool_function_mapping = {
         "keyboard_text_input": keyboard_text_input,
         "keyboard_keys_input": keyboard_keys_input,
         "http_call_api": http_call_api,
+        "os_media_preview": os_media_preview,
         "os_open_app": os_open_app,
         "os_close_app": os_close_app,
         "os_switch_to_app": os_switch_to_app,

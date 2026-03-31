@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-03-31T00:00:57.859840",
-  "total_tools": 124,
+  "generated_at": "2026-03-31T14:44:41.012396",
+  "total_tools": 125,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -1987,6 +1987,38 @@
               "win_title": {
                 "type": "string",
                 "description": "the title of the app window."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_media_preview",
+      "title": null,
+      "description": "<category>OS</category><sub-category>Media</sub-category>Display or play a media file (image, audio, or video) in a popup window. The window has a Close button and thumb-up/thumb-down feedback buttons. Clicking a feedback button writes a '_feedback.txt' file next to the media file containing 'up' or 'down'. Supported formats: images (png, jpg, jpeg, gif, bmp, webp), audio (mp3, wav, ogg, flac, m4a), video (mp4, avi, mov, mkv, webm).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "file_path"
+            ],
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "Full absolute path to the media file to preview."
               }
             }
           }
