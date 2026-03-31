@@ -32,6 +32,58 @@ from typing import Any, Literal, cast, overload
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# ==================== Lambda Proxy Helpers ====================
+
+def _should_use_proxy(node_inputs: dict | None = None) -> bool:
+    """Check if LLM calls should be routed through the Lambda proxy.
+
+    Priority: node-level useProxy override > global use_lambda_proxy setting.
+    """
+    # 1. Check node-level override
+    if node_inputs:
+        use_proxy_val = (node_inputs.get("useProxy") or {}).get("content")
+        if use_proxy_val is not None:
+            return str(use_proxy_val).lower() in ('true', '1', 'yes', 'on')
+
+    # 2. Fall back to global setting
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        if mainwin and hasattr(mainwin, 'config_manager'):
+            return mainwin.config_manager.general_settings.use_lambda_proxy
+    except Exception:
+        pass
+    return False
+
+
+def _get_proxy_config() -> dict:
+    """Get Lambda proxy configuration from settings.
+
+    Returns dict with: endpoint, auth_token, user_id (or empty dict if unavailable).
+    """
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        if not mainwin or not hasattr(mainwin, 'config_manager'):
+            return {}
+        endpoint = mainwin.config_manager.general_settings.lambda_proxy_endpoint
+        if not endpoint:
+            logger.warning("[build_node] Lambda proxy enabled but no endpoint configured")
+            return {}
+        auth_token = ''
+        if hasattr(mainwin, 'get_auth_token'):
+            auth_token = mainwin.get_auth_token() or ''
+        user_id = getattr(mainwin, 'user', '') or ''
+        return {
+            'endpoint': endpoint,
+            'auth_token': auth_token,
+            'user_id': user_id,
+        }
+    except Exception as e:
+        logger.warning(f"[build_node] Failed to get proxy config: {e}")
+        return {}
+
+
 # ==================== Module-level Constants ====================
 
 # When a node has useThinking disabled, we still need a well-defined instruction
@@ -1434,6 +1486,21 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         raw_provider_name: str | None,
         allow_default_openai: bool,
     ):
+        # --- Lambda proxy shortcut ---
+        if _should_use_proxy(inputs):
+            proxy_cfg = _get_proxy_config()
+            if proxy_cfg:
+                from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+                logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value}")
+                return create_lambda_proxy_langchain(
+                    provider=provider_name or 'openai',
+                    model=model_name_value or 'gpt-4o',
+                    user_id=proxy_cfg['user_id'],
+                    lambda_endpoint=proxy_cfg['endpoint'],
+                    auth_token=proxy_cfg['auth_token'],
+                    temperature=temperature_value,
+                )
+
         # ── LLM instance cache: skip re-construction for repeated invocations ──
         # Build a stable cache key from the parameters that define the LLM identity.
         # API key is deliberately excluded from the key: the cached instance still
@@ -6471,11 +6538,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(f"[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
                     send_skill_editor_log("log", f"[BrowserAutomation] Starting cloud agent mode")
                     
-                    # Create LLM: node-specified provider OR default from Settings
-                    # CRITICAL: If node specifies provider, we MUST use it (no fallback)
+                    # Create LLM: proxy > node-specified provider > default from Settings
                     llm = None
-                    
-                    if node_llm_provider:
+
+                    # --- Lambda proxy shortcut (cloud agent) ---
+                    if _should_use_proxy(inputs):
+                        proxy_cfg = _get_proxy_config()
+                        if proxy_cfg:
+                            from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+                            _proxy_provider = node_llm_provider or 'openai'
+                            _proxy_model = node_model_name or 'gpt-4o'
+                            llm = ChatLambdaProxy(
+                                model=_proxy_model,
+                                provider_name=_proxy_provider,
+                                user_id=proxy_cfg['user_id'],
+                                lambda_endpoint=proxy_cfg['endpoint'],
+                                auth_token=proxy_cfg['auth_token'],
+                            )
+                            logger.info(f"[BrowserAutomation] Using Lambda proxy (cloud): {_proxy_provider}/{_proxy_model}")
+                            send_skill_editor_log("log", f"[BrowserAutomation] LLM via Lambda proxy: {_proxy_provider}/{_proxy_model}")
+
+                    if llm is None and node_llm_provider:
                         # Node specified provider - use it and ONLY it (no fallback allowed)
                         provider_lower = node_llm_provider.lower()
                         selected_model_name = node_model_name
@@ -6526,9 +6609,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         
                         logger.info(f"[BrowserAutomation] Created LLM from node config: provider={node_llm_provider}, model={selected_model_name}")
                         send_skill_editor_log("log", f"[BrowserAutomation] LLM created: {node_llm_provider}/{selected_model_name}")
-                        
-                    else:
-                        # Node did NOT specify provider - use default from Settings
+
+                    if llm is None:
+                        # Node did NOT specify provider and no proxy - use default from Settings
                         from app_context import AppContext
                         ctx = AppContext.get_instance()
                         mainwin_ctx = ctx.get_main_window()
@@ -6736,10 +6819,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             # Use node-specific LLM provider/model if configured, otherwise fall back to mainwin default
             from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
-            
+
             llm = None
-            
-            if node_llm_provider and node_model_name:
+
+            # --- Lambda proxy shortcut (local) ---
+            if _should_use_proxy(inputs):
+                proxy_cfg = _get_proxy_config()
+                if proxy_cfg:
+                    from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+                    _proxy_provider = node_llm_provider or 'openai'
+                    _proxy_model = node_model_name or 'gpt-4o'
+                    llm = ChatLambdaProxy(
+                        model=_proxy_model,
+                        provider_name=_proxy_provider,
+                        user_id=proxy_cfg['user_id'],
+                        lambda_endpoint=proxy_cfg['endpoint'],
+                        auth_token=proxy_cfg['auth_token'],
+                    )
+                    logger.info(f"[BrowserAutomation] Using Lambda proxy (local): {_proxy_provider}/{_proxy_model}")
+
+            if llm is None and node_llm_provider and node_model_name:
                 # Node editor has specific provider/model selected - use those (no fallback)
                 logger.info(f"[BrowserAutomation] Using node-specific LLM: provider={node_llm_provider}, model={node_model_name}")
                 
@@ -6807,9 +6906,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
                     logger.error(f"[BrowserAutomation] ❌ {error_msg}")
                     raise ValueError(error_msg) from e
-            
-            else:
-                # No node-specific settings - use global default LLM
+
+            if llm is None:
+                # No node-specific settings and no proxy - use global default LLM
                 logger.info("[BrowserAutomation] No node-specific LLM settings, using global default LLM")
                 try:
                     llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
