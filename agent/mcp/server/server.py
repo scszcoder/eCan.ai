@@ -3202,8 +3202,14 @@ async def api_ecan_ai_req_create_scene(mainwin, args):
     from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_req_create_scene
     import json
     try:
-        logger.info(f"api_ecan_ai_req_create_scene args: {args['input']}")
-        response = ecan_ai_api_req_create_scene(mainwin, args['input'])
+        # Merge: start from nested 'input' sub-object, then overlay top-level fields.
+        # The backfill logic may produce both {'input': {empty}, 'field': value} shapes;
+        # top-level fields (set by LLM at runtime) take priority over the empty defaults.
+        _nested = args.get('input') or {}
+        _top = {k: v for k, v in args.items() if k != 'input' and v not in ('', None, [], {})}
+        config = {**_nested, **_top}
+        logger.info(f"api_ecan_ai_req_create_scene config: {config}")
+        response = ecan_ai_api_req_create_scene(mainwin, config)
         
         request_id = response.get("request_id", "")
         status = response.get("status", "Error")
