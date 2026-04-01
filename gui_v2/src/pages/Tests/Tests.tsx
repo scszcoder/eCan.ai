@@ -1850,6 +1850,28 @@ const Tests: React.FC = () => {
                         >
                             Health Check
                         </Button>
+                        <Button
+                            onClick={async () => {
+                                setTestOutput('Testing req_create_scene (paper tiger image)...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testReqCreateScene(),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT (120s)')), 120000))
+                                    ]);
+                                    setTestOutput('req_create_scene Test:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('req_create_scene error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#d4380d',
+                                borderColor: '#d4380d',
+                                color: '#fff',
+                            }}
+                        >
+                            Create Scene
+                        </Button>
                     </Space>
                     {/* Test Selection */}
                     <Space align="center" style={{ width: '100%', marginBottom: '16px' }}>

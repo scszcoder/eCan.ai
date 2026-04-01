@@ -41,22 +41,43 @@ def add_years(dt: datetime, years: int) -> datetime:
 
 # ==================== Schedule Calculations ====================
 
+def _parse_schedule_dt(dt_str: str) -> datetime:
+    """Parse a schedule datetime string, handling both internal and ISO 8601 formats."""
+    fmt = "%Y-%m-%d %H:%M:%S:%f"
+    fmt_alt = "%Y-%m-%d %H:%M:%S"
+    for f in (fmt, fmt_alt):
+        try:
+            return datetime.strptime(dt_str, f)
+        except ValueError:
+            pass
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        # Convert timezone-aware dt to local time before stripping tzinfo so that
+        # comparisons against datetime.now() (naive local) are correct.
+        # Without this, a UTC timestamp like "18:47Z" would be compared raw against
+        # local time "13:27", making the task appear not ready on UTC-behind systems.
+        if dt.tzinfo is not None:
+            dt = dt.astimezone().replace(tzinfo=None)
+        return dt
+    except Exception:
+        raise ValueError(f"Cannot parse schedule datetime: {dt_str!r}")
+
+
 def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
     """
     Calculate the next runtime for a scheduled task.
-    
+
     Args:
         schedule: The task schedule configuration.
-        
+
     Returns:
         Tuple of (next_runtime, should_run_now)
     """
-    fmt = "%Y-%m-%d %H:%M:%S:%f"
     now = datetime.now()
-    
+
     logger.debug(f"Checking start time: {schedule.start_date_time}")
-    start_time = datetime.strptime(schedule.start_date_time, fmt)
-    end_time = datetime.strptime(schedule.end_date_time, fmt)
+    start_time = _parse_schedule_dt(schedule.start_date_time)
+    end_time = _parse_schedule_dt(schedule.end_date_time)
     repeat_number = int(schedule.repeat_number)
     
     if schedule.repeat_type == RepeatType.NONE:
@@ -126,10 +147,9 @@ def get_runtime_bounds(schedule: TaskSchedule) -> Tuple[datetime, datetime]:
     Returns:
         Tuple of (last_runtime, next_runtime)
     """
-    fmt = "%Y-%m-%d %H:%M:%S:%f"
     now = datetime.now()
-    start_time = datetime.strptime(schedule.start_date_time, fmt)
-    end_time = datetime.strptime(schedule.end_date_time, fmt)
+    start_time = _parse_schedule_dt(schedule.start_date_time)
+    end_time = _parse_schedule_dt(schedule.end_date_time)
     repeat_number = int(schedule.repeat_number)
     
     if schedule.repeat_type == RepeatType.NONE:
@@ -274,9 +294,18 @@ def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask
                 "task": task
             })
         
-        # Reset already_run_flag when entering next schedule cycle
-        # Use a 1-minute window instead of 30 minutes to avoid premature resets
-        if abs((next_runtime - now).total_seconds()) <= 60:
+        # Reset already_run_flag only after a full repeat interval has elapsed since
+        # the task last ran.  All previous approaches based on schedule boundaries or
+        # time-window proximity had edge cases:
+        #   - "within 60s of next_runtime": fired prematurely for short intervals
+        #   - "now >= next_runtime": condition never triggered (next_runtime jumps ahead)
+        #   - "last_runtime > last_run_datetime": fired immediately after completion when
+        #     the calculated boundary advanced 1 second past the actual run timestamp
+        # Comparing elapsed wall-clock time against the repeat interval is the only
+        # approach that is both interval-length-agnostic and race-condition-free.
+        if task.last_run_datetime is None:
+            task.already_run_flag = False
+        elif (now - task.last_run_datetime).total_seconds() >= repeat_seconds:
             task.already_run_flag = False
     
     if not candidates:

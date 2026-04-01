@@ -303,3 +303,55 @@ def handle_test_lambda_proxy_health_check(request: IPCRequest, params: Optional[
     except Exception as e:
         logger.error(f"[llm_proxy_test] Health check error: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'PROXY_HEALTH_ERROR', str(e))
+
+
+IPCHandlerRegistry.add_to_whitelist('test_req_create_scene')
+
+
+@IPCHandlerRegistry.background_handler('test_req_create_scene')
+def handle_test_req_create_scene(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Test ecan_ai_api_req_create_scene as if called from the LLM.
+
+    Params:
+        description: str (optional, default "create a paper tiger.")
+        output_format: str (optional, default "IMAGE")
+        style: str (optional, default "REALISTIC")
+        output_resolution: list (optional, default [1024, 1024])
+    """
+    try:
+        from app_context import AppContext
+        from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_req_create_scene
+
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return create_error_response(request, 'REQ_CREATE_SCENE_ERROR', 'Main window not available')
+
+        p = params or {}
+        config = {
+            'agent_id': 'test_req_create_scene',
+            'description': p.get('description', 'create a paper tiger.'),
+            'output_format': p.get('output_format', 'IMAGE'),
+            'output_resolution': p.get('output_resolution', [1024, 1024]),
+            'duration_hint_ms': 0,
+            'emotion': '',
+            'mind_state': '',
+            'style': p.get('style', 'REALISTIC'),
+            'context': '',
+            'refs': [],
+        }
+
+        logger.info(f"[llm_proxy_test] req_create_scene config: {config}")
+        result = ecan_ai_api_req_create_scene(main_window, config)
+
+        if hasattr(result, '__dict__'):
+            result_data = vars(result)
+        elif isinstance(result, dict):
+            result_data = result
+        else:
+            result_data = {'text': str(result)}
+
+        return create_success_response(request, result_data)
+
+    except Exception as e:
+        logger.error(f"[llm_proxy_test] req_create_scene error: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'REQ_CREATE_SCENE_ERROR', str(e))

@@ -1558,6 +1558,29 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_media_preview",
+        description="<category>OS</category><sub-category>Media</sub-category>Display or play a media file (image, audio, or video) in a popup window. The window has a Close button and thumb-up/thumb-down feedback buttons. Clicking a feedback button writes a '_feedback.txt' file next to the media file containing 'up' or 'down'. Supported formats: images (png, jpg, jpeg, gif, bmp, webp), audio (mp3, wav, ogg, flac, m4a), video (mp4, avi, mov, mkv, webm).",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["file_path"],
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Full absolute path to the media file to preview.",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="python_run_extern",
         description="<category>System</category><sub-category>Run Code</sub-category>run a python script",
         inputSchema={

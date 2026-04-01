@@ -1343,6 +1343,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'test_lambda_proxy_health_check' }, params || {});
     }
 
+    public async testReqCreateScene<T>(params?: { description?: string; output_format?: string; style?: string }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_req_create_scene' }, params || {});
+    }
+
     public async saveAgent<T>(username: string, agent: T[]): Promise<APIResponse<void>> {
         return apiRouter.execute(
       {
