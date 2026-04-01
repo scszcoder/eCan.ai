@@ -579,8 +579,21 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
         }
         
         # Only include output_format if explicitly provided (it's an enum that must match cloud schema)
+        # Normalize modality labels to valid GraphQL OutputFormat enum values
+        # Cloud schema accepts: WEBM, MP4, GIF, ANIMATED_PNG — not IMAGE or VIDEO
         if output_format:
-            req_scene_input["output_format"] = output_format
+            _valid_formats = {'WEBM', 'MP4', 'GIF', 'ANIMATED_PNG'}
+            _normalized = output_format.upper() if isinstance(output_format, str) else output_format
+            if _normalized == 'VIDEO':
+                _normalized = 'MP4'
+            elif _normalized == 'IMAGE':
+                _normalized = 'ANIMATED_PNG'
+            if _normalized in _valid_formats:
+                req_scene_input["output_format"] = _normalized
+                if _normalized != output_format:
+                    logger.info(f"[ReqCreateScene] Normalized output_format '{output_format}' → '{_normalized}'")
+            else:
+                logger.warning(f"[ReqCreateScene] Unknown output_format '{output_format}', omitting from request")
         
         # Add optional fields
         if output_resolution:

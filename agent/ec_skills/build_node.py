@@ -3732,7 +3732,18 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # Always coerce all inputs to match schema types (handles empty strings, wrong types)
             if _root:
                 actual_tool_input = _coerce_all_inputs(actual_tool_input, _root)
-            
+
+            # Auto-inject agent_id from state context when tool expects it but LLM left it blank.
+            # The LLM has no way to know the current agent_id; it lives in state['attributes'].
+            try:
+                _ctx_agent_id = (state.get('attributes') or {}).get('agent_id', '')
+                if _ctx_agent_id:
+                    for _target in (actual_tool_input, actual_tool_input.get('input')):
+                        if isinstance(_target, dict) and 'agent_id' in _target and not _target.get('agent_id'):
+                            _target['agent_id'] = _ctx_agent_id
+            except Exception:
+                pass
+
             # Preserve both legacy (dict with 'input') and per-node tool_input maps.
             try:
                 existing_ti = state.get('tool_input') if isinstance(state, dict) else None
@@ -3756,9 +3767,26 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             logger.debug(err_msg)
             send_skill_editor_log("error", err_msg)
 
-        # Capture for closure
+        # Capture for closure.
+        # If the tool input has a nested 'input' sub-object alongside top-level fields
+        # (produced by backfill), merge them: nested defaults first, top-level values win.
+        # This ensures the LLM's runtime values (at top level) are not shadowed by the
+        # empty defaults inside the nested 'input' wrapper.
         _actual_tool_name = actual_tool_name
-        _actual_tool_input = actual_tool_input
+        if (isinstance(actual_tool_input, dict)
+                and 'input' in actual_tool_input
+                and isinstance(actual_tool_input.get('input'), dict)):
+            # Backfill produces: {'input': {empty_defaults}, 'field': runtime_value, ...}
+            # Merge: nested defaults first, then top-level non-empty values override.
+            # Keep the 'input' wrapper since MCP schema requires it as root property.
+            _nested = actual_tool_input['input']
+            _top = {k: v for k, v in actual_tool_input.items()
+                    if k != 'input' and v not in ('', None, [], {})}
+            _merged_inner = {**_nested, **_top}
+            _actual_tool_input = {'input': _merged_inner}
+            logger.info(f"[MCP] Merged nested+top-level input for '{_actual_tool_name}': {_actual_tool_input}")
+        else:
+            _actual_tool_input = actual_tool_input
 
         def _extract_tool_result_text(result) -> str:
             """Extract readable text from MCP CallToolResult object.

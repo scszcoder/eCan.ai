@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from agent.ec_agent import EC_Agent
 from agent.ec_skill import EC_Skill
-from agent.ec_tasks.models import ManagedTask
+from agent.ec_tasks.models import ManagedTask, TaskSchedule, RepeatType
 from a2a.types import AgentCapabilities
 from agent.a2a.langgraph_agent.utils import AgentCard, SUPPORTED_CONTENT_TYPES, get_a2a_server_url
 from utils.logger_helper import logger_helper as logger
@@ -71,6 +71,72 @@ def _convert_dict_to_skill(skill_dict: Dict[str, Any]) -> EC_Skill:
         )
 
 
+def _parse_schedule_from_dict(schedule_dict: Optional[Dict[str, Any]]) -> Optional[TaskSchedule]:
+    """Parse schedule data from a task dict into a TaskSchedule object."""
+    if not schedule_dict or not isinstance(schedule_dict, dict):
+        return None
+    try:
+        from datetime import datetime, timedelta
+
+        repeat_type_str = (schedule_dict.get("repeat_type") or "none").lower().strip()
+        repeat_type_map = {
+            "none": RepeatType.NONE,
+            "seconds": RepeatType.BY_SECONDS, "by_seconds": RepeatType.BY_SECONDS, "by seconds": RepeatType.BY_SECONDS,
+            "minutes": RepeatType.BY_MINUTES, "by_minutes": RepeatType.BY_MINUTES, "by minutes": RepeatType.BY_MINUTES,
+            "hours": RepeatType.BY_HOURS, "by_hours": RepeatType.BY_HOURS, "by hours": RepeatType.BY_HOURS,
+            "days": RepeatType.BY_DAYS, "by_days": RepeatType.BY_DAYS, "by days": RepeatType.BY_DAYS,
+            "weeks": RepeatType.BY_WEEKS, "by_weeks": RepeatType.BY_WEEKS, "by weeks": RepeatType.BY_WEEKS,
+            "months": RepeatType.BY_MONTHS, "by_months": RepeatType.BY_MONTHS, "by months": RepeatType.BY_MONTHS,
+            "years": RepeatType.BY_YEARS, "by_years": RepeatType.BY_YEARS, "by years": RepeatType.BY_YEARS,
+        }
+        repeat_type = repeat_type_map.get(repeat_type_str, RepeatType.NONE)
+        if repeat_type == RepeatType.NONE:
+            return None  # No recurring schedule
+
+        repeat_number = int(schedule_dict.get("repeat_number", 1))
+
+        fmt = "%Y-%m-%d %H:%M:%S:%f"
+        fmt_alt = "%Y-%m-%d %H:%M:%S"
+
+        def _normalize_dt(dt_str, default_dt):
+            if not dt_str:
+                return default_dt.strftime(fmt)[:-3] + "000"
+            for f in (fmt, fmt_alt):
+                try:
+                    return datetime.strptime(dt_str, f).strftime(fmt)[:-3] + "000"
+                except ValueError:
+                    pass
+            try:
+                dt = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00"))
+                # Convert to local time before stripping tzinfo so naive datetime
+                # matches datetime.now() comparisons in the scheduler.
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone().replace(tzinfo=None)
+                else:
+                    dt = dt.replace(tzinfo=None)
+                return dt.strftime(fmt)[:-3] + "000"
+            except Exception:
+                return default_dt.strftime(fmt)[:-3] + "000"
+
+        now = datetime.now()
+        default_end = now + timedelta(days=365 * 10)
+        start_dt = _normalize_dt(schedule_dict.get("start_date_time"), now)
+        end_dt = _normalize_dt(schedule_dict.get("end_date_time"), default_end)
+        time_out = int(schedule_dict.get("time_out", 120))
+
+        return TaskSchedule(
+            repeat_type=repeat_type,
+            repeat_number=repeat_number,
+            repeat_unit=repeat_type_str,
+            start_date_time=start_dt,
+            end_date_time=end_dt,
+            time_out=time_out,
+        )
+    except Exception as e:
+        logger.warning(f"[AgentConverter] Failed to parse schedule: {e}")
+        return None
+
+
 def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
     """
     Convert task dictionary to ManagedTask object.
@@ -90,6 +156,7 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
         # Pass all fields to ManagedTask, let Pydantic validators handle conversion
         # Invalid values will be normalized by field_validator
         task_id = task_dict.get('id', str(uuid.uuid4()))
+        schedule = _parse_schedule_from_dict(task_dict.get('schedule'))
         return ManagedTask(
             id=task_id,
             context_id=task_id,  # Required by a2a-sdk Task
@@ -100,6 +167,7 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             priority=task_dict.get('priority'),  # Validator will handle 'none' -> None
             trigger=task_dict.get('trigger') or [],  # field_validator normalizes str/list/None
             agent_id=task_dict.get('agent_id') or '',
+            schedule=schedule,
         )
     except Exception as e:
         logger.error(f"[AgentConverter] Failed to convert task dict to object: {e}")
