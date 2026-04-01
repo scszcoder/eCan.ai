@@ -173,6 +173,14 @@ def setup_dev_skill(mainwin, skill):
         # can inspect pend_event nodes (including those nested inside loops/blocks)
         dev_run_task.skill.diagram = flow_payload or skill
 
+        # Inject toolset/skillset prompt variables from the frontend skill payload
+        try:
+            if isinstance(skill, dict) and (skill.get("toolsets") or skill.get("skillsets")):
+                from agent.ec_skills.build_agent_skills import _inject_toolset_skillset_variables
+                _inject_toolset_skillset_variables(dev_run_task.skill, skill)
+        except Exception as _ts_err:
+            logger.debug(f"[setup_dev_skill] Toolset/skillset injection skipped: {_ts_err}")
+
         # Set the breakpoints on the runner's breakpoint manager
         if tester_agent and breakpoints:
             logger.debug(f"[setup_dev_skill] Setting breakpoints: {breakpoints}")
