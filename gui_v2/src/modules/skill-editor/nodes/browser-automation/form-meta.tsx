@@ -1,7 +1,7 @@
 /**
  * Browser Automation node custom form
  */
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
@@ -109,6 +109,20 @@ const PromptSelectionDropdown = ({
         />
       )}
     </div>
+  );
+};
+
+// Textarea that keeps a local draft so partial JSON doesn't revert the value mid-edit.
+const DomRawJsonEditor: React.FC<{ value: string; onCommit: (text: string) => void }> = ({ value, onCommit }) => {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+  return (
+    <TextArea
+      value={draft}
+      rows={8}
+      onChange={(val) => setDraft(String(val))}
+      onBlur={() => onCommit(draft)}
+    />
   );
 };
 
@@ -1241,26 +1255,14 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                   <label style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 2 }}>
                                     {t('nodes.browserAutomation.monitorDomRawJson')}
                                   </label>
-                                  <TextArea value={item.cdpFilterExpr} rows={8} onChange={(val) => {
-                                    const next = [...arr];
-                                    const text = String(val);
-                                    const parsed = parseDomExtractorConfig(text);
-                                    const looksLikeFullMonitor =
-                                      !!parsed &&
-                                      typeof parsed === 'object' &&
-                                      (
-                                        parsed.sourceType ||
-                                        parsed.source_type ||
-                                        parsed.urlPatterns ||
-                                        parsed.url_patterns ||
-                                        parsed.domSelector ||
-                                        parsed.dom_selector
-                                      );
-                                    next[i] = looksLikeFullMonitor
-                                      ? normalizeMonitorItem({ ...next[i], cdpFilterExpr: text })
-                                      : { ...next[i], cdpFilterExpr: text };
-                                    setArray(next);
-                                  }} />
+                                  <DomRawJsonEditor
+                                    value={item.cdpFilterExpr}
+                                    onCommit={(text) => {
+                                      const next = [...arr];
+                                      next[i] = normalizeMonitorItem({ ...next[i], cdpFilterExpr: text });
+                                      setArray(next);
+                                    }}
+                                  />
                                 </div>
                               </div>
                             </>
