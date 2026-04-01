@@ -424,7 +424,16 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     };
 
     if (serialized.sourceType === 'dom_mutation') {
-      serialized.cdpFilterExpr = JSON.stringify(buildDomExtractorConfig(normalized), null, 2);
+      // Only rebuild from form fields if the user hasn't provided their own valid JSON.
+      // If cdpFilterExpr already contains valid JSON, preserve it as-is.
+      const raw = (normalized.cdpFilterExpr || '').trim();
+      let hasUserJson = false;
+      if (raw) {
+        try { JSON.parse(raw); hasUserJson = true; } catch { /* invalid — rebuild */ }
+      }
+      if (!hasUserJson) {
+        serialized.cdpFilterExpr = JSON.stringify(buildDomExtractorConfig(normalized), null, 2);
+      }
     }
 
     return serialized;
@@ -891,8 +900,17 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 const updateAt = (idx: number, key: string, val: any) => {
                   const next = [...arr];
                   next[idx] = { ...next[idx], [key]: val };
-                  if (next[idx]?.sourceType === 'dom_mutation') {
-                    next[idx].cdpFilterExpr = JSON.stringify(buildDomExtractorConfig(next[idx]), null, 2);
+                  // Only auto-rebuild cdpFilterExpr from form fields when the user edits a
+                  // structural field (not cdpFilterExpr itself) AND no custom JSON is present.
+                  if (next[idx]?.sourceType === 'dom_mutation' && key !== 'cdpFilterExpr') {
+                    const existing = (next[idx].cdpFilterExpr || '').trim();
+                    let hasUserJson = false;
+                    if (existing) {
+                      try { JSON.parse(existing); hasUserJson = true; } catch { /* rebuild */ }
+                    }
+                    if (!hasUserJson) {
+                      next[idx].cdpFilterExpr = JSON.stringify(buildDomExtractorConfig(next[idx]), null, 2);
+                    }
                   }
                   setArray(next);
                 };
