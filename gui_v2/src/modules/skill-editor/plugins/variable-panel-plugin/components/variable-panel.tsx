@@ -13,6 +13,8 @@ import { GlobalVariableEditor } from './global-variable-editor';
 import { FullVariableList } from './full-variable-list';
 import { DataMappingEditor } from './data-mapping-editor';
 import { SettingsPanel } from './settings-panel';
+import { ToolsetPanel } from './toolset-panel';
+import { SkillsetPanel } from './skillset-panel';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
 import { useUserStore } from '../../../../../stores/userStore';
 import { useSkillStore } from '../../../../../stores/domain/skillStore';
@@ -198,6 +200,12 @@ export function VariablePanel() {
             </Tabs.TabPane>
             <Tabs.TabPane itemKey="data-mapping" tab="Data Mapping">
               <DataMappingEditor />
+            </Tabs.TabPane>
+            <Tabs.TabPane itemKey="toolsets" tab="Toolsets">
+              <ToolsetPanel />
+            </Tabs.TabPane>
+            <Tabs.TabPane itemKey="skillsets" tab="Skillsets">
+              <SkillsetPanel />
             </Tabs.TabPane>
             <Tabs.TabPane itemKey="settings" tab="Settings">
               <SettingsPanel />

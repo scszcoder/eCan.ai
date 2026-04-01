@@ -228,6 +228,20 @@ register_provider("human_input", _provide_human_input)
 register_provider("step_count", _provide_step_count)
 register_provider("max_steps", _provide_max_steps)
 
+# ---------------------------------------------------------------------------
+# Reserved variable names — toolset/skillset names must not clash with these
+# ---------------------------------------------------------------------------
+# Includes built-in providers AND zero-config implicit variable names.
+RESERVED_VARIABLE_NAMES: frozenset = frozenset({
+    # Built-in providers
+    "skills_schema", "tools_schema", "current_time", "current_time_local",
+    "agent_name", "agent_id", "chat_id", "task_id", "human_input",
+    "step_count", "max_steps",
+    # Implicit zero-config variables from upstream node outputs
+    "previous_node_output", "latest_output", "previous_node_id",
+    "upstream_outputs", "upstream_node_ids", "search_keyword",
+})
+
 
 # ---------------------------------------------------------------------------
 # Variable declaration resolver (for prompt-level and skill-level declarations)
