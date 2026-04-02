@@ -445,7 +445,7 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
             ctx[field] = val
 
     logger.debug("normalized event:", event)
-
+    logger.info(f"[normalize_event] event.data.human_text='{str(event.get('data', {}).get('human_text', ''))[:200]}'")
     return event
 
 
@@ -673,7 +673,11 @@ def _resolve_from(event: Json, node: Json, state: Json, from_list: List[str], de
         else:
             val = default_on_missing
         if val is not None:
+            logger.info(f"[resume._resolve_from] ✓ resolved path='{path}' -> val='{str(val)[:200]}'")
             return val
+    logger.info(f"[resume._resolve_from] ✗ no value found for any path in {from_list}")
+    logger.info(f"[resume._resolve_from]   event keys: {list(event.keys()) if isinstance(event, dict) else type(event)}")
+    logger.info(f"[resume._resolve_from]   state keys: {list(state.keys()) if isinstance(state, dict) else type(state)}")
     return default_on_missing
 
 
@@ -753,7 +757,7 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
     opts = mapping.get("options", {}) if isinstance(mapping, dict) else {}
     default_on_missing = opts.get("default_on_missing", None)
     rules = mapping.get("mappings", []) if isinstance(mapping, dict) else []
-    logger.debug(f"[build_resume_from_mapping][mapping] rules: {rules}")
+    logger.info(f"[build_resume_from_mapping][mapping] rules_count={len(rules)}, rules={rules}")
     for rule in rules:
         from_list = rule.get("from") or []
         to_list = rule.get("to") or []

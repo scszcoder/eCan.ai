@@ -1487,12 +1487,93 @@ class TaskRunner(Generic[Context]):
                 return task
         return None
 
+    def _restart_task_execution(self, task: ManagedTask):
+        """Restart execution loop for a completed/failed task.
+        
+        This is called when a new message arrives for a task that has already
+        completed or failed. The task needs to be reset and its execution loop
+        restarted to process the new message.
+        """
+        try:
+            mainwin = getattr(self.agent, "mainwin", None)
+            thread_pool = getattr(mainwin, "threadPoolExecutor", None) if mainwin else None
+            
+            if not thread_pool:
+                logger.warning(f"[restart_task_execution] No thread pool available for task '{task.name}'")
+                return False
+                
+            if not hasattr(task, "run_id") or not task.run_id:
+                logger.warning(f"[restart_task_execution] Task '{task.name}' has no run_id")
+                return False
+            
+            # Check if already running
+            active_tasks = getattr(self.agent, "active_tasks", {}) or {}
+            if task.run_id in active_tasks:
+                future = active_tasks.get(task.run_id)
+                if future and not future.done():
+                    logger.info(f"[restart_task_execution] Task '{task.name}' already has active execution")
+                    return True
+            
+            # Reset task state
+            task_state = getattr(task, "status", None)
+            if task_state:
+                try:
+                    task_state.state = TaskState.submitted
+                except Exception:
+                    pass
+            
+            # Clear any previous state
+            if task.id in self._task_states:
+                self._task_states[task.id] = {'justStarted': True}
+            
+            # Start new execution loop
+            future = thread_pool.submit(self.launch_unified_run, task, ["message"])
+            with getattr(self.agent, "task_lock", type("DummyLock", (), {"__enter__": lambda s: None, "__exit__": lambda s, *a: None})()):
+                active_tasks[task.run_id] = future
+            logger.info(f"[restart_task_execution] Started execution loop for task '{task.name}', run_id={task.run_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[restart_task_execution] Failed to restart task '{getattr(task, 'name', '?')}': {e}")
+            return False
+
     def _ensure_chatter_task(self, request: Any = None, event_type: str = "", source: str = "") -> Optional[ManagedTask]:
-        """Ensure the agent has a chatter task for routing human_chat/a2a events."""
+        """Ensure the agent has a chatter task for routing human_chat/a2a events.
+        
+        If an existing completed/failed task is found for the session, it will be
+        reset and its execution loop restarted to handle the new message.
+        """
         session_id = self._extract_session_key_from_request(event_type, request, source) if request is not None else ""
         if session_id:
             existing = self._find_chatter_task_by_session(session_id)
             if existing:
+                # Check if task needs to be restarted (completed/failed task with no active execution)
+                task_state = getattr(existing, "status", None)
+                task_status = getattr(task_state, "state", None) if task_state else None
+                is_terminal = task_status in ("completed", "failed", "canceled") if task_status else False
+                
+                # Check if task has an active execution loop
+                has_active_execution = False
+                if hasattr(existing, "run_id") and existing.run_id:
+                    active_tasks = getattr(self.agent, "active_tasks", {}) or {}
+                    if existing.run_id in active_tasks:
+                        future = active_tasks.get(existing.run_id)
+                        if future and not future.done():
+                            has_active_execution = True
+                
+                if is_terminal or not has_active_execution:
+                    logger.info(f"[ensure_chatter_task] Found completed task '{existing.name}' for session {session_id}, "
+                                f"status={task_status}, will restart execution loop")
+                    # Reset task state
+                    if task_state:
+                        try:
+                            task_state.state = TaskState.submitted
+                        except Exception:
+                            pass
+                    # Restart execution loop
+                    self._restart_task_execution(existing)
+                else:
+                    logger.info(f"[ensure_chatter_task] Found active task '{existing.name}' for session {session_id}")
                 return existing
         else:
             existing = self.find_chatter_tasks()
