@@ -1318,6 +1318,7 @@ async def _start_dom_mutation_monitor(
             logger.warning(f"[EventMonitor] Failed to pre-build JS expr for '{cfg.label}': {_expr_err}")
             runtime_expr = None
 
+        mutation_state = {}
         mutation_state.update({
             "enabled": True,
             "callback": bridge_callback,

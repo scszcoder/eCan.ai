@@ -654,7 +654,13 @@ class MenuManager:
             lightrag_log_viewer_action.triggered.connect(self.show_lightrag_log_viewer)
             help_menu.addAction(lightrag_log_viewer_action)
             logger.debug("Added 'View LightRAG Logs' menu item")
-            
+
+            # Request Log Analysis
+            request_log_action = QAction(_get_menu_messages().get('request_log_analysis'), self.main_window)
+            request_log_action.triggered.connect(self.show_request_log_analysis_dialog)
+            help_menu.addAction(request_log_action)
+            logger.debug("Added 'Request Log Analysis' menu item")
+
             logger.info("Help menu setup completed successfully")
         except Exception as e:
             logger.error(f"Error setting up help menu: {e}")
@@ -1533,5 +1539,15 @@ class MenuManager:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self.main_window, "Error", f"Failed to open LightRAG log viewer:\n{str(e)}")
 
+    def show_request_log_analysis_dialog(self):
+        """Show the Request Log Analysis dialog."""
+        try:
+            from gui.dialogs.request_log_analysis_dialog import RequestLogAnalysisDialog
+            dlg = RequestLogAnalysisDialog(self.main_window)
+            dlg.exec()
+        except Exception as e:
+            logger.error(f"Failed to show request log analysis dialog: {e}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self.main_window, "Error", f"Failed to open dialog:\n{str(e)}")
 
 
