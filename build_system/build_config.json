@@ -92,7 +92,8 @@
         "tests",
         "gui_v2/dist",
         "ota",
-        "third_party/lightrag_custom"
+        "third_party/lightrag_custom",
+        "wabaileys-bridge/dist"
       ],
       "files": [
         "app_context.py",

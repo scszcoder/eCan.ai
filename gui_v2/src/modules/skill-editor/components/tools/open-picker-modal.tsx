@@ -45,6 +45,8 @@ const OpenPickerModalContent = () => {
   const setHybridCloudMode = useSkillInfoStore((state) => state.setHybridCloudMode);
   const setLocalHelperSkillId = useSkillInfoStore((state) => state.setLocalHelperSkillId);
   const setLocalHelperMachine = useSkillInfoStore((state) => state.setLocalHelperMachine);
+  const setToolsets = useSkillInfoStore((state) => state.setToolsets);
+  const setSkillsets = useSkillInfoStore((state) => state.setSkillsets);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
@@ -106,6 +108,9 @@ const OpenPickerModalContent = () => {
           setHybridCloudMode((data as any).hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === true);
           setLocalHelperSkillId((data as any).local_helper_skill_id || cfg.local_helper_skill_id || null);
           setLocalHelperMachine((data as any).local_helper_machine || cfg.local_helper_machine || null);
+          // Restore toolsets/skillsets
+          setToolsets((data as any).toolsets || []);
+          setSkillsets((data as any).skillsets || []);
           
           const breakpointIds = diagram.nodes
             .filter((node: any) => node.data?.break_point)

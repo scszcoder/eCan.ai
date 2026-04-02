@@ -2563,6 +2563,36 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_agent_enabled' }, { agent_id, enabled });
     }
 
+    // ── Channel Management APIs ────────────────────────────────────────────────
+
+    public async getChannels<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_channels' }, {});
+    }
+
+    public async saveChannelConfig<T>(channel_id: string, config: Record<string, any>): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'save_channel_config' }, { channel_id, config });
+    }
+
+    public async startChannel<T>(channel_id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'start_channel' }, { channel_id });
+    }
+
+    public async stopChannel<T>(channel_id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'stop_channel' }, { channel_id });
+    }
+
+    public async getWhatsappQR<T>(channel_id?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_whatsapp_qr' }, { channel_id: channel_id || 'whatsapp_baileys' });
+    }
+
+    public async sendChannelMessage<T>(channel_id: string, chat_id: string, text: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'send_channel_message' }, { channel_id, chat_id, text });
+    }
+
+    public async getChannelTestMessages<T>(channel_id?: string, since_ts?: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_channel_test_messages' }, { channel_id: channel_id || '', since_ts: since_ts || 0 });
+    }
+
 }
 
 /**

@@ -1,60 +1,66 @@
 {
-    "channels": {
-        "webchat": {
-            "enabled": true,
-            "default_agent_id": ""
-        },
-        "telegram": {
-            "enabled": false,
-            "bot_token": "YOUR_BOT_TOKEN",
-            "allowed_chat_ids": [],
-            "default_agent_id": ""
-        },
-        "slack": {
-            "enabled": false,
-            "bot_token": "xoxb-YOUR-BOT-TOKEN",
-            "app_token": "xapp-YOUR-APP-TOKEN",
-            "allowed_channels": [],
-            "default_agent_id": ""
-        },
-        "whatsapp": {
-            "enabled": false,
-            "phone_number_id": "YOUR_PHONE_NUMBER_ID",
-            "access_token": "YOUR_ACCESS_TOKEN",
-            "verify_token": "whatsapp_verify",
-            "webhook_port": 8443,
-            "default_agent_id": ""
-        },
-        "dingtalk": {
-            "enabled": false,
-            "client_id": "YOUR_APP_KEY",
-            "client_secret": "YOUR_APP_SECRET",
-            "default_agent_id": ""
-        },
-        "messenger": {
-            "enabled": false,
-            "page_access_token": "YOUR_PAGE_ACCESS_TOKEN",
-            "verify_token": "messenger_verify",
-            "app_secret": "",
-            "webhook_port": 8444,
-            "default_agent_id": ""
-        },
-        "discord": {
-            "enabled": false,
-            "bot_token": "YOUR_DISCORD_BOT_TOKEN",
-            "allowed_channel_ids": [],
-            "default_agent_id": ""
-        },
-        "twitter": {
-            "enabled": false,
-            "api_key": "YOUR_API_KEY",
-            "api_secret": "YOUR_API_SECRET",
-            "access_token": "YOUR_ACCESS_TOKEN",
-            "access_token_secret": "YOUR_ACCESS_TOKEN_SECRET",
-            "bearer_token": "",
-            "env_name": "default",
-            "webhook_port": 8445,
-            "default_agent_id": ""
-        }
+  "channels": {
+    "whatsapp_baileys": {
+      "enabled": true,
+      "bridge_url": "http://127.0.0.1:3210",
+      "webhook_port": 5100,
+      "auto_start_bridge": true,
+      "default_agent_id": ""
+    },
+    "webchat": {
+      "enabled": true,
+      "default_agent_id": ""
+    },
+    "telegram": {
+      "enabled": true,
+      "bot_token": "YOUR_BOT_TOKEN",
+      "default_agent_id": ""
+    },
+    "slack": {
+      "enabled": false,
+      "bot_token": "xoxb-YOUR-BOT-TOKEN",
+      "app_token": "xapp-YOUR-APP-TOKEN",
+      "allowed_channels": [],
+      "default_agent_id": ""
+    },
+    "whatsapp": {
+      "enabled": false,
+      "phone_number_id": "YOUR_PHONE_NUMBER_ID",
+      "access_token": "YOUR_ACCESS_TOKEN",
+      "verify_token": "whatsapp_verify",
+      "webhook_port": 8443,
+      "default_agent_id": ""
+    },
+    "dingtalk": {
+      "enabled": false,
+      "client_id": "YOUR_APP_KEY",
+      "client_secret": "YOUR_APP_SECRET",
+      "default_agent_id": ""
+    },
+    "messenger": {
+      "enabled": false,
+      "page_access_token": "YOUR_PAGE_ACCESS_TOKEN",
+      "verify_token": "messenger_verify",
+      "app_secret": "",
+      "webhook_port": 8444,
+      "default_agent_id": ""
+    },
+    "discord": {
+      "enabled": false,
+      "bot_token": "YOUR_DISCORD_BOT_TOKEN",
+      "allowed_channel_ids": [],
+      "default_agent_id": ""
+    },
+    "twitter": {
+      "enabled": false,
+      "api_key": "YOUR_API_KEY",
+      "api_secret": "YOUR_API_SECRET",
+      "access_token": "YOUR_ACCESS_TOKEN",
+      "access_token_secret": "YOUR_ACCESS_TOKEN_SECRET",
+      "bearer_token": "",
+      "env_name": "default",
+      "webhook_port": 8445,
+      "default_agent_id": ""
     }
+  }
 }

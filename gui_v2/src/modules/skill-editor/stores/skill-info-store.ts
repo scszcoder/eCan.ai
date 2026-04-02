@@ -6,9 +6,25 @@
 import { create } from 'zustand';
 import type { SkillInfo } from '../typings/skill-info';
 
+export interface ToolsetDef {
+  name: string;
+  description?: string;
+  toolNames: string[];
+}
+
+export interface SkillsetDef {
+  name: string;
+  description?: string;
+  skillIds: string[];
+}
+
 interface SkillInfoStoreState {
   skillInfo: SkillInfo | null;
   setSkillInfo: (info: SkillInfo) => void;
+  toolsets: ToolsetDef[];
+  setToolsets: (toolsets: ToolsetDef[]) => void;
+  skillsets: SkillsetDef[];
+  setSkillsets: (skillsets: SkillsetDef[]) => void;
   dataMappingJson: string | null;
   dataMappingPath: string | null;
   dataMappingDirty: boolean;
@@ -43,6 +59,10 @@ interface SkillInfoStoreState {
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   skillInfo: null,
   setSkillInfo: (info) => set({ skillInfo: info }),
+  toolsets: [],
+  setToolsets: (toolsets) => set({ toolsets }),
+  skillsets: [],
+  setSkillsets: (skillsets) => set({ skillsets }),
   dataMappingJson: null,
   dataMappingPath: null,
   dataMappingDirty: false,
