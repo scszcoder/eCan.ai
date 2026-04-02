@@ -3548,6 +3548,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # our passive protocol expects language+code for consistent tooling.
             return {'input': normalized_input}
         
+        # Multi-tool state (set inside use_llm_auto_select block when tool is a list)
+        _multi_tool_list = None
+        _multi_tool_mode = 'serial'
+
         # --- LLM Auto-Select Mode ---
         if use_llm_auto_select:
             log_msg = f"🤖 Executing MCP node '{node_name}' in LLM auto-select mode"
@@ -3634,6 +3638,15 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 logger.debug(f"[MCP Auto-Select] Preserved propagated work_result: {_propagated_work_result}")
 
             work_done = llm_result.get('work_done', False)
+
+            # --- Multi-tool detection: llm_result['tool'] may be a list of {tool_name, tool_input} ---
+            for _mtk in ('tool', 'tool_use', 'next_tool_use', 'next_tool'):
+                _mtv = llm_result.get(_mtk) if isinstance(llm_result, dict) else None
+                if isinstance(_mtv, list) and _mtv:
+                    _multi_tool_list = _mtv
+                    _multi_tool_mode = (llm_result.get('multi_tool_calls') or 'serial').lower().strip()
+                    break
+
             nested_tool = {}
             for _tool_key in ('tool', 'tool_use', 'next_tool_use', 'next_tool'):
                 _candidate = llm_result.get(_tool_key) if isinstance(llm_result, dict) else None
@@ -3679,7 +3692,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 send_skill_editor_log("info", log_msg)
                 return state
 
-            if not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip():
+            if (not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip()) and _multi_tool_list is None:
                 if 'message' in llm_result and not llm_result.get('message', '').strip():
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned empty message with no next_tool_name. Setting work_done=True to exit loop gracefully."
                     logger.warning(log_msg)
@@ -3948,6 +3961,200 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     send_skill_editor_log("warning", log_msg)
 
             return await mcp_call_tool(_actual_tool_name, _actual_tool_input, timeout=timeout)
+
+        # ============================================================
+        # Multi-Tool Mode: execute list of tools from llm_result['tool']
+        # Triggered when llm_result['tool'] is a list instead of a dict.
+        # llm_result['multi_tool_calls'] controls execution order:
+        #   "parallel" → asyncio.gather (concurrent)
+        #   "serial"   → sequential in list order (default)
+        # ============================================================
+        if _multi_tool_list is not None:
+            log_msg = f"[MCP Multi-Tool] Node '{node_name}' executing {len(_multi_tool_list)} tools in '{_multi_tool_mode}' mode"
+            logger.info(log_msg)
+            send_skill_editor_log("info", log_msg)
+
+            # Persist mode in state for downstream inspection
+            if 'result' in state and isinstance(state['result'], dict):
+                _lr = state['result'].setdefault('llm_result', {})
+                if isinstance(_lr, dict):
+                    _lr['multi_tool_calls'] = _multi_tool_mode
+
+            async def _run_single_mcp_tool(t_name: str, t_input: dict):
+                """Call one MCP tool, honouring cloud-direct vs HTTP path."""
+                from config.constants import DEFAULT_API_TIMEOUT
+                _mt_timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
+                _is_cloud_mt = os.environ.get("ECAN_MODE") == "worker"
+                if not _is_cloud_mt:
+                    try:
+                        from app_context import AppContext
+                        _is_cloud_mt = AppContext.get_main_window() is None
+                    except Exception:
+                        pass
+                if _is_cloud_mt:
+                    try:
+                        _tf = _resolve_cloud_tool_func(t_name)
+                        if _tf is not None:
+                            _content = await _tf(None, t_input)
+                            from mcp.types import CallToolResult as _MTR
+                            return _MTR(content=_content, isError=False)
+                    except Exception as _mte:
+                        logger.warning(f"[MCP Multi-Tool] Cloud-direct failed for '{t_name}': {_mte}, falling back to HTTP")
+                return await mcp_call_tool(t_name, t_input, timeout=_mt_timeout)
+
+            # --- Inter-tool data wiring helpers ---
+
+            def _resolve_placeholders(obj, ctx: dict):
+                """Recursively replace {{key}} placeholders in tool_input with results
+                from previously executed tools.
+
+                ctx keys:
+                  - str tool name  → text result of that tool (last call wins)
+                  - int index      → text result at that 0-based position in the list
+                  - str alias      → text result for a tool declared with "alias"
+
+                Supported syntax in any string value:
+                  {{rag_query}}        — result of the tool named rag_query
+                  {{tool_result[2]}}   — result of tool at index 2
+                  {{my_alias}}         — result of tool with alias "my_alias"
+
+                A placeholder that has no match is left as-is so the LLM can
+                detect the gap rather than silently receiving an empty string.
+                """
+                import re as _re
+                if isinstance(obj, dict):
+                    return {k: _resolve_placeholders(v, ctx) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [_resolve_placeholders(v, ctx) for v in obj]
+                if isinstance(obj, str):
+                    def _replace(m):
+                        key = m.group(1).strip()
+                        # {{tool_result[N]}} — index form
+                        _idx_m = _re.fullmatch(r'tool_result\[(\d+)\]', key)
+                        if _idx_m:
+                            idx = int(_idx_m.group(1))
+                            if idx in ctx:
+                                return ctx[idx]
+                        # bare name / alias form
+                        if key in ctx:
+                            return ctx[key]
+                        return m.group(0)  # unresolved: leave as-is
+                    return _re.sub(r'\{\{(.+?)\}\}', _replace, obj)
+                return obj
+
+            # Resolve, backfill, and coerce each tool call.
+            # Each entry: (tool_name, tool_input, pipe_output_to, alias)
+            _tool_calls_to_run = []
+            for _item in _multi_tool_list:
+                if not isinstance(_item, dict):
+                    continue
+                _tn = (_item.get('tool_name') or _item.get('next_tool_name') or '').strip()
+                _ti = _item.get('tool_input') or _item.get('next_tool_input') or {}
+                if not isinstance(_ti, dict):
+                    _ti = {}
+                _pipe_to = _item.get('pipe_output_to')   # Option B: field name string or None
+                _alias   = (_item.get('alias') or '').strip()  # Option A: named alias
+                if not _tn:
+                    logger.warning(f"[MCP Multi-Tool] Skipping item with no tool_name: {_item}")
+                    continue
+                _ts = _get_tool_schema_by_name(_tn)
+                _tr_root = _normalize_schema_root(_ts) if _ts else {}
+                if _tr_root and not _validate_tool_input_against_schema(_ti, _tr_root):
+                    _ci = _build_input_from_config(config_metadata, _tr_root)
+                    _ti = _merge_inputs(_ti, _ci)
+                if _tr_root:
+                    _ti = _coerce_all_inputs(_ti, _tr_root)
+                _tool_calls_to_run.append((_tn, _ti, _pipe_to, _alias))
+
+            if not _tool_calls_to_run:
+                log_msg = f"[MCP Multi-Tool] No valid tool calls in list, skipping"
+                logger.warning(log_msg)
+                send_skill_editor_log("warning", log_msg)
+                return state
+
+            from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+            import asyncio as _asyncio_mt
+
+            if _multi_tool_mode == 'parallel':
+                # Parallel: no inter-tool wiring (results not available at dispatch time)
+                async def _run_all_parallel_mt():
+                    return await _asyncio_mt.gather(
+                        *[_run_single_mcp_tool(tn, ti) for tn, ti, _, __ in _tool_calls_to_run],
+                        return_exceptions=True,
+                    )
+                _multi_results = run_async_in_sync(_run_all_parallel_mt())
+            else:
+                # Serial: resolve placeholders and pipe_output_to before each call
+                async def _run_all_serial_mt():
+                    _out = []
+                    # results_ctx: keyed by index (int), tool_name (str), and alias (str)
+                    _rctx: dict = {}
+                    _pending_pipe: dict | None = None  # {field: text} to inject into next call
+                    for _idx, (_tn_s, _ti_s, _pipe_s, _alias_s) in enumerate(_tool_calls_to_run):
+                        # Option B: inject piped value from previous tool
+                        if _pending_pipe and isinstance(_ti_s, dict):
+                            _ti_s = dict(_ti_s)
+                            _ti_s.update(_pending_pipe)
+                            _pending_pipe = None
+                        # Option A: resolve {{placeholders}} using accumulated results
+                        _ti_s = _resolve_placeholders(_ti_s, _rctx)
+                        logger.debug(f"[MCP Multi-Tool Serial] [{_idx}] {_tn_s} input after resolution: {_ti_s}")
+                        try:
+                            _r = await _run_single_mcp_tool(_tn_s, _ti_s)
+                            _out.append(_r)
+                            # Update resolved inputs in-place so result reporting is accurate
+                            _tool_calls_to_run[_idx] = (_tn_s, _ti_s, _pipe_s, _alias_s)
+                            # Accumulate result in context for downstream placeholders
+                            _result_text = _extract_tool_result_text(_r)
+                            _rctx[_idx] = _result_text
+                            _rctx[_tn_s] = _result_text          # by tool name
+                            if _alias_s:
+                                _rctx[_alias_s] = _result_text   # by alias
+                            # Option B: prepare pipe for next tool
+                            if _pipe_s and isinstance(_pipe_s, str):
+                                _pending_pipe = {_pipe_s: _result_text}
+                        except Exception as _se:
+                            _out.append(_se)
+                            _pending_pipe = None  # don't pipe from a failed call
+                    return _out
+                _multi_results = run_async_in_sync(_run_all_serial_mt())
+
+            _mt_succeeded = []
+            for (_tn_i, _ti_i, _pipe_i, _alias_i), _tr_i in zip(_tool_calls_to_run, _multi_results):
+                if isinstance(_tr_i, Exception):
+                    _em = f"[MCP Multi-Tool] Tool '{_tn_i}' raised: {_tr_i}"
+                    logger.error(_em)
+                    send_skill_editor_log("error", _em)
+                    state.setdefault('error', _em)
+                    add_to_history(state, ActionMessage(content=f"action: mcp call to {_tn_i}; status: FAILED; error: {_tr_i}"))
+                    continue
+                _t_failed = hasattr(_tr_i, 'isError') and _tr_i.isError
+                if _t_failed:
+                    _et = ''
+                    if hasattr(_tr_i, 'content') and isinstance(_tr_i.content, list) and _tr_i.content:
+                        _et = str(getattr(_tr_i.content[0], 'text', ''))
+                    _em = f"[MCP Multi-Tool] Tool '{_tn_i}' returned error: {_et}"
+                    logger.error(_em)
+                    send_skill_editor_log("error", _em)
+                    state.setdefault('error', _em)
+                    add_to_history(state, ActionMessage(content=f"action: mcp call to {_tn_i}; status: FAILED; error: {_et}"))
+                else:
+                    _safe_inc_steps(state)
+                    _rt = _extract_tool_result_text(_tr_i)
+                    add_to_history(state, ActionMessage(content=f"action: mcp call to {_tn_i}; result: {_rt}"))
+                    _apply_mcp_result_to_llm_state(state, _tn_i, _tr_i)
+                    _entry = {'tool_name': _tn_i, 'result': _rt}
+                    if _alias_i:
+                        _entry['alias'] = _alias_i
+                    _mt_succeeded.append(_entry)
+
+            if _mt_succeeded:
+                state['tool_result'] = _mt_succeeded
+
+            log_msg = f"[MCP Multi-Tool] Completed {len(_tool_calls_to_run)} tool(s) ({len(_mt_succeeded)} succeeded)"
+            logger.info(log_msg)
+            send_skill_editor_log("info", log_msg)
+            return state
 
         # ============================================================
         # Async Mode: Fire-and-forget with pending event tracking

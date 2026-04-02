@@ -16,6 +16,10 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     DiffNormalizedStateAction,
     DiscoverChatAdapterAction,
     ExtractDomAction,
+    FeigeGetChatThreadAction,
+    FeigeListSessionsAction,
+    FeigeOpenSessionAction,
+    FeigeSendMessageAction,
     FileRenameAction,
     FilesPrintAction,
     GetSessionMonitorSnapshotAction,
@@ -2122,6 +2126,263 @@ async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionR
     except Exception as e:
         logger.error(f"[ExtensionTools] Error diffing normalized state: {e}")
         return ActionResult(error=f"Failed to diff normalized state: {str(e)}")
+
+
+# ─── Feige (飞鸽) platform-specific tools ─────────────────────────────────────
+#
+# Selectors confirmed from live DOM captures (Feige customer-service web app).
+# Session list panel:
+#   Items      : [data-qa-id="qa-conversation-chat-item"]
+#   Name       : .MP1bk3ccfHC9V2SnPCGD  (title attr) or .Jv6FtqUv5VoYARd2pp4y
+#   Last msg   : .lF_M7QiFB0ukHWpMfQde span
+#   Timestamp  : .CEnLM8MEGksTdgi_8Lqf
+#   Unread badge: .rxAvaVFJHvpEGMc1ejm1
+#   Scroll root: #chantListScrollArea
+#
+# Chat thread:
+#   Input box  : div[contenteditable="true"]   (first match inside .chat-input or similar)
+#   Send button: button[data-qa-id="qa-send-btn"]  — TODO: verify from live capture
+#   Messages   : .message-item or [data-qa-id*="message"]  — TODO: verify from live capture
+#
+# If a selector stops working, run feige_get_chat_thread or feige_list_sessions with
+# extract_dom=True to get fresh HTML snippets and update the constants below.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_FEIGE_SESSION_ITEM = '[data-qa-id="qa-conversation-chat-item"]'
+_FEIGE_SESSION_SCROLL = '#chantListScrollArea'
+_FEIGE_NAME_ATTR_PARENT = '.MP1bk3ccfHC9V2SnPCGD'
+_FEIGE_NAME_TEXT = '.Jv6FtqUv5VoYARd2pp4y'
+_FEIGE_LAST_MSG = '.lF_M7QiFB0ukHWpMfQde span'
+_FEIGE_TIMESTAMP = '.CEnLM8MEGksTdgi_8Lqf'
+_FEIGE_UNREAD = '.rxAvaVFJHvpEGMc1ejm1'
+
+_FEIGE_LIST_SESSIONS_JS = r"""
+(function(includeRead, maxSessions) {
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var results = [];
+  for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
+    var el = items[i];
+    var nameEl = el.querySelector('.MP1bk3ccfHC9V2SnPCGD');
+    var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
+    if (!name) {
+      var nameEl2 = el.querySelector('.Jv6FtqUv5VoYARd2pp4y');
+      name = nameEl2 ? nameEl2.textContent.trim() : '';
+    }
+    var lastMsgEl = el.querySelector('.lF_M7QiFB0ukHWpMfQde span');
+    var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
+    var tsEl = el.querySelector('.CEnLM8MEGksTdgi_8Lqf');
+    var ts = tsEl ? tsEl.textContent.trim() : '';
+    var unreadEl = el.querySelector('.rxAvaVFJHvpEGMc1ejm1');
+    var unread = unreadEl ? parseInt(unreadEl.textContent.trim(), 10) || 0 : 0;
+    if (!includeRead && unread === 0) continue;
+    results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread });
+  }
+  return JSON.stringify({ sessions: results, total_visible: items.length });
+})(INCLUDE_READ, MAX_SESSIONS);
+"""
+
+
+@custom_controller.action(
+    "List visible customer sessions in the Feige (飞鸽) customer-service session panel.",
+    param_model=FeigeListSessionsAction,
+)
+async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        js = _FEIGE_LIST_SESSIONS_JS.replace("INCLUDE_READ", "true" if params.include_read else "false")
+        js = js.replace("MAX_SESSIONS", str(params.max_sessions))
+        data = await _evaluate_js(browser_session, js)
+        if isinstance(data, str):
+            import json as _json
+            data = _json.loads(data)
+        sessions = data.get("sessions", []) if isinstance(data, dict) else []
+        total = data.get("total_visible", 0) if isinstance(data, dict) else 0
+        logger.info(f"[Feige] Listed sessions: visible={total}, returned={len(sessions)}")
+        return _json_result({"sessions": sessions, "total_visible": total})
+    except Exception as e:
+        logger.error(f"[Feige] feige_list_sessions error: {e}")
+        return ActionResult(error=f"feige_list_sessions failed: {e}")
+
+
+_FEIGE_OPEN_SESSION_JS = r"""
+(function(customerName, sessionIndex) {
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var target = null;
+  if (customerName) {
+    for (var i = 0; i < items.length; i++) {
+      var nameEl = items[i].querySelector('.MP1bk3ccfHC9V2SnPCGD');
+      var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
+      if (!name) {
+        var nameEl2 = items[i].querySelector('.Jv6FtqUv5VoYARd2pp4y');
+        name = nameEl2 ? nameEl2.textContent.trim() : '';
+      }
+      if (name === customerName) { target = items[i]; break; }
+    }
+  }
+  if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
+    target = items[sessionIndex];
+  }
+  if (!target) return JSON.stringify({ clicked: false, error: 'Session not found' });
+  target.click();
+  var nameEl = target.querySelector('.MP1bk3ccfHC9V2SnPCGD');
+  var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
+  return JSON.stringify({ clicked: true, name: clickedName });
+})(CUSTOMER_NAME, SESSION_INDEX);
+"""
+
+
+@custom_controller.action(
+    "Open a customer chat session in Feige (飞鸽) by clicking on it in the session list.",
+    param_model=FeigeOpenSessionAction,
+)
+async def feige_open_session(params: FeigeOpenSessionAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        name_js = f'"{params.customer_name}"' if params.customer_name else "null"
+        idx_js = str(params.session_index) if params.session_index is not None else "-1"
+        js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
+        data = await _evaluate_js(browser_session, js)
+        if isinstance(data, str):
+            import json as _json
+            data = _json.loads(data)
+        if isinstance(data, dict) and data.get("clicked"):
+            logger.info(f"[Feige] Opened session: name={data.get('name')}")
+            return ActionResult(extracted_content=f"Opened session: {data.get('name', '(unknown)')}")
+        err = data.get("error") if isinstance(data, dict) else str(data)
+        return ActionResult(error=f"feige_open_session: {err}")
+    except Exception as e:
+        logger.error(f"[Feige] feige_open_session error: {e}")
+        return ActionResult(error=f"feige_open_session failed: {e}")
+
+
+# NOTE: Chat thread selectors below are best-effort guesses derived from common
+# Feige DOM patterns.  If they stop working, extract a fresh chat thread DOM
+# snapshot (e.g. via extract_dom on the right-hand pane) and update the JS.
+_FEIGE_GET_THREAD_JS = r"""
+(function(maxMessages) {
+  // Try common Feige message selectors (update if DOM changes)
+  var selectors = [
+    '[data-qa-id*="message-item"]',
+    '.message-item',
+    '[class*="messageItem"]',
+    '[class*="chat-message"]',
+  ];
+  var msgs = [];
+  for (var s = 0; s < selectors.length; s++) {
+    msgs = Array.from(document.querySelectorAll(selectors[s]));
+    if (msgs.length > 0) break;
+  }
+  var results = [];
+  var start = Math.max(0, msgs.length - maxMessages);
+  for (var i = start; i < msgs.length; i++) {
+    var el = msgs[i];
+    var text = el.innerText || el.textContent || '';
+    var isAgent = el.classList.contains('self') || el.classList.contains('right') ||
+                  el.getAttribute('data-sender-type') === 'agent';
+    var tsEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
+    var ts = tsEl ? tsEl.textContent.trim() : '';
+    results.push({ index: i, text: text.trim(), is_agent: isAgent, timestamp: ts });
+  }
+  return JSON.stringify({ messages: results, total_found: msgs.length, selector_used: msgs.length > 0 ? 'matched' : 'none' });
+})(MAX_MESSAGES);
+"""
+
+
+@custom_controller.action(
+    "Extract visible messages from the currently open Feige (飞鸽) chat thread.",
+    param_model=FeigeGetChatThreadAction,
+)
+async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        js = _FEIGE_GET_THREAD_JS.replace("MAX_MESSAGES", str(params.max_messages))
+        data = await _evaluate_js(browser_session, js)
+        if isinstance(data, str):
+            import json as _json
+            data = _json.loads(data)
+        messages = data.get("messages", []) if isinstance(data, dict) else []
+        total = data.get("total_found", 0) if isinstance(data, dict) else 0
+        selector_used = data.get("selector_used", "unknown") if isinstance(data, dict) else "unknown"
+        logger.info(f"[Feige] Got chat thread: total={total}, returned={len(messages)}, selector={selector_used}")
+        if selector_used == "none":
+            return ActionResult(
+                extracted_content="No message elements found. The chat thread selectors may need updating. "
+                "Use extract_dom on the right-hand chat pane to get fresh HTML and update _FEIGE_GET_THREAD_JS."
+            )
+        return _json_result({"messages": messages, "total_found": total})
+    except Exception as e:
+        logger.error(f"[Feige] feige_get_chat_thread error: {e}")
+        return ActionResult(error=f"feige_get_chat_thread failed: {e}")
+
+
+_FEIGE_SEND_MESSAGE_JS = r"""
+(function(text) {
+  // Find the contenteditable input in the chat compose area
+  var inputSelectors = [
+    '[data-qa-id="qa-chat-input"]',
+    '[contenteditable="true"]',
+    'div[contenteditable]',
+  ];
+  var input = null;
+  for (var s = 0; s < inputSelectors.length; s++) {
+    var candidates = Array.from(document.querySelectorAll(inputSelectors[s]));
+    // Prefer the one that is visible and not read-only
+    for (var c = 0; c < candidates.length; c++) {
+      var el = candidates[c];
+      var rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) { input = el; break; }
+    }
+    if (input) break;
+  }
+  if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
+
+  // Focus and set text
+  input.focus();
+  document.execCommand('selectAll', false, null);
+  document.execCommand('insertText', false, text);
+
+  // Try send button first
+  var sendSelectors = [
+    '[data-qa-id="qa-send-btn"]',
+    'button[class*="send"]',
+    'button[aria-label*="send" i]',
+    'button[title*="send" i]',
+  ];
+  var sendBtn = null;
+  for (var sb = 0; sb < sendSelectors.length; sb++) {
+    sendBtn = document.querySelector(sendSelectors[sb]);
+    if (sendBtn) break;
+  }
+  if (sendBtn) {
+    sendBtn.click();
+    return JSON.stringify({ sent: true, method: 'button_click' });
+  }
+  // Fallback: simulate Enter keypress
+  var ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
+  input.dispatchEvent(ev);
+  return JSON.stringify({ sent: true, method: 'enter_key' });
+})(MESSAGE_TEXT);
+"""
+
+
+@custom_controller.action(
+    "Type and send a message in the currently open Feige (飞鸽) chat thread.",
+    param_model=FeigeSendMessageAction,
+)
+async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    try:
+        # JSON-encode the text so any quotes/newlines are safe inside the JS string
+        text_json = json.dumps(params.text)
+        js = _FEIGE_SEND_MESSAGE_JS.replace("MESSAGE_TEXT", text_json)
+        data = await _evaluate_js(browser_session, js)
+        if isinstance(data, str):
+            data = json.loads(data)
+        if isinstance(data, dict) and data.get("sent"):
+            method = data.get("method", "unknown")
+            logger.info(f"[Feige] Sent message via {method}: {params.text[:60]}")
+            return ActionResult(extracted_content=f"Message sent (method: {method}).")
+        err = data.get("error") if isinstance(data, dict) else str(data)
+        return ActionResult(error=f"feige_send_message: {err}")
+    except Exception as e:
+        logger.error(f"[Feige] feige_send_message error: {e}")
+        return ActionResult(error=f"feige_send_message failed: {e}")
 
 
 # Log registered custom actions at module load time for debugging
