@@ -331,6 +331,11 @@ def handle_signup(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
         auth_messages.set_language(lang)
 
         login = AppContext.get_login()
+        if login is None:
+            logger.warning("Login object is None during signup - system may not be properly initialized")
+            return create_error_response(request,
+                'SYSTEM_NOT_READY',
+                auth_messages.get_message('signup_failed'))
         success, message = login.handleSignUp(username, password)
 
         if success:
@@ -361,6 +366,11 @@ def handle_forgot_password(request: IPCRequest, params: Optional[Dict[str, Any]]
         auth_messages.set_language(lang)
 
         login = AppContext.get_login()
+        if login is None:
+            logger.warning("Login object is None during forgot_password - system may not be properly initialized")
+            return create_error_response(request,
+                'SYSTEM_NOT_READY',
+                auth_messages.get_message('forgot_password_failed'))
         success = login.handleForgotPassword(username)
 
         if success:
@@ -391,6 +401,11 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
         auth_messages.set_language(lang)
 
         login = AppContext.get_login()
+        if login is None:
+            logger.warning("Login object is None during confirm_forgot_password - system may not be properly initialized")
+            return create_error_response(request,
+                'SYSTEM_NOT_READY',
+                auth_messages.get_message('confirm_forgot_failed'))
         success, message = login.handleConfirmForgotPassword(username, confirm_code, new_password)
 
         if success:
