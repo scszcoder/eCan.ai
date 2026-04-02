@@ -779,10 +779,10 @@
         "outgoing": "发送",
         "both": "双向"
       },
-      "eventMonitorDonePolicy": "?????",
+      "eventMonitorDonePolicy": "完成后",
       "monitorDonePolicies": {
-        "keep": "??????",
-        "stop": "?????"
+        "keep": "保持监控运行",
+        "stop": "停止监控"
       }
     }
   },
