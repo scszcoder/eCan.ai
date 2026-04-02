@@ -3,18 +3,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FC, useContext, useEffect, useState, useCallback } from 'react';
+import { FC, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import classnames from 'classnames';
-import { WorkflowInputs, WorkflowOutputs } from '@flowgram.ai/runtime-interface';
 import { useClientContext, useService } from '@flowgram.ai/free-layout-editor';
-import { Button, SideSheet, Switch, Notification } from '@douyinfe/semi-ui';
-import { IconClose, IconPlay, IconSpin } from '@douyinfe/semi-icons';
+import { Button, Notification, Select, Input, Typography } from '@douyinfe/semi-ui';
+import { IconPlay, IconSend } from '@douyinfe/semi-icons';
 
-import { TestRunJsonInput } from '../testrun-json-input';
-import { TestRunForm } from '../testrun-form';
-import { NodeStatusGroup } from '../node-status-bar/group';
 import { WorkflowRuntimeService } from '../../../plugins/runtime-plugin/runtime-service';
 import { SidebarContext } from '../../../context';
 import { IconCancel } from '../../../assets/icon-cancel';
@@ -34,16 +30,23 @@ interface TestRunSidePanelProps {
   onCancel: () => void;
 }
 
-export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel }) => {
+const CHANNEL_LABELS: Record<string, string> = {
+  whatsapp_baileys: 'WhatsApp (Baileys)',
+  whatsapp:         'WhatsApp (Cloud API)',
+  telegram:         'Telegram',
+  slack:            'Slack',
+  discord:          'Discord',
+  dingtalk:         'DingTalk',
+  messenger:        'Messenger',
+  twitter:          'Twitter / X',
+  webchat:          'Web Chat',
+};
+
+export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible }) => {
   const { t } = useTranslation('skillEditor');
-  let runtimeService: WorkflowRuntimeService | null = null;
-  try {
-    runtimeService = useService(WorkflowRuntimeService);
-  } catch {
-    // WorkflowRuntimeService not available
-  }
+  try { useService(WorkflowRuntimeService); } catch {}
   const { document } = useClientContext();
-  const { nodeId: sidebarNodeId, setNodeId } = useContext(SidebarContext);
+  useContext(SidebarContext);
   const ipcApi = IPCAPI.getInstance();
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
@@ -54,27 +57,116 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
-  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [values] = useState<Record<string, unknown>>({});
   const [isRunning, setRunning] = useState(false);
-  const [result, setResult] = useState<
-    | {
-        inputs: WorkflowInputs;
-        outputs: WorkflowOutputs;
-      }
-    | undefined
-  >();
   const [, setErrors] = useState<string[] | undefined>(undefined);
 
-  // en - Use localStorage to persist the JSON mode state
-  const [inputJSONMode, _setInputJSONMode] = useState(() => {
-    const savedMode = localStorage.getItem('testrun-input-json-mode');
-    return savedMode ? JSON.parse(savedMode) : false;
-  });
+  // ── Channel test state ────────────────────────────────────────────────────
+  interface ChannelInfo {
+    id: string;
+    label: string;
+    enabled: boolean;
+    status: string;
+  }
+  interface TestMessage {
+    channel_id: string;
+    chat_id: string;
+    sender_name: string;
+    text: string;
+    timestamp: number;
+    message_id: string;
+    direction: 'in' | 'out';
+  }
 
-  const setInputJSONMode = (checked: boolean) => {
-    _setInputJSONMode(checked);
-    localStorage.setItem('testrun-input-json-mode', JSON.stringify(checked));
+  const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<string>('');
+  const [channelRecipient, setChannelRecipient] = useState('');
+  const [channelText, setChannelText] = useState('');
+  const [channelSending, setChannelSending] = useState(false);
+  const [channelMessages, setChannelMessages] = useState<TestMessage[]>([]);
+  const sinceTs = useRef<number>(Date.now() / 1000);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const msgBoxRef = useRef<HTMLDivElement>(null);
+
+  // Load channel list
+  useEffect(() => {
+    if (!visible) return;
+    ipcApi.getChannels().then((resp: any) => {
+      if (resp?.success && resp.data?.channels) {
+        const list: ChannelInfo[] = Object.entries(resp.data.channels).map(([id, entry]: any) => ({
+          id,
+          label: CHANNEL_LABELS[id] || id,
+          enabled: entry.config?.enabled === true,
+          status: entry.status || 'stopped',
+        }));
+        setChannels(list);
+      }
+    }).catch(() => {});
+  }, [visible]);
+
+  // Poll for inbound messages while panel is open
+  useEffect(() => {
+    if (!visible) { stopPoll(); return; }
+    startPoll();
+    return () => stopPoll();
+  }, [visible, selectedChannel]);
+
+  const startPoll = () => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const resp: any = await ipcApi.getChannelTestMessages(
+          selectedChannel || undefined,
+          sinceTs.current,
+        );
+        if (resp?.success && resp.data?.messages?.length) {
+          const incoming: TestMessage[] = resp.data.messages.map((m: any) => ({
+            ...m,
+            direction: 'in' as const,
+          }));
+          setChannelMessages((prev) => [...prev, ...incoming]);
+          sinceTs.current = Math.max(...incoming.map((m: any) => m.received_at ?? m.timestamp)) + 0.001;
+        }
+      } catch {}
+    }, 2000);
   };
+
+  const stopPoll = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  };
+
+  // Auto-scroll message box
+  useEffect(() => {
+    if (msgBoxRef.current) msgBoxRef.current.scrollTop = msgBoxRef.current.scrollHeight;
+  }, [channelMessages]);
+
+  const onSendChannelMessage = useCallback(async () => {
+    if (!selectedChannel || !channelRecipient.trim() || !channelText.trim()) return;
+    setChannelSending(true);
+    const outMsg: TestMessage = {
+      channel_id: selectedChannel,
+      chat_id: channelRecipient,
+      sender_name: 'Me',
+      text: channelText,
+      timestamp: Date.now() / 1000,
+      message_id: String(Math.random()),
+      direction: 'out',
+    };
+    setChannelMessages((prev) => [...prev, outMsg]);
+    try {
+      const resp: any = await ipcApi.sendChannelMessage(selectedChannel, channelRecipient, channelText);
+      if (!resp?.success) {
+        Notification.error({ title: 'Send failed', content: resp?.error?.message || 'Unknown error' });
+        setChannelMessages((prev) => prev.filter((m) => m.message_id !== outMsg.message_id));
+      } else {
+        setChannelText('');
+      }
+    } catch (e: any) {
+      Notification.error({ title: 'Send failed', content: String(e?.message || e) });
+    } finally {
+      setChannelSending(false);
+    }
+  }, [selectedChannel, channelRecipient, channelText]);
 
   const onTestRun = useCallback(() => {
     if (isRunning) {
@@ -86,7 +178,6 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     }
 
     // 1. Set the initial state
-    setResult(undefined);
     setErrors(undefined);
     setRunning(true);
     // Clear all runtime states so badges from previous runs are removed
@@ -182,19 +273,6 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     }, 0);
   }, [document, isRunning, username, skillInfo, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine, setRunningNodeId, values]);
 
-  const onClose = async () => {
-    if (isRunning) {
-      // TODO: Implement backend cancel
-      setRunning(false);
-      setRunningNodeId(null); // Clear indicator on close
-      try { useRuntimeStateStore.getState().clearAll(); } catch {}
-    }
-    setValues({});
-    onCancel();
-  };
-
-  // Removed auto-closing of node editor to allow editing during Test Run
-
   // Removed input form UI per request: only keep a minimal Start/Cancel button
 
   const renderButton = (
@@ -210,7 +288,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     </Button>
   );
 
-  // Minimal floating popup (button only) so it doesn't block the canvas
+  // Minimal floating popup so it doesn't block the canvas
   if (!visible) return null;
 
   return (
@@ -224,13 +302,132 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         border: '1px solid var(--semi-color-border)',
         borderRadius: 8,
         boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        padding: 8,
+        padding: 10,
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 8,
+        minWidth: 320,
+        maxWidth: 420,
       }}
     >
-      {renderButton}
+      {/* Row 1: Test Run + Test Channel buttons + channel selector */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {renderButton}
+
+        <Button
+          icon={<IconSend size="small" />}
+          size="small"
+          theme="light"
+          disabled={!selectedChannel || channelSending}
+          loading={channelSending}
+          onClick={onSendChannelMessage}
+          style={{ flexShrink: 0 }}
+        >
+          Test Channel
+        </Button>
+
+        <Select
+          size="small"
+          placeholder="Select channel…"
+          value={selectedChannel || undefined}
+          onChange={(v) => setSelectedChannel(v as string)}
+          style={{ flex: 1, minWidth: 130 }}
+          showClear
+        >
+          {channels.map((ch) => (
+            <Select.Option
+              key={ch.id}
+              value={ch.id}
+              disabled={!ch.enabled}
+            >
+              <span style={{ color: ch.enabled ? undefined : 'var(--semi-color-text-3)' }}>
+                {ch.label}
+                {!ch.enabled && ' (disabled)'}
+              </span>
+            </Select.Option>
+          ))}
+        </Select>
+      </div>
+
+      {/* Row 2: Recipient + message input (only when a channel is selected) */}
+      {selectedChannel && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <Input
+            size="small"
+            placeholder="Recipient (phone / JID / chat ID)"
+            value={channelRecipient}
+            onChange={setChannelRecipient}
+          />
+          <Input
+            size="small"
+            placeholder="Message to send…"
+            value={channelText}
+            onChange={setChannelText}
+            onEnterPress={onSendChannelMessage}
+          />
+        </div>
+      )}
+
+      {/* Row 3: Test Output — inbound/outbound messages */}
+      {(channelMessages.length > 0 || selectedChannel) && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Typography.Text size="small" strong>Test Output</Typography.Text>
+            {channelMessages.length > 0 && (
+              <Typography.Text
+                size="small"
+                link
+                onClick={() => setChannelMessages([])}
+                style={{ cursor: 'pointer', fontSize: 11 }}
+              >
+                Clear
+              </Typography.Text>
+            )}
+          </div>
+          <div
+            ref={msgBoxRef}
+            style={{
+              maxHeight: 200,
+              overflowY: 'auto',
+              background: 'var(--semi-color-fill-0)',
+              borderRadius: 6,
+              padding: '6px 8px',
+              fontSize: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            {channelMessages.length === 0 ? (
+              <Typography.Text type="tertiary" size="small">
+                Waiting for messages…
+              </Typography.Text>
+            ) : (
+              channelMessages.map((msg) => (
+                <div
+                  key={msg.message_id}
+                  style={{
+                    alignSelf: msg.direction === 'out' ? 'flex-end' : 'flex-start',
+                    maxWidth: '85%',
+                    background: msg.direction === 'out'
+                      ? 'var(--semi-color-primary-light-default)'
+                      : 'var(--semi-color-bg-2)',
+                    borderRadius: 6,
+                    padding: '4px 8px',
+                  }}
+                >
+                  <div style={{ color: 'var(--semi-color-text-2)', fontSize: 10, marginBottom: 2 }}>
+                    {msg.direction === 'out' ? 'You' : (msg.sender_name || msg.chat_id)}
+                    {' · '}
+                    {new Date(msg.timestamp * 1000).toLocaleTimeString()}
+                  </div>
+                  <div>{msg.text}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined, MessageOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, GeneralTabContent } from './components';
+import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, GeneralTabContent, ChannelSettings } from './components';
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -906,6 +906,16 @@ const Settings: React.FC = () => {
                   settingsLoaded={settingsLoaded}
                 />
               ),
+            },
+            {
+              key: 'channels',
+              label: (
+                <span>
+                  <MessageOutlined style={{ marginRight: 8 }} />
+                  Channels
+                </span>
+              ),
+              children: <ChannelSettings />,
             },
           ]}
         />
