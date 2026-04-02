@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "WhatsApp Baileys bridge — REST API for eCan.ai channel integration",
   "main": "index.js",
+  "bin": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
