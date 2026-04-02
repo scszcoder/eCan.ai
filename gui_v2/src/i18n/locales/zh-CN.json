@@ -946,6 +946,12 @@
       "general_tab_title": "通用设置",
       "llm_tab_title": "LLM 管理",
       "embedding_tab_title": "嵌入模型管理",
+      "channels_tab_title": "消息渠道",
+      "channel": {
+        "show_qr": "显示二维码",
+        "wa_tip_title": "如何配对 WhatsApp",
+        "wa_tip_body": "1. 在手机上打开 WhatsApp。\n2. 点击菜单 (⋮) → 已关联的设备 → 关联设备。\n3. 扫描浏览器中显示的二维码。\n\n⚠️ 请使用专用的 WhatsApp 账号用于 eCan.ai 智能体，切勿使用个人手机号。所有收到的消息都会路由至智能体，混用个人与智能体账号会造成混乱。"
+      },
       "profile": "个人资料",
       "system": "系统设置",
       "notifications": "通知设置",

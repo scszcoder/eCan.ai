@@ -19,6 +19,8 @@ export const RouteFileLoader = () => {
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
+  const setToolsets = useSkillInfoStore((state) => state.setToolsets);
+  const setSkillsets = useSkillInfoStore((state) => state.setSkillsets);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   
   const lastLoadedPath = useRef<string | null>(null);
@@ -79,6 +81,8 @@ export const RouteFileLoader = () => {
             setSkillInfo(data);
             setCurrentFilePath(filePath);
             setHasUnsavedChanges(false);
+            setToolsets((data as any).toolsets || []);
+            setSkillsets((data as any).skillsets || []);
 
             // Find and set breakpoints
             const breakpointIds = diagram.nodes

@@ -19,6 +19,7 @@ from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 
 from agent.mcp.server.tool_schemas import tool_schemas
 from utils.logger_helper import logger_helper as logger
+import re as _re
 from agent.ec_skills.extern_skills.extern_skills import ensure_skill_venv
 from agent.ec_skills.extern_skills.inproc_loader import temp_sys_path, _site_packages
 from agent.ec_skill import EC_Skill
@@ -629,9 +630,125 @@ def _load_mapping_rules_from_path(skill_path: str, skill_name: str = "Unknown") 
         return None
 
 
+def _schema_name(schema) -> str:
+    """Return the name of an MCP tool schema object or dict."""
+    return getattr(schema, "name", "") if not isinstance(schema, dict) else schema.get("name", "")
+
+
+def _build_compact_tool_schema_str(schemas: list) -> str:
+    """Build the same compact JSON that _provide_tools_schema produces, but for a subset."""
+    result = []
+    for schema in schemas:
+        name = _schema_name(schema)
+        desc = getattr(schema, "description", "") if not isinstance(schema, dict) else schema.get("description", "")
+        inp_schema = getattr(schema, "inputSchema", {}) if not isinstance(schema, dict) else schema.get("inputSchema", {})
+        clean_desc = _re.sub(r"<[^>]+>", " ", desc).strip()
+        clean_desc = _re.sub(r"\s{2,}", " ", clean_desc)
+        props = (inp_schema or {}).get("properties", {})
+        inner = props.get("input", {})
+        if isinstance(inner, dict) and inner.get("properties"):
+            params = list(inner["properties"].keys())
+        else:
+            params = [p for p in props if p != "input"]
+        entry = {"name": name, "description": clean_desc}
+        if params:
+            entry["params"] = params
+        result.append(entry)
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def _inject_toolset_skillset_variables(skill_obj: "EC_Skill", core_dict: dict) -> None:
+    """Pre-compute toolset/skillset schema strings and inject into skill mapping_rules.prompt_variables.
+
+    toolset: named subset of MCP tools → resolves to compact JSON (same format as {{tools_schema}})
+    skillset: named subset of agent skills → resolves to summary JSON (same format as {{skills_schema}})
+
+    The variable name is the toolset/skillset name (e.g. {{browser_tools}}).
+    These are injected at lowest priority so explicit prompt-level declarations override them.
+    """
+    toolsets = core_dict.get("toolsets") or []
+    skillsets = core_dict.get("skillsets") or []
+    if not toolsets and not skillsets:
+        return
+
+    extra_vars: dict = {}
+
+    if toolsets:
+        all_schemas = []
+        try:
+            from app_context import AppContext
+            mw = AppContext.get_main_window()
+            if mw:
+                all_schemas = getattr(mw, "mcp_tools_schemas", None) or []
+        except Exception:
+            pass
+        if not all_schemas:
+            try:
+                from agent.mcp.server.tool_schemas import get_tool_schemas
+                all_schemas = get_tool_schemas() or []
+            except Exception:
+                pass
+
+        for ts in toolsets:
+            name = (ts.get("name") or "").strip()
+            if not name:
+                continue
+            tool_names = set(ts.get("toolNames") or [])
+            selected = [s for s in all_schemas if _schema_name(s) in tool_names] if tool_names else []
+            schema_str = _build_compact_tool_schema_str(selected) if selected else "[]"
+            extra_vars[name] = {"source": "static", "value": schema_str}
+            logger.debug(f"[build_agent_skills] Toolset '{name}': {len(selected)}/{len(tool_names)} tools matched")
+
+    if skillsets:
+        all_skills: list = []
+        try:
+            from app_context import AppContext
+            mw = AppContext.get_main_window()
+            if mw:
+                all_skills = getattr(mw, "agent_skills", None) or []
+        except Exception:
+            pass
+
+        for ss in skillsets:
+            name = (ss.get("name") or "").strip()
+            if not name:
+                continue
+            skill_ids = set(str(i) for i in (ss.get("skillIds") or []))
+            selected = [sk for sk in all_skills if str(getattr(sk, "id", "")) in skill_ids] if skill_ids else []
+            summaries = [
+                {
+                    "name": _re.sub(r"[\s_]+", "-", (getattr(sk, "name", "") or "unnamed").lower().strip()),
+                    "description": (getattr(sk, "description", "") or "")[:1024],
+                    "id": getattr(sk, "id", ""),
+                }
+                for sk in selected
+            ]
+            schema_str = json.dumps(summaries, indent=2, ensure_ascii=False)
+            extra_vars[name] = {"source": "static", "value": schema_str}
+            logger.debug(f"[build_agent_skills] Skillset '{name}': {len(selected)}/{len(skill_ids)} skills matched")
+
+    if not extra_vars:
+        return
+
+    # Ensure mapping_rules["prompt_variables"] exists
+    if not isinstance(skill_obj.mapping_rules, dict):
+        skill_obj.mapping_rules = {}
+    pv = skill_obj.mapping_rules.get("prompt_variables")
+    if not isinstance(pv, dict):
+        pv = {}
+        skill_obj.mapping_rules["prompt_variables"] = pv
+
+    # Inject only keys not already declared (toolset/skillset vars are lowest-priority)
+    for k, v in extra_vars.items():
+        if k not in pv:
+            pv[k] = v
+
+    logger.info(f"[build_agent_skills] Injected {len(extra_vars)} toolset/skillset variables for '{skill_obj.name}'")
+
+
 def _load_diagram_from_path(skill_path: str, skill_name: str = "Unknown") -> dict | None:
     """Load diagram from skill JSON file.
-    
+
     Args:
         skill_path: Path to skill JSON file
         skill_name: Skill name for logging
@@ -845,6 +962,11 @@ def _convert_db_skill_to_object(db_skill):
             except Exception as e:
                 logger.error(f"[build_agent_skills] ❌ Error rebuilding workflow for {skill_obj.name}: {e}")
                 logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
+            # Inject toolset/skillset variables from flowgram JSON
+            try:
+                _inject_toolset_skillset_variables(skill_obj, flow_for_convert)
+            except Exception as _tse:
+                logger.debug(f"[build_agent_skills] Toolset/skillset injection skipped for '{skill_obj.name}': {_tse}")
         else:
             logger.info(f"[build_agent_skills] No diagram data for skill '{skill_obj.name}' (pre-diagram version)")
 
@@ -1252,6 +1374,11 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 # Load mapping rules for file-loaded skills
                 _apply_owner(sk)
                 load_mapping_rules(sk, skill_root)
+                # Inject toolset/skillset variables from flowgram JSON
+                try:
+                    _inject_toolset_skillset_variables(sk, core_dict)
+                except Exception as _tse:
+                    logger.debug(f"[build_agent_skills] Toolset/skillset injection skipped for '{sk.name}': {_tse}")
                 return sk
             except Exception as e:
                 # Extract skill name for better error reporting

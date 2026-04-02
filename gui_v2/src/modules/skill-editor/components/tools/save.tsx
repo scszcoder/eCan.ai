@@ -615,6 +615,8 @@ export const Save = ({ disabled }: SaveProps) => {
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
+  const toolsets = useSkillInfoStore((state) => state.toolsets);
+  const skillsets = useSkillInfoStore((state) => state.skillsets);
   const localHelperSkillName = (() => {
     try {
       if (!localHelperSkillId || typeof localHelperSkillId !== 'string') return null;
@@ -654,6 +656,8 @@ export const Save = ({ disabled }: SaveProps) => {
         local_helper_skill_id: localHelperSkillId,
         local_helper_skill_name: localHelperSkillName,
         local_helper_machine: localHelperMachine,
+        toolsets: toolsets.length > 0 ? toolsets : undefined,
+        skillsets: skillsets.length > 0 ? skillsets : undefined,
         config: {
           ...(skillInfo as any)?.config,
           run_in_cloud: runInCloud,
@@ -931,6 +935,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       console.log('[SAVEAS] Extracted skill name from path:', newSkillName);
 
       // 6. Create updated skillInfo with new name
+      const saveAsToolsets = useSkillInfoStore.getState().toolsets;
+      const saveAsSkillsets = useSkillInfoStore.getState().skillsets;
       const updatedSkillInfo = {
         ...skillInfo,
         skillName: newSkillName,
@@ -943,6 +949,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
         local_helper_machine: localHelperMachine,
+        toolsets: saveAsToolsets.length > 0 ? saveAsToolsets : undefined,
+        skillsets: saveAsSkillsets.length > 0 ? saveAsSkillsets : undefined,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
@@ -1057,6 +1065,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
         local_helper_machine: localHelperMachine,
+        toolsets: saveAsToolsets.length > 0 ? saveAsToolsets : undefined,
+        skillsets: saveAsSkillsets.length > 0 ? saveAsSkillsets : undefined,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
