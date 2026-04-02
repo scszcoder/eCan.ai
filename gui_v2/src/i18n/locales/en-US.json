@@ -982,6 +982,12 @@
       "general_tab_title": "General",
       "llm_tab_title": "LLM Management",
       "embedding_tab_title": "Embedding Management",
+      "channels_tab_title": "Channels",
+      "channel": {
+        "show_qr": "Show QR Code",
+        "wa_tip_title": "How to pair WhatsApp",
+        "wa_tip_body": "1. Open WhatsApp on your phone.\n2. Tap Menu (⋮) → Linked Devices → Link a Device.\n3. Scan the QR code shown in your browser.\n\n⚠️ Use a dedicated WhatsApp account for eCan.ai agents — do NOT use your personal number. All incoming messages will be routed to your agents, which may cause confusion if you mix personal and agent traffic."
+      },
       "profile": "Profile",
       "system": "System Settings",
       "notifications": "Notification Settings",

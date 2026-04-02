@@ -9,11 +9,25 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from agent.channels.base import ChannelMessage, OutboundMessage
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Global inbound tap list — any callable registered here is called for every
+# inbound ChannelMessage, regardless of when it was registered.
+# Used by the test panel to monitor live channel traffic.
+# ---------------------------------------------------------------------------
+_inbound_taps: List[Callable[[ChannelMessage], None]] = []
+
+
+def register_inbound_tap(fn: Callable[[ChannelMessage], None]) -> None:
+    """Add *fn* to the global inbound tap list (idempotent)."""
+    if fn not in _inbound_taps:
+        _inbound_taps.append(fn)
+        logger.debug(f"[ChannelBridge] Inbound tap registered: {fn}")
 
 
 class ChannelBridge:
@@ -35,6 +49,13 @@ class ChannelBridge:
         Convert a ChannelMessage to the internal ``req`` dict and dispatch
         it to the first available agent's runner.
         """
+        # Fire all registered taps first (e.g. test panel monitor)
+        for tap in _inbound_taps:
+            try:
+                tap(msg)
+            except Exception as _tap_err:
+                logger.debug(f"[ChannelBridge] Tap error: {_tap_err}")
+
         try:
             req = self._channel_message_to_req(msg)
             agent = self._pick_agent(msg)

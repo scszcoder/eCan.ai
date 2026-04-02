@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Space, Select, Input, Button, Card, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +17,16 @@ import {
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
+// ── Channel test types & constants (outside component to avoid recreation) ──
+interface ChannelEntry { id: string; label: string; enabled: boolean; status: string; }
+interface ChanMsg { direction: 'in' | 'out'; channel_id: string; chat_id: string; sender_name: string; text: string; timestamp: number; message_id: string; }
+
+const CHAN_LABELS: Record<string, string> = {
+    whatsapp_baileys: 'WhatsApp (Baileys)', whatsapp: 'WhatsApp (Cloud API)',
+    telegram: 'Telegram', slack: 'Slack', discord: 'Discord',
+    dingtalk: 'DingTalk', messenger: 'Messenger', twitter: 'Twitter/X', webchat: 'Web Chat',
+};
+
 const Tests: React.FC = () => {
     const { t } = useTranslation();
     const [selectedTest, setSelectedTest] = useState<string>('');
@@ -31,6 +41,83 @@ const Tests: React.FC = () => {
 
     const appendTestOutput = (line: string) => {
         setTestOutput(prev => (prev ? `${prev}\n${line}` : line));
+    };
+
+    // ── Channel test state ────────────────────────────────────────────────────
+
+    const [channelList, setChannelList] = useState<ChannelEntry[]>([]);
+    const [selectedChannel, setSelectedChannel] = useState<string>('');
+    const [channelRecipient, setChannelRecipient] = useState<string>('');
+    const [channelSending, setChannelSending] = useState(false);
+    const [chanMessages, setChanMessages] = useState<ChanMsg[]>([]);
+    const sinceTs = useRef<number>(Date.now() / 1000);
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const msgBoxRef = useRef<HTMLDivElement>(null);
+
+    const loadChannels = useCallback(async () => {
+        try {
+            const resp: any = await get_ipc_api().getChannels();
+            if (resp?.success && resp.data?.channels) {
+                setChannelList(Object.entries(resp.data.channels).map(([id, entry]: any) => ({
+                    id,
+                    label: CHAN_LABELS[id] || id,
+                    enabled: entry.config?.enabled === true,
+                    status: entry.status || 'stopped',
+                })));
+            }
+        } catch {}
+    }, []);
+
+    useEffect(() => { loadChannels(); }, [loadChannels]);
+
+    // Poll for inbound messages when a channel is selected
+    useEffect(() => {
+        if (!selectedChannel) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } return; }
+        if (pollRef.current) return;
+        pollRef.current = setInterval(async () => {
+            try {
+                const resp: any = await get_ipc_api().getChannelTestMessages(selectedChannel, sinceTs.current);
+                if (resp?.success && resp.data?.messages?.length) {
+                    const incoming: ChanMsg[] = resp.data.messages.map((m: any) => ({ ...m, direction: 'in' as const }));
+                    setChanMessages(prev => [...prev, ...incoming]);
+                    // Also append to the shared test output
+                    incoming.forEach(m => appendTestOutput(`[${m.channel_id}] FROM ${m.sender_name || m.chat_id}: ${m.text}`));
+                    sinceTs.current = Math.max(...incoming.map((m: any) => m.received_at ?? m.timestamp)) + 0.001;
+                }
+            } catch {}
+        }, 2000);
+        return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+    }, [selectedChannel]);
+
+    useEffect(() => {
+        if (msgBoxRef.current) msgBoxRef.current.scrollTop = msgBoxRef.current.scrollHeight;
+    }, [chanMessages]);
+
+    const handleTestChannel = async () => {
+        if (!selectedChannel || !channelRecipient.trim() || !testArgument.trim()) {
+            message.warning('Select a channel, enter a recipient, and type a message in Test Argument');
+            return;
+        }
+        setChannelSending(true);
+        const outMsg: ChanMsg = { direction: 'out', channel_id: selectedChannel, chat_id: channelRecipient, sender_name: 'Me', text: testArgument, timestamp: Date.now() / 1000, message_id: String(Math.random()) };
+        setChanMessages(prev => [...prev, outMsg]);
+        appendTestOutput(`[${selectedChannel}] TO ${channelRecipient}: ${testArgument}`);
+        try {
+            const resp: any = await get_ipc_api().sendChannelMessage(selectedChannel, channelRecipient, testArgument);
+            if (!resp?.success) {
+                message.error(resp?.error?.message || 'Send failed');
+                setChanMessages(prev => prev.filter(m => m.message_id !== outMsg.message_id));
+                appendTestOutput(`[SEND ERROR] ${resp?.error?.message || 'Send failed'}`);
+            } else {
+                const jid = resp.data?.resolved_jid || channelRecipient;
+                appendTestOutput(`[SENT OK] to JID: ${jid}`);
+            }
+        } catch (e: any) {
+            message.error(String(e?.message || e));
+            appendTestOutput(`[SEND ERROR] ${e?.message || e}`);
+        } finally {
+            setChannelSending(false);
+        }
     };
 
     // Add default test at the top of the component
@@ -1969,6 +2056,73 @@ const Tests: React.FC = () => {
                             {t('pages.tests.flowTest')}
                         </Button>
                     </Space>
+
+                    {/* Channel Test Row */}
+                    <Space align="center" style={{ width: '100%', marginBottom: '8px', flexWrap: 'wrap' }}>
+                        <Button
+                            type="default"
+                            loading={channelSending}
+                            disabled={!selectedChannel || channelSending || !channelRecipient.trim() || !testArgument.trim()}
+                            onClick={handleTestChannel}
+                            style={{ color: 'white', borderColor: 'white', background: 'transparent' }}
+                        >
+                            Test Channel
+                        </Button>
+                        <Select
+                            style={{ width: 200 }}
+                            placeholder="Select channel…"
+                            value={selectedChannel || undefined}
+                            onChange={(v) => { setSelectedChannel(v as string); setChanMessages([]); sinceTs.current = Date.now() / 1000; }}
+                            allowClear
+                            onClear={() => setSelectedChannel('')}
+                        >
+                            {channelList.map(ch => (
+                                <Select.Option key={ch.id} value={ch.id} disabled={!ch.enabled}>
+                                    <span style={{ color: ch.enabled ? undefined : '#888' }}>
+                                        {ch.label}{!ch.enabled ? ' (disabled)' : ''}
+                                    </span>
+                                </Select.Option>
+                            ))}
+                        </Select>
+                        <Input
+                            style={{ width: 220 }}
+                            placeholder="Recipient (phone / JID / chat ID)"
+                            value={channelRecipient}
+                            onChange={e => setChannelRecipient(e.target.value)}
+                            disabled={!selectedChannel}
+                        />
+                        <Button
+                            size="small"
+                            type="text"
+                            onClick={loadChannels}
+                            style={{ color: '#aaa' }}
+                        >
+                            <ReloadOutlined />
+                        </Button>
+                    </Space>
+
+                    {/* Channel message thread */}
+                    {chanMessages.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <Text style={{ color: '#aaa', fontSize: 12 }}>Channel messages</Text>
+                                <Button size="small" type="text" style={{ color: '#aaa', fontSize: 11 }} onClick={() => setChanMessages([])}>Clear</Button>
+                            </div>
+                            <div
+                                ref={msgBoxRef}
+                                style={{ maxHeight: 160, overflowY: 'auto', background: '#111', borderRadius: 6, padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}
+                            >
+                                {chanMessages.map(msg => (
+                                    <div key={msg.message_id} style={{ alignSelf: msg.direction === 'out' ? 'flex-end' : 'flex-start', maxWidth: '85%', background: msg.direction === 'out' ? '#1a3a5c' : '#2a2a2a', borderRadius: 6, padding: '3px 8px' }}>
+                                        <div style={{ fontSize: 10, color: '#888', marginBottom: 2 }}>
+                                            {msg.direction === 'out' ? 'You' : (msg.sender_name || msg.chat_id)} · {new Date(msg.timestamp * 1000).toLocaleTimeString()}
+                                        </div>
+                                        <div style={{ color: '#fff', fontSize: 13 }}>{msg.text}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Test Output */}
                     <div>
