@@ -162,43 +162,57 @@ def _find_installation_package(requested_filename: str, dist_dir: Path) -> Path:
     
     logger.info(f"Searching for: platform={detected_platform}, arch={detected_arch}, ext={ext}")
     
-    # 3. Search for matching files in dist directory
+    # 3. Build list of extensions to search for (platform-specific fallbacks)
+    # Key insight: the requested URL may have a different extension than the actual file
+    # e.g., Linux DEB package may be requested as .pkg or the URL contains no extension hint
+    ext_candidates = {ext.lower()}
+    if detected_platform == 'linux':
+        # Linux packages can be .deb, .AppImage, .tar.gz
+        ext_candidates.update({'.deb', '.appimage', '.tar.gz'})
+    elif detected_platform == 'macos':
+        ext_candidates.update({'.pkg', '.dmg'})
+    elif detected_platform == 'windows':
+        ext_candidates.update({'.exe', '.msi'})
+
+    # 4. Search for matching files in dist directory
     candidates = []
-    
-    for file_path in dist_dir.glob(f"*{ext}"):
-        if not file_path.is_file():
-            continue
-        
-        filename = file_path.name
-        score = 0
-        
-        # Match platform
-        if detected_platform:
-            for pattern in platform_patterns[detected_platform].split('|'):
-                if pattern.strip('()') in filename.lower():
-                    score += 10
-                    break
-        
-        # Match architecture
-        if detected_arch:
-            for pattern in arch_patterns[detected_arch].split('|'):
-                if pattern.strip('()') in filename.lower():
-                    score += 5
-                    break
-        
-        # Match extension (already filtered by glob)
-        score += 1
-        
-        if score > 0:
-            candidates.append((score, file_path))
-    
+
+    for ext in ext_candidates:
+        for file_path in dist_dir.glob(f"*{ext}"):
+            if not file_path.is_file():
+                continue
+
+            filename = file_path.name
+            score = 0
+
+            # Match platform
+            if detected_platform:
+                for pattern in platform_patterns[detected_platform].split('|'):
+                    if pattern.strip('()') in filename.lower():
+                        score += 10
+                        break
+
+            # Match architecture
+            if detected_arch:
+                for pattern in arch_patterns[detected_arch].split('|'):
+                    if pattern.strip('()') in filename.lower():
+                        score += 5
+                        break
+
+            # Prefer exact extension match
+            if file_path.suffix.lower() == ext:
+                score += 2
+
+            if score > 0:
+                candidates.append((score, file_path))
+
     # Sort by score and return best match
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
         best_match = candidates[0][1]
         logger.info(f"Found best match (score={candidates[0][0]}): {best_match}")
         return best_match
-    
+
     logger.warning(f"No matching file found for: {requested_filename}")
     return None
 
@@ -305,10 +319,11 @@ def check_update():
                 logger.error(f"[CHECK] Error loading release notes: {e}", exc_info=True)
                 description = f"<h2>eCan.ai {latest_version}</h2><p>Release notes not available.</p>"
             
-            # ✅ Dynamically scan dist directory to get file information
+            # ✅ Dynamically scan dist directory to get file information and real filename
             signature = ""
             file_size = 0
-            
+            actual_filename = ""
+
             try:
                 project_root = Path(__file__).parent.parent.parent
                 dist_dir = project_root / "dist"
@@ -317,7 +332,8 @@ def check_update():
                 patterns = {
                     'darwin': ["eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg"],
                     'windows': ["eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi"],
-                    'linux': ["eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage"]
+                    'linux': ["ecan-*_amd64.deb", "ecan-*_aarch64.deb",
+                              "eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage"]
                 }
                 
                 if platform in patterns:
@@ -334,6 +350,7 @@ def check_update():
                                     sha256_hash.update(byte_block)
                             signature = sha256_hash.hexdigest()
                             
+                            actual_filename = pkg_file.name
                             logger.info(f"[CHECK] Found package: {pkg_file.name}, size: {file_size}, sha256: {signature[:16]}...")
                             break
                         if file_size > 0:
@@ -341,10 +358,19 @@ def check_update():
             except Exception as e:
                 logger.warning(f"Failed to scan dist directory: {e}")
             
+            # Use actual filename if found, otherwise fall back to guessed name
+            if actual_filename:
+                download_url = f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/{actual_filename}"
+            else:
+                # Fallback: construct URL based on platform conventions
+                ext_map = {'darwin': 'pkg', 'windows': 'exe', 'linux': 'deb'}
+                ext = ext_map.get(platform, 'bin')
+                download_url = f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-{latest_version}-{platform}-{arch}.{ext}"
+
             response.update({
                 "description": description,
                 "release_date": "",  # Can be extracted from CHANGELOG if needed
-                "download_url": f"http://127.0.0.1:{SERVER_CONFIG['port']}/downloads/eCan-{latest_version}-{platform}-{arch}.pkg",
+                "download_url": download_url,
                 "file_size": file_size,
                 "signature": signature
             })

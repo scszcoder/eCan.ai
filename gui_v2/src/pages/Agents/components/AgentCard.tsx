@@ -26,6 +26,7 @@ import './AgentCard.css';
 import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { eventBus } from '@/utils/eventBus';
 import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
+import { useEffectOnActive } from 'keepalive-for-react';
 
 // DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
 // Previously: const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
@@ -407,10 +408,17 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     // Try to play the video
     const playVideo = async () => {
       try {
-        // Don't interrupt if already playing
-        if (!video.paused) {
-          console.log('[AgentCard] Video already playing, skipping autoplay');
+        // Don't interrupt if already playing same video
+        const currentSrc = video.currentSrc || video.src;
+        if (!video.paused && currentSrc === mediaUrl) {
+          console.log('[AgentCard] Video already playing same src, skipping autoplay');
           return;
+        }
+        
+        // Only reload if src actually changed
+        if (currentSrc !== mediaUrl) {
+          console.log('[AgentCard] Loading new video src:', mediaUrl);
+          video.src = mediaUrl;
         }
         
         video.muted = true; // Ensure muted for autoplay policy
@@ -435,6 +443,25 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       video.removeEventListener('loadeddata', playVideo);
     };
   }, [mediaUrl, isVideo]);
+
+  // Use useEffectOnActive to restart video when component is reactivated from KeepAlive
+  useEffectOnActive(
+    () => {
+      const video = videoRef.current;
+      if (!video || !isVideo || !mediaUrl) return;
+
+      console.log('[AgentCard] Reactivating from KeepAlive, ensuring video plays');
+      if (video.paused || video.currentSrc !== mediaUrl) {
+        if (video.currentSrc !== mediaUrl) {
+          video.src = mediaUrl;
+        }
+        video.muted = true;
+        video.loop = true;
+        video.play().catch((e) => console.warn('[AgentCard] Reactivation play failed:', e));
+      }
+    },
+    [mediaUrl, isVideo]
+  );
 
   // Handle scene playback by replacing video src
   React.useEffect(() => {
@@ -497,12 +524,16 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         video.removeEventListener('loadedmetadata', onLoadedMetadata);
       };
     } else {
-      if (video && originalSrcRef.current && video.src !== originalSrcRef.current) {
-        console.log('[AgentCard] Restoring to original (no scene)');
-        video.src = originalSrcRef.current;
-        video.loop = true;
-        video.currentTime = 0;
-        video.play().catch(() => {});
+      // Not playing scene, ensure we're on original src only if src changed
+      if (video && originalSrcRef.current) {
+        const currentSrc = video.currentSrc || video.src;
+        if (currentSrc !== originalSrcRef.current) {
+          console.log('[AgentCard] Restoring to original (no scene)');
+          video.src = originalSrcRef.current;
+          video.loop = true;
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
       }
     }
   }, [isPlayingScene, currentScene, id, mediaUrl]);

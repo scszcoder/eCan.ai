@@ -105,6 +105,15 @@ jobs:
       uses: ./.github/actions/setup-node-env
 
     # ------------------------------------------------------------------------
+    # Step Group 2.5: WhatsApp Baileys Bridge Environment
+    # ------------------------------------------------------------------------
+    - name: Setup WhatsApp Baileys Bridge Environment
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '18'
+        bridge-dir: wabaileys-bridge
+
+    # ------------------------------------------------------------------------
     # Step Group 3: Linux-Specific System Dependencies
     # ------------------------------------------------------------------------
     - name: Install Linux system dependencies
