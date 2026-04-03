@@ -273,6 +273,13 @@ def patch_http_clients_for_cancellation():
         
         httpx.AsyncClient.__init__ = patched_httpx_init
         logger.info("[Launcher] ✅ httpx AsyncClient patched")
+
+        # Compatibility shim: httpx >= 0.20 renamed TimeoutError → TimeoutException.
+        # browser-use still references httpx.TimeoutError in its except clauses;
+        # without this alias every LLM call fails with AttributeError.
+        if not hasattr(httpx, 'TimeoutError'):
+            httpx.TimeoutError = httpx.TimeoutException
+            logger.info("[Launcher] ✅ httpx.TimeoutError alias added (httpx compat shim for browser-use)")
         
     except ImportError:
         logger.debug("[Launcher] httpx not installed, skipping patch")
