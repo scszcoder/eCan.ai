@@ -126,12 +126,16 @@ def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
                 task_names = []
                 skill_names = []
                 # agent.tasks is a list of task objects set at init time
+                task_descriptions = []
                 agent_tasks = getattr(agent, 'tasks', None)
                 if isinstance(agent_tasks, list):
                     for t in agent_tasks:
                         tname = getattr(t, 'name', '')
                         if tname:
                             task_names.append(tname)
+                        tdesc = getattr(t, 'description', '') or ''
+                        if tdesc:
+                            task_descriptions.append(tdesc)
                         # Skill name from task's skill reference
                         t_skill = getattr(t, 'skill', None)
                         sname = ''
@@ -148,6 +152,7 @@ def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
                     "url": getattr(card, 'url', ''),
                     "status": getattr(agent, 'status', 'unknown'),
                     "tasks": task_names,
+                    "task_descriptions": task_descriptions,
                     "skills": skill_names,
                 })
         return agents_info
@@ -552,18 +557,32 @@ def list_chat_agents(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         exclude_self = config.get("exclude_self", "")
-        filter_name = config.get("filter_name", "").lower()
-        
+        filter_name = (config.get("filter_name") or "").lower()
+        filter_task_name = (config.get("filter_task_name") or "").lower()
+        filter_task_description = (config.get("filter_task_description") or "").lower()
+
         agents = _get_all_agents(mainwin)
-        
+
         # Apply filters
         if exclude_self:
             agents = [a for a in agents if a["id"] != exclude_self]
-        
+
         if filter_name:
             agents = [
                 a for a in agents
                 if filter_name in a["name"].lower() or filter_name in a["id"].lower()
+            ]
+
+        if filter_task_name:
+            agents = [
+                a for a in agents
+                if any(filter_task_name in t.lower() for t in a.get("tasks", []))
+            ]
+
+        if filter_task_description:
+            agents = [
+                a for a in agents
+                if any(filter_task_description in d.lower() for d in a.get("task_descriptions", []))
             ]
         
         # Record discovery so send_chat's dispatch gate knows the caller

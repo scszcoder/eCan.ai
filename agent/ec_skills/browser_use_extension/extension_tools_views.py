@@ -225,15 +225,23 @@ class SendChatAction(BaseModel):
 	)
 
 
-class ListChatAgentsAction(BaseModel):
-	"""List all available agents that can receive chat messages."""
+class SelectAgentsAction(BaseModel):
+	"""Select agents by filtering on name, task name, or task description."""
 	exclude_self: Optional[str] = Field(
 		default=None,
 		description="Agent ID to exclude from the list (typically the calling agent's own ID)."
 	)
 	filter_name: Optional[str] = Field(
 		default=None,
-		description="Filter agents by name (partial match, case-insensitive)."
+		description="Filter agents by agent name or ID (partial match, case-insensitive)."
+	)
+	filter_task_name: Optional[str] = Field(
+		default=None,
+		description="Filter agents by task name (partial match, case-insensitive). Supports Chinese. e.g. '客服应答' to find all Q&A agents."
+	)
+	filter_task_description: Optional[str] = Field(
+		default=None,
+		description="Filter agents by task description (partial match, case-insensitive). Supports Chinese."
 	)
 
 
