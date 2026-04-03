@@ -225,15 +225,23 @@ class SendChatAction(BaseModel):
 	)
 
 
-class ListChatAgentsAction(BaseModel):
-	"""List all available agents that can receive chat messages."""
+class SelectAgentsAction(BaseModel):
+	"""Select agents by filtering on name, task name, or task description."""
 	exclude_self: Optional[str] = Field(
 		default=None,
 		description="Agent ID to exclude from the list (typically the calling agent's own ID)."
 	)
 	filter_name: Optional[str] = Field(
 		default=None,
-		description="Filter agents by name (partial match, case-insensitive)."
+		description="Filter agents by agent name or ID (partial match, case-insensitive)."
+	)
+	filter_task_name: Optional[str] = Field(
+		default=None,
+		description="Filter agents by task name (partial match, case-insensitive). Supports Chinese. e.g. '客服应答' to find all Q&A agents."
+	)
+	filter_task_description: Optional[str] = Field(
+		default=None,
+		description="Filter agents by task description (partial match, case-insensitive). Supports Chinese."
 	)
 
 
@@ -343,6 +351,54 @@ class DiffNormalizedStateAction(BaseModel):
 	"""Diff two normalized page-state JSON blobs and return semantic changes."""
 	previous_state_json: str = Field(description="Previous normalized state JSON.")
 	current_state_json: str = Field(description="Current normalized state JSON.")
+
+
+class FeigeListSessionsAction(BaseModel):
+	"""List all visible customer sessions from the Feige (飞鸽) session panel.
+	Returns each session's customer name, last message snippet, timestamp, and unread count.
+	Use this instead of generic DOM extraction when operating on Feige customer service pages.
+	"""
+	include_read: bool = Field(
+		default=True,
+		description="Include sessions with no unread messages. Set False to return only sessions with unread messages.",
+	)
+	max_sessions: int = Field(
+		default=50,
+		description="Maximum number of sessions to return (scrolled into view).",
+	)
+
+
+class FeigeOpenSessionAction(BaseModel):
+	"""Click a customer session in the Feige (飞鸽) session list to open the chat thread.
+	Use the customer_name or session_index returned by feige_list_sessions.
+	"""
+	customer_name: Optional[str] = Field(
+		default=None,
+		description="Customer name as returned by feige_list_sessions. Used for matching.",
+	)
+	session_index: Optional[int] = Field(
+		default=None,
+		description="Zero-based index into the session list (fallback when customer_name is ambiguous).",
+	)
+
+
+class FeigeGetChatThreadAction(BaseModel):
+	"""Extract visible messages from the currently open Feige (飞鸽) chat thread.
+	Returns a list of message objects: {sender, text, timestamp, is_agent}.
+	"""
+	max_messages: int = Field(
+		default=30,
+		description="Maximum number of messages to return (most recent).",
+	)
+
+
+class FeigeSendMessageAction(BaseModel):
+	"""Type and send a text message in the currently open Feige (飞鸽) chat thread.
+	Finds the contenteditable input, types the text, and clicks Send (or presses Enter).
+	"""
+	text: str = Field(
+		description="Message text to send to the customer.",
+	)
 
 
 class RagQueryAction(BaseModel):

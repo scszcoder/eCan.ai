@@ -652,29 +652,46 @@ class AvatarHandler:
                     "error": "Avatar service not available"
                 }
             
-            # Get all avatar resources from database
-            avatars = avatar_service.get_all_avatar_resources()
-            
-            # Convert paths to HTTP URLs using unified utility
             from agent.avatar.avatar_url_utils import batch_convert_paths_to_urls
-            batch_convert_paths_to_urls(avatars, ['image_path', 'video_path'])
-            
-            # Add presigned URLs and convert datetime objects to strings
             from datetime import datetime
-            for avatar in avatars:
-                # Use cloud URLs as presigned URLs for now
-                # In production, you might want to generate actual presigned URLs
+
+            # 1. System avatars — hardcoded, not in DB
+            system_avatars_normalized = []
+            try:
+                avatar_manager = AvatarManager(user_id=username, db_service=avatar_service)
+                raw_system = avatar_manager.get_system_avatars()
+                batch_convert_paths_to_urls(raw_system, ['imageUrl', 'videoUrl', 'videoMp4Path', 'videoWebmPath'])
+                for s in raw_system:
+                    system_avatars_normalized.append({
+                        'id': s.get('id'),
+                        'name': s.get('name'),
+                        'resource_type': 'system',
+                        'owner': 'system',
+                        'is_public': True,
+                        'usage_count': 0,
+                        'tags': s.get('tags', []),
+                        'image_path': s.get('imageUrl'),
+                        'presigned_image_url': s.get('imageUrl'),
+                        'presigned_video_url': s.get('videoUrl'),
+                    })
+            except Exception as _e:
+                logger.warning(f"[AvatarHandler] Failed to load system avatars in get_all: {_e}")
+
+            # 2. Uploaded / generated avatars from DB
+            db_avatars = avatar_service.get_all_avatar_resources()
+            batch_convert_paths_to_urls(db_avatars, ['image_path', 'video_path'])
+            for avatar in db_avatars:
                 if avatar.get('cloud_image_url'):
-                    avatar['presigned_image_url'] = avatar['cloud_image_url']
+                    avatar.setdefault('presigned_image_url', avatar['cloud_image_url'])
                 if avatar.get('cloud_video_url'):
-                    avatar['presigned_video_url'] = avatar['cloud_video_url']
-                
-                # Convert datetime objects to ISO format strings for JSON serialization
+                    avatar.setdefault('presigned_video_url', avatar['cloud_video_url'])
                 if avatar.get('created_at') and isinstance(avatar['created_at'], datetime):
                     avatar['created_at'] = avatar['created_at'].isoformat()
                 if avatar.get('updated_at') and isinstance(avatar['updated_at'], datetime):
                     avatar['updated_at'] = avatar['updated_at'].isoformat()
-            
+
+            avatars = system_avatars_normalized + db_avatars
+
             return {
                 "success": True,
                 "data": avatars

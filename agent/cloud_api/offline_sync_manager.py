@@ -302,7 +302,31 @@ class OfflineSyncManager:
                         # UPDATE failed because resource doesn't exist in cloud.
                         # Retry with ADD to register it first.
                         logger.info(f"[OfflineSyncManager] 🔄 Queue task NOT_FOUND on UPDATE, retrying with ADD: {task_id}")
-                        add_result = service.sync_to_cloud([data], operation=Operation.ADD, timeout=timeout_per_task)
+
+                        # For agents, the queued update payload may be a partial diff
+                        # (e.g. only {id, status} from _sync_agent_status_to_cloud).
+                        # addAgents requires `name` which would be missing, causing a
+                        # GraphQL validation error. Fetch the full record from local DB
+                        # so the ADD has all required fields.
+                        add_data = data
+                        if data_type == DataType.AGENT:
+                            agent_id = data.get('id') if isinstance(data, dict) else None
+                            if agent_id:
+                                try:
+                                    from app_context import AppContext
+                                    ec_db_mgr = AppContext.get_ec_db_mgr()
+                                    if ec_db_mgr and ec_db_mgr.agent_service:
+                                        db_result = ec_db_mgr.agent_service.query_agents(id=agent_id)
+                                        full_agent = (db_result.get('data') or [None])[0] if db_result.get('success') else None
+                                        if full_agent and full_agent.get('name'):
+                                            add_data = full_agent
+                                            logger.info(f"[OfflineSyncManager] 📋 ADD fallback: enriched agent payload with full DB record (name='{full_agent.get('name')}')")
+                                        else:
+                                            logger.warning(f"[OfflineSyncManager] ⚠️ ADD fallback: could not fetch full agent {agent_id} from local DB, using partial payload")
+                                except Exception as _db_err:
+                                    logger.warning(f"[OfflineSyncManager] ⚠️ ADD fallback: DB lookup failed for agent {agent_id}: {_db_err}, using original payload")
+
+                        add_result = service.sync_to_cloud([add_data], operation=Operation.ADD, timeout=timeout_per_task)
                         if add_result['success']:
                             self.sync_queue.mark_success(task_id)
                             synced_count += 1

@@ -58,9 +58,9 @@
     "import": "导入",
     "actions": "操作",
     "back": "返回",
-    "agent": "代理",
-    "agent_working": "代理工作中",
-    "agents": "代理",
+    "agent": "智能体",
+    "agent_working": "智能体工作中",
+    "agents": "智能体",
     "birthday": "生日",
     "confirm_delete": "确认删除",
     "confirm_delete_desc": "确认删除描述",
@@ -139,7 +139,7 @@
     "chat": "聊天",
     "skills": "技能",
     "skill_editor": "技能编辑器",
-    "agents": "代理",
+    "agents": "智能体",
     "organizations": "组织架构",
     "apps": "应用",
     "tasks": "任务",
@@ -546,15 +546,15 @@
     "agents": {
       "system_example_cannot_select": "系统示例不可选择",
       "add": "添加",
-      "add_agent": "添加代理",
-      "agent_details": "代理详情",
+      "add_agent": "添加智能体",
+      "agent_details": "智能体详情",
       "create_agent": "新增 Agent",
-      "agent_id": "代理ID",
+      "agent_id": "智能体ID",
       "error_fetching": "获取错误",
       "fetch_failed": "获取失败",
-      "fetched_agents": "已获取代理",
+      "fetched_agents": "已获取智能体",
       "description": "描述",
-      "description_placeholder": "请输入代理描述",
+      "description_placeholder": "请输入智能体描述",
       "extra_data": "额外数据/备注",
       "extra_data_placeholder": "请输入有效的 JSON 格式（如 {\"notes\": \"文本\"}）",
       "extra_data_tooltip": "必须是有效的 JSON 格式（如 {\"key\": \"value\"}）",
@@ -575,17 +575,17 @@
       "title": "职称",
       "updated_data_from_api": "从API更新数据",
       "vehicle": "电脑",
-      "form_label": "代理详情表单",
-      "unassigned_agents": "未分配代理",
-      "unassigned_agents_desc": "没有归属组织的代理",
+      "form_label": "智能体详情表单",
+      "unassigned_agents": "未分配智能体",
+      "unassigned_agents_desc": "没有归属组织的智能体",
       "load_failed": "组织数据加载失败",
       "no_sub_orgs": "暂无下级组织",
-      "direct_agents": "直属代理",
-      "deleteConfirmTitle": "删除代理",
-      "deleteConfirmMessage": "确定要删除此代理吗？此操作无法撤销。",
-      "deleteSuccess": "代理删除成功",
-      "deleteError": "删除代理失败",
-      "no_items": "暂无组织或代理",
+      "direct_agents": "直属智能体",
+      "deleteConfirmTitle": "删除智能体",
+      "deleteConfirmMessage": "确定要删除此智能体吗？此操作无法撤销。",
+      "deleteSuccess": "智能体删除成功",
+      "deleteError": "删除智能体失败",
+      "no_items": "暂无组织或智能体",
       "avatar": "头像",
       "search_placeholder": "请输入名称或其他关键字",
       "no_search_results": "未找到搜索结果",
@@ -598,15 +598,15 @@
       "save_failed": "保存失败",
       "startChat": "开始对话",
       "noTaskAssigned": "暂无分配任务",
-      "enableAgent": "启用代理",
-      "disableAgent": "禁用代理",
-      "startAgent": "启动代理",
-      "stopAgent": "停止代理"
+      "enableAgent": "启用智能体",
+      "disableAgent": "禁用智能体",
+      "startAgent": "启动智能体",
+      "stopAgent": "停止智能体"
     },
     "analytics": {
-      "activeAgents": "活跃代理",
+      "activeAgents": "活跃智能体",
       "activeVehicles": "活跃电脑",
-      "agentPerformance": "代理性能",
+      "agentPerformance": "智能体性能",
       "resourceUtilization": "资源利用率",
       "systemUsers": "系统用户",
       "taskCompletionTrend": "任务完成趋势",
@@ -723,12 +723,12 @@
       },
       "searchPlaceholder": "搜索占位符",
       "searchMessages": "搜索相关消息",
-      "searchAgent": "搜索代理",
-      "filterByAgent": "按代理筛选",
-      "selectAgent": "选择代理",
-      "allAgents": "所有代理",
-      "noAgentSelected": "未选择代理",
-      "noAgentsAvailable": "暂无可用代理",
+      "searchAgent": "搜索智能体",
+      "filterByAgent": "按智能体筛选",
+      "selectAgent": "选择智能体",
+      "allAgents": "所有智能体",
+      "noAgentSelected": "未选择智能体",
+      "noAgentsAvailable": "暂无可用智能体",
       "filterApplied": "已应用筛选",
       "clearFilter": "清除筛选",
       "selectAChat": "选择聊天",
@@ -785,9 +785,9 @@
     },
     "dashboard": {
       "title": "总揽",
-      "subtitle": "智能代理管理中心 - 让 AI 为您工作",
-      "activeAgents": "活跃代理",
-      "agentsCount": "代理数量",
+      "subtitle": "智能体管理中心 - 让 AI 为您工作",
+      "activeAgents": "活跃智能体",
+      "agentsCount": "智能体数量",
       "errorTitle": "数据加载失败",
       "more": "更多",
       "overviewTitle": "概览",
@@ -809,10 +809,10 @@
       "connected": "已连接",
       "healthy": "健康",
       "offline": "离线",
-      "noAgents": "暂无活跃代理",
+      "noAgents": "暂无活跃智能体",
       "noTasks": "暂无任务",
       "quickActions": "快捷操作",
-      "createAgent": "创建代理",
+      "createAgent": "创建智能体",
       "createSkill": "创建技能",
       "createTask": "创建任务",
       "settings": "系统设置"
@@ -1121,9 +1121,9 @@
       "login_to_view_embedding": "请登录以查看嵌入模型设置",
       "auto_set_as_default": "自动设置为默认",
       "reset_to_default_provider": "已重置为默认提供商(OpenAI)",
-      "local_agent_db_host": "本地代理数据库主机",
-      "local_agent_db_port": "本地代理数据库端口",
-      "local_agent_ports": "本地代理端口",
+      "local_agent_db_host": "本地智能体数据库主机",
+      "local_agent_db_port": "本地智能体数据库端口",
+      "local_agent_ports": "本地智能体端口",
       "local_server_port": "本地服务器端口",
       "local_service_no_api_key": "本地服务无需API密钥",
       "local_user_db_host": "本地用户数据库主机",
@@ -1175,10 +1175,10 @@
       "lan_api_config": "局域网API（本地服务）",
       "lan_api_endpoint_tooltip": "用于内部服务的局域网API端点",
       "user_database_config": "用户数据库",
-      "agent_database_config": "代理数据库",
+      "agent_database_config": "智能体数据库",
       "database_names": "数据库名称",
       "local_user_db_name": "用户数据库名",
-      "local_agent_db_name": "代理数据库名",
+      "local_agent_db_name": "智能体数据库名",
       "ws_api_host": "WebSocket API主机",
       "ecan_cloud_searcher_url": "eCan云搜索服务URL",
       "basic_mode_settings": "基础模式设置",
@@ -1279,7 +1279,7 @@
         "save_failed": "保存浏览器自动化设置失败",
         "load_failed": "加载浏览器自动化设置失败",
         "agent_settings": {
-          "title": "代理设置",
+          "title": "智能体设置",
           "use_vision": "使用视觉",
           "vision_detail_level": "视觉细节级别",
           "max_failures": "最大失败次数",
@@ -1370,7 +1370,7 @@
             "block_ip_addresses": "阻止IP地址",
             "block_ip_addresses_tooltip": "阻止导航到包含IP地址的URL",
             "keep_alive": "保持活动",
-            "keep_alive_tooltip": "代理运行后保持浏览器活动",
+            "keep_alive_tooltip": "智能体运行后保持浏览器活动",
             "default_extensions": "默认扩展",
             "default_extensions_tooltip": "启用广告拦截、Cookie处理扩展",
             "demo_mode": "演示模式",
@@ -1578,7 +1578,7 @@
       "invalidJson": "JSON 格式无效。请输入有效的 JSON（如 {\"key\": \"value\"}）",
       "latestVersion": "最新版本",
       "taskId": "任务 ID",
-      "ownerAgent": "所属代理",
+      "ownerAgent": "所属智能体",
       "cloudRun": "云端运行",
       "untitledTask": "未命名任务",
       "noTasks": "暂无任务",
@@ -1846,13 +1846,13 @@
       "title": "组织管理",
       "actions": {
         "add": "添加组织",
-        "bind": "绑定代理",
+        "bind": "绑定智能体",
         "delete": "删除",
         "edit": "编辑"
       },
       "agents": {
-        "title": "代理列表",
-        "allLeafAgents": "所有子部门的代理"
+        "title": "智能体列表",
+        "allLeafAgents": "所有子部门的智能体"
       },
       "binding": {
         "bound": "已绑定",
@@ -1861,12 +1861,12 @@
         "boundToOther": "已绑定到其他组织",
         "boundToOrg": "已绑定到组织"
       },
-      "direct_agents": "直属代理",
-      "direct_agents_desc": "该组织的直属代理",
+      "direct_agents": "直属智能体",
+      "direct_agents_desc": "该组织的直属智能体",
       "confirm": {
         "delete": "删除组织",
         "deleteMessage": "确定要删除此组织吗？",
-        "unbind": "确认解绑此代理？"
+        "unbind": "确认解绑此智能体？"
       },
       "details": {
         "title": "组织详情"
@@ -1898,7 +1898,7 @@
         "deleteFailed": "删除失败",
         "deleteSuccess": "删除成功",
         "deleteConfirmTitle": "强制删除组织",
-        "deleteConfirmWithAgents": "该组织包含代理。是否强制删除？所有代理将被移动到父组织或成为孤立代理。",
+        "deleteConfirmWithAgents": "该组织包含智能体。是否强制删除？所有智能体将被移动到父组织或成为孤立智能体。",
         "loadFailed": "加载失败",
         "moveFailed": "移动失败",
         "moveSuccess": "移动成功",
@@ -1907,13 +1907,13 @@
         "unbindSuccess": "解绑成功",
         "updateFailed": "更新失败",
         "updateSuccess": "更新成功",
-        "allAgentsAlreadyBound": "所选代理都已绑定到当前组织"
+        "allAgentsAlreadyBound": "所选智能体都已绑定到当前组织"
       },
       "modal": {
         "bind": {
-          "selectAgents": "选择代理",
-          "title": "绑定代理",
-          "selectAgent": "选择代理"
+          "selectAgents": "选择智能体",
+          "title": "绑定智能体",
+          "selectAgent": "选择智能体"
         },
         "create": {
           "title": "创建组织"
@@ -1923,8 +1923,8 @@
         }
       },
       "placeholder": {
-        "noAgents": "暂无代理",
-        "noAvailableAgents": "暂无可用代理",
+        "noAgents": "暂无智能体",
+        "noAvailableAgents": "暂无可用智能体",
         "selectOrg": "请选择一个组织查看详情"
       },
       "status": {
@@ -1933,9 +1933,9 @@
         "archived": "已归档"
       },
       "tooltip": {
-        "chat": "与代理聊天",
+        "chat": "与智能体聊天",
         "details": "查看详情",
-        "unbind": "解绑代理"
+        "unbind": "解绑智能体"
       },
       "tree": {
         "title": "组织架构"
@@ -2543,13 +2543,13 @@
     "passwordNeedSpecialChar": "需包含至少一个特殊字符（如 !@#$%^&*）"
   },
   "agents": {
-    "addAgent": "添加代理"
+    "addAgent": "添加智能体"
   },
   "tasks": {
     "addTask": "添加任务"
   },
   "menu": {
-    "agents": "代理",
+    "agents": "智能体",
     "chat": "聊天",
     "console": "控制台",
     "dashboard": "仪表盘",
