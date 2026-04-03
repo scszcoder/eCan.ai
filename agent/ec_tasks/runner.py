@@ -815,26 +815,14 @@ class TaskRunner(Generic[Context]):
                 else:
                     routing_key_name = et
 
-                if et in {"chat_message", "human_chat", "channel_message"} and not task_session_id:
-                    existing_rule = self._global_event_routing.get(routing_key_name)
-                    if isinstance(existing_rule, dict):
-                        existing_chain = existing_rule.get("_rule_chain")
-                        if isinstance(existing_chain, list):
-                            filtered_chain = [
-                                r for r in existing_chain
-                                if not (isinstance(r, dict) and r.get("_auto_added_by_task") == task.id)
-                            ]
-                            if filtered_chain:
-                                self._global_event_routing[routing_key_name] = {"_rule_chain": filtered_chain}
-                            else:
-                                self._global_event_routing.pop(routing_key_name, None)
-                        elif existing_rule.get("_auto_added_by_task") == task.id:
-                            self._global_event_routing.pop(routing_key_name, None)
-                    logger.info(
-                        f"[EventRouting] Removed/skipped generic chat routing for task '{task.name}' with no sessionId"
-                    )
-                    amended = True
-                    continue
+                # Session-less chat tasks (no session_id) DO get a routing rule — they act as
+                # catch-all handlers that accept messages for any session not already owned by a
+                # session-specific task. The router's session-filter logic (in _resolve_event_routing)
+                # prefers session-specific tasks and only falls back to session-less ones when no
+                # session match exists. The pend_event node's own agentIds / match_fields do the
+                # final filtering after the message lands in the task queue.
+                # NOTE: browser_event tasks have always followed this pattern (never skipped for
+                # session-less). chat_message now follows the same principle.
 
                 # NOTE: browser_event routing is NOT skipped when sessionId is absent.
                 # Unlike chat messages, browser events (e.g. conversation_became_active
@@ -1335,13 +1323,31 @@ class TaskRunner(Generic[Context]):
                         if self._get_task_session_id(t) == event_session_id
                     ]
                     if session_candidates:
+                        # Prefer session-specific tasks (exact match).
                         candidates = session_candidates
                     else:
-                        logger.debug(
-                            f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' "
-                            f"matched only non-session tasks; skipping because event session_id='{event_session_id}'"
-                        )
-                        continue
+                        # No session-specific task owns this session yet.
+                        # Fall back to session-less tasks (no session_id set) — they act as
+                        # catch-all handlers and do their own filtering via pend_event agentIds /
+                        # match_fields. This mirrors how browser_event tasks work: session-less
+                        # does not mean "unreachable", it means "accepts any session".
+                        sessionless_candidates = [
+                            t for t in candidates
+                            if not self._get_task_session_id(t)
+                        ]
+                        if sessionless_candidates:
+                            candidates = sessionless_candidates
+                            logger.debug(
+                                f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}': "
+                                f"no session-specific task for session='{event_session_id}', "
+                                f"falling back to {len(sessionless_candidates)} session-less candidate(s)"
+                            )
+                        else:
+                            logger.debug(
+                                f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' "
+                                f"has no match for session='{event_session_id}' and no session-less fallback"
+                            )
+                            continue
 
                 match_fields = candidate_rule.get("match_fields")
                 if isinstance(match_fields, list) and match_fields:
