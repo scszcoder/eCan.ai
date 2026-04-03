@@ -1,0 +1,226 @@
+name: 'Setup WhatsApp Baileys Bridge'
+description: >
+  Setup Node.js environment + npm deps + build the wa_bridge binary via pkg.
+  Binary is placed in wabaileys-bridge/dist/ for the Python build to copy.
+inputs:
+  node-version:
+    description: 'Node.js version'
+    required: false
+    default: '18'
+  bridge-dir:
+    description: 'Path to the wabaileys-bridge directory'
+    required: false
+    default: 'wabaileys-bridge'
+  platform:
+    description: >
+      Target platform for pkg: macos-arm64 | macos-x64 | windows | linux
+      Defaults to auto-detect from runner.os + env.BUILD_ARCH.
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    # ── 1. Check source ────────────────────────────────────────────────────────
+    - name: Check if wa_bridge source exists
+      id: check_source
+      shell: bash
+      run: |
+        if [ -d "${{ inputs.bridge-dir }}" ]; then
+          echo "✅ wa_bridge source found: ${{ inputs.bridge-dir }}"
+          echo "source_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️  wa_bridge source not found – skipping bridge setup"
+          echo "source_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+    # ── 2. Node.js ─────────────────────────────────────────────────────────────
+    - name: Set up Node.js ${{ inputs.node-version }}
+      if: steps.check_source.outputs.source_exists == 'true'
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # ── 3. Cache npm deps ──────────────────────────────────────────────────────
+    - name: Cache wa_bridge npm dependencies
+      if: steps.check_source.outputs.source_exists == 'true'
+      id: cache-wa-bridge-deps
+      uses: actions/cache@v5
+      with:
+        path: ${{ inputs.bridge-dir }}/node_modules
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-${{ hashFiles(format('{0}/package-lock.json', inputs.bridge-dir)) }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-
+          ${{ runner.os }}-wa-bridge-npm-
+
+    # ── 4. npm install ─────────────────────────────────────────────────────────
+    - name: Install wa_bridge npm dependencies
+      if: steps.check_source.outputs.source_exists == 'true'
+      working-directory: ${{ inputs.bridge-dir }}
+      shell: bash
+      timeout-minutes: 10
+      run: |
+        echo "=== Installing wa_bridge Dependencies ==="
+        echo "Bridge dir: ${{ inputs.bridge-dir }}"
+        
+        if [ ! -f "package.json" ]; then
+          echo "⚠️  No package.json in ${{ inputs.bridge-dir }} – skipping"
+          exit 0
+        fi
+        
+        if [ ! -f "package-lock.json" ]; then
+          echo "⚠️  No package-lock.json – running npm install to generate one"
+          npm install --prefer-offline --no-audit --no-fund
+        else
+          echo "Lock file present – installing from lock"
+          npm install --prefer-offline --no-audit --no-fund
+        fi
+        
+        echo "✅ wa_bridge dependencies installed"
+
+    # ── 5. Verify / download pkg ──────────────────────────────────────────────
+    - name: Verify or download pkg
+      if: steps.check_source.outputs.source_exists == 'true'
+      working-directory: ${{ inputs.bridge-dir }}
+      shell: bash
+      timeout-minutes: 5
+      run: |
+        echo "=== Verifying pkg availability ==="
+        
+        if npx pkg --version &>/dev/null; then
+          echo "✅ pkg available via npx: $(npx pkg --version)"
+          exit 0
+        fi
+        
+        echo "pkg not cached – downloading via npx --yes (first run ~2 min)..."
+        if npx --yes pkg --version; then
+          echo "✅ pkg downloaded: $(npx pkg --version)"
+        else
+          echo "❌ Failed to get pkg"
+          exit 1
+        fi
+
+    # ── 5b. Verify / download esbuild (required for bundling before pkg) ───────
+    - name: Verify or download esbuild
+      if: steps.check_source.outputs.source_exists == 'true'
+      working-directory: ${{ inputs.bridge-dir }}
+      shell: bash
+      timeout-minutes: 5
+      run: |
+        echo "=== Verifying esbuild availability ==="
+        
+        if npx esbuild --version &>/dev/null; then
+          echo "✅ esbuild available via npx: $(npx esbuild --version)"
+          exit 0
+        fi
+        
+        echo "esbuild not cached – installing via npm..."
+        if npm install esbuild --no-save &>/dev/null; then
+          echo "✅ esbuild installed"
+        else
+          echo "❌ Failed to install esbuild"
+          exit 1
+        fi
+
+    # ── 6. Determine target platform ───────────────────────────────────────────
+    - name: Determine pkg target platform
+      if: steps.check_source.outputs.source_exists == 'true'
+      id: pkg_target
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.platform }}" ]; then
+          TARGET="${{ inputs.platform }}"
+          echo "Using explicit platform: $TARGET"
+        else
+          # Auto-detect from runner.os + BUILD_ARCH
+          case "${{ runner.os }}" in
+            macOS)
+              if [ "${{ env.BUILD_ARCH }}" = "aarch64" ]; then
+                TARGET="macos-arm64"
+              else
+                TARGET="macos-x64"
+              fi
+              ;;
+            Windows)
+              TARGET="windows"
+              ;;
+            Linux)
+              TARGET="linux"
+              ;;
+            *)
+              echo "❌ Unknown runner.os: ${{ runner.os }}"
+              exit 1
+              ;;
+          esac
+          echo "Auto-detected platform: $TARGET"
+        fi
+        
+        echo "pkg_target=$TARGET" >> $GITHUB_OUTPUT
+
+    # ── 7. Build wa_bridge binary ──────────────────────────────────────────────
+    - name: Build wa_bridge binary (esbuild + pkg)
+      if: steps.check_source.outputs.source_exists == 'true'
+      working-directory: ${{ inputs.bridge-dir }}
+      shell: bash
+      timeout-minutes: 15
+      env:
+        PKG_TARGET: ${{ steps.pkg_target.outputs.pkg_target }}
+      run: |
+        echo "=== Building wa_bridge for $PKG_TARGET ==="
+        
+        # Map friendly name → pkg target string
+        case "$PKG_TARGET" in
+          macos-arm64)  PKG_NODE_TARGET="node18-macos-arm64";  OUTPUT_NAME="wa_bridge_mac_arm64" ;;
+          macos-x64)    PKG_NODE_TARGET="node18-macos-x64";    OUTPUT_NAME="wa_bridge_mac_x64" ;;
+          windows)      PKG_NODE_TARGET="node18-win-x64";      OUTPUT_NAME="wa_bridge.exe" ;;
+          linux)        PKG_NODE_TARGET="node18-linux-x64";    OUTPUT_NAME="wa_bridge_linux" ;;
+          *) echo "❌ Unknown pkg_target: $PKG_TARGET"; exit 1 ;;
+        esac
+        
+        mkdir -p dist
+        
+        echo "Step 1: Bundling with esbuild..."
+        # Step 1: esbuild bundles the ESM code into CJS for pkg compatibility
+        # This fixes the "await import()" issue that pkg cannot handle natively
+        node build-prepare.js
+        if [ ! -f "dist/bundle.cjs" ]; then
+          echo "❌ Bundle failed: dist/bundle.cjs not found"
+          exit 1
+        fi
+        echo "✅ Bundle created: $(du -sh dist/bundle.cjs | cut -f1)"
+        
+        echo "Step 2: Packaging with pkg..."
+        echo "pkg target: $PKG_NODE_TARGET"
+        echo "output name: $OUTPUT_NAME"
+        
+        npx pkg dist/bundle.cjs \
+          --target "$PKG_NODE_TARGET" \
+          --compress GZip \
+          --public \
+          --output "dist/$OUTPUT_NAME"
+        
+        if [ -f "dist/$OUTPUT_NAME" ]; then
+          SIZE=$(du -sh "dist/$OUTPUT_NAME" | cut -f1)
+          echo "✅ wa_bridge built: dist/$OUTPUT_NAME ($SIZE)"
+        else
+          echo "❌ Binary not found after pkg build"
+          exit 1
+        fi
+
+    # ── 8. Summary ─────────────────────────────────────────────────────────────
+    - name: Summary
+      if: steps.check_source.outputs.source_exists == 'true'
+      shell: bash
+      run: |
+        echo ""
+        echo "========================================="
+        echo "  wa_bridge environment ready + built"
+        echo "========================================="
+        echo "  Bridge dir:   ${{ inputs.bridge-dir }}"
+        echo "  Node.js:      $(node --version)"
+        echo "  npm:          $(npm --version)"
+        echo "  pkg target:   ${{ steps.pkg_target.outputs.pkg_target }}"
+        echo ""
+        echo "  Binary:"
+        ls -lh "${{ inputs.bridge-dir }}/dist/wa_bridge"* 2>/dev/null || echo "  (none)"
+        echo "========================================="

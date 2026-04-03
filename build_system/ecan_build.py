@@ -13,6 +13,7 @@ import time
 import subprocess
 import platform
 import shutil
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -486,7 +487,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
-UninstallDisplayIcon={{{{app}}}}\eCan.exe
+UninstallDisplayIcon={{app}}\eCan.exe
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
 CloseApplications=yes
@@ -504,8 +505,7 @@ SetupMutex=eCanInstallerMutex
 ; Silent install support for OTA updates
 ; Allow Inno Setup to automatically close ALL processes holding file locks in {{{{app}}}}
 ; This is critical for overwriting files like app_context.py held by Python subprocesses
-; Note: CloseApplicationsFilter is intentionally NOT set to allow automatic detection
-; Allow silent install to overwrite files in use
+; For OTA /SILENT: PrepareToInstall() proactively kills eCan.exe + python.exe/pythonw.exe
 AlwaysRestart=no
 ; Uninstall previous version before installing new one
 Uninstallable=yes
@@ -628,6 +628,11 @@ begin
   begin
     // Use taskkill to forcefully terminate eCan processes
     Exec('taskkill.exe', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Also kill Python processes that may hold handles to certifi/cacert.pem
+    // (Python SSL context opens certifi's cacert.pem; python.exe/pythonw.exe
+    //  are not in the eCan.exe process tree but hold the same file handles)
+    Exec('taskkill.exe', '/F /IM python.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('taskkill.exe', '/F /IM pythonw.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     // Give processes time to fully terminate and release file handles
     Sleep(1500);
     RetryCount := RetryCount + 1;
@@ -1947,3 +1952,96 @@ exit 0
         print(f"[INFO] Platform: {self.env.platform}")
         print("=" * 60)
 
+
+class WABaileysBridgeBuilder:
+    """Copies the pre-built wa_bridge binary into the eCan app bundle.
+
+    The binary is produced by GitHub Actions (setup-wabaileys-bridge action)
+    and placed at wabaileys-bridge/dist/wa_bridge*.  This class only copies
+    it to the correct location inside the app bundle.
+    """
+
+    def __init__(self, project_root: Path, dist_root: Optional[Path] = None):
+        self.project_root = project_root
+        self.bridge_dir = project_root / "wabaileys-bridge"
+        self.dist_root = dist_root or (project_root / "dist")
+        self.logger = logging.getLogger("WABridgeBuilder")
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def build(self, skip: bool = False) -> bool:
+        """Copy the pre-built wa_bridge binary into the eCan app bundle.
+
+        The binary is built by GitHub Actions (setup-wabaileys-bridge action).
+        This method only copies it to the right location inside the app bundle.
+
+        Args:
+            skip: Return True without copying if the bridge source is absent.
+        """
+        if not self.bridge_dir.exists():
+            if skip:
+                self._log("WA Bridge source not found – skipping")
+                return True
+            raise BuildError("wabaileys-bridge directory not found", 1)
+
+        return self._copy_binary_to_bundle()
+
+    def copy_to_app_bundle(self, clean_first: bool = False) -> bool:
+        """Alias for build() – copies the pre-built binary into the app bundle."""
+        return self._copy_binary_to_bundle(clean_first=clean_first)
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _copy_binary_to_bundle(self, clean_first: bool = True) -> bool:
+        """Copy the pre-built wa_bridge binary into the app bundle.
+
+        The binary is expected at wabaileys-bridge/dist/wa_bridge*,
+        produced by GitHub Actions (setup-wabaileys-bridge action).
+
+        Args:
+            clean_first: If True, remove the destination directory before copying.
+
+        Returns True when the binary is copied (or already present);
+        False if no binary was found.
+        """
+        bridge_dist = self.bridge_dir / "dist"
+        binaries = self._find_bridge_binary(bridge_dist)
+        if not binaries:
+            self._log("No bridge binary found in wabaileys-bridge/dist – skipping copy")
+            return False
+
+        binary = binaries[0]
+        dest_dir = self._bridge_dest_dir()
+
+        if clean_first and dest_dir.exists():
+            self._log(f"Cleaning existing bridge directory: {dest_dir.relative_to(self.project_root)}")
+            shutil.rmtree(dest_dir, ignore_errors=True)
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / binary.name
+
+        shutil.copy2(binary, dest)
+        os.chmod(dest, 0o755)
+
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        self._log(f"Copied bridge binary to {dest.relative_to(self.project_root)} ({size_mb:.1f} MB)")
+        return True
+
+    def _find_bridge_binary(self, bridge_dist_dir: Path) -> List[Path]:
+        """Find the bridge binary in the bridge's dist directory."""
+        patterns = ["wa_bridge*", "wa_bridge.exe"]
+        found = []
+        for pat in patterns:
+            found.extend(bridge_dist_dir.glob(pat))
+        return found
+
+    def _bridge_dest_dir(self) -> Path:
+        """Return the destination directory for the bridge inside the app bundle."""
+        if platform.system() == "Darwin":
+            return self.dist_root / "eCan.app" / "Contents" / "Resources" / "wa_bridge"
+        if platform.system() == "Windows":
+            return self.dist_root / "eCan" / "wa_bridge"
+        return self.dist_root / "eCan" / "wa_bridge"
+
+    def _log(self, msg: str):
+        print(f"[WA-BRIDGE] {msg}")

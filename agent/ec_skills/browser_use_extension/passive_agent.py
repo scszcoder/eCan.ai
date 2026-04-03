@@ -276,6 +276,9 @@ class PassiveAgent:
                 logger.info(f"[PassiveAgent] Tab focus restored to ...{target_short}")
             except Exception as e:
                 logger.warning(f"[PassiveAgent] Failed to restore tab focus: {e}, continuing on current tab")
+                if "not found" in str(e).lower() or "detach" in str(e).lower():
+                    logger.info(f"[PassiveAgent] Target tab detached — clearing stale _last_focus_target_id")
+                    self._last_focus_target_id = None
 
         # Refresh DOM before element actions to repopulate selector_map from the (now correct) tab.
         if actions:

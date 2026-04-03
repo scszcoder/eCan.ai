@@ -208,12 +208,14 @@ export const AvatarDisplay: React.FC<AvatarDisplayProps> = ({
       {/* Base layer: show chosen avatar video/image if available; otherwise placeholder */}
       {showVideoPreview ? (
         <video
+          key={videoUrl} // Force recreate on src change to avoid stale playback
           src={videoUrl}
           poster={imageUrl || undefined}
           autoPlay
           loop
           muted
           playsInline
+          preload="auto"
           onError={handleVideoError}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />

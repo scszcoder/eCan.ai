@@ -276,7 +276,7 @@ const Login: React.FC = () => {
 			return;
 		}
 		const response = await api.signup(values.username, values.password, i18n.language);
-		if (response.success) {
+		if (response && response.success) {
 			Modal.success({
 				title: t('login.signupSuccess'),
 				content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
@@ -285,7 +285,7 @@ const Login: React.FC = () => {
 				}
 			});
 		} else {
-			messageApi.error(response.error?.message || t('login.failed'));
+			messageApi.error(response?.error?.message || t('login.failed'));
 		}
 	};
 
