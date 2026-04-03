@@ -756,6 +756,14 @@
       "monitorDonePolicies": {
         "keep": "Keep monitors running",
         "stop": "Stop monitors"
+      },
+      "loopHistoryMode": "Loop History",
+      "loopHistoryModes": {
+        "clear": "Clear each round (default)",
+        "trim5": "Keep last 5 steps",
+        "trim10": "Keep last 10 steps",
+        "trim20": "Keep last 20 steps",
+        "accumulate": "Accumulate all rounds"
       }
     },
     "mcp": {

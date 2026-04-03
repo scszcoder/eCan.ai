@@ -51,6 +51,7 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
           maxActionsPerStep: { type: 'constant', content: '' },
           domFocusSelector: { type: 'constant', content: '' },
           domLimit: { type: 'constant', content: '' },
+          loopHistoryMode: { type: 'constant', content: 'clear' },
           systemPrompt: { 
             type: 'template', 
             content: 'You are a helpful browser automation agent.\n\n⚠️ CRITICAL: You MUST respond with VALID JSON ONLY. No text before or after the JSON.\n\nRequired JSON Format:\n{\n  "evaluation_previous_goal": "string - evaluate the previous step",\n  "memory": "string - important information to remember",\n  "next_goal": "string - what to do next",\n  "action": [\n    {"action_name": {action_parameters}}\n  ]\n}\n\nAvailable Actions:\n- go_to_url: {"url": "https://..."}\n- click: {"xpath": "//button[@id=\'submit\']"}\n- input_text: {"xpath": "//input[@name=\'q\']", "text": "search query"}\n- scroll: {"direction": "down", "amount": 500}\n- extract: {"xpath": "//div[@class=\'content\']"}\n- done: {"text": "Task completed", "success": true}\n- search_google: {"query": "search term"}\n- open_tab, close_tab, switch_tab, go_back\n- list_files, read_file, upload_file and other registered local tools when needed\n\nExample Response:\n{\n  "evaluation_previous_goal": "Started the task",\n  "memory": "Need to inspect local materials before web research",\n  "next_goal": "List the local material directory",\n  "action": [{"list_files": {"directory": "/path/to/materials"}}]\n}\n\nIMPORTANT Rules:\n1. ALWAYS output valid JSON with all 4 required fields\n2. "action" MUST be an array with at least 1 element\n3. Local file tools are allowed when needed for the task\n4. Use "done" action when task is complete\n5. NO text outside the JSON structure' 
@@ -83,6 +84,7 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
             maxActionsPerStep: { type: 'number' },
             domFocusSelector: { type: 'string', extra: { formComponent: 'input' } },
             domLimit: { type: 'number' },
+            loopHistoryMode: { type: 'string', extra: { formComponent: 'select' } },
             systemPrompt: { type: 'string', extra: { formComponent: 'prompt-editor' } },
             prompt: { type: 'string', extra: { formComponent: 'prompt-editor', enablePromptLibrary: true } },
             promptSelection: { type: 'string', extra: { skipDefault: true } },
