@@ -487,7 +487,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
-UninstallDisplayIcon={{{{app}}}}\eCan.exe
+UninstallDisplayIcon={{app}}\eCan.exe
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
 CloseApplications=yes
@@ -496,7 +496,6 @@ VersionInfoVersion={file_version}
 WizardStyle=modern
 ; Normal installation: show standard wizard pages with close app prompt
 ; OTA installation (/SILENT): force close via PrepareToInstall function
-; CloseApplicationsFilter=*.exe: notify user if any .exe under {app} is still running
 ; Language detection: automatically match system language, fallback to English if no match
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
@@ -506,7 +505,6 @@ SetupMutex=eCanInstallerMutex
 ; Silent install support for OTA updates
 ; Allow Inno Setup to automatically close ALL processes holding file locks in {{{{app}}}}
 ; This is critical for overwriting files like app_context.py held by Python subprocesses
-; CloseApplicationsFilter=*.exe above tells Inno Setup to monitor all .exe under {app}
 ; For OTA /SILENT: PrepareToInstall() proactively kills eCan.exe + python.exe/pythonw.exe
 AlwaysRestart=no
 ; Uninstall previous version before installing new one
