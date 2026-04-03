@@ -492,11 +492,22 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                                 f"[agent_handler] Skipping relation sync due to agent sync failure: {result.get('error') or result.get('errors') or result}"
                             )
 
-                    _trigger_cloud_sync(updated_agent_data, sync_operation, callback=_after_agent_sync)
-                    
-                    # Sync Agent's Avatar resource to cloud (if avatar changed)
-                    if 'avatar_id' in agent_data:
-                        _sync_agent_avatar_to_cloud(updated_agent_data, Operation.UPDATE, request, params)
+                    # For custom avatars: sync avatar first (FK dependency), then agent in callback.
+                    # For system avatars (A00x): _trigger_cloud_sync strips avatar_resource_id itself.
+                    avatar_rid_upd = updated_agent_data.get('avatar_resource_id') or ''
+                    avatar_changed = 'avatar_id' in agent_data
+                    has_custom_avatar_upd = isinstance(avatar_rid_upd, str) and avatar_rid_upd and not avatar_rid_upd.startswith('A00')
+                    if avatar_changed and has_custom_avatar_upd:
+                        _upd_op = Operation.UPDATE
+                        _upd_agent = updated_agent_data
+                        _upd_sync_op = sync_operation
+                        def _after_avatar_then_agent_upd(avatar_result: Dict[str, Any]):
+                            _trigger_cloud_sync(_upd_agent, _upd_sync_op, callback=_after_agent_sync)
+                        _sync_agent_avatar_to_cloud(updated_agent_data, _upd_op, request, params, callback=_after_avatar_then_agent_upd)
+                    else:
+                        _trigger_cloud_sync(updated_agent_data, sync_operation, callback=_after_agent_sync)
+                        if avatar_changed:
+                            _sync_agent_avatar_to_cloud(updated_agent_data, Operation.UPDATE, request, params)
                     
                     saved_count += 1
                     logger.info(f"[agent_handler] Updated agent in database: {agent_id}")
@@ -772,10 +783,23 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                     f"[agent_handler] Skipping relation sync due to agent sync failure: {result.get('error') or result.get('errors') or result}"
                 )
 
-        _trigger_cloud_sync(created_agent, Operation.ADD, callback=_after_agent_sync)
-        
-        # Sync Agent's Avatar resource to cloud (if has custom avatar)
-        _sync_agent_avatar_to_cloud(created_agent, Operation.ADD, request, params)
+        # For custom avatars: sync avatar first (FK dependency), then agent in callback.
+        # For system avatars (A00x): _trigger_cloud_sync strips avatar_resource_id itself,
+        # so we can fire agent sync directly without waiting.
+        avatar_rid = created_agent.get('avatar_resource_id') or ''
+        has_custom_avatar = isinstance(avatar_rid, str) and avatar_rid and not avatar_rid.startswith('A00')
+        if has_custom_avatar:
+            def _after_avatar_then_agent(avatar_result: Dict[str, Any]):
+                # Proceed with agent sync even if avatar sync was cached (offline queue)
+                if avatar_result.get('synced') or avatar_result.get('cached'):
+                    _trigger_cloud_sync(created_agent, Operation.ADD, callback=_after_agent_sync)
+                else:
+                    logger.error("[agent_handler] Avatar sync failed; proceeding with agent sync anyway")
+                    _trigger_cloud_sync(created_agent, Operation.ADD, callback=_after_agent_sync)
+            _sync_agent_avatar_to_cloud(created_agent, Operation.ADD, request, params, callback=_after_avatar_then_agent)
+        else:
+            # System avatar or no avatar — agent sync can fire immediately
+            _trigger_cloud_sync(created_agent, Operation.ADD, callback=_after_agent_sync)
 
         logger.info(f"[agent_handler] Successfully created agent '{created_agent.get('name')}' for user: {username}")
         result_data = {
@@ -1005,8 +1029,17 @@ def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation', call
         if callback:
             callback(result)
 
+    # Strip system avatar IDs before cloud sync — system avatars (A001-A007) are
+    # hardcoded locally and never exist in cloud avatar_resources table, so sending
+    # avatar_resource_id for them triggers MySQL FK constraint error 1452.
+    sync_data = agent_data
+    avatar_rid = (agent_data.get('avatar_resource_id') or '') if isinstance(agent_data, dict) else ''
+    if isinstance(avatar_rid, str) and avatar_rid.startswith('A00'):
+        sync_data = {k: v for k, v in agent_data.items() if k != 'avatar_resource_id'}
+        logger.debug(f"[agent_handler] Stripped system avatar_resource_id '{avatar_rid}' from cloud payload")
+
     manager = get_sync_manager()
-    manager.sync_to_cloud_async(DataType.AGENT, agent_data, operation, callback=_callback_chain)
+    manager.sync_to_cloud_async(DataType.AGENT, sync_data, operation, callback=_callback_chain)
 
 
 def _sync_agent_status_to_cloud(agent_service, agent_id: str, status: str) -> None:
@@ -1222,12 +1255,12 @@ def _sync_agent_org_relations(agent_data: Dict[str, Any], org_ids: list, operati
         manager.sync_to_cloud_async(DataType.AGENT_ORG, org_relation_data, operation, callback=_log_result)
 
 
-def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operation', request=None, params=None) -> None:
+def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operation', request=None, params=None, callback=None) -> None:
     """Sync agent's avatar resource to cloud (async, non-blocking)
-    
+
     When creating or updating an agent, if the agent has an avatar_id,
     we need to sync the corresponding avatar resource to cloud.
-    
+
     Args:
         agent_data: Agent data (must contain 'avatar_id' and 'owner')
         operation: Operation type (ADD/UPDATE/DELETE)
@@ -1298,7 +1331,10 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
                 logger.info(f"[agent_handler] 💾 Avatar resource cached for later sync: {avatar_id}")
             elif not result.get('success'):
                 logger.error(f"[agent_handler] ❌ Failed to sync avatar resource: {result.get('error')}")
-        
+            # Invoke caller's callback regardless (e.g. to trigger agent sync after avatar)
+            if callback:
+                callback(result)
+
         # Trigger async cloud sync for avatar resource
         logger.info(f"[agent_handler] Syncing avatar resource to cloud: {avatar_id} ({operation})")
         manager.sync_to_cloud_async(DataType.AVATAR_RESOURCE, avatar_sync_data, operation, callback=_log_result)
