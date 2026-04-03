@@ -27,7 +27,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     LabelInputFile,
     LabelsReformatAction,
     ListSessionMonitorsAction,
-    ListChatAgentsAction,
+    SelectAgentsAction,
     NormalizePageStateAction,
     PersistSessionMonitorsToSkillAction,
     RagQueryAction,
@@ -1576,11 +1576,11 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
 
 
 @custom_controller.action(
-    "List all available agents that can receive chat messages. "
-    "Use this to discover agent IDs before calling send_chat.",
-    param_model=ListChatAgentsAction,
+    "Select agents by filtering on agent name, task name, or task description. "
+    "Use this to discover agent IDs for routing, delegation, or any multi-agent coordination task.",
+    param_model=SelectAgentsAction,
 )
-async def bu_list_chat_agents(params: ListChatAgentsAction) -> ActionResult:
+async def bu_select_agents(params: SelectAgentsAction) -> ActionResult:
     from agent.mcp.server.chat_utils.chat_tools import list_chat_agents
 
     config: Dict[str, Any] = {}
@@ -1588,6 +1588,10 @@ async def bu_list_chat_agents(params: ListChatAgentsAction) -> ActionResult:
         config["exclude_self"] = params.exclude_self
     if params.filter_name is not None:
         config["filter_name"] = params.filter_name
+    if params.filter_task_name is not None:
+        config["filter_task_name"] = params.filter_task_name
+    if params.filter_task_description is not None:
+        config["filter_task_description"] = params.filter_task_description
 
     login = AppContext.login
     result = list_chat_agents(login.main_win, config)
@@ -1602,10 +1606,16 @@ async def bu_list_chat_agents(params: ListChatAgentsAction) -> ActionResult:
             from agent.mcp.server.chat_utils.chat_tools import _mark_discovery
             _mark_discovery(sender_id, agents)
         if agents:
-            agent_lines = [
-                f"- {a['name']} (ID: {a['id']}, tasks: {', '.join(a.get('tasks', [])) or 'none'})"
-                for a in agents
-            ]
+            agent_lines = []
+            for a in agents:
+                tasks_str = ', '.join(a.get('tasks', [])) or 'none'
+                descs = a.get('task_descriptions', [])
+                desc_str = ('; '.join(descs)) if descs else ''
+                line = f"- {a['name']} (ID: {a['id']}, tasks: {tasks_str}"
+                if desc_str:
+                    line += f", task_desc: {desc_str}"
+                line += ")"
+                agent_lines.append(line)
             msg = f"Available agents ({result.get('count', 0)}):\n" + "\n".join(agent_lines)
         else:
             msg = "No agents available for chat."
