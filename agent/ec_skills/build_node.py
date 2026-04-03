@@ -5269,6 +5269,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_dom_limit = None
 
+    # loopHistoryMode — controls how the browser-use sub-agent's history is handled
+    # when the agent is reused across pend_event loop iterations (within the same task).
+    # Values:
+    #   "clear"      (default) — wipe history + message_manager on each round; agent
+    #                            starts every iteration with a clean slate.  Best for
+    #                            stateless workflows (e.g. front-desk dispatch loop).
+    #   "trim:<N>"             — keep only the last N history items (rolling window).
+    #                            Useful when some recent context helps but full history bloats.
+    #   "accumulate"           — keep all history across rounds.  Use only for short-lived
+    #                            loops where cross-round memory is intentional.
+    _loop_history_mode_raw = (
+        ((inputs.get("loopHistoryMode") or {}).get("content") or "clear").strip().lower() or "clear"
+    )
+    # Normalise: "trim" without N defaults to trim:10
+    if _loop_history_mode_raw == "trim":
+        _loop_history_mode_raw = "trim:10"
+    loop_history_mode = _loop_history_mode_raw  # e.g. "clear", "trim:10", "accumulate"
+
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
     logger.info(
         f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
@@ -5497,6 +5515,98 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     _cached_browser_sessions: dict[str, Any] = {}
     _last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
     _browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
+
+    # Cache browser-use sub-agents across loop iterations (one per scope/task).
+    # The browser-use Agent is heavyweight — it owns MessageManager, history, LLM
+    # client references, etc.  Re-creating it on every pend_event cycle wastes ~860 MB
+    # of allocations per cycle and adds unnecessary init overhead.
+    # Keyed by the same _browser_scope_key used for _cached_browser_sessions.
+    _cached_bu_agents: dict[str, Any] = {}
+
+    def _reset_bu_agent_for_next_round(agent: Any, mode: str, task: str) -> None:
+        """Reset a cached browser-use sub-agent for re-use in the next loop round.
+
+        Args:
+            agent: The browser-use Agent instance to reset.
+            mode:  loop_history_mode string — "clear", "trim:<N>", or "accumulate".
+            task:  The new task string for this round (updates agent.task).
+        """
+        try:
+            # Always update the task text so the agent knows what to do this round.
+            if hasattr(agent, 'task'):
+                agent.task = task
+
+            # Always reset AgentState fields that would cause run() to exit immediately
+            # or behave incorrectly on re-entry:
+            #   - n_steps: kept as-is by default but must not exceed max_steps; resetting
+            #     to 1 gives each round a full fresh step budget.
+            #   - consecutive_failures: must be 0 or run() may abort before the first step.
+            #   - stopped: True would cause the main loop to break immediately.
+            #   - history.is_done(): True would skip the loop entirely on some paths.
+            st = getattr(agent, 'state', None)
+            if st is not None:
+                try:
+                    st.n_steps = 1
+                except Exception:
+                    pass
+                try:
+                    st.consecutive_failures = 0
+                except Exception:
+                    pass
+                try:
+                    st.stopped = False
+                except Exception:
+                    pass
+
+            if mode == "accumulate":
+                # Keep message history — nothing more to do.
+                logger.debug("[BrowserAutomation] loop_history_mode=accumulate: preserving full history")
+                return
+
+            # For "clear" and "trim" reset the message_manager state
+            # (context_messages, agent_history_items) so the LLM doesn't see stale DOM.
+            mm = getattr(agent, 'message_manager', None)
+            if mm:
+                mm_state = getattr(mm, 'state', None)
+                if mm_state:
+                    # Clear short-term context messages (current step DOM state, tool results)
+                    if hasattr(mm_state, 'context_messages'):
+                        mm_state.context_messages.clear()
+
+                    if mode == "clear":
+                        if hasattr(mm_state, 'agent_history_items'):
+                            mm_state.agent_history_items.clear()
+                        logger.debug("[BrowserAutomation] loop_history_mode=clear: wiped message_manager history")
+
+                    elif mode.startswith("trim:"):
+                        try:
+                            keep_n = int(mode.split(":", 1)[1])
+                        except (ValueError, IndexError):
+                            keep_n = 10
+                        if hasattr(mm_state, 'agent_history_items'):
+                            items = mm_state.agent_history_items
+                            if len(items) > keep_n:
+                                del items[:-keep_n]
+                        logger.debug(f"[BrowserAutomation] loop_history_mode={mode}: trimmed to last {keep_n} history items")
+
+            # Reset AgentHistoryList (used for final_result / is_done checks).
+            # Without this, history.is_done() returns True from the previous round and
+            # run() may exit before executing a single step.
+            hist = getattr(agent, 'history', None)
+            if hist is not None:
+                if mode == "clear":
+                    if hasattr(hist, 'history'):
+                        hist.history.clear()
+                elif mode.startswith("trim:"):
+                    try:
+                        keep_n = int(mode.split(":", 1)[1])
+                    except (ValueError, IndexError):
+                        keep_n = 10
+                    if hasattr(hist, 'history') and len(hist.history) > keep_n:
+                        del hist.history[:-keep_n]
+
+        except Exception as _reset_err:
+            logger.warning(f"[BrowserAutomation] _reset_bu_agent_for_next_round error (non-fatal): {_reset_err}")
 
     def _resolve_browser_scope_key(state: dict | None = None) -> str:
         """Resolve a stable browser scope key from workflow state.
@@ -7483,7 +7593,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if browser_type_setting == 'new chromium':
                 # Mode 1: Let browser-use create and manage its own Chromium browser
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
-                agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                _bu_scope_key = _resolve_browser_scope_key(state)
+                _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
+                if _cached_bu_agent is not None:
+                    _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
+                    agent = _cached_bu_agent
+                    logger.info(f"[BrowserAutomation] Reusing cached browser-use agent (scope={_bu_scope_key}, mode={loop_history_mode})")
+                else:
+                    agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                    _cached_bu_agents[_bu_scope_key] = agent
+                    logger.info(f"[BrowserAutomation] Created new browser-use agent and cached (scope={_bu_scope_key})")
                 _agent_ref["agent"] = agent
                 
             else:
@@ -7724,8 +7843,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
 
-                    # Create agent with existing browser session
-                    agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                    # Reuse cached browser-use sub-agent if available (avoids per-cycle
+                    # re-init overhead and the ~860 MB allocation spike).
+                    _bu_scope_key = _resolve_browser_scope_key(state)
+                    _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
+                    if _cached_bu_agent is not None:
+                        _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
+                        # Re-bind the session in case it was recreated by the preflight above.
+                        try:
+                            _cached_bu_agent.browser_session = browser_session
+                        except Exception:
+                            pass
+                        agent = _cached_bu_agent
+                        logger.info(
+                            f"[BrowserAutomation] Reusing cached browser-use agent "
+                            f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
+                        )
+                    else:
+                        # First iteration for this task — create a new agent and cache it.
+                        agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                        _cached_bu_agents[_bu_scope_key] = agent
+                        logger.info(
+                            f"[BrowserAutomation] Created new browser-use agent and cached "
+                            f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
+                        )
                     _agent_ref["agent"] = agent
                 else:
                     # Fallback: browser session creation failed or unsupported driver
