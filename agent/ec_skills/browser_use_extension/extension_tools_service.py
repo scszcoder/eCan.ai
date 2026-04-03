@@ -2182,8 +2182,29 @@ _FEIGE_LIST_SESSIONS_JS = r"""
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
     var tsEl = el.querySelector('.CEnLM8MEGksTdgi_8Lqf');
     var ts = tsEl ? tsEl.textContent.trim() : '';
+    // Detect unread: try known class, then sup/badge elements, then aria attributes
+    var unread = 0;
     var unreadEl = el.querySelector('.rxAvaVFJHvpEGMc1ejm1');
-    var unread = unreadEl ? parseInt(unreadEl.textContent.trim(), 10) || 0 : 0;
+    if (unreadEl) {
+      unread = parseInt(unreadEl.textContent.trim(), 10) || 1;
+    } else {
+      // Fallback: sup element (dot/number badge)
+      var supEl = el.querySelector('sup');
+      if (supEl) {
+        unread = parseInt(supEl.textContent.trim(), 10) || 1;
+      } else {
+        // Fallback: any element with class containing 'badge' or 'unread' (case-insensitive)
+        var allEls = el.querySelectorAll('*');
+        for (var j = 0; j < allEls.length; j++) {
+          var cls = allEls[j].className || '';
+          if (typeof cls === 'string' && (cls.toLowerCase().indexOf('badge') >= 0 || cls.toLowerCase().indexOf('unread') >= 0)) {
+            var txt = allEls[j].textContent.trim();
+            unread = parseInt(txt, 10) || 1;
+            break;
+          }
+        }
+      }
+    }
     if (!includeRead && unread === 0) continue;
     results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread });
   }
