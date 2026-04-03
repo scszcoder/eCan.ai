@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "description": "WhatsApp Baileys bridge — REST API for eCan.ai channel integration",
   "main": "index.js",
+  "bin": {
+    "wabaileys-bridge": "./index.js"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "build:win":       "pkg . --target node18-win-x64   --compress GZip --output dist/wa_bridge.exe",
-    "build:mac-x64":   "pkg . --target node18-macos-x64 --compress GZip --output dist/wa_bridge_mac_x64",
-    "build:mac-arm64": "pkg . --target node18-macos-arm64 --compress GZip --output dist/wa_bridge_mac_arm64",
-    "build:linux":     "pkg . --target node18-linux-x64 --compress GZip --output dist/wa_bridge_linux"
+    "prebuild": "node build-prepare.js",
+    "build:win": "npm run prebuild && pkg dist/bundle.cjs --target node18-win-x64   --compress GZip --public --output dist/wa_bridge.exe",
+    "build:mac-x64": "npm run prebuild && pkg dist/bundle.cjs --target node18-macos-x64 --compress GZip --public --output dist/wa_bridge_mac_x64",
+    "build:mac-arm64": "npm run prebuild && pkg dist/bundle.cjs --target node18-macos-arm64 --compress GZip --public --output dist/wa_bridge_mac_arm64",
+    "build:linux": "npm run prebuild && pkg dist/bundle.cjs --target node18-linux-x64 --compress GZip --public --output dist/wa_bridge_linux"
   },
   "pkg": {
     "assets": [
@@ -20,12 +24,13 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
-    "express": "^4.18.2",
     "axios": "^1.6.0",
+    "express": "^4.18.2",
     "pino": "^8.16.0",
     "qrcode": "^1.5.3"
   },
   "devDependencies": {
+    "esbuild": "^0.27.7",
     "pkg": "^5.8.1"
   },
   "engines": {

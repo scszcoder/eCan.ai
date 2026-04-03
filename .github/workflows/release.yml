@@ -689,6 +689,15 @@ jobs:
       uses: ./.github/actions/setup-node-env
 
     # ------------------------------------------------------------------------
+    # Step Group 2.5: WhatsApp Baileys Bridge Environment
+    # ------------------------------------------------------------------------
+    - name: Setup WhatsApp Baileys Bridge Environment
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '18'
+        bridge-dir: wabaileys-bridge
+
+    # ------------------------------------------------------------------------
     # Step Group 3: Windows-Specific Dependencies
     # ------------------------------------------------------------------------
     - name: Install Windows-specific packages
@@ -1557,6 +1566,16 @@ jobs:
         "
 
     # ------------------------------------------------------------------------
+    # Step Group 2.5: WhatsApp Baileys Bridge Environment
+    # ------------------------------------------------------------------------
+    - name: Setup WhatsApp Baileys Bridge Environment
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '18'
+        bridge-dir: wabaileys-bridge
+
+    # ------------------------------------------------------------------------
     # Step Group 3: Build Environment Preparation
     # ------------------------------------------------------------------------
     - name: Setup Build Directories
@@ -2157,6 +2176,15 @@ jobs:
 
     - name: Setup Node.js Environment
       uses: ./.github/actions/setup-node-env
+
+    # ------------------------------------------------------------------------
+    # Step Group 2.5: WhatsApp Baileys Bridge Environment
+    # ------------------------------------------------------------------------
+    - name: Setup WhatsApp Baileys Bridge Environment
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '18'
+        bridge-dir: wabaileys-bridge
 
     - name: Install Linux system dependencies
       run: |

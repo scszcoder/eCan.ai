@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 from build_system.build_validator import BuildValidator
 from build_system.build_cleaner import BuildCleaner
 from build_system.build_utils import standardize_artifact_names, show_build_results
-from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder
+from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder, WABaileysBridgeBuilder
 from build_system.minibuild_core import MiniSpecBuilder
 from build_system.build_utils import URLSchemeBuildConfig
 from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
@@ -236,7 +236,23 @@ class UnifiedBuildSystem:
             return minispec.build(mode, profile)
         except Exception as e:
             raise BuildError(f"Core build failed: {e}", 1)
-    
+
+    def build_wabaileys_bridge(self) -> None:
+        """Copy the pre-built wa_bridge binary into the app bundle.
+
+        The binary is produced by GitHub Actions (setup-wabaileys-bridge action)
+        and placed at wabaileys-bridge/dist/.  This method only copies it to the
+        correct location inside the app bundle.
+        """
+        print("[WA-BRIDGE] Copying wa_bridge binary into app bundle...")
+        try:
+            bridge = WABaileysBridgeBuilder(self.project_root)
+            ok = bridge.build(skip=True)
+            if not ok:
+                print("[WA-BRIDGE] [WARNING] Bridge binary not found – skipping")
+        except Exception as e:
+            print(f"[WA-BRIDGE] [WARNING] Bridge copy error: {e} – continuing")
+
     def build_linux(self, mode: str, formats: Optional[list] = None, parallel: bool = True) -> bool:
         """Build Linux packages (PyInstaller + AppImage + DEB)
         
@@ -503,6 +519,14 @@ class UnifiedBuildSystem:
                 if not self.build_core(mode):
                     raise BuildError("Core application build failed", 1)
                 build_times['core'] = time.perf_counter() - stage_start
+
+                # Build WhatsApp Baileys Bridge (must run after core so the app bundle exists)
+                if not kwargs.get('skip_wa_bridge', False):
+                    stage_start = time.perf_counter()
+                    self.build_wabaileys_bridge()
+                    build_times['wabaileys_bridge'] = time.perf_counter() - stage_start
+                else:
+                    print("[WA-BRIDGE] Skipped (--skip-wa-bridge)")
             
             # Code signing
             if not kwargs.get('skip_signing', False):
@@ -569,10 +593,11 @@ def main():
     parser.add_argument("--skip-cleanup", action="store_true", help="Skip environment cleanup")
     parser.add_argument("--skip-signing", action="store_true", help="Skip code signing")
     parser.add_argument("--test-installer", action="store_true", help="Test installer after creation")
+    parser.add_argument("--skip-wa-bridge", action="store_true", help="Skip WhatsApp Baileys Bridge build")
     # '--force' removed: always rebuild behavior is the default now
-    
+
     args = parser.parse_args()
-    
+
     build_system = UnifiedBuildSystem()
     return build_system.build(
         mode=args.mode,
@@ -583,7 +608,8 @@ def main():
         skip_precheck=args.skip_precheck,
         skip_cleanup=args.skip_cleanup,
         skip_signing=args.skip_signing,
-        test_installer=args.test_installer
+        test_installer=args.test_installer,
+        skip_wa_bridge=args.skip_wa_bridge,
     )
 
 
