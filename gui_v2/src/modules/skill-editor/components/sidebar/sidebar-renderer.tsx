@@ -81,7 +81,7 @@ export const SidebarRenderer = () => {
     const disposable = playground.config.onReadonlyOrDisabledChange(() => {
       refresh();
     });
-    return () => disposable.dispose();
+    return () => queueMicrotask(() => disposable.dispose());
   }, [playground]);
   /**
    * Listen selection but do not auto-close the sidebar. We keep the editor open
@@ -92,7 +92,7 @@ export const SidebarRenderer = () => {
       try { console.debug('[SidebarRenderer] selection changed, keeping sidebar as-is'); } catch {}
       // Intentionally no auto-close behavior here
     });
-    return () => toDispose.dispose();
+    return () => queueMicrotask(() => toDispose.dispose());
   }, [selection]);
 
   // Track when the sidebar is explicitly opened to prevent accidental closes
@@ -109,7 +109,7 @@ export const SidebarRenderer = () => {
       const toDispose = node.onDispose(() => {
         setNodeId(undefined);
       });
-      return () => toDispose.dispose();
+      return () => queueMicrotask(() => toDispose.dispose());
     }
     return () => {};
   }, [node]);
@@ -123,11 +123,17 @@ export const SidebarRenderer = () => {
     return !sidebarDisabled && !playground.config.readonly;
   }, [node, playground.config.readonly]);
   /**
-   * Add "key" to rerender the sidebar when the node changes
+   * Note: we intentionally do NOT use key={node.id} here.
+   * Adding key would force React to unmount the entire SidebarNodeRenderer tree (including
+   * PromptEditorWithVariables, which creates an internal React root) and remount it when
+   * switching nodes — causing the "Attempted to synchronously unmount a root while React was
+   * already rendering" error.
+   * Without key, React updates the component in-place; context consumers re-render
+   * correctly when the node reference changes.
    */
   const content =
     node && visible ? (
-      <PlaygroundEntityContext.Provider key={node.id} value={node}>
+      <PlaygroundEntityContext.Provider value={node}>
         <SidebarNodeRenderer node={node} />
       </PlaygroundEntityContext.Provider>
     ) : null;
