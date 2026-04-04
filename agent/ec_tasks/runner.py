@@ -892,11 +892,16 @@ class TaskRunner(Generic[Context]):
                         f"(chatId -> sessionId='{task_session_id}') -> task '{task.name}'"
                     )
                 elif et in {"chat_message", "human_chat", "channel_message"} and not task_session_id:
+                    # Session-less chat tasks act as catch-all handlers. The router's
+                    # session-filter logic prefers session-specific tasks and only falls
+                    # back to session-less ones when no session match exists.
+                    if node_match_fields:
+                        rule["match_fields"] = list(node_match_fields)
+                        rule["match_mode"] = "all"
                     logger.info(
-                        f"[EventRouting] Skipping generic chat routing rule for task '{task.name}' "
-                        f"because it has no sessionId; fallback session-scoped chatter routing will handle assignment"
+                        f"[EventRouting] Added session-less chat routing rule: event '{et}' "
+                        f"-> task '{task.name}' (catch-all, {len(node_match_fields)} match fields)"
                     )
-                    continue
                 elif node_match_fields:
                     # Use match_fields from the node config for declarative matching
                     rule["match_fields"] = node_match_fields

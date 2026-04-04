@@ -356,6 +356,7 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
         raw_fields = advanced.get("fields") if isinstance(advanced.get("fields"), dict) else (
             merged.get("fields") if isinstance(merged.get("fields"), dict) else {}
         )
+        _DOM_PROPS = {"textContent", "innerText", "innerHTML", "value", "checked"}
         if item_selector and raw_fields:
             normalized_fields = {}
             for field_name, spec in raw_fields.items():
@@ -366,7 +367,11 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
                     normalized.pop("text", None)
                     normalized.setdefault("source", "text")
                 elif normalized.get("attr") and not normalized.get("source"):
-                    normalized.setdefault("source", "attr")
+                    if normalized["attr"] in _DOM_PROPS:
+                        normalized.pop("attr")
+                        normalized.setdefault("source", "text")
+                    else:
+                        normalized.setdefault("source", "attr")
                 elif not normalized.get("source"):
                     normalized.setdefault("source", "text")
                 normalized_fields[str(field_name)] = normalized
@@ -392,7 +397,11 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
                     normalized.pop("text", None)
                     normalized.setdefault("source", "text")
                 elif normalized.get("attr") and not normalized.get("source"):
-                    normalized.setdefault("source", "attr")
+                    if normalized["attr"] in _DOM_PROPS:
+                        normalized.pop("attr")
+                        normalized.setdefault("source", "text")
+                    else:
+                        normalized.setdefault("source", "attr")
                 elif not normalized.get("source"):
                     normalized.setdefault("source", "text")
                 normalized_fields[str(field_name)] = normalized
@@ -563,7 +572,13 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                     raw = spec.value || '';
                 }} else if (source === 'attr') {{
                     const attrTarget = target || el;
-                    raw = attrTarget && attrTarget.getAttribute ? (attrTarget.getAttribute(spec.attr || 'href') || '') : '';
+                    const attrName = spec.attr || 'href';
+                    const domProps = ['textContent','innerText','innerHTML','value','checked','src','href'];
+                    if (domProps.includes(attrName) && attrTarget) {{
+                        raw = normalizeText(String(attrTarget[attrName] || ''));
+                    }} else {{
+                        raw = attrTarget && attrTarget.getAttribute ? (attrTarget.getAttribute(attrName) || '') : '';
+                    }}
                 }} else if (source === 'closest_text') {{
                     const closestBase = el && el.closest && spec.closest ? el.closest(spec.closest) : null;
                     raw = normalizeText((closestBase && closestBase.textContent) || (el && el.textContent) || '');
