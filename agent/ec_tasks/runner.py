@@ -2228,7 +2228,7 @@ class TaskRunner(Generic[Context]):
         has_auto = "auto" in triggers
         # Consolidate all message-based triggers (message, a2a_queue, chat_queue, interaction) into one
         has_message = "message" in triggers or any(t in triggers for t in ("a2a_queue", "chat_queue", "interaction"))
-        has_queue = has_message or has_dev
+        has_queue = has_message or has_dev or has_auto
         
         # --- Dev mode: initial kickoff ---
         if has_dev and current_task:
@@ -2411,7 +2411,14 @@ class TaskRunner(Generic[Context]):
             f"[SUBMIT][{_call_id}] Guard check for '{task.name}': "
             f"state={_task_state!r}, is_input_required={_is_input_required}"
         )
-        if _is_input_required:
+        # Allow through if the message carries actual event data (browser_event,
+        # chat_message, etc.) — these should resume the interrupted pend_event.
+        _has_real_message = (
+            isinstance(msg, dict)
+            and msg.get("__trigger_source__") == "message"
+            and not msg.get("__auto_kickoff__")
+        )
+        if _is_input_required and not _has_real_message:
             logger.warning(
                 f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r}"
             )
@@ -2421,6 +2428,11 @@ class TaskRunner(Generic[Context]):
             except Exception as e:
                 logger.error(f"[SUBMIT][{_call_id}] Error in guard emit/return for '{task.name}': {e}")
             return
+        if _is_input_required and _has_real_message:
+            logger.info(
+                f"[SUBMIT][{_call_id}] Guard bypassed for '{task.name}' — "
+                f"real message arrived while parked on interrupt, will resume"
+            )
 
         # Initialize task state
         logger.info(f"[SUBMIT][{_call_id}] Guard passed for '{task.name}', proceeding to submit...")
