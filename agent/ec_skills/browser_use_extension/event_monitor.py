@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import os
 import re
 import time
 import uuid
@@ -1378,6 +1379,8 @@ async def _start_dom_mutation_monitor(
             "last_items": [],
             "last_added_items": [],
             "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
+            "_dom_debug": os.environ.get("ECAN_DOM_DEBUG", "") == "1",
+            "_dom_debug_dump_expr": None,  # lazy-built JS for text skeleton
             "page_mismatch_count": 0,
             # ── Perf caches: avoid re-parsing/re-building every 250ms ──────────
             "_cached_extractor_cfg": extractor_cfg,
@@ -1395,6 +1398,13 @@ async def _start_dom_mutation_monitor(
             logger.warning(f"[EventMonitor] Failed to bind DOM monitor target for '{cfg.label}': {_bind_err}")
             mutation_state["target_id"] = str(getattr(session, "agent_focus_target_id", "") or "")
 
+        if mutation_state["_dom_debug"]:
+            mutation_state["check_interval_ms"] = max(mutation_state["check_interval_ms"], 5000)
+            logger.info(
+                f"[EventMonitor] DOM_DEBUG enabled for '{cfg.label}' — "
+                f"poll interval raised to {mutation_state['check_interval_ms']}ms, "
+                f"text skeleton dump on every heartbeat"
+            )
         logger.info(f"[EventMonitor] DOM polling state initialized for '{cfg.label}'")
         
         # Create monitor object that can be checked periodically
@@ -1675,6 +1685,75 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             return
         mutation_state["page_mismatch_count"] = 0
 
+        # ── DOM Debug: text skeleton dump on heartbeat cycles ─────────────────
+        # Set ECAN_DOM_DEBUG=1 to enable. Slows poll to 5s, dumps compact text
+        # tree of each root so you can see exactly what selectors would match.
+        if mutation_state.get("_dom_debug") and _emit_heartbeat and mon_client and mon_sid:
+            try:
+                _dump_expr = mutation_state.get("_dom_debug_dump_expr")
+                if not _dump_expr:
+                    _roots_json = json.dumps(
+                        (extractor_cfg or {}).get("roots") or ["body"]
+                    )
+                    _dump_expr = f"""
+(function() {{
+  var roots = {_roots_json};
+  var foundRoots = [];
+  for (var i = 0; i < roots.length; i++) {{
+    var els = document.querySelectorAll(roots[i]);
+    for (var j = 0; j < els.length; j++) foundRoots.push(els[j]);
+  }}
+  if (foundRoots.length === 0) foundRoots = [document.body];
+  var lines = [];
+  function walk(el, depth) {{
+    if (depth > 12 || lines.length > 200) return;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'noscript') return;
+    var ownText = '';
+    for (var c = 0; c < el.childNodes.length; c++) {{
+      if (el.childNodes[c].nodeType === 3) ownText += el.childNodes[c].textContent.trim();
+    }}
+    var attrs = '';
+    var qa = el.getAttribute && el.getAttribute('data-qa-id');
+    if (qa) attrs += ' qa="' + qa + '"';
+    var btm = el.getAttribute && el.getAttribute('data-btm');
+    if (btm) attrs += ' btm="' + btm + '"';
+    var title = el.getAttribute && el.getAttribute('title');
+    if (title) attrs += ' title="' + title.slice(0, 30) + '"';
+    var cls = (typeof el.className === 'string') ? el.className : '';
+    if (cls) attrs += ' c="' + cls.slice(0, 45) + '"';
+    var indent = '';
+    for (var d = 0; d < depth; d++) indent += '  ';
+    if (ownText || el.children.length > 0 || attrs) {{
+      lines.push(indent + '<' + tag + attrs + '>' + (ownText ? ' "' + ownText.slice(0, 60) + '"' : ''));
+    }}
+    for (var k = 0; k < el.children.length; k++) walk(el.children[k], depth + 1);
+  }}
+  for (var r = 0; r < foundRoots.length; r++) {{
+    lines.push('=== ROOT ' + r + ': ' + foundRoots[r].tagName + '#' + (foundRoots[r].id || '') + ' ===');
+    walk(foundRoots[r], 0);
+  }}
+  return lines.join('\\n');
+}})()
+"""
+                    mutation_state["_dom_debug_dump_expr"] = _dump_expr
+                _dump_result = await mon_client.send_raw(
+                    "Runtime.evaluate",
+                    {"expression": _dump_expr},
+                    session_id=mon_sid,
+                )
+                _skeleton = str((_dump_result.get("result") or {}).get("value") or "")
+                if _skeleton:
+                    # Log in chunks to avoid truncation by log handlers
+                    _max_dump = 4000
+                    _skeleton = _skeleton[:_max_dump]
+                    logger.info(
+                        f"[EventMonitor][DOM_DEBUG] label='{cfg.label}' "
+                        f"text_skeleton ({len(_skeleton)} chars):\n{_skeleton}"
+                    )
+            except Exception as _dump_err:
+                logger.info(f"[EventMonitor][DOM_DEBUG] dump failed: {_dump_err}")
+
         items = data.get("items") if isinstance(data.get("items"), list) else []
         key_field = str(data.get("key_field") or "")
         key_fields = data.get("key_fields") if isinstance(data.get("key_fields"), list) else []
@@ -1694,24 +1773,24 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             if key:
                 current_keys.append(key)
 
-        # ── Heartbeat for ok/empty status + first-extraction detail log ──────
+        # ── Heartbeat for ok/empty status + item detail log ─────────────────
         if _emit_heartbeat or not mutation_state.get("keys_initialized"):
             _item_keys_preview = [
                 str(item.get("identity_key") or item.get(key_field) or "?")[:40]
                 for item in items[:5]
             ]
-            _first_items_detail = ""
-            if not mutation_state.get("keys_initialized") and items:
-                # One-time detailed dump on first successful extraction
-                _first_items_detail = " | first_items=" + str([
+            _items_detail = ""
+            if items:
+                # Show brief field summary on every heartbeat (not just first)
+                _items_detail = " | sample=" + str([
                     {k: str(v)[:30] for k, v in item.items() if k != "identity_key"}
                     for item in items[:3]
                 ])
-            if _emit_heartbeat or _first_items_detail:
+            if _emit_heartbeat or _items_detail:
                 logger.info(
                     f"[EventMonitor][HB] label='{cfg.label}' status={status or 'ok'} "
                     f"url={current_url[:80]} items={len(items)} keys={_item_keys_preview}"
-                    + _first_items_detail
+                    + _items_detail
                 )
 
         keys_initialized = bool(mutation_state.get("keys_initialized"))
