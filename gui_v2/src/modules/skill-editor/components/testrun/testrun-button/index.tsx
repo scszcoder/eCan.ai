@@ -64,15 +64,15 @@ export function TestRunButton(props: { disabled: boolean }) {
       if (!isValidationDisabled()) {
         await Promise.all(allForms.map(async (form) => form?.validate()));
 
-      const errorMessages: string[] = [];
-      allNodes.forEach((node) => {
-        const form = getNodeForm(node);
-        if (form?.state.invalid) {
-          const nodeTitle = node.data?.title || node.id;
-          const invalidFields = Object.keys(form.state.errors);
-          errorMessages.push(`${t('testrun.validationFailed')}: '${nodeTitle}' - ${invalidFields.join(', ')}`);
-        }
-      });
+        const errorMessages: string[] = [];
+        allNodes.forEach((node) => {
+          const form = getNodeForm(node);
+          if (form?.state.invalid) {
+            const nodeTitle = node.data?.title || node.id;
+            const invalidFields = Object.keys(form.state.errors);
+            errorMessages.push(`${t('testrun.validationFailed')}: '${nodeTitle}' - ${invalidFields.join(', ')}`);
+          }
+        });
 
         if (errorMessages.length > 0) {
           Notification.error({
@@ -167,19 +167,32 @@ export function TestRunButton(props: { disabled: boolean }) {
       }
       // Capture the active run_id so the Stop button can reference it for cancel
       try {
-        const returnedRunId = (response as any)?.data?.runId;
-        const activeRunId = returnedRunId || (metaData as any)?.run_id || null;
+        const responseData = (response as any)?.data?.data;
+        let parsedResponseData: any = responseData;
+        try {
+          parsedResponseData = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+        } catch {}
+
+        const returnedRunId =
+          (response as any)?.data?.runId ||
+          (response as any)?.data?.run_id ||
+          (response as any)?.data?.results?.runId ||
+          (response as any)?.data?.results?.run_id ||
+          parsedResponseData?.runId ||
+          parsedResponseData?.run_id ||
+          parsedResponseData?.results?.runId ||
+          parsedResponseData?.results?.run_id ||
+          parsedResponseData?.task_id ||
+          null;
+
+        const activeRunId = returnedRunId && returnedRunId !== '0123456789' ? returnedRunId : null;
         if (activeRunId) {
           useRunningNodeStore.getState().setActiveRunId(activeRunId);
         }
         // Track dev-mode Fargate tasks for cleanup on logout
         if (runInCloud && activeRunId) {
-          const responseData = (response as any)?.data?.data;
           let ecsTaskArn: string | undefined;
-          try {
-            const parsed = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
-            ecsTaskArn = parsed?.ecs_task_arn;
-          } catch {}
+          ecsTaskArn = parsedResponseData?.ecs_task_arn;
           useRunningNodeStore.getState().addDevTask({
             runId: activeRunId,
             skillId: (skillInfo as any)?.skillId || (skillInfo as any)?.skill_id,
@@ -214,7 +227,7 @@ export function TestRunButton(props: { disabled: boolean }) {
     const dispose = clientContext.document.onNodeCreate(({ node }) =>
       listenSingleNodeValidate(node)
     );
-    return () => dispose.dispose();
+    return () => queueMicrotask(() => dispose.dispose());
   }, [clientContext]);
 
   const button =

@@ -816,9 +816,21 @@ try:
         ctx.set_main_loop(loop)
 
         # Start memory monitor (background thread, logs to memory.log)
+        # Enable tracemalloc only when ECAN_TRACEMALLOC=1 for on-demand diagnosis;
+        # it adds measurable CPU overhead so is off by default.
         try:
             from utils.memory_monitor import start_memory_monitor
-            start_memory_monitor()
+            import os as _os
+            _tracemalloc = _os.environ.get("ECAN_TRACEMALLOC", "0") == "1"
+            start_memory_monitor(
+                enable_tracemalloc=_tracemalloc,
+                tracemalloc_frames=8,
+                interval=30,        # check every 30s instead of 60s
+                snapshot_interval=120,  # diff every 2 min instead of 5 min
+                growth_warn_mb_per_min=30,  # warn earlier (was 50)
+            )
+            if _tracemalloc:
+                logger.info("[MemoryMonitor] tracemalloc enabled for leak detection")
         except Exception as e:
             logger.warning(f"Failed to start memory monitor: {e}")
 

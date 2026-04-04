@@ -351,7 +351,7 @@ class DevRunner:
         """
         try:
             if self._dev_task is None:
-                log_msg = "task already done!"
+                log_msg = "task already done! (_dev_task is None)"
                 logger.debug(log_msg)
                 _send_skill_editor_log("log", log_msg)
             else:
@@ -367,11 +367,9 @@ class DevRunner:
                 try:
                     if hasattr(self._dev_task, "stop"):
                         self._dev_task.stop(reason="dev_stop", force=True)
-                        logger.info(f"[DevRunner] ✅ Stop signal sent to ManagedTask")
                     elif hasattr(self._dev_task, "cancel"):
                         # Backward compatibility fallback
                         self._dev_task.cancel()
-                        logger.info(f"[DevRunner] ✅ Cancellation signal sent to ManagedTask")
                         if hasattr(self._dev_task, "exit"):
                             self._dev_task.exit()
                 except Exception as e:

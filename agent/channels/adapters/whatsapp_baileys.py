@@ -247,12 +247,20 @@ class WhatsAppBaileysPlugin(ChannelPlugin):
         )
 
         if getattr(sys, "frozen", False):
-            # PyInstaller: exe lives in sys.executable's directory
+            # PyInstaller: exe lives in Contents/MacOS/, Resources is at Contents/Resources/
             app_dir = Path(sys.executable).parent
+            if sys.platform == "darwin":
+                # macOS: Resources is a sibling of MacOS
+                bundled = app_dir.parent / "Resources" / "wa_bridge" / exe_name
+            elif sys.platform == "win32":
+                # Windows: wa_bridge is next to the exe
+                bundled = app_dir / "wa_bridge" / exe_name
+            else:
+                # Linux: wa_bridge is next to the exe
+                bundled = app_dir / "wa_bridge" / exe_name
         else:
             app_dir = Path(__file__).resolve().parents[4]
-
-        bundled = app_dir / "wabaileys-bridge" / "dist" / exe_name
+            bundled = app_dir / "wabaileys-bridge" / "dist" / exe_name
 
         if bundled.exists():
             cmd = [str(bundled)]

@@ -28,9 +28,79 @@ import json
 import re
 import time
 from datetime import datetime, timezone
+
+def _extract_inner_json(text: str) -> dict:
+    """Extract and parse JSON from text that may be wrapped in markdown code blocks.
+    
+    Handles formats like:
+    - ```json\n{...}\n```
+    - ```\n{...}\n```
+    - Just raw JSON string
+    - JSON-escaped text like "```json\n{\"key\": ...}\n```" (double-encoded)
+    """
+    if not text:
+        return None
+    
+    # Step 1: If text looks like a JSON string with escaped content (double-encoded),
+    # unescape it first by parsing as JSON
+    if text.startswith('"') and text.endswith('"'):
+        try:
+            unescaped = json.loads(text)
+            if isinstance(unescaped, str):
+                text = unescaped
+        except (json.JSONDecodeError, Exception):
+            pass
+    
+    # Step 2: Try to find JSON inside markdown code blocks
+    patterns = [
+        r'```json\s*\n(.*?)\n```',  # ```json\n{...}\n```
+        r'```\s*\n(.*?)\n```',      # ```\n{...}\n```
+        r'```(.*?)```',                 # ```{...}```
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            json_str = match.group(1).strip()
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+    
+    # Step 3: Try parsing the whole text as JSON (in case it's already clean)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
 from typing import Any, Callable, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
+
+def _search_nested(data: Any, target_key: str, max_depth: int = 4) -> Any:
+    """Search for `target_key` in a nested dict up to max_depth levels.
+
+    Used when a prompt variable {{product_name}} needs to resolve from a deeply
+    nested payload like {"product_profile": {"platforms": [...], "product_name": "foo"}}.
+    Only descends into dict-valued keys to avoid iterating over long lists.
+    """
+    if max_depth <= 0 or not isinstance(data, dict):
+        return None
+    if target_key in data:
+        return data.get(target_key)
+    for k, v in data.items():
+        if isinstance(v, dict):
+            result = _search_nested(v, target_key, max_depth - 1)
+            if result is not None:
+                return result
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Type alias for a provider function
@@ -193,6 +263,7 @@ def _provide_human_input(state: dict, mainwin: Any) -> str:
     # Direct input field
     inp = state.get("input", "")
     if isinstance(inp, str) and inp.strip():
+        logger.debug(f"[human_input provider] found in state['input']: '{inp[:100]}...'")
         return inp.strip()
 
     # From messages (last item in messages list that's a plain string)
@@ -200,7 +271,10 @@ def _provide_human_input(state: dict, mainwin: Any) -> str:
     if len(messages) >= 5:
         msg_txt = messages[4]
         if isinstance(msg_txt, str) and msg_txt.strip():
+            logger.debug(f"[human_input provider] found in messages[4]: '{msg_txt[:100]}...'")
             return msg_txt.strip()
+    
+    logger.debug(f"[human_input provider] NOT FOUND: input='{inp}', messages_len={len(messages)}, messages[4]={messages[4] if len(messages) >= 5 else 'N/A'}")
 
     return ""
 
@@ -457,6 +531,8 @@ def resolve_prompt_variables(
         - arbitrary business fields (e.g. product_keyword, brand, model):
           first checks latest output top-level key, then falls back to other
           previous outputs by recency.
+        - node_id variables: when var matches an upstream node id, return
+          the entire node output (enabling {{node_name}} as a full-context alias).
         """
         items = _ordered_tool_result_items(st)
         if not items:
@@ -476,22 +552,97 @@ def resolve_prompt_variables(
                 return None
 
         def _candidate_dicts(output: Any) -> List[dict]:
-            """Collect possible business-payload dicts from a node output."""
+            """Collect possible business-payload dicts from a node output.
+
+            Handles the double-nested llm_result structure produced by standard_post_llm_func:
+                {"llm_result": {"llm_result": {...business JSON...}}}
+            by iteratively unwrapping llm_result wrappers.
+
+            Returns an ordered list of candidate dicts (outermost first), so callers
+            can check top-level keys before falling back to nested ones.
+            """
             out: List[dict] = []
-            if isinstance(output, dict):
-                out.append(output)
-                # Common wrappers that may carry JSON-encoded business payload.
-                for key in ("final", "result", "extracted_content", "content", "data"):
-                    if key not in output:
-                        continue
-                    parsed = _try_parse_json_text(output.get(key))
-                    if isinstance(parsed, dict):
-                        out.append(parsed)
-            else:
+            if not isinstance(output, dict):
                 parsed = _try_parse_json_text(output)
                 if isinstance(parsed, dict):
                     out.append(parsed)
+                return out
+
+            # Always include the raw output as the first candidate.
+            out.append(output)
+
+            # Iteratively unwrap nested llm_result wrappers.
+            # Example chain: {"llm_result": {"llm_result": {"product_name": "foo"}}}
+            # Step 1: inner = {"llm_result": {"product_name": "foo"}}  → append
+            # Step 2: inner = {"product_name": "foo"}                  → append, no more unwrap
+            current = output
+            _llm_key = "llm_result"
+            while True:
+                if not isinstance(current, dict):
+                    break
+                inner = current.get(_llm_key)
+                if not isinstance(inner, dict):
+                    break
+                # Avoid infinite loop on pathological {"llm_result": {"llm_result": ...}}
+                # Only continue if the inner value is itself wrapped.
+                if inner is current:
+                    break
+                if inner not in out:
+                    out.append(inner)
+                # Keep unwrapping only if the inner dict itself has an llm_result key.
+                if _llm_key not in inner:
+                    break
+                current = inner
+
+            # Common wrappers that may carry JSON-encoded business payload.
+            # These are checked against the innermost unwrapped dict (current).
+            for key in ("final", "result", "extracted_content", "content", "data"):
+                val = current.get(key)
+                if val is None:
+                    continue
+                parsed = _try_parse_json_text(val)
+                if isinstance(parsed, dict) and parsed not in out:
+                    out.append(parsed)
+
             return out
+
+        def _extract_done_result_from_browser_use(output: Any) -> Optional[dict]:
+            """Extract the done() JSON result from browser-use node output.
+            
+            Browser-use nodes store the done() action result differently from LLM nodes.
+            The done() JSON is usually in nlp_annotation field or as part of result field.
+            We need to extract just this clean JSON, not the full history with all actions.
+            """
+            if not isinstance(output, dict):
+                return None
+            
+            # Check for nlp_annotation which often contains the done() result
+            nlp = output.get("nlp_annotation")
+            if isinstance(nlp, dict):
+                result_data = nlp.get("result_data") or nlp.get("result") or nlp.get("content")
+                if isinstance(result_data, dict):
+                    # Check if this looks like a business JSON (has stage, platform, etc.)
+                    if "stage" in result_data or "result" in result_data:
+                        return result_data
+            
+            # Check for result field at top level
+            result = output.get("result")
+            if isinstance(result, dict):
+                if "stage" in result or "success" in result:
+                    return result
+            
+            # Check for message field containing clean JSON (not the full history)
+            msg = output.get("message")
+            if isinstance(msg, str) and msg.strip():
+                # Only extract if message doesn't look like full history
+                # Full history contains "actions", "all_model_outputs", "find_elements"
+                if "all_model_outputs" not in msg and "find_elements" not in msg:
+                    inner = _extract_inner_json(msg)
+                    if inner and isinstance(inner, dict):
+                        if "stage" in inner or "result" in inner:
+                            return inner
+            
+            return None
 
         def _compose_search_keyword(payload: dict) -> str:
             """Resolve explicit search keyword from upstream output only."""
@@ -502,21 +653,35 @@ def resolve_prompt_variables(
                 return direct.strip()
             return ""
 
-        latest_key, latest_val = items[-1]
         upstream_map = {k: v for k, v in items}
         upstream_ids = [k for k, _ in items]
 
+        # Also check state["result"] for LLM nodes directly.
+        # LLM nodes store output in state["result"] (not state["tool_result"]).
+        # state["result"] is a flat dict where keys are node IDs.
+        direct_result = st.get("result") if isinstance(st, dict) else None
+        if isinstance(direct_result, dict):
+            for _k, _v in direct_result.items():
+                # Skip non-node keys like "llm_result" (which is a wrapper key)
+                if isinstance(_k, str) and _k not in ("llm_result",) and _k not in upstream_map:
+                    upstream_map[_k] = _v
+            # Also handle the common pattern: state["result"]["llm_result"] contains
+            # the business output from the most recent LLM node.
+            llm_wrapper = direct_result.get("llm_result")
+            if isinstance(llm_wrapper, dict) and "llm_result" not in upstream_map:
+                upstream_map["llm_result"] = llm_wrapper
+
         if var in ("previous_node_output", "latest_output"):
-            return latest_val
+            return items[-1][1] if items else None
         if var == "previous_node_id":
-            return latest_key
+            return items[-1][0] if items else None
         if var == "upstream_outputs":
             return upstream_map
         if var == "upstream_node_ids":
             return upstream_ids
         if var == "search_keyword":
             # Prefer latest upstream payload; then fallback by recency.
-            for d in _candidate_dicts(latest_val):
+            for d in _candidate_dicts(items[-1][1] if items else None):
                 kw = _compose_search_keyword(d)
                 if kw:
                     return kw
@@ -526,16 +691,106 @@ def resolve_prompt_variables(
                     if kw:
                         return kw
 
+        # --- Node-ID variable resolution (NEW) ---
+        # When var matches an upstream node id, return the entire node output.
+        # This enables {{node_name}} to inject the full node context into prompts.
+        # e.g. {{llm_planner}} returns the complete planner node output.
+        # Check both tool_result (MCP/code nodes) and state["result"] (LLM nodes).
+        # IMPORTANT: If the output has a "message" key with backtick-wrapped JSON,
+        # extract the inner JSON first so that nested {{#section}}{{key}}{{/section}}
+        # accessors work correctly.
+        if var in upstream_map:
+            node_output = upstream_map[var]
+            if isinstance(node_output, dict):
+                # Check if this is a browser-use node output (has full action history)
+                msg = node_output.get("message")
+                if isinstance(msg, str) and msg.strip():
+                    # For browser-use nodes with full history, extract only done() result
+                    if "all_model_outputs" in msg or "find_elements" in msg:
+                        done_result = _extract_done_result_from_browser_use(node_output)
+                        if done_result:
+                            logger.info(f"[prompt_var] Extracted done() result from browser-use node '{var}'")
+                            return done_result
+                    elif "```json" in msg or "```" in msg:
+                        inner = _try_parse_json_text(msg)
+                        if inner:
+                            logger.info(f"[prompt_var] Extracted inner JSON from node output '{var}'")
+                            return inner
+                return node_output
+            return str(node_output) if node_output is not None else None
+        
+        # Also try state["result"] directly for LLM nodes (where node ID is the key).
+        if isinstance(direct_result, dict) and var in direct_result:
+            node_output = direct_result[var]
+            if isinstance(node_output, dict):
+                msg = node_output.get("message")
+                if isinstance(msg, str) and msg.strip():
+                    if "```json" in msg or "```" in msg:
+                        inner = _try_parse_json_text(msg)
+                        if inner:
+                            logger.info(f"[prompt_var] Extracted inner JSON from direct_result '{var}'")
+                            return inner
+                return node_output
+            return str(node_output) if node_output is not None else None
+        
+        # Special case: check if state["result"]["llm_result"] is the upstream output
+        # (happens when LLM node wrote to state["result"] without a named key).
+        if var not in upstream_map and "llm_result" in (direct_result or {}):
+            llm_out = direct_result.get("llm_result")
+            if isinstance(llm_out, dict):
+                # Return the raw llm_result dict for templates like {{llm_planner}}
+                return llm_out
+        
+        # Special case: Handle LLM output wrapped in {"message": "```json\n{...}\n```"}
+        # This format wraps the actual JSON in backticks and escapes newlines
+        # e.g. {"message": "```json\n{\"stage\": \"planning\",...}\n```"}
+        # We need to extract and parse the inner JSON for proper template variable access
+        for candidate in [upstream_map.get(var), 
+                         (direct_result.get(var) if direct_result else None),
+                         direct_result.get("llm_result") if direct_result else None]:
+            if isinstance(candidate, dict):
+                msg = candidate.get("message")
+                if isinstance(msg, str) and msg.strip():
+                    # Check if message contains backtick-wrapped JSON
+                    if "```json" in msg or "```" in msg:
+                        inner = _extract_inner_json(msg)
+                        if inner:
+                            logger.info(f"[prompt_var] Extracted inner JSON for '{var}'")
+                            return inner
+
+        # Also check for nested paths like product_profile.platforms.
+        # This handles the common pattern where LLM output has nested structure:
+        # {"product_profile": {"platforms": [...], "product_name": ...}}
+        # NOTE: _search_nested is now defined at module level for clarity.
+
         # Prefer direct top-level business keys from latest node output.
-        for d in _candidate_dicts(latest_val):
-            if var in d and d.get(var) is not None:
-                return d.get(var)
+        for d in _candidate_dicts(items[-1][1] if items else None):
+            # First try top-level key
+            if var in d:
+                val = d.get(var)
+                if val is not None:
+                    # Only return top-level value if it's a scalar or deliberate full-object
+                    if not isinstance(val, dict):
+                        return val
+                    # If top-level value is a dict, search nested
+                    nested_val = _search_nested(val, var)
+                    if nested_val is not None:
+                        return nested_val
+                    # Return the dict as-is (it's a deliberate object reference)
+                    return val
 
         # Fallback: search older outputs by recency (latest -> oldest).
         for _, output in reversed(items):
             for d in _candidate_dicts(output):
-                if var in d and d.get(var) is not None:
-                    return d.get(var)
+                if var in d:
+                    val = d.get(var)
+                    if val is not None:
+                        if not isinstance(val, dict):
+                            return val
+                        nested_val = _search_nested(val, var)
+                        if nested_val is not None:
+                            return nested_val
+                        return val
         return None
 
     def _ref_val_to_str(val: Any) -> str:
@@ -547,9 +802,20 @@ def resolve_prompt_variables(
 
     resolved = {}
     for var in variable_names:
+        # DEBUG: Special logging for 'input' variable to help debug accumulation issues
+        if var == "input":
+            logger.debug(
+                f"[prompt_var] resolving 'input': "
+                f"state.input='{str(state.get('input', ''))[:100]}...' "
+                f"state.messages[4]='{str(state.get('messages', ['N/A'])[4] if len(state.get('messages', [])) > 4 else 'N/A')[:100]}...' "
+                f"state.events_count={len(state.get('events', []))}"
+            )
+        
         # 1. Explicit from state["prompt_refs"] (written by build_node from inputsValues)
         if var in prompt_refs:
             resolved[var] = _ref_val_to_str(prompt_refs[var])
+            if var == "input":
+                logger.debug(f"[prompt_var] 'input' resolved from prompt_refs: '{str(prompt_refs[var])[:100]}...'")
             continue
 
         # 1.5 Implicit zero-config variables from previous node outputs.
@@ -559,6 +825,8 @@ def resolve_prompt_variables(
         implicit_val = _implicit_var_from_tool_result(var, state)
         if implicit_val is not None:
             resolved[var] = _ref_val_to_str(implicit_val)
+            if var == "input":
+                logger.debug(f"[prompt_var] 'input' resolved from implicit: '{str(implicit_val)[:100]}...'")
             continue
 
         # 2. Prompt-level variable declaration
@@ -566,6 +834,8 @@ def resolve_prompt_variables(
             val = _resolve_variable_declaration(prompt_variables[var], state, mainwin)
             if val is not None:
                 resolved[var] = val
+                if var == "input":
+                    logger.debug(f"[prompt_var] 'input' resolved from prompt_variables: '{str(val)[:100]}...'")
                 continue
 
         # 3. Skill-level variable declaration
@@ -573,6 +843,8 @@ def resolve_prompt_variables(
             val = _resolve_variable_declaration(skill_prompt_variables[var], state, mainwin)
             if val is not None:
                 resolved[var] = val
+                if var == "input":
+                    logger.debug(f"[prompt_var] 'input' resolved from skill_prompt_variables: '{str(val)[:100]}...'")
                 continue
 
         # 4. Built-in provider
@@ -582,12 +854,16 @@ def resolve_prompt_variables(
                 val = provider(state, mainwin)
                 if val is not None:
                     resolved[var] = val
+                    if var == "input":
+                        logger.debug(f"[prompt_var] 'input' resolved from builtin provider: '{str(val)[:100]}...'")
                     continue
             except Exception as e:
                 logger.warning(f"[prompt_var] builtin provider '{var}' failed: {e}")
 
         # 5. Fallback
         resolved[var] = ""
+        if var == "input":
+            logger.debug("[prompt_var] 'input' fell back to empty string")
 
     logger.debug(f"[prompt_var] Resolved {len(resolved)} variables: {list(resolved.keys())}")
     return resolved

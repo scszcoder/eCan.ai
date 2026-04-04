@@ -194,12 +194,14 @@ const OrgDoor: React.FC<OrgDoorProps> = ({ name, isActive = false, agentCount = 
           <div className={`door-background-scene ${videoUrl ? 'video-scene' : `scene-${sceneType}`} ${hovered ? 'visible' : ''}`}>
             {videoUrl ? (
               <video
+                key={videoUrl} // Force recreate on src change to avoid stale playback
                 className="scene-video"
                 src={videoUrl}
                 autoPlay
                 loop
                 muted
                 playsInline
+                preload="auto"
               />
             ) : (
               <div className="scene-content">

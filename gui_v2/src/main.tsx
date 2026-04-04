@@ -19,6 +19,12 @@ import './modules/skill-editor/components/code-editor/monaco-config';
     if (msg.includes('ReactDOM.render is no longer supported')) {
       return;
     }
+    // Suppress synchronous unmount warning from third-party libraries (flowgram/flow-components)
+    // These libraries internally use ReactDOM.createRoot and may trigger synchronous unmounts
+    // during form node transitions, which causes this warning
+    if (msg.includes('Attempted to synchronously unmount a root while React was already rendering')) {
+      return;
+    }
     // Suppress ResizeObserver loop warning (browser internal optimization, not a real error)
     if (msg.includes('ResizeObserver loop completed with undelivered notifications') ||
         msg.includes('ResizeObserver loop limit exceeded')) {

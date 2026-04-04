@@ -914,14 +914,46 @@ def _compile_skill_workflow_from_flow(
 
 
 def _convert_db_skill_to_object(db_skill):
-    """Convert database skill data to skill object with compiled workflow"""
+    """Convert database skill data to skill object with compiled workflow.
+
+    IMPORTANT: If the local file exists at skill_obj.path, always prefer it over
+    DB content. This ensures direct file edits take effect without requiring a
+    DB sync. Only fall back to DB content when the file is missing (e.g. cloud-
+    deployed machine with no local copy).
+    """
     try:
         skill_obj = EC_Skill()
         v = DBAgentSkill.view(db_skill)
 
         _fill_skill_from_db_view(skill_obj, v)
-        
+
         logger.debug(f"[build_agent_skills] 🔄 Converting DB skill to object: '{skill_obj.name}', path={skill_obj.path}")
+
+        # ── Local-file-first: if the file exists, reload the entire skill from it.
+        # This catches direct edits, restart-after-save, and ensures my_skills/
+        # content always wins over stale DB records. ──────────────────────────
+        skill_path = (skill_obj.path or "").strip()
+        if skill_path:
+            core_path = Path(skill_path)
+            if core_path.exists() and core_path.is_file():
+                # Use load_skill_from_folder to re-load from the local file.
+                # It will re-parse the JSON, recompile the workflow, and return
+                # a fresh EC_Skill with the latest file content.
+                _skill_root = core_path.parent.parent if core_path.parent.name == "diagram_dir" else core_path.parent
+                local_sk = load_skill_from_folder(_skill_root, mainwin=None)
+                if local_sk and hasattr(local_sk, 'name') and local_sk.runnable:
+                    logger.info(
+                        f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
+                        f"(overriding DB content)"
+                    )
+                    return local_sk
+                logger.warning(
+                    f"[build_agent_skills] ⚠️ Local file exists for '{skill_obj.name}' "
+                    f"but load failed; falling back to DB content"
+                )
+            else:
+                logger.debug(f"[build_agent_skills] No local file at {skill_path}, using DB content")
+        # ── End local-file-first ──────────────────────────────────────────────
 
         # Load mapping rules from data_mapping.json
         mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)
@@ -947,7 +979,7 @@ def _convert_db_skill_to_object(db_skill):
                     flow_for_convert, diagram = {"skillName": skill_obj.name, "workFlow": raw_db_diagram}, raw_db_diagram
                     logger.warning(f"[build_agent_skills] 📋 Using DB diagram (alt format) for '{skill_obj.name}'")
         else:
-            logger.warning(f"[build_agent_skills] 📁 Using file-based workflow for '{skill_obj.name}'")
+            logger.debug(f"[build_agent_skills] 📁 Using file-based workflow for '{skill_obj.name}'")
 
         if diagram:
             skill_obj.diagram = diagram

@@ -1609,9 +1609,30 @@ def _get_logging_browser_use_class():
                         f"chars={total_chars:,}, est_tokens={est_tokens:,}, "
                         f"base_url={base_url}, timeout={timeout}"
                     )
-                    
+                    # Check cancellation before starting the LLM call.
+                    # _ec_cancellation_event is set directly on the instance by build_node.py
+                    # after the registry lookup, which is more reliable than re-deriving task_id.
+                    _cancel_evt = getattr(self, "_ec_cancellation_event", None)
+                    if _cancel_evt and _cancel_evt.is_set():
+                        raise asyncio.CancelledError("Task cancelled before browser LLM call")
+
                     try:
-                        response = await original_create(*args, **kwargs)
+                        # Wrap in a Task so we can cancel mid-flight when stop is pressed.
+                        # Poll every 0.5s for the cancellation event, same as _invoke_hybrid.
+                        _llm_fut = asyncio.ensure_future(original_create(*args, **kwargs))
+                        try:
+                            while not _llm_fut.done():
+                                _cancel_evt_poll = getattr(self, "_ec_cancellation_event", None)
+                                if _cancel_evt_poll and _cancel_evt_poll.is_set():
+                                    _llm_fut.cancel()
+                                    logger.info("[BrowserUse] Task cancelled during LLM call")
+                                    raise asyncio.CancelledError("Task cancelled during browser LLM call")
+                                await asyncio.sleep(0.5)
+                            response = _llm_fut.result()
+                        except asyncio.CancelledError:
+                            if not _llm_fut.done():
+                                _llm_fut.cancel()
+                            raise
                         elapsed = time.time() - start_time
                         logger.info(f"[BrowserUse] ? LLM responded in {elapsed:.2f}s")
                         try:

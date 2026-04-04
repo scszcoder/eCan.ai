@@ -133,21 +133,46 @@ const ToolsInner = () => {
       setCanUndo(history.canUndo());
       setCanRedo(history.canRedo());
     });
-    return () => disposable.dispose();
+    return () => queueMicrotask(() => disposable.dispose());
   }, [history]);
   const refresh = useRefresh();
 
   useEffect(() => {
     const disposable = playground.config.onReadonlyOrDisabledChange(() => refresh());
-    return () => disposable.dispose();
+    return () => queueMicrotask(() => disposable.dispose());
   }, [playground]);
 
   const ipcApi = IPCAPI.getInstance();
 
   const handleRunControl = async (action: 'cancel' | 'pause' | 'resume' | 'step') => {
-    // For cancel with missing context, use lightweight IPC fallback (no payload needed).
-    // When context IS available, use the full cancelRunSkill() with run_id/skill_id.
-    // This avoids sending two cancel requests on a single click.
+    // For cancel, still try to send real runtime identifiers even when skill context is missing.
+    if (action === 'cancel' && !skillInfoFromStore && username) {
+      const runningState = useRunningNodeStore.getState();
+      const activeRunId = runningState.activeRunId;
+      const latestTrackedRunId =
+        [...(runningState.devTasks || [])]
+          .sort((a, b) => b.startedAt - a.startedAt)[0]?.runId || null;
+      const effectiveRunId = activeRunId || latestTrackedRunId;
+      const latestSkillId =
+        [...(runningState.devTasks || [])]
+          .sort((a, b) => b.startedAt - a.startedAt)[0]?.skillId || null;
+      const cancelPayload = {
+        ...(effectiveRunId ? { run_id: effectiveRunId } : {}),
+        ...(latestSkillId ? { skill_id: latestSkillId } : {}),
+      };
+
+      try {
+        await ipcApi.cancelRunSkill(username, cancelPayload);
+        console.log('[ToolBar] cancel_run_skill sent with runtime-only payload', cancelPayload);
+      } catch (err) {
+        console.warn('[ToolBar] cancel_run_skill runtime-only payload failed:', err);
+      }
+      useRunningNodeStore.getState().setActiveRunId(null);
+      useRunningNodeStore.getState().setRunningNodeId(null);
+      return;
+    }
+
+    // Absolute fallback: no username/context available.
     if (action === 'cancel' && (!skillInfoFromStore || !username)) {
       try {
         await ipcApi.cancelRunSkillViaIPC();
@@ -172,14 +197,32 @@ const ToolsInner = () => {
 
     switch (action) {
       case 'cancel': {
-        // Inject run_id and skill_id so the Lambda can locate and stop the Fargate task
-        const activeRunId = useRunningNodeStore.getState().activeRunId;
+        // Always prefer real runtime identifiers for stop.
+        // Never send placeholder run_id values.
+        const runningState = useRunningNodeStore.getState();
+        const activeRunId = runningState.activeRunId;
+        const currentSkillId =
+          (skillInfoFromStore as any)?.skillId || (skillInfoFromStore as any)?.skill_id;
+        const latestTrackedRunId =
+          [...(runningState.devTasks || [])]
+            .filter((t) => !currentSkillId || t.skillId === currentSkillId)
+            .sort((a, b) => b.startedAt - a.startedAt)[0]?.runId || null;
+        const effectiveRunId = activeRunId || latestTrackedRunId;
+
         const cancelPayload = {
           ...skillInfo,
-          run_id: activeRunId || '0123456789',
-          skill_id: (skillInfoFromStore as any)?.skillId || (skillInfoFromStore as any)?.skill_id,
+          ...(effectiveRunId ? { run_id: effectiveRunId } : {}),
+          skill_id: currentSkillId,
         };
-        console.log('[ToolBar] cancelRunSkill with run_id:', cancelPayload.run_id, 'skill_id:', cancelPayload.skill_id);
+        console.log(
+          '[ToolBar] cancelRunSkill payload:',
+          {
+            run_id: (cancelPayload as any).run_id,
+            skill_id: (cancelPayload as any).skill_id,
+            activeRunId,
+            latestTrackedRunId,
+          },
+        );
         try {
           await ipcApi.cancelRunSkill(username, cancelPayload);
           console.log('[ToolBar] ✅ Cancel request sent successfully');
@@ -187,8 +230,8 @@ const ToolsInner = () => {
           console.error('[ToolBar] ❌ Failed to send cancel request:', err);
         }
         // Remove from dev task tracking
-        if (activeRunId) {
-          useRunningNodeStore.getState().removeDevTask(activeRunId);
+        if (effectiveRunId) {
+          useRunningNodeStore.getState().removeDevTask(effectiveRunId);
         }
         // Clear the active run tracking
         useRunningNodeStore.getState().setActiveRunId(null);
