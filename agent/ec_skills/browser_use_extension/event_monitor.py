@@ -1634,11 +1634,18 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         current_url = str(data.get("currentUrl") or current_url)
         mutation_state["last_status"] = status or "ok"
         mutation_state["last_current_url"] = current_url
+
+        # In DOM_DEBUG mode, log the raw extractor result (truncated)
+        if mutation_state.get("_dom_debug") and _emit_heartbeat:
+            _raw_preview = str(dom_content or "")[:2000]
+            logger.info(f"[EventMonitor][DOM_DEBUG] raw_result ({len(dom_content or '')} chars): {_raw_preview}")
+
         if status in ("no_match", "empty"):
             debug_info = data.get("debug") if isinstance(data.get("debug"), dict) else {}
             if debug_info:
                 try:
-                    logger.debug(
+                    _dbg_level = logger.info if mutation_state.get("_dom_debug") else logger.debug
+                    _dbg_level(
                         "[EventMonitor] DOM debug "
                         f"status={status} "
                         f"rootCount={debug_info.get('rootCount')} "
