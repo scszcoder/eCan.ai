@@ -1506,9 +1506,9 @@ class ServerManager:
                     # Timeout configuration
                     timeout_keep_alive=5,        # Keep-alive timeout (seconds)
                     timeout_graceful_shutdown=1, # Graceful shutdown timeout (reduced for faster logout)
-                    # Concurrency limits
-                    limit_concurrency=100,       # Max concurrent connections (desktop app)
-                    limit_max_requests=None,     # No request limit (long-running)
+                    # Concurrency limits - reduce for desktop app to prevent thread explosion
+                    limit_concurrency=20,       # Max concurrent connections (reduced from 100)
+                    limit_max_requests=1000,    # Recycle workers after N requests
                     # WebSocket configuration
                     ws_ping_interval=20,         # WebSocket ping interval (seconds)
                     ws_ping_timeout=20,          # WebSocket ping timeout (seconds)

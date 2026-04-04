@@ -187,10 +187,44 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         log_msg = f"🤖 Executing conditional edge: {expr}"
         logger.info(log_msg)
         send_skill_editor_log("log", log_msg)
+
+        # ── Unwrap message-wrapped JSON before evaluation ──
+        # LLM nodes may store result as {"llm_result": {"message": "```json\n{...}\n```"}}
+        # or state["result"]["llm_planner"] = {"message": "```json\n{...}\n```"}
+        # Pre-process to extract inner JSON so dot-paths like
+        # state["result"]["llm_planner"]["execution_plan"]["next_action"] work correctly.
+        def _unwrap_message_json(obj):
+            if isinstance(obj, dict):
+                msg = obj.get("message")
+                if isinstance(msg, str) and msg.strip():
+                    if "```json" in msg or "```" in msg:
+                        import re as _re
+                        # Try to extract JSON from markdown code block
+                        for _pat in [r'```json\s*\n(.*?)\n```', r'```\s*\n(.*?)\n```', r'```(.*?)```']:
+                            _m = _re.search(_pat, msg, _re.DOTALL)
+                            if _m:
+                                _inner = _m.group(1).strip()
+                                import json as _json
+                                try:
+                                    return _json.loads(_inner)
+                                except Exception:
+                                    pass
+                        # Try parsing the whole string as JSON
+                        try:
+                            import json as _json
+                            return _json.loads(msg)
+                        except Exception:
+                            pass
+                return {k: _unwrap_message_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [_unwrap_message_json(i) for i in obj]
+            return obj
+
+        _processed_state = _unwrap_message_json(state)
         
         # Log state keys and result for debugging
-        state_keys = list(state.keys()) if isinstance(state, dict) else "NOT_A_DICT"
-        state_result = state.get("result", "NO_RESULT_KEY") if isinstance(state, dict) else None
+        state_keys = list(_processed_state.keys()) if isinstance(_processed_state, dict) else "NOT_A_DICT"
+        state_result = _processed_state.get("result", "NO_RESULT_KEY") if isinstance(_processed_state, dict) else None
         logger.info(f"[condition-eval] state.keys={state_keys}")
         logger.info(f"[condition-eval] state['result']={state_result}")
         send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={state_result}")
@@ -198,7 +232,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         safe_globals = {"__builtins__": {}}
         # Wrap state in KeySafeDict so missing nested keys return a falsy
         # sentinel instead of raising KeyError.
-        safe_state = KeySafeDict(state) if isinstance(state, dict) else state
+        safe_state = KeySafeDict(_processed_state) if isinstance(_processed_state, dict) else _processed_state
         attrs = safe_state.get("attributes", {}) if isinstance(safe_state, dict) else {}
         # Merge attributes as bare names so flags like `data_ready` can be used
         # Also expose 'node_state' as alias for 'state' for backward compatibility
