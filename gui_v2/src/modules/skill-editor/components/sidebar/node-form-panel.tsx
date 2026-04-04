@@ -40,7 +40,7 @@ export const NodeFormPanel: React.FC<NodeFormPanelProps> = ({ nodeId }) => {
       handleClose();
       refresh();
     });
-    return () => disposable.dispose();
+    return () => queueMicrotask(() => disposable.dispose());
   }, [playground, handleClose, refresh]);
   /**
    * Listen selection
@@ -57,7 +57,7 @@ export const NodeFormPanel: React.FC<NodeFormPanelProps> = ({ nodeId }) => {
         handleClose();
       }
     });
-    return () => toDispose.dispose();
+    return () => queueMicrotask(() => toDispose.dispose());
   }, [selection, node, handleClose]);
   /**
    * Close when node disposed
@@ -67,7 +67,7 @@ export const NodeFormPanel: React.FC<NodeFormPanelProps> = ({ nodeId }) => {
       const toDispose = node.onDispose(() => {
         closePanel();
       });
-      return () => toDispose.dispose();
+      return () => queueMicrotask(() => toDispose.dispose());
     }
     return () => {};
   }, [node, closePanel]);

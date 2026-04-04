@@ -130,7 +130,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = () => {
         setErrors(undefined);
       }
     });
-    return () => disposer.dispose();
+    return () => queueMicrotask(() => disposer.dispose());
   }, [runtimeService]);
 
   useEffect(

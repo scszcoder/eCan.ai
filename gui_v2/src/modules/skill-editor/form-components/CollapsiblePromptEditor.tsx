@@ -24,20 +24,12 @@ export const CollapsiblePromptEditor: React.FC<CollapsiblePromptEditorProps> = (
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const { t } = useTranslation('skillEditor');
 
-  // Extract content to check if it's multi-line
-  const getContentLineCount = () => {
+  const lineCount = (() => {
     try {
       const content = value?.content || '';
-      if (typeof content === 'string') {
-        return content.split('\n').length;
-      }
-    } catch (e) {
-      // ignore
-    }
-    return 0;
-  };
-
-  const lineCount = getContentLineCount();
+      return typeof content === 'string' ? content.split('\n').length : 0;
+    } catch { return 0; }
+  })();
   const shouldShowToggle = lineCount > collapsedLines;
 
   return (
@@ -78,7 +70,7 @@ export const CollapsiblePromptEditor: React.FC<CollapsiblePromptEditorProps> = (
             onClick={() => setIsCollapsed(!isCollapsed)}
             style={{ fontSize: '12px' }}
           >
-            {isCollapsed 
+            {isCollapsed
               ? t('formComponents.expandPrompt', { defaultValue: '展开查看全部' })
               : t('formComponents.collapsePrompt', { defaultValue: '收起' })
             }

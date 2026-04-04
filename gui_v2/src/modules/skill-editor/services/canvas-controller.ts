@@ -18,6 +18,8 @@ import {
   SkillEditorEventType,
 } from '../types';
 import { IPCAPI } from '../../../services/ipc/api';
+import { useRunningNodeStore } from '../stores/running-node-store';
+import { useUserStore } from '../../../stores/userStore';
 
 // ============================================================
 // Types
@@ -793,9 +795,23 @@ class CanvasControllerService {
     try {
       this.emitEvent('run.stop', { runId: 'current', reason: 'User requested' });
       
-      // Call existing cancel_run_skill IPC handler
+      // Prefer cancelling with real runtime identifiers.
       const api = IPCAPI.getInstance();
-      const response = await api.cancelRunSkillViaIPC();
+      const runningState = useRunningNodeStore.getState();
+      const username = useUserStore.getState().username;
+      const activeRunId = runningState.activeRunId;
+      const latestTracked =
+        [...(runningState.devTasks || [])]
+          .sort((a, b) => b.startedAt - a.startedAt)[0];
+      const effectiveRunId = activeRunId || latestTracked?.runId || null;
+      const effectiveSkillId = latestTracked?.skillId || null;
+
+      const response = username
+        ? await api.cancelRunSkill(username, {
+            ...(effectiveRunId ? { run_id: effectiveRunId } : {}),
+            ...(effectiveSkillId ? { skill_id: effectiveSkillId } : {}),
+          })
+        : await api.cancelRunSkillViaIPC();
       console.log('[CanvasController] cancel_run_skill response:', { success: response.success });
       
       if (response.success) {
