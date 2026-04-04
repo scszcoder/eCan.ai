@@ -1435,6 +1435,12 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
         include_in_memory=True,
         long_term_memory=f"Extracted raw markdown for query: {query}",
     )
+
+@custom_controller.action(
+    "Send a chat message to another agent via A2A (Agent-to-Agent) protocol. "
+    "Use bu_select_agents first to discover available agents and their IDs.",
+    param_model=SendChatAction,
+)
 async def bu_send_chat(params: SendChatAction) -> ActionResult:
     from agent.mcp.server.chat_utils.chat_tools import send_chat
 
