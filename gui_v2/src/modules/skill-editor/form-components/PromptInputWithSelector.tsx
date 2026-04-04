@@ -115,22 +115,23 @@ export const PromptInputWithSelector: React.FC<PromptInputWithSelectorProps> = (
         </Field>
       </FormItem>
 
-      {/* Prompt Editor - only show if In-line Prompt is selected */}
+      {/* Prompt Editor — always rendered (never unmounted) so the inner React root stays stable.
+          A scoped Field reads promptId; CSS display controls visibility. */}
       <Field<any> name={promptIdFieldName}>
         {({ field: promptIdField }) => {
           const promptId = promptIdField.value?.content || promptIdField.value || IN_LINE_PROMPT_ID;
-          const showPromptEditor = promptId === IN_LINE_PROMPT_ID;
-
           return (
-            <PromptEditorField
-              showPromptEditor={showPromptEditor}
-              promptFieldName={promptFieldName}
-              label={label}
-              schema={schema}
-              required={required}
-              readonly={readonly}
-              sanitizeFlowValue={sanitizeFlowValue}
-            />
+            <div style={{ display: promptId === IN_LINE_PROMPT_ID ? 'block' : 'none' }}>
+              <PromptEditorField
+                showPromptEditor={promptId === IN_LINE_PROMPT_ID}
+                promptFieldName={promptFieldName}
+                label={label}
+                schema={schema}
+                required={required}
+                readonly={readonly}
+                sanitizeFlowValue={sanitizeFlowValue}
+              />
+            </div>
           );
         }}
       </Field>

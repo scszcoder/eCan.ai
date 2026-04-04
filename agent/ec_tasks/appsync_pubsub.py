@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 from uuid import uuid4
@@ -318,22 +319,36 @@ async def _subscribe(
     field_name: str,
     on_envelope: Callable[[Dict[str, Any]], Awaitable[None]],
     max_retries: int,
+    max_idle_sec: int = 300,
 ) -> None:
+    """Subscribe to an AppSync GraphQL subscription with graceful cancellation support.
+    
+    Args:
+        max_idle_sec: Max seconds to stay connected without receiving messages.
+                      Set to 300 (5 min) to prevent orphaned connections.
+                      The outer caller (runner) manages subscription lifetime via
+                      asyncio cancellation; this limit acts as a hard safety net.
+    """
     ws_endpoint = config.resolved_ws_endpoint()
     host = config.resolved_host()
     ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key, auth_token=config.auth_token)
 
     retry = 0
-    base_backoff = 3  # Increased from 2 to 3 seconds
+    base_backoff = 3
+    last_msg_time = time.time()
 
-    while retry < max_retries:
+    while True:
+        # Check for cancellation on every loop iteration — enables fast shutdown
+        current_task = asyncio.current_task()
+        if current_task is not None and current_task.done():
+            logger.debug(f"[AppSync] _subscribe cancelled (task done), operation={operation_name}")
+            return
+
         try:
             import ssl
 
             ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-            # Do NOT set heartbeat: AppSync uses app-layer "ka" messages and may not respond to
-            # WebSocket PING frames — a heartbeat would cause spurious PONG-timeout disconnects.
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
                     ws_url,
@@ -342,14 +357,24 @@ async def _subscribe(
                     timeout=aiohttp.ClientTimeout(total=60, connect=30),
                 ) as websocket:
                     await websocket.send_str(json.dumps({"type": "connection_init"}))
+                    conn_start = time.time()
 
+                    # Wait for connection_ack with periodic cancellation checks
+                    ack_timeout = 30
                     while True:
-                        msg = await websocket.receive()
+                        current_task = asyncio.current_task()
+                        if current_task is not None and current_task.done():
+                            logger.debug(f"[AppSync] _subscribe cancelled during ack, operation={operation_name}")
+                            return
+                        try:
+                            msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            continue  # check cancellation and retry ack
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             response_data = json.loads(msg.data)
                             msg_type = response_data.get('type')
-                            
                             if msg_type == "connection_ack":
+                                last_msg_time = time.time()
                                 break
                             elif msg_type == "connection_error":
                                 error_payload = response_data.get('payload', {})
@@ -377,20 +402,53 @@ async def _subscribe(
 
                     await websocket.send_str(json.dumps(sub_request))
 
+                    # Wait for start_ack with periodic cancellation checks
                     while True:
-                        msg = await websocket.receive()
+                        current_task = asyncio.current_task()
+                        if current_task is not None and current_task.done():
+                            logger.debug(f"[AppSync] _subscribe cancelled during start_ack, operation={operation_name}")
+                            return
+                        try:
+                            msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            continue
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             response_data = json.loads(msg.data)
                             if response_data.get("type") == "start_ack":
+                                last_msg_time = time.time()
                                 break
                             elif response_data.get("type") == "error":
                                 logger.error(f"[AppSync] Subscription error: {response_data}")
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise RuntimeError("connection closed during start_ack")
 
+                    # Main message loop with idle timeout and cancellation checks
                     while True:
-                        msg = await websocket.receive()
+                        current_task = asyncio.current_task()
+                        if current_task is not None and current_task.done():
+                            logger.debug(f"[AppSync] _subscribe cancelled, operation={operation_name}")
+                            return
+
+                        idle_elapsed = time.time() - last_msg_time
+                        if idle_elapsed > max_idle_sec:
+                            logger.warning(f"[AppSync] Idle timeout ({idle_elapsed:.0f}s > {max_idle_sec}s), operation={operation_name}")
+                            return
+
+                        receive_timeout = min(15.0, max(5.0, max_idle_sec - idle_elapsed))
+                        try:
+                            msg = await asyncio.wait_for(websocket.receive(), timeout=receive_timeout)
+                        except asyncio.TimeoutError:
+                            # check cancellation and idle timeout on timeout
+                            current_task = asyncio.current_task()
+                            if current_task is not None and current_task.done():
+                                return
+                            idle_elapsed = time.time() - last_msg_time
+                            if idle_elapsed > max_idle_sec:
+                                return
+                            continue
+
                         if msg.type == aiohttp.WSMsgType.TEXT:
+                            last_msg_time = time.time()
                             data = json.loads(msg.data)
                             if data.get("type") == "data":
                                 payload_data = (data.get("payload") or {}).get("data")
@@ -410,10 +468,16 @@ async def _subscribe(
                             raise RuntimeError("websocket closed")
 
         except asyncio.CancelledError:
+            logger.debug(f"[AppSync] _subscribe CancelledError, operation={operation_name}")
             raise
         except Exception as e:
             retry += 1
             backoff = min(base_backoff * (2 ** (retry - 1)), 30)
+            # Check cancellation before sleeping
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.done():
+                logger.debug(f"[AppSync] _subscribe cancelled before backoff, operation={operation_name}")
+                return
             logger.warning(f"[ec_tasks.appsync_pubsub] subscribe error (attempt {retry}/{max_retries}): {e}")
             if retry >= max_retries:
                 raise
@@ -478,4 +542,5 @@ async def subscribe_task_status(
         field_name="onTaskStatus",
         on_envelope=on_envelope,
         max_retries=max_retries,
+        max_idle_sec=600,  # 10 min idle timeout as safety net; caller manages lifetime via cancellation
     )

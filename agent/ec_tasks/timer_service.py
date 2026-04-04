@@ -5,8 +5,10 @@ This module provides a thread-safe timer service for:
 - Starting timers that fire timeout events into task queues
 - Cancelling timers when callbacks arrive
 - Bulk cancellation for task cleanup
+- Unified asyncio loop for all repeating timers (prevents thread explosion)
 """
 
+import asyncio
 import threading
 import time
 import uuid
@@ -18,14 +20,130 @@ if TYPE_CHECKING:
     from .models import ManagedTask
 
 
+# Shared asyncio loop for ALL repeating timers - prevents thread explosion
+# instead of 1 thread per timer, we use 1 thread for ALL timers
+_timer_loop_runner: Optional["_RepeatingTimerLoop"] = None
+_timer_loop_lock = threading.Lock()
+
+# ============================================================================
+# Global Thread Registry — tracks all threads for memory leak diagnosis
+# ============================================================================
+_thread_registry: Dict[str, list] = {}  # category -> list of thread names
+_thread_registry_lock = threading.Lock()
+
+def _register_thread(category: str, name: str) -> None:
+    """Register a thread with the global registry (call right after Thread.start())."""
+    with _thread_registry_lock:
+        if category not in _thread_registry:
+            _thread_registry[category] = []
+        if name not in _thread_registry[category]:
+            _thread_registry[category].append(name)
+            logger.debug(f"[THREAD_REGISTRY] +{category}: {name} (total={len(_thread_registry[category])})")
+
+def _unregister_thread(category: str, name: str) -> None:
+    """Unregister a thread (call when thread finishes)."""
+    with _thread_registry_lock:
+        if category in _thread_registry and name in _thread_registry[category]:
+            _thread_registry[category].remove(name)
+            logger.debug(f"[THREAD_REGISTRY] -{category}: {name} (remaining={len(_thread_registry[category])})")
+
+def _dump_thread_registry() -> Dict[str, int]:
+    """Return thread count by category for diagnostics."""
+    with _thread_registry_lock:
+        return {cat: len(names) for cat, names in _thread_registry.items()}
+
+
+class _RepeatingTimerLoop:
+    """
+    Shared asyncio loop runner for all repeating timers.
+    All RepeatingTimerHandles share this ONE thread instead of each creating their own.
+    """
+
+    def __init__(self):
+        self._timers: Dict[str, "RepeatingTimerHandle"] = {}
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._started = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def register(self, handle: "RepeatingTimerHandle"):
+        with self._lock:
+            self._timers[handle.timer_id] = handle
+
+    def unregister(self, timer_id: str):
+        with self._lock:
+            self._timers.pop(timer_id, None)
+
+    def start(self):
+        if self._started:
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name="RepeatingTimerLoop",
+            daemon=True,
+        )
+        self._thread.start()
+        self._started = True
+        logger.debug(f"[_RepeatingTimerLoop] Started shared timer loop")
+
+    def _run_loop(self):
+        """Run the shared asyncio loop for all repeating timers."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        try:
+            self._loop.run_until_complete(self._run_timers())
+        except Exception as e:
+            logger.error(f"[_RepeatingTimerLoop] Loop error: {e}")
+        finally:
+            self._loop.close()
+
+    async def _run_timers(self):
+        """Async loop: schedule all timers and run until stopped."""
+        while not self._stop_event.is_set():
+            with self._lock:
+                timer_ids = list(self._timers.keys())
+
+            for timer_id in timer_ids:
+                if self._stop_event.is_set():
+                    break
+                with self._lock:
+                    handle = self._timers.get(timer_id)
+                if handle and handle.is_active():
+                    try:
+                        handle._fire_in_loop(self._loop)
+                    except Exception as e:
+                        logger.error(f"[_RepeatingTimerLoop] Fire error for {timer_id}: {e}")
+
+            await asyncio.sleep(0.5)  # Check every 500ms
+
+    def stop(self):
+        self._stop_event.set()
+        if self._loop and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+
+def _get_timer_loop() -> _RepeatingTimerLoop:
+    """Get or create the shared timer loop."""
+    global _timer_loop_runner
+    with _timer_loop_lock:
+        if _timer_loop_runner is None:
+            _timer_loop_runner = _RepeatingTimerLoop()
+            _timer_loop_runner.start()
+        return _timer_loop_runner
+
+
 class RepeatingTimerHandle:
     """
     Handle for a named repeating interval timer.
-    
+
     Fires periodically at a fixed interval, invoking a callback each time.
     Supports finite repeat counts or continuous (-1) operation.
+
+    Uses a shared asyncio timer loop (_RepeatingTimerLoop) to avoid thread explosion.
     """
-    
+
     def __init__(
         self,
         timer_id: str,
@@ -46,90 +164,101 @@ class RepeatingTimerHandle:
         self.fire_count: int = 0
         self.cancelled = False
         self._paused = False
-        self._thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
-    
+        self._handle: Optional[asyncio.TimerHandle] = None  # asyncio scheduled handle
+
     def start(self):
-        """Start the repeating timer loop in a daemon thread."""
-        if self._thread and self._thread.is_alive():
+        """Register this timer with the shared loop (no new thread created)."""
+        if self.cancelled:
             return
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._run_loop,
-            name=f"RepTimer-{self.timer_name}-{self.timer_id[:8]}",
-            daemon=True,
-        )
-        self._thread.start()
-    
-    def _run_loop(self):
-        """Internal loop: sleep for period, fire callback, decrement repeat."""
-        period_sec = self.period_ms / 1000.0
-        while not self._stop_event.is_set():
-            # Wait for the period (interruptible)
-            if self._stop_event.wait(timeout=period_sec):
-                break  # stop or pause was requested
-            if self.cancelled:
-                break
-            if self._paused:
-                break  # exit loop; resume() will start a new thread
-            
-            # Check repeat count
-            if self.repeat_count == 0:
-                break
-            
-            self.fire_count += 1
-            
-            # Decrement finite repeat count
-            if self.repeat_count > 0:
-                self.repeat_count -= 1
-            
-            # Fire callback
-            try:
-                self.callback(self)
-            except Exception as e:
-                logger.error(f"[REPEATING_TIMER] Callback error for '{self.timer_name}': {e}")
-            
-            # If repeat_count reached 0 after decrement, stop
-            if self.repeat_count == 0:
-                logger.info(f"[REPEATING_TIMER] Timer '{self.timer_name}' completed all repeats ({self.fire_count} fires)")
-                break
-        
-        logger.debug(f"[REPEATING_TIMER] Timer '{self.timer_name}' loop exited (fired {self.fire_count} times)")
-    
+        if self._paused:
+            return  # use resume() instead
+        _get_timer_loop().register(self)
+        self._schedule_next(0)
+
+    def _schedule_next(self, delay_sec: float):
+        """Schedule the next fire using asyncio (called from shared loop thread)."""
+        loop = _get_timer_loop()._loop
+        if loop and not loop.is_closed():
+            self._handle = loop.call_later(
+                delay_sec,
+                self._fire_in_loop,
+                loop,
+            )
+
+    def _fire_in_loop(self, loop: asyncio.AbstractEventLoop):
+        """Fire callback and schedule next iteration. Called from the shared timer loop."""
+        if self.cancelled or self._paused:
+            return
+
+        # Check repeat count
+        if self.repeat_count == 0:
+            self.cancelled = True
+            _get_timer_loop().unregister(self.timer_id)
+            logger.debug(f"[REPEATING_TIMER] Timer '{self.timer_name}' stopped (repeat_count=0)")
+            return
+
+        self.fire_count += 1
+
+        # Decrement finite repeat count
+        if self.repeat_count > 0:
+            self.repeat_count -= 1
+
+        # Fire callback (synchronous call into user code)
+        try:
+            self.callback(self)
+        except Exception as e:
+            logger.error(f"[REPEATING_TIMER] Callback error for '{self.timer_name}': {e}")
+
+        # If repeat_count reached 0 after decrement, stop
+        if self.repeat_count == 0:
+            self.cancelled = True
+            _get_timer_loop().unregister(self.timer_id)
+            logger.debug(f"[REPEATING_TIMER] Timer '{self.timer_name}' completed ({self.fire_count} fires)")
+            return
+
+        # Schedule next fire
+        self._schedule_next(self.period_ms / 1000.0)
+
     def cancel(self):
         """Stop the repeating timer permanently."""
-        if not self.cancelled:
-            self.cancelled = True
-            self._paused = False
-            self._stop_event.set()
-    
+        if self.cancelled:
+            return
+        self.cancelled = True
+        self._paused = False
+        # Cancel any pending scheduled call
+        if self._handle:
+            self._handle.cancel()
+            self._handle = None
+        _get_timer_loop().unregister(self.timer_id)
+
     def pause(self):
         """Pause the repeating timer. Can be resumed later with resume()."""
-        if not self.cancelled and not self._paused:
-            self._paused = True
-            self._stop_event.set()  # interrupt the sleep in _run_loop
-            logger.info(f"[REPEATING_TIMER] Paused timer '{self.timer_name}' (id={self.timer_id})")
-    
+        if self.cancelled or self._paused:
+            return
+        self._paused = True
+        if self._handle:
+            self._handle.cancel()
+            self._handle = None
+        logger.info(f"[REPEATING_TIMER] Paused timer '{self.timer_name}' (id={self.timer_id})")
+
     def resume(self):
-        """Resume a paused timer. Restarts the loop thread."""
-        if self.cancelled:
-            return  # can't resume a cancelled timer
-        if not self._paused:
-            return  # not paused, nothing to do
+        """Resume a paused timer. Continues from where it left off."""
+        if self.cancelled or not self._paused:
+            return
         self._paused = False
-        self._stop_event.clear()
-        self.start()  # start a new daemon thread for the loop
+        _get_timer_loop().register(self)
+        self._schedule_next(self.period_ms / 1000.0)
         logger.info(f"[REPEATING_TIMER] Resumed timer '{self.timer_name}' (id={self.timer_id})")
-    
+
     @property
     def is_paused(self) -> bool:
         """Check if timer is currently paused."""
         return self._paused and not self.cancelled
-    
+
     def is_active(self) -> bool:
         """Check if timer is still running (not cancelled, not paused, has repeats left)."""
         return not self.cancelled and not self._paused and (self.repeat_count != 0)
-    
+
     def to_dict(self) -> dict:
         """Serialize to dict for listing/API responses."""
         return {

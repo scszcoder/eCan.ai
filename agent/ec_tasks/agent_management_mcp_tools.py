@@ -581,8 +581,12 @@ def _start_task_loop(agent, task):
     thread_pool = getattr(mainwin, "threadPoolExecutor", None) if mainwin else None
     if not thread_pool:
         thread_pool = getattr(agent, "thread_pool_executor", None)
+    
+    # Use context manager if we need to create a temporary pool
+    _pool_ctx = None
     if not thread_pool:
-        thread_pool = ThreadPoolExecutor(max_workers=4)
+        _pool_ctx = ThreadPoolExecutor(max_workers=4)
+        thread_pool = _pool_ctx
     
     try:
         future = thread_pool.submit(runner.launch_unified_run, task, ["immediate"])
@@ -592,6 +596,9 @@ def _start_task_loop(agent, task):
         logger.info(f"[AgentManagement] Execution loop started for worker task: {task.name}")
     except Exception as e:
         logger.error(f"[AgentManagement] Failed to start execution loop: {e}")
+    finally:
+        if _pool_ctx:
+            _pool_ctx.shutdown(wait=False)
 
 
 # ==================== Tool Schemas ====================

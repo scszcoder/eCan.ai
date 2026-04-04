@@ -40,7 +40,7 @@ export const NodeInfoDisplay: React.FC = () => {
     }
     updateCoords();
     const dispose = selection.onSelectionChanged(updateCoords);
-    return () => dispose.dispose();
+    return () => queueMicrotask(() => dispose.dispose());
   }, [selection]);
 
   return (

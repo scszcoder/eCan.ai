@@ -7,6 +7,7 @@ import subprocess
 import time
 import traceback
 import sys
+from threading import Lock as _ThreadLock
 
 # Configure browser_use timeouts BEFORE importing browser_use modules
 # Increase screenshot timeout from default 8s to 30s for complex pages
@@ -3874,11 +3875,86 @@ session_manager = StreamableHTTPSessionManager(
     json_response=True,
 )
 
+# ── MCP Session Concurrency Control ──────────────────────────────────────────
+# Prevent unbounded session growth from hammering the server with concurrent requests.
+_MCP_MAX_CONCURRENT_SESSIONS = int(os.environ.get("ECAN_MCP_MAX_CONCURRENT_SESSIONS", "20"))
+_MCP_SESSION_TIMEOUT_SEC = int(os.environ.get("ECAN_MCP_SESSION_TIMEOUT_SEC", "120"))
+_MCP_CONCURRENCY_SEM = asyncio.Semaphore(_MCP_MAX_CONCURRENT_SESSIONS)
+_MCP_ACTIVE_SESSIONS: int = 0
+_MCP_SESSIONS_LOCK = asyncio.Lock()
+
+logger.info(
+    f"[MCP] Session limits configured: max_concurrent={_MCP_MAX_CONCURRENT_SESSIONS}, "
+    f"timeout={_MCP_SESSION_TIMEOUT_SEC}s "
+    f"(tune with ECAN_MCP_MAX_CONCURRENT_SESSIONS / ECAN_MCP_SESSION_TIMEOUT_SEC)"
+)
+
+
+def _mcp_session_count() -> int:
+    return _MCP_ACTIVE_SESSIONS
+
+
+async def _run_with_session_timeout(coro, timeout_sec: float):
+    """Run a coroutine with a hard timeout; raise TimeoutError on expiry."""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout_sec)
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"MCP session exceeded timeout of {timeout_sec}s")
+
+
 # ASGI handler for streamable HTTP connections
 async def handle_streamable_http(
     scope: Scope, receive: Receive, send: Send
 ) -> None:
-    await session_manager.handle_request(scope, receive, send)
+    global _MCP_ACTIVE_SESSIONS
+
+    # ── 1. Refuse new requests when at capacity ─────────────────────────────
+    if not _MCP_CONCURRENCY_SEM.locked():
+        # Semaphore is available — try to acquire
+        acquired = await asyncio.wait_for(
+            _MCP_CONCURRENCY_SEM.acquire(),
+            timeout=0.1,  # fail-fast: don't block the event loop
+        )
+    else:
+        # At capacity — reject immediately
+        from starlette.responses import JSONResponse
+        resp = JSONResponse(
+            status_code=503,
+            content={"error": "MCP server at capacity", "max_concurrent": _MCP_MAX_CONCURRENT_SESSIONS},
+        )
+        await resp(scope, receive, send)
+        return
+
+    _MCP_ACTIVE_SESSIONS += 1
+    try:
+        current_count = _MCP_ACTIVE_SESSIONS
+        if current_count > _MCP_MAX_CONCURRENT_SESSIONS * 0.8:
+            logger.warning(
+                f"[MCP] Concurrent sessions at {current_count}/{_MCP_MAX_CONCURRENT_SESSIONS} "
+                f"(>{_MCP_MAX_CONCURRENT_SESSIONS * 0.8:.0f}% capacity)"
+            )
+
+        # Run the actual handler with a session timeout
+        try:
+            await _run_with_session_timeout(
+                session_manager.handle_request(scope, receive, send),
+                timeout_sec=_MCP_SESSION_TIMEOUT_SEC,
+            )
+        except TimeoutError:
+            logger.warning(
+                f"[MCP] Session timed out after {_MCP_SESSION_TIMEOUT_SEC}s "
+                f"(active={_MCP_ACTIVE_SESSIONS}). Forcing close."
+            )
+            # Return a 504 to indicate timeout
+            from starlette.responses import JSONResponse
+            resp = JSONResponse(
+                status_code=504,
+                content={"error": f"MCP session timed out after {_MCP_SESSION_TIMEOUT_SEC}s"},
+            )
+            await resp(scope, receive, send)
+    finally:
+        _MCP_ACTIVE_SESSIONS -= 1
+        _MCP_CONCURRENCY_SEM.release()
 
 
 

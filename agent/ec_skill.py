@@ -821,6 +821,37 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     state["attributes"] = {}
                 state["attributes"]["__this_node__"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
                 
+                # DEBUG: Log state context for code nodes to help debug input accumulation issues
+                if "code" in node_name.lower() or "accumulate" in node_name.lower() or "_accumulate" in str(getattr(node_fn, "__name__", "")):
+                    try:
+                        import json as _json
+                        _events = state.get("events", [])
+                        _input = state.get("input", "")
+                        _attrs = state.get("attributes", {})
+                        _acc = _attrs.get("_accumulated_input") if isinstance(_attrs, dict) else None
+                        _human = _attrs.get("human_text") if isinstance(_attrs, dict) else None
+                        _query = _attrs.get("query") if isinstance(_attrs, dict) else None
+                        _inv = _attrs.get("current_invocation_input") if isinstance(_attrs, dict) else None
+                        logger.debug(
+                            f"[CODE_NODE_DEBUG] node={node_name} "
+                            f"events_count={len(_events)} "
+                            f"input_len={len(str(_input))} "
+                            f"input_preview='{str(_input)[:100]}...' "
+                            f"has_human_text={bool(_human)} "
+                            f"has_query={bool(_query)} "
+                            f"has_invocation={bool(_inv)} "
+                            f"prev_accumulated={_acc}"
+                        )
+                        if _events:
+                            _last_event = _events[-1] if _events else {}
+                            _event_data = _last_event.get("data", {}) if isinstance(_last_event, dict) else {}
+                            logger.debug(
+                                f"[CODE_NODE_DEBUG] last_event keys={list(_last_event.keys()) if isinstance(_last_event, dict) else '?'}, "
+                                f"event_data keys={list(_event_data.keys()) if isinstance(_event_data, dict) else '?'}"
+                            )
+                    except Exception as _dbg_err:
+                        logger.debug(f"[CODE_NODE_DEBUG] failed to log state: {_dbg_err}")
+                
                 # Execute the actual node function
                 result = _call_node_fn(node_fn, state, runtime, store)
                 break  # success - exit retry loop
@@ -908,16 +939,35 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         # Ensure LLM nodes (which write to state["result"] but not to state["tool_result"][node_name])
         # are visible in upstream_outputs for downstream nodes.  Browser-use nodes write their own
         # entry; this only fills the gap when the entry is absent.
+        # Also unwraps the double-nested llm_result structure from standard_post_llm_func:
+        #   state["result"] = {"llm_result": {"llm_result": {...business...}}}
+        # → tool_result[node_name] = {...business...}  (business fields at top level)
         try:
             tr = state.setdefault("tool_result", {})
             if isinstance(tr, dict) and node_name not in tr:
                 sr = state.get("result")
                 if isinstance(sr, dict) and sr:
                     # Extract the most informative payload available.
-                    payload = sr.get("llm_result") or sr.get("work_result") or sr
+                    raw = sr.get("llm_result") or sr.get("work_result") or sr
+                    
+                    # Unwrap double-nested llm_result produced by standard_post_llm_func:
+                    # {"llm_result": {"llm_result": {...}}} → {...}
+                    payload = raw
+                    if isinstance(payload, dict):
+                        inner = payload.get("llm_result")
+                        if isinstance(inner, dict):
+                            # Check if inner itself is wrapped (double nesting)
+                            inner2 = inner.get("llm_result")
+                            if isinstance(inner2, dict):
+                                # Triple unwrap: outermost llm_result → middle llm_result → business
+                                payload = inner2
+                            else:
+                                # Double unwrap: outermost llm_result → business
+                                payload = inner
+                    
                     if isinstance(payload, dict) and payload:
                         tr[node_name] = dict(payload)
-                        logger.debug(f"[ec_skill] Backfilled tool_result[{node_name}] from state['result']")
+                        logger.debug(f"[ec_skill] Backfilled tool_result[{node_name}] (unwrapped llm_result nesting)")
         except Exception:
             pass
 

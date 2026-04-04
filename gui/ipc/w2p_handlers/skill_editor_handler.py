@@ -1,5 +1,4 @@
 from typing import Any, Optional, Dict, List
-import os
 import json
 from pathlib import Path
 from datetime import datetime
@@ -126,24 +125,39 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             # Lazy import to avoid slow startup
             from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
             import threading
-            
-            # Run skill in background thread to avoid blocking IPC handler and agents initialization
+
+            # Capture launch result (task creation is fast; execution runs in thread pool)
+            result_holder = {}
+            launch_done = threading.Event()
+
             def run_skill_background():
                 try:
                     logger.info("[IPC][run_skill] Starting skill execution in background thread...")
-                    results = run_dev_skill(ctx.main_window, skill)
-                    logger.info(f"[IPC][run_skill] Skill execution completed: {results.get('success', False)}")
+                    _results = run_dev_skill(ctx.main_window, skill)
+                    result_holder.update(_results)
+                    logger.info(f"[IPC][run_skill] Skill launch completed: success={_results.get('success', False)}, run_id={_results.get('run_id')}")
                 except Exception as e:
                     logger.error(f"[IPC][run_skill] Background skill execution failed: {e}")
                     import traceback
                     logger.error(traceback.format_exc())
-            
-            # Start background thread
+                    result_holder['success'] = False
+                    result_holder['error'] = str(e)
+                finally:
+                    launch_done.set()
+
             skill_thread = threading.Thread(target=run_skill_background, daemon=True)
             skill_thread.start()
-            
-            # Return immediately without waiting
-            results = {"success": True, "message": "Skill execution started in background"}
+
+            # Wait for task launch to complete (launch_dev_run_task submits to thread pool
+            # and returns quickly; the 8s covers the rare case of cancelling a previous run)
+            launch_done.wait(timeout=8.0)
+
+            results = {
+                "success": result_holder.get('success', True),
+                "message": "Skill execution started",
+                **({"run_id": result_holder["run_id"]} if result_holder.get("run_id") else {}),
+                **({"task_id": result_holder["task_id"]} if result_holder.get("task_id") else {}),
+            }
         
         return create_success_response(request, {
             "results": results,
@@ -440,7 +454,7 @@ def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
         from agent.ec_skills.dev_utils.skill_dev_utils import cancel_run_dev_skill
 
         ctx = get_handler_context(request, params)
-        results = cancel_run_dev_skill(ctx.main_window)
+        results = cancel_run_dev_skill(ctx.main_window, params if isinstance(params, dict) else None)
         return create_success_response(request, {
             "results": results,
             "message": "Cancelling skill run successful" if results["success"] else "Cancelling skill run failed"
@@ -568,13 +582,11 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
         from agent.ec_skills.dev_utils.skill_dev_utils import set_bps_dev_skill
 
         ctx = get_handler_context(request, params)
-        owner = params["username"]
         bps = [params["node_name"]]
         results = set_bps_dev_skill(ctx.main_window, bps)
-        results = {"success": True}
         return create_success_response(request, {
             "results": results,
-            "message": "Setting skill breakpoints successful" if results["success"] else "Setting skill breakpoints failed"
+            "message": "Setting skill breakpoints successful" if results.get("success") else "Setting skill breakpoints failed"
         })
 
     except Exception as e:
@@ -603,7 +615,6 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
         from agent.ec_skills.dev_utils.skill_dev_utils import clear_bps_dev_skill
 
         ctx = get_handler_context(request, params)
-        owner = (params or {}).get("username")
         node_name = (params or {}).get("node_name")
         # Normalize node_name parameter to a list
         if isinstance(node_name, list):
