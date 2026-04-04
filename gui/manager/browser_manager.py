@@ -10,8 +10,8 @@ import subprocess
 import asyncio
 from datetime import datetime
 from enum import Enum
+from threading import Lock, Timer
 from typing import Optional, Dict, List, Any, Tuple, TYPE_CHECKING
-from threading import Lock
 from uuid_extensions import uuid7str
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -595,6 +595,14 @@ class BrowserManager:
 
         # Slot-based pool (explicit configuration)
         self._slots: Dict[str, BrowserSlot] = {}
+
+        # Idle browser auto-shutdown configuration
+        # When a browser is released (mark_idle), a delayed shutdown is scheduled.
+        # If the browser is re-acquired before the delay, the shutdown is cancelled.
+        self._idle_shutdown_delay: float = float(
+            os.environ.get("ECAN_BROWSER_IDLE_SHUTDOWN_DELAY", "60")
+        )  # seconds; 0 = disabled
+        self._pending_shutdowns: Dict[str, Timer] = {}  # browser_id -> Timer
 
         if slots:
             self.configure_slots(slots)
@@ -1208,6 +1216,8 @@ class BrowserManager:
             profile=profile,
         )
         if browser:
+            # Cancel any pending idle shutdown so the browser isn't killed mid-reuse
+            self.cancel_pending_shutdown(browser.id)
             logger.info(
                 f"[BrowserManager] Agent {agent_id} reusing owned browser {browser.id} "
                 f"(task={task or ''}, profile={profile or browser.profile}, cdp_port={effective_cdp_port})"
@@ -1221,8 +1231,11 @@ class BrowserManager:
             adspower_profile_id=adspower_profile_id,
             profile=profile,
         )
-        
+
         if browser:
+            # Cancel any pending idle shutdown so the browser isn't killed mid-reuse
+            self.cancel_pending_shutdown(browser.id)
+
             # Update downloads_path on existing browser's profile if provided
             if downloads_path and browser.browser_session:
                 try:
@@ -1282,25 +1295,119 @@ class BrowserManager:
     def release_browser(self, browser_id: str) -> bool:
         """
         Release a browser back to the pool.
-        
+
+        If ``idle_shutdown_delay`` > 0, schedules a delayed shutdown so the Chrome
+        process is killed if the browser isn't re-acquired within that window.
+        This prevents Chrome instances from accumulating indefinitely.
+
         Args:
             browser_id: ID of the browser to release
-            
+
         Returns:
             True if released successfully, False if browser not found
         """
         with self._lock:
             browser = self._browsers.get(browser_id)
-            if browser:
-                # Release agent from slot tracking
-                if browser.slot_id and browser.current_agent_id:
-                    slot = self._slots.get(browser.slot_id)
-                    if slot:
-                        slot.release_agent(browser.current_agent_id)
-                browser.mark_idle()
-                logger.info(f"Released browser: {browser_id}")
-                return True
-            return False
+            if not browser:
+                return False
+
+            # Release agent from slot tracking
+            if browser.slot_id and browser.current_agent_id:
+                slot = self._slots.get(browser.slot_id)
+                if slot:
+                    slot.release_agent(browser.current_agent_id)
+
+            browser.mark_idle()
+
+            # Cancel any pending shutdown that was previously scheduled
+            pending = self._pending_shutdowns.pop(browser_id, None)
+            if pending:
+                pending.cancel()
+
+            # Schedule auto-shutdown after idle timeout
+            if self._idle_shutdown_delay > 0:
+                self._schedule_delayed_shutdown(browser_id, self._idle_shutdown_delay)
+
+            logger.info(
+                f"Released browser: {browser_id}"
+                f"{f', auto-shutdown in {self._idle_shutdown_delay}s' if self._idle_shutdown_delay > 0 else ''}"
+            )
+            return True
+
+    def _schedule_delayed_shutdown(self, browser_id: str, delay: float) -> None:
+        """
+        Schedule a delayed shutdown for a browser that has been idle.
+
+        The shutdown is a best-effort asyncio call. If the event loop is not
+        running, falls back to a synchronous quit on the webdriver.
+        """
+        # Cancel any previously scheduled shutdown for this browser
+        existing = self._pending_shutdowns.get(browser_id)
+        if existing:
+            existing.cancel()
+
+        def _do_shutdown():
+            # Pop the timer ref first
+            self._pending_shutdowns.pop(browser_id, None)
+
+            browser = self._browsers.get(browser_id)
+            if browser is None:
+                logger.debug(f"[IdleShutdown] Browser {browser_id} already removed")
+                return
+
+            # Only shutdown if still idle (wasn't re-acquired)
+            if browser.status != BrowserStatus.IDLE:
+                logger.debug(f"[IdleShutdown] Browser {browser_id} is no longer idle (status={browser.status.value}), skipping shutdown")
+                return
+
+            logger.info(f"[IdleShutdown] Browser {browser_id} idle timeout reached — shutting down Chrome (cdp_port={browser.cdp_port})")
+            try:
+                # Try graceful async shutdown first
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Schedule on the running loop so we don't block
+                    loop.call_soon(lambda: asyncio.create_task(self.shutdown_browser(browser_id, force=True)))
+                    return
+                except RuntimeError:
+                    # No running loop — fall back to synchronous quit
+                    pass
+
+                if browser.browser_session:
+                    try:
+                        # browser_use BrowserSession.close() is async; best-effort
+                        loop = asyncio.new_event_loop()
+                        loop.run_until_complete(browser.browser_session.close())
+                        loop.close()
+                    except Exception as e:
+                        logger.warning(f"[IdleShutdown] Error closing browser_session for {browser_id}: {e}")
+
+                if browser.webdriver:
+                    try:
+                        browser.webdriver.quit()
+                        logger.info(f"[IdleShutdown] WebDriver.quit() successful for {browser_id}")
+                    except Exception as e:
+                        logger.warning(f"[IdleShutdown] Error quitting webdriver for {browser_id}: {e}")
+
+                # Remove from registry
+                with self._lock:
+                    if browser_id in self._browsers:
+                        del self._browsers[browser_id]
+                logger.info(f"[IdleShutdown] Browser {browser_id} removed from registry")
+            except Exception as e:
+                logger.error(f"[IdleShutdown] Unexpected error shutting down browser {browser_id}: {e}")
+
+        timer = Timer(delay, _do_shutdown, name=f"IdleShutdown_{browser_id}")
+        timer.daemon = True
+        timer.start()
+        self._pending_shutdowns[browser_id] = timer
+        logger.debug(f"[IdleShutdown] Scheduled shutdown for {browser_id} in {delay}s")
+
+    def cancel_pending_shutdown(self, browser_id: str) -> None:
+        """Cancel any pending idle shutdown for a browser (e.g. when it is re-acquired)."""
+        pending = self._pending_shutdowns.pop(browser_id, None)
+        if pending:
+            pending.cancel()
+            logger.debug(f"[IdleShutdown] Cancelled pending shutdown for {browser_id}")
     
     def update_browser_session(self, browser_id: str, browser_session: Any) -> bool:
         """
@@ -1378,18 +1485,21 @@ class BrowserManager:
                     browser.webdriver.quit()
                 except Exception as e:
                     logger.warning(f"Error closing webdriver for {browser_id}: {e}")
-            
+
             # Remove from registry
             with self._lock:
                 del self._browsers[browser_id]
-            
+
             logger.info(f"Shutdown browser: {browser_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error shutting down browser {browser_id}: {e}")
             browser.mark_error(str(e))
             return False
+        finally:
+            # Cancel any pending idle shutdown to avoid double-cleanup
+            self.cancel_pending_shutdown(browser_id)
     
     async def shutdown_all(self, force: bool = False) -> int:
         """

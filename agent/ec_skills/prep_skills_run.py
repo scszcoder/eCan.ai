@@ -12,6 +12,7 @@ from agent.ec_tasks.resume import (
     DEFAULT_MAPPINGS,
     build_resume_from_mapping,
     normalize_event,
+    _safe_get,
 )
 
 
@@ -473,7 +474,7 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
 
         # 2) Resolve START-node mapping
         mapping = _resolve_start_mapping(skill)
-        logger.debug("[prep_skills_run] mapping: ", mapping)
+        logger.info(f"[prep_skills_run] skill={getattr(skill, 'name', '?')}, run_mode={getattr(skill, 'run_mode', '?')}, resolved_mapping_keys={list(mapping.keys()) if isinstance(mapping, dict) else 'N/A'}")
 
         # 3) Normalize incoming message to event envelope (type inferred)
         logger.debug("[prep_skills_run] incoming message: ", msg)

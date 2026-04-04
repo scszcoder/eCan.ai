@@ -492,8 +492,11 @@ def _start_task_loop(agent, task, *, trigger_types: Optional[List[str]] = None):
     thread_pool = getattr(mainwin, "threadPoolExecutor", None) if mainwin else None
     if not thread_pool:
         thread_pool = getattr(agent, "thread_pool_executor", None)
+    
+    _pool_ctx = None
     if not thread_pool:
-        thread_pool = ThreadPoolExecutor(max_workers=4)
+        _pool_ctx = ThreadPoolExecutor(max_workers=4)
+        thread_pool = _pool_ctx
 
     try:
         future = thread_pool.submit(runner.launch_unified_run, task, trigger_types)
@@ -503,6 +506,9 @@ def _start_task_loop(agent, task, *, trigger_types: Optional[List[str]] = None):
         logger.info(f"[task_mcp_tools] Execution loop started for task: {task.name}, triggers={trigger_types}")
     except Exception as e:
         logger.error(f"[task_mcp_tools] Failed to start execution loop: {e}")
+    finally:
+        if _pool_ctx:
+            _pool_ctx.shutdown(wait=False)
 
 
 def _find_task(agent, task_id: str, task_name: str):
