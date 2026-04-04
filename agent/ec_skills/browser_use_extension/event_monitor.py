@@ -242,6 +242,7 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
         "#customer-list",
         ".customer-item",
         ".session-row",
+        '#chantListScrollArea',
         'a[href*="/chat?session="]',
         'a[href*="chat?session="]',
     ):
@@ -249,14 +250,44 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
             selectors.append(fallback_selector)
 
     page_patterns = [p for p in cfg.url_patterns if isinstance(p, str) and p.strip()]
-    if not page_patterns:
-        page_patterns = ["/control"]
+    # Do NOT default to ["/control"] — that is test-rig specific.
+    # Monitors without explicit URL patterns should run on whatever page
+    # the browser agent is currently viewing (e.g. Feige, Shopify, etc.).
 
     return {
         "version": 1,
-        "page_url_patterns": page_patterns,
+        "page_url_patterns": page_patterns,  # empty = match any page
         "roots": selectors or ["body"],
         "items": [
+            # ── Feige (飞鸽) unread sessions ─────────────────────────────────
+            # Only matches session items that currently have an unread badge
+            # (.rxAvaVFJHvpEGMc1ejm1 visible).  When a customer sends a message
+            # the badge appears → item is "added" → monitor fires.
+            # When the agent reads the message the badge disappears → item is
+            # removed from the snapshot (not a trigger).
+            {
+                "selector": '[data-qa-id="qa-conversation-chat-item"]:has(.rxAvaVFJHvpEGMc1ejm1)',
+                "fields": {
+                    "name": {
+                        "source": "attr",
+                        "selector": ".MP1bk3ccfHC9V2SnPCGD",
+                        "attr": "title",
+                        "fallback": [
+                            {"source": "text", "selector": ".MP1bk3ccfHC9V2SnPCGD"},
+                            {"source": "text", "selector": ".Jv6FtqUv5VoYARd2pp4y"},
+                        ],
+                    },
+                    "unread": {
+                        "source": "text",
+                        "selector": ".rxAvaVFJHvpEGMc1ejm1",
+                    },
+                    "last_message": {
+                        "source": "text",
+                        "selector": ".lF_M7QiFB0ukHWpMfQde span",
+                    },
+                },
+            },
+            # ── Generic test-rig / chat-session links ─────────────────────────
             {
                 "selector": 'a[href*="/chat?session="], a[href*="chat?session="]',
                 "fields": {
@@ -282,11 +313,11 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
                         ],
                     },
                 },
-            }
+            },
         ],
-        "key_field": "session",
+        "key_field": "name",
         "identity": {
-            "key_fields": ["session"],
+            "key_fields": ["name"],
         },
         "empty_text_patterns": ["no customers", "no active customers", "no customers yet"],
         "emit_on": "added",
@@ -1469,6 +1500,19 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             return
         mutation_state["last_check"] = current_time
 
+        # ── Periodic heartbeat (INFO, every 30 s) ─────────────────────────────
+        # Visible in production logs so you can confirm the monitor is alive,
+        # what page it's polling, and how many items the extractor currently sees
+        # — without spamming a line every 250 ms.
+        # Also fires on the very first cycle (last_ts=0) so startup state is visible.
+        _hb_interval = 30.0
+        _last_hb = float(mutation_state.get("_last_heartbeat_ts") or 0.0)
+        _emit_heartbeat = (current_time - _last_hb) >= _hb_interval
+        if _emit_heartbeat:
+            mutation_state["_last_heartbeat_ts"] = current_time
+            # NOTE: the actual log line is emitted further down after we have
+            # status/url/items from the DOM query — do NOT log here.
+
         # ── Use pre-cached extractor config (built once at startup) ───────────
         extractor_cfg = mutation_state.get("_cached_extractor_cfg")
         if extractor_cfg is None:
@@ -1543,6 +1587,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             dom_content = result.get("result", {}).get("value", "")
             logger.debug(f"[EventMonitor] DOM query result via Runtime: {dom_content[:100]}...")
         except Exception as runtime_err:
+            if _emit_heartbeat:
+                logger.info(
+                    f"[EventMonitor][HB] label='{cfg.label}' CDP_ERROR={runtime_err} "
+                    f"target=...{str(mutation_state.get('target_id') or '')[-6:]}"
+                )
             logger.debug(f"[EventMonitor] Runtime domain query failed: {runtime_err}")
             # Connection may be stale — force reconnect on next cycle
             await _cleanup_monitor_cdp(mutation_state)
@@ -1580,6 +1629,14 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
                 except Exception:
                     pass
+            # Promote to INFO on heartbeat so no_match is visible in production logs
+            if _emit_heartbeat:
+                root_count = (debug_info or {}).get("rootCount", "?")
+                logger.info(
+                    f"[EventMonitor][HB] label='{cfg.label}' status={status} "
+                    f"url={current_url[:80]} roots_found={root_count} items=0 "
+                    f"target=...{str(mutation_state.get('target_id') or '')[-6:]}"
+                )
         if status == "page_mismatch":
             mutation_state["page_mismatch_count"] = int(mutation_state.get("page_mismatch_count") or 0) + 1
             mismatch_count = mutation_state["page_mismatch_count"]
@@ -1594,7 +1651,16 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"{mismatch_count} page mismatches; current_url={current_url}"
                 )
                 mutation_state["enabled"] = False
-            logger.debug(f"[EventMonitor] DOM page mismatch, skipping: {current_url}")
+            # Promote to INFO on heartbeat — page_mismatch was completely silent before
+            if _emit_heartbeat:
+                _cfg_patterns = (mutation_state.get("_cached_extractor_cfg") or {}).get("page_url_patterns") or []
+                logger.info(
+                    f"[EventMonitor][HB] label='{cfg.label}' status=page_mismatch "
+                    f"url={current_url[:80]} expected_patterns={_cfg_patterns} "
+                    f"target=...{str(mutation_state.get('target_id') or '')[-6:]}"
+                )
+            else:
+                logger.debug(f"[EventMonitor] DOM page mismatch, skipping: {current_url}")
             return
         mutation_state["page_mismatch_count"] = 0
 
@@ -1616,6 +1682,26 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     key = ""
             if key:
                 current_keys.append(key)
+
+        # ── Heartbeat for ok/empty status + first-extraction detail log ──────
+        if _emit_heartbeat or not mutation_state.get("keys_initialized"):
+            _item_keys_preview = [
+                str(item.get("identity_key") or item.get(key_field) or "?")[:40]
+                for item in items[:5]
+            ]
+            _first_items_detail = ""
+            if not mutation_state.get("keys_initialized") and items:
+                # One-time detailed dump on first successful extraction
+                _first_items_detail = " | first_items=" + str([
+                    {k: str(v)[:30] for k, v in item.items() if k != "identity_key"}
+                    for item in items[:3]
+                ])
+            if _emit_heartbeat or _first_items_detail:
+                logger.info(
+                    f"[EventMonitor][HB] label='{cfg.label}' status={status or 'ok'} "
+                    f"url={current_url[:80]} items={len(items)} keys={_item_keys_preview}"
+                    + _first_items_detail
+                )
 
         keys_initialized = bool(mutation_state.get("keys_initialized"))
         previous_keys = mutation_state.get("last_keys") or []
