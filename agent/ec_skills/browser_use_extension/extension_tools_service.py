@@ -2142,17 +2142,28 @@ async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionR
 #
 # Selectors confirmed from live DOM captures (Feige customer-service web app).
 # Session list panel:
-#   Items      : [data-qa-id="qa-conversation-chat-item"]
-#   Name       : .MP1bk3ccfHC9V2SnPCGD  (title attr) or .Jv6FtqUv5VoYARd2pp4y
-#   Last msg   : .lF_M7QiFB0ukHWpMfQde span
-#   Timestamp  : .CEnLM8MEGksTdgi_8Lqf
-#   Unread badge: .rxAvaVFJHvpEGMc1ejm1
-#   Scroll root: #chantListScrollArea
+#   Scroll root : #chantListScrollArea
+#   Items       : [data-qa-id="qa-conversation-chat-item"]
+#   Name        : .MP1bk3ccfHC9V2SnPCGD (title attr) or .Jv6FtqUv5VoYARd2pp4y (text)
+#   Last msg    : .lF_M7QiFB0ukHWpMfQde span
+#   Timestamp   : .CEnLM8MEGksTdgi_8Lqf
+#   Unread badge: .rxAvaVFJHvpEGMc1ejm1  (div; empty = dot badge, number = count badge;
+#                 present only when session has unread messages; treated as unread=1 if empty)
+#   Tab buttons : [data-qa-id="qa-active-chat-tab"]  (当前会话)
+#                 [data-qa-id="qa-last-chat-tab"]    (最近联系)
 #
-# Chat thread:
-#   Input box  : div[contenteditable="true"]   (first match inside .chat-input or similar)
-#   Send button: button[data-qa-id="qa-send-btn"]  — TODO: verify from live capture
-#   Messages   : .message-item or [data-qa-id*="message"]  — TODO: verify from live capture
+# Chat thread (confirmed from live DOM):
+#   Message wrappers : [data-qa-id="qa-message-warpper"]  ← Feige typo, NOT "wrapper"
+#   Bubble element   : .iD7SHBvMhm4OhfCsBGr1
+#   Agent bubble     : .messageIsMe   (flex-direction: row-reverse)
+#   Customer bubble  : .messageNotMe  (flex-direction: row)
+#   Timestamp        : .O4UWWFoQxgMq4AWHMq25
+#   Message id       : data-id attr on child div of wrapper
+#   System messages  : .BqNO6cexAGBsZgUmEzIE or .e0Bi5IauHWvUG8773oi9
+#
+# Chat compose area (confirmed from live DOM):
+#   Input   : textarea[data-qa-id="qa-send-message-textarea"]
+#   Send btn: [data-qa-id="qa-send-message-button"]  (div, not button)
 #
 # If a selector stops working, run feige_get_chat_thread or feige_list_sessions with
 # extract_dom=True to get fresh HTML snippets and update the constants below.
@@ -2289,30 +2300,38 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
 # snapshot (e.g. via extract_dom on the right-hand pane) and update the JS.
 _FEIGE_GET_THREAD_JS = r"""
 (function(maxMessages) {
-  // Try common Feige message selectors (update if DOM changes)
-  var selectors = [
-    '[data-qa-id*="message-item"]',
-    '.message-item',
-    '[class*="messageItem"]',
-    '[class*="chat-message"]',
-  ];
-  var msgs = [];
-  for (var s = 0; s < selectors.length; s++) {
-    msgs = Array.from(document.querySelectorAll(selectors[s]));
-    if (msgs.length > 0) break;
-  }
+  // Confirmed selectors from live DOM capture (note Feige typo: "warpper" not "wrapper")
+  // Each message wrapper: [data-qa-id="qa-message-warpper"] > div[data-id] > div.tC9ap6QtAyeCD0jfuMns
+  // Agent message:   inner div with flex-direction:row-reverse  OR  class containing "messageIsMe"
+  // Customer message: inner div with flex-direction:row          OR  class containing "messageNotMe"
+  // System/event:    div.tC9ap6QtAyeCD0jfuMns containing no leaveMessageWrapper (just text spans)
+  var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
   var results = [];
-  var start = Math.max(0, msgs.length - maxMessages);
-  for (var i = start; i < msgs.length; i++) {
-    var el = msgs[i];
-    var text = el.innerText || el.textContent || '';
-    var isAgent = el.classList.contains('self') || el.classList.contains('right') ||
-                  el.getAttribute('data-sender-type') === 'agent';
-    var tsEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
+  var start = Math.max(0, wrappers.length - maxMessages);
+  for (var i = start; i < wrappers.length; i++) {
+    var wrap = wrappers[i];
+    // Message bubble element (has the actual text)
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!bubble) {
+      // System/event message (no bubble) — capture inner text of the system span
+      var sysEl = wrap.querySelector('.BqNO6cexAGBsZgUmEzIE, .e0Bi5IauHWvUG8773oi9, .rcHPT4n3TlQD0Nu4sSiv');
+      if (sysEl) {
+        results.push({ index: i, text: sysEl.textContent.trim(), is_agent: false, is_system: true, timestamp: '' });
+      }
+      continue;
+    }
+    var text = (bubble.querySelector('pre') || bubble).textContent.trim();
+    // Determine sender from CSS class on the bubble itself
+    var isAgent = bubble.classList.contains('messageIsMe');
+    // Timestamp lives in a sibling of the bubble
+    var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
-    results.push({ index: i, text: text.trim(), is_agent: isAgent, timestamp: ts });
+    // data-id on the wrapper's direct child can serve as a message ID
+    var msgIdEl = wrap.querySelector('[data-id]');
+    var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
+    results.push({ index: i, text: text, is_agent: isAgent, is_system: false, timestamp: ts, msg_id: msgId });
   }
-  return JSON.stringify({ messages: results, total_found: msgs.length, selector_used: msgs.length > 0 ? 'matched' : 'none' });
+  return JSON.stringify({ messages: results, total_found: wrappers.length, selector_used: wrappers.length > 0 ? 'matched' : 'none' });
 })(MAX_MESSAGES);
 """
 
@@ -2345,16 +2364,17 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 _FEIGE_SEND_MESSAGE_JS = r"""
 (function(text) {
-  // Find the contenteditable input in the chat compose area
+  // Confirmed from live DOM: input is a <textarea data-qa-id="qa-send-message-textarea">
+  // Send button is <div data-qa-id="qa-send-message-button" role="button">
   var inputSelectors = [
-    '[data-qa-id="qa-chat-input"]',
+    '[data-qa-id="qa-send-message-textarea"]',
+    'textarea[placeholder*="发送"]',
+    'textarea',
     '[contenteditable="true"]',
-    'div[contenteditable]',
   ];
   var input = null;
   for (var s = 0; s < inputSelectors.length; s++) {
     var candidates = Array.from(document.querySelectorAll(inputSelectors[s]));
-    // Prefer the one that is visible and not read-only
     for (var c = 0; c < candidates.length; c++) {
       var el = candidates[c];
       var rect = el.getBoundingClientRect();
@@ -2364,17 +2384,22 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
 
-  // Focus and set text
+  // Set text on textarea using React's native setter so React state updates
   input.focus();
-  document.execCommand('selectAll', false, null);
-  document.execCommand('insertText', false, text);
+  var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+  if (nativeSetter && nativeSetter.set) {
+    nativeSetter.set.call(input, text);
+  } else {
+    input.value = text;
+  }
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Try send button first
+  // Try confirmed send button first: <div data-qa-id="qa-send-message-button">
   var sendSelectors = [
+    '[data-qa-id="qa-send-message-button"]',
     '[data-qa-id="qa-send-btn"]',
     'button[class*="send"]',
-    'button[aria-label*="send" i]',
-    'button[title*="send" i]',
   ];
   var sendBtn = null;
   for (var sb = 0; sb < sendSelectors.length; sb++) {
@@ -2383,11 +2408,10 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   if (sendBtn) {
     sendBtn.click();
-    return JSON.stringify({ sent: true, method: 'button_click' });
+    return JSON.stringify({ sent: true, method: 'button_click', selector: sendSelectors[sb] });
   }
-  // Fallback: simulate Enter keypress
-  var ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-  input.dispatchEvent(ev);
+  // Fallback: simulate Enter keypress on the textarea
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
   return JSON.stringify({ sent: true, method: 'enter_key' });
 })(MESSAGE_TEXT);
 """
