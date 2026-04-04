@@ -152,6 +152,60 @@ _API_KEY_CACHE_TTL_SECONDS = 120.0  # Re-resolve after 2 min
 # LLM invocation (each call parses settings.json and builds provider maps).
 _LLM_MANAGER_CACHE: dict[str, Any] = {}  # key is always "" for the singleton slot
 
+# Track the current skill execution ID so we can scope cache entries per execution
+_CURRENT_SKILL_EXECUTION_ID: str | None = None
+
+
+def _clear_module_caches():
+    """Clear all module-level caches to prevent memory accumulation.
+
+    Call this at the end of every skill execution.  Clears:
+    - LLM instance cache
+    - LLM manager cache
+    - API key cache
+    - Browser session cache
+    - Passive agent cache
+    - Persistent worker threads (stops them and removes references)
+
+    Also resets the current skill execution ID so stale references can't
+    accidentally leak into the next execution.
+    """
+    global _CURRENT_SKILL_EXECUTION_ID
+    _CURRENT_SKILL_EXECUTION_ID = None
+
+    # Clear LLM instance cache
+    _LLM_INSTANCE_CACHE.clear()
+
+    # Clear LLM manager cache
+    _LLM_MANAGER_CACHE.clear()
+
+    # Clear API key cache
+    _API_KEY_CACHE.clear()
+
+    # Clear browser session cache
+    _cached_browser_sessions.clear()
+
+    # Clear passive agent cache
+    _cached_passive_agents.clear()
+
+    # Stop and remove persistent worker threads
+    try:
+        from agent.ec_skills.llm_utils.llm_utils import (
+            _persistent_worker_runners,
+            _persistent_worker_runners_lock,
+        )
+        with _persistent_worker_runners_lock:
+            for _name, _runner in list(_persistent_worker_runners.items()):
+                try:
+                    _runner.stop()
+                except Exception:
+                    pass
+            _persistent_worker_runners.clear()
+    except ImportError:
+        pass
+
+    logger.debug("[build_node] Module-level caches cleared")
+
 
 def _resolve_cloud_tool_func(tool_name: str):
     """Resolve a tool handler function for cloud-direct invocation.
@@ -376,7 +430,13 @@ def get_default_node_schemas():
     return schemas
 
 
-def add_to_history(state, messages):
+def add_to_history(state, messages, max_entries: int = 200):
+    """Append messages to state["history"] with automatic pruning.
+
+    To prevent unbounded memory growth during long-running skill executions,
+    the history is trimmed to the most recent ``max_entries`` items whenever
+    it exceeds that threshold.
+    """
     if not isinstance(state.get("history"), list):
         state["history"] = []
 
@@ -384,6 +444,10 @@ def add_to_history(state, messages):
         state["history"].extend(messages)
     else:
         state["history"].append(messages)
+
+    # Prune to keep only the most recent entries
+    if len(state["history"]) > max_entries:
+        state["history"] = state["history"][-max_entries:]
 
 
 STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
@@ -482,6 +546,157 @@ def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | Non
         return None, None
 
 
+# ---------------------------------------------------------------------------
+# Prompt template helpers (used by _resolve_prompt_templates and other nodes)
+# ---------------------------------------------------------------------------
+
+def _join_list(items: list[str]) -> str:
+    lines = []
+    for idx, item in enumerate(items or [], 1):
+        text = str(item).strip()
+        if text:
+            lines.append(f"{idx}. {text}")
+    return "\n".join(lines)
+
+
+def _parse_tools_to_use_item(raw: str) -> list[str]:
+    """Parse a tools_to_use item which can be JSON array or comma-separated string."""
+    s = str(raw or "").strip()
+    if not s:
+        return []
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return [str(v).strip() for v in parsed if v]
+    except Exception:
+        pass
+    return [v.strip() for v in s.split(',') if v.strip()]
+
+
+def _schema_to_dict(schema: Any) -> dict:
+    if hasattr(schema, 'model_dump'):
+        return schema.model_dump()
+    if isinstance(schema, dict):
+        return schema
+    return {
+        'name': getattr(schema, 'name', ''),
+        'description': getattr(schema, 'description', ''),
+        'inputSchema': getattr(schema, 'inputSchema', {}),
+    }
+
+
+def _get_all_tool_schemas() -> list:
+    """Fetch all tool schemas, working in both GUI and cloud-worker contexts."""
+    all_schemas = []
+
+    # 1) GUI context (main window registry)
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        all_schemas = getattr(mainwin, 'mcp_tools_schemas', None) or []
+    except Exception:
+        all_schemas = []
+
+    # 2) Cloud/no-GUI context fallback (server-side registry)
+    if not all_schemas:
+        try:
+            from agent.mcp.server.tool_schemas import get_tool_schemas
+            all_schemas = get_tool_schemas() or []
+            logger.debug(f"[_get_all_tool_schemas] Loaded {len(all_schemas)} schemas from MCP server registry")
+        except Exception as e:
+            logger.warning(f"[_get_all_tool_schemas] Failed to load schemas from MCP server registry: {e}")
+            all_schemas = []
+
+    return all_schemas
+
+
+def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
+    """Fetch full tool schemas for the given tool names from MCP registry."""
+    try:
+        all_schemas = _get_all_tool_schemas()
+        logger.debug(f"[_get_tool_schemas_for_names] Looking for {len(tool_names)} tools in registry with {len(all_schemas)} schemas")
+        result = []
+        seen = set()
+        for name in tool_names:
+            if name in seen:
+                continue
+            seen.add(name)
+            for schema in all_schemas:
+                schema_name = getattr(schema, 'name', None) or (schema.get('name') if isinstance(schema, dict) else None)
+                schema_id = getattr(schema, 'id', None) or (schema.get('id') if isinstance(schema, dict) else None)
+                if schema_name == name or schema_id == name:
+                    result.append(_schema_to_dict(schema))
+                    break
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to get tool schemas: {e}")
+        return []
+
+
+def _is_tools_schema_placeholder(raw: str) -> bool:
+    txt = str(raw or '').strip()
+    if not txt:
+        return False
+    return bool(re.fullmatch(r'\{\{\s*tools_schema\s*\}\}', txt, re.IGNORECASE))
+
+
+def _format_tools_to_use_section(items: list[str]) -> str:
+    """Format tools_to_use section with full tool schemas instead of just names."""
+    include_all_schemas = False
+
+    # Collect all tool names from items
+    all_tool_names = []
+    seen = set()
+    for item in items:
+        if _is_tools_schema_placeholder(item):
+            include_all_schemas = True
+            continue
+        for name in _parse_tools_to_use_item(item):
+            if name not in seen:
+                seen.add(name)
+                all_tool_names.append(name)
+
+    logger.debug(f"[_format_tools_to_use_section] Parsed tool names: {all_tool_names}")
+
+    if not all_tool_names and not include_all_schemas:
+        logger.debug("[_format_tools_to_use_section] No tool names found, returning empty")
+        return ""
+
+    # Get full schemas
+    if include_all_schemas:
+        all_schemas = _get_all_tool_schemas()
+        schemas = [_schema_to_dict(s) for s in all_schemas]
+        logger.debug(f"[_format_tools_to_use_section] Expanded {{tools_schema}} to {len(schemas)} schemas")
+    else:
+        schemas = _get_tool_schemas_for_names(all_tool_names)
+        logger.debug(f"[_format_tools_to_use_section] Got {len(schemas)} schemas for {len(all_tool_names)} tool names")
+
+    if not schemas:
+        if include_all_schemas:
+            logger.warning("[_format_tools_to_use_section] {{tools_schema}} requested but no schemas found")
+            return ""
+        logger.debug("[_format_tools_to_use_section] No schemas found, falling back to name list")
+        return _join_list(all_tool_names)
+
+    # Format schemas as JSON for LLM to understand
+    lines = []
+    for idx, schema in enumerate(schemas, 1):
+        schema_json = json.dumps(schema, indent=2, ensure_ascii=False)
+        lines.append(f"{idx}. {schema_json}")
+    result = "\n".join(lines)
+    logger.debug(f"[_format_tools_to_use_section] Formatted {len(schemas)} tool schemas, total length: {len(result)}")
+    return result
+
+
+def _section_label(section: dict) -> str:
+    sec_type = str((section or {}).get("type") or "").strip()
+    if not sec_type:
+        return ""
+    if sec_type == "custom" and section.get("customLabel"):
+        return str(section.get("customLabel")).strip()
+    return sec_type.replace("_", " ").title()
+
+
 def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str, *, skill_owner: str = "") -> tuple[str, str, dict]:
     """Resolve system/user prompt templates based on selection.
 
@@ -527,145 +742,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
             logger.warning(f"Failed to normalize prompt '{selection}': {exc}")
             return inline_system, inline_user, {}
 
-    def _join_list(items: list[str]) -> str:
-        lines = []
-        for idx, item in enumerate(items or [], 1):
-            text = str(item).strip()
-            if text:
-                lines.append(f"{idx}. {text}")
-        return "\n".join(lines)
-
-    def _parse_tools_to_use_item(raw: str) -> list[str]:
-        """Parse a tools_to_use item which can be JSON array or comma-separated string."""
-        s = str(raw or "").strip()
-        if not s:
-            return []
-        try:
-            parsed = json.loads(s)
-            if isinstance(parsed, list):
-                return [str(v).strip() for v in parsed if v]
-        except Exception:
-            pass
-        return [v.strip() for v in s.split(',') if v.strip()]
-
-    def _schema_to_dict(schema: Any) -> dict:
-        if hasattr(schema, 'model_dump'):
-            return schema.model_dump()
-        if isinstance(schema, dict):
-            return schema
-        return {
-            'name': getattr(schema, 'name', ''),
-            'description': getattr(schema, 'description', ''),
-            'inputSchema': getattr(schema, 'inputSchema', {}),
-        }
-
-    def _get_all_tool_schemas() -> list:
-        """Fetch all tool schemas, working in both GUI and cloud-worker contexts."""
-        all_schemas = []
-
-        # 1) GUI context (main window registry)
-        try:
-            from app_context import AppContext
-            mainwin = AppContext.get_main_window()
-            all_schemas = getattr(mainwin, 'mcp_tools_schemas', None) or []
-        except Exception:
-            all_schemas = []
-
-        # 2) Cloud/no-GUI context fallback (server-side registry)
-        if not all_schemas:
-            try:
-                from agent.mcp.server.tool_schemas import get_tool_schemas
-                all_schemas = get_tool_schemas() or []
-                logger.debug(f"[_get_all_tool_schemas] Loaded {len(all_schemas)} schemas from MCP server registry")
-            except Exception as e:
-                logger.warning(f"[_get_all_tool_schemas] Failed to load schemas from MCP server registry: {e}")
-                all_schemas = []
-
-        return all_schemas
-
-    def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
-        """Fetch full tool schemas for the given tool names from MCP registry."""
-        try:
-            all_schemas = _get_all_tool_schemas()
-            logger.debug(f"[_get_tool_schemas_for_names] Looking for {len(tool_names)} tools in registry with {len(all_schemas)} schemas")
-            result = []
-            seen = set()
-            for name in tool_names:
-                if name in seen:
-                    continue
-                seen.add(name)
-                for schema in all_schemas:
-                    schema_name = getattr(schema, 'name', None) or (schema.get('name') if isinstance(schema, dict) else None)
-                    schema_id = getattr(schema, 'id', None) or (schema.get('id') if isinstance(schema, dict) else None)
-                    if schema_name == name or schema_id == name:
-                        result.append(_schema_to_dict(schema))
-                        break
-            return result
-        except Exception as e:
-            logger.warning(f"Failed to get tool schemas: {e}")
-            return []
-
-    def _format_tools_to_use_section(items: list[str]) -> str:
-        """Format tools_to_use section with full tool schemas instead of just names."""
-        include_all_schemas = False
-
-        def _is_tools_schema_placeholder(raw: str) -> bool:
-            txt = str(raw or '').strip()
-            if not txt:
-                return False
-            return bool(re.fullmatch(r'\{\{\s*tools_schema\s*\}\}', txt, re.IGNORECASE))
-
-        # Collect all tool names from items
-        all_tool_names = []
-        seen = set()
-        for item in items:
-            if _is_tools_schema_placeholder(item):
-                include_all_schemas = True
-                continue
-            for name in _parse_tools_to_use_item(item):
-                if name not in seen:
-                    seen.add(name)
-                    all_tool_names.append(name)
-        
-        logger.debug(f"[_format_tools_to_use_section] Parsed tool names: {all_tool_names}")
-        
-        if not all_tool_names and not include_all_schemas:
-            logger.debug("[_format_tools_to_use_section] No tool names found, returning empty")
-            return ""
-        
-        # Get full schemas
-        if include_all_schemas:
-            all_schemas = _get_all_tool_schemas()
-            schemas = [_schema_to_dict(s) for s in all_schemas]
-            logger.debug(f"[_format_tools_to_use_section] Expanded {{tools_schema}} to {len(schemas)} schemas")
-        else:
-            schemas = _get_tool_schemas_for_names(all_tool_names)
-            logger.debug(f"[_format_tools_to_use_section] Got {len(schemas)} schemas for {len(all_tool_names)} tool names")
-        
-        if not schemas:
-            if include_all_schemas:
-                logger.warning("[_format_tools_to_use_section] {{tools_schema}} requested but no schemas found")
-                return ""
-            # Fallback to just listing names if schemas not available
-            logger.debug("[_format_tools_to_use_section] No schemas found, falling back to name list")
-            return _join_list(all_tool_names)
-        
-        # Format schemas as JSON for LLM to understand
-        lines = []
-        for idx, schema in enumerate(schemas, 1):
-            schema_json = json.dumps(schema, indent=2, ensure_ascii=False)
-            lines.append(f"{idx}. {schema_json}")
-        result = "\n".join(lines)
-        logger.debug(f"[_format_tools_to_use_section] Formatted {len(schemas)} tool schemas, total length: {len(result)}")
-        return result
-
-    def _section_label(section: dict) -> str:
-        sec_type = str((section or {}).get("type") or "").strip()
-        if not sec_type:
-            return ""
-        if sec_type == "custom" and section.get("customLabel"):
-            return str(section.get("customLabel")).strip()
-        return sec_type.replace("_", " ").title()
+    sys_parts: list[str] = []
 
     def _add_section(parts: list[str], title: str | None, content: str) -> None:
         clean = content.strip()
@@ -676,7 +753,6 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         else:
             parts.append(clean)
 
-    sys_parts: list[str] = []
     role_context = str(normalized.get("roleToneContext") or "").strip()
     if role_context:
         sys_parts.append(role_context)
@@ -889,6 +965,463 @@ def _escape_positional_placeholders(template: str) -> str:
             rebuilt.append("}")
 
     return "".join(rebuilt)
+def _mustache_escape(s: str) -> str:
+    """Mustache HTML-escape: & < > " ' / ="""
+    return (s
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+        .replace('"', '&quot;')
+        .replace("'", '&#39;')
+        .replace('/', '&#x2F;')
+        .replace('=', '&#x3D;'))
+
+
+def _render_mustache_section(section_text: str, data: Any, state: dict, mainwin) -> str:
+    """
+    Recursively render a Mustache section block.
+    
+    Handles:
+    - {{#name}}...{{/name}}  : block section (truthy → render body, falsy → empty)
+    - {{#name}}...{{.}}{{/name}} : iterate over list, {{.}} = current item
+    - {{#name}}{{field}}{{/name}} : nested field extraction
+    - {{.}}                 : current value (when iterating)
+    - {{name}}               : variable substitution (pre-resolved via state)
+    
+    IMPORTANT: Even when data is falsy, we must render the body to handle nested sections.
+    Nested sections will be processed and removed by _resolve_sections_recursive later.
+    """
+    # --- List iteration (Mustache spec) ---
+    if isinstance(data, (list, tuple)):
+        out = []
+        for item in data:
+            out.append(_render_mustache_section(section_text, item, state, mainwin))
+        return "".join(out)
+
+    # --- Falsy section data: render body anyway to handle nested sections, then return empty ---
+    # This ensures nested {{#section}}{{/section}} tags are properly processed and removed
+    if not data:
+        # Render the body to process any nested sections
+        rendered = _resolve_sections_recursive(section_text, {}, state, mainwin)
+        # Return empty string per Mustache spec for falsy section data
+        return ""
+
+    # --- Dict section body ---
+    return _render_mustache_block(section_text, data, state, mainwin)
+
+
+def _render_mustache_block(block: str, ctx: Any, state: dict, mainwin) -> str:
+    """
+    Render a Mustache block (section body) against `ctx` (a dict or scalar).
+    
+    Scans the block for:
+      {{#name}}...{{/name}}   — nested section
+      {{^name}}...{{/name}}   — inverted section
+      {{.}}"                   — current value reference
+      {{name}} or {{name.path}} — variable
+      {{{unescaped}}}          — unescaped HTML
+    """
+    import re as _re2
+
+    result = []
+    i = 0
+    n = len(block)
+    _max_iterations = 10000  # Safety limit to prevent infinite loops
+
+    for _iter in range(_max_iterations):
+        # Find next mustache tag opening {{
+        m = _re2.search(r'\{\{', block[i:])
+        if not m:
+            result.append(block[i:])
+            break
+
+        result.append(block[i:i + m.start()])
+        tag_start = i + m.start()
+        tag_end = tag_start + 2  # skip {{
+
+        # Determine opening sequence: {{ or {{{
+        if block[tag_end:tag_end + 2] == '{{':
+            raw_tag_start = tag_end + 2
+            raw_tag_end = block.find('}}}', raw_tag_start)
+            if raw_tag_end != -1:
+                raw_tag = block[raw_tag_start:raw_tag_end].strip()
+                is_unescaped = False
+                i = raw_tag_end + 3
+            else:
+                # Fallback: treat as single brace
+                raw_tag_start = tag_end
+                raw_tag_end = block.find('}}', raw_tag_start)
+                if raw_tag_end != -1:
+                    raw_tag = block[raw_tag_start:raw_tag_end].strip()
+                    is_unescaped = False
+                    i = raw_tag_end + 2
+                else:
+                    result.append(block[tag_start])
+                    i = tag_start + 1
+                    continue
+        elif block[tag_end:tag_end + 1] == '{':
+            # {{{unescaped}}} detected by triple brace
+            raw_tag_start = tag_end + 1
+            raw_tag_end = block.find('}}}', raw_tag_start)
+            if raw_tag_end != -1:
+                raw_tag = block[raw_tag_start:raw_tag_end].strip()
+                is_unescaped = True
+                i = raw_tag_end + 3
+            else:
+                result.append(block[tag_start])
+                i = tag_start + 1
+                continue
+        else:
+            # Normal {{...}}
+            raw_tag_start = tag_end
+            raw_tag_end = block.find('}}', raw_tag_start)
+            if raw_tag_end != -1:
+                raw_tag = block[raw_tag_start:raw_tag_end].strip()
+                is_unescaped = False
+                i = raw_tag_end + 2
+            else:
+                result.append(block[tag_start])
+                i = tag_start + 1
+                continue
+
+        # Parse the raw tag
+        raw_tag = raw_tag.strip()
+        is_inverted = False
+        if raw_tag.startswith('#'):
+            seg = raw_tag[1:].strip()
+            is_inverted = False
+        elif raw_tag.startswith('^'):
+            seg = raw_tag[1:].strip()
+            is_inverted = True
+        elif raw_tag.startswith('/'):
+            # Closing tag — skip (handled by section-level recursion)
+            continue
+        elif raw_tag == '.':
+            # {{.}} — current value
+            val = _mustache_get(ctx, None)
+            rendered = _mustache_escape(str(val)) if not is_unescaped else str(val)
+            result.append(rendered)
+            continue
+        else:
+            seg = raw_tag
+
+        # Determine section name and trailing path
+        seg = seg.strip()
+        if '.' in seg:
+            section_name, field_path = seg.split('.', 1)
+            section_name = section_name.strip()
+            field_path = field_path.strip()
+        else:
+            section_name = seg
+            field_path = None
+
+        # Collect section body
+        depth = 1
+        search_start = i
+        section_body = ""
+        while depth > 0 and search_start < n:
+            # Find next opening or closing tag for this section
+            next_open = _re2.search(r'\{\{#' + _re2.escape(section_name) + r'\b|\{\{\^' + _re2.escape(section_name) + r'\b|\{\{/' + _re2.escape(section_name) + r'\b', block[search_start:])
+            if not next_open:
+                section_body += block[search_start:]
+                break
+            body_end = search_start + next_open.start()
+            tag_content = next_open.group()[2:-2]  # strip {{ and }} from {{tag}} or {{{tag}}}
+            section_body += block[search_start:body_end]
+            if tag_content.startswith('/'):
+                depth -= 1
+                if depth == 0:
+                    i = body_end + len(next_open.group())
+                    break
+            else:
+                depth += 1
+            search_start = body_end + len(next_open.group())
+        else:
+            # depth > 0 but search exhausted — unmatched opener, advance past it to prevent loop
+            if depth > 0:
+                # Find the opening tag for this section
+                opener_match = _re2.search(r'\{\{#' + _re2.escape(section_name) + r'\b|\{\{\^' + _re2.escape(section_name) + r'\b', block[i:])
+                if opener_match:
+                    opener_end = i + opener_match.start() + opener_match.end() - opener_match.start()
+                    result.append(block[i:opener_end])
+                    i = opener_end
+
+        # Get section data
+        if field_path:
+            section_data = _mustache_get(ctx, field_path)
+        else:
+            section_data = _mustache_get(ctx, section_name)
+
+        # Render
+        if is_inverted:
+            if not section_data or (isinstance(section_data, (list, tuple)) and len(section_data) == 0):
+                result.append(_render_mustache_section(section_body, True, state, mainwin))
+        else:
+            rendered = _render_mustache_section(section_body, section_data, state, mainwin)
+            result.append(rendered)
+    else:
+        # Safety: max iterations reached, append remaining text
+        result.append(block[i:])
+
+    return "".join(result)
+
+
+def _mustache_get(data: Any, path: str | None) -> Any:
+    """Get value from data by dot-separated path. None if not found."""
+    if path is None:
+        return data
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        return None
+    parts = path.split('.')
+    current = data
+    for part in parts:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+        if current is None:
+            return None
+    return current
+
+
+def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
+    """Resolve Mustache-style templates including deeply-nested {{#section}}{{.}}{{/section}} patterns.
+
+    Supports:
+    - Simple:      {{query}}                       → tool_result resolution
+    - Section:     {{#node}}{{field}}{{/node}}     → nested field
+    - Iterate:     {{#list}}{{.}}{{/list}}         → list iteration with current item
+    - Deep nested: {{#a}}{{#b}}{{c}}{{/b}}{{/a}}   → multi-level nesting
+    - Dot path:    {{product_profile.product_name}} → nested field shortcut
+    """
+    if not template or "{{" not in template:
+        return template
+    # Safety: skip templates larger than 1MB to prevent regex/stack overflow
+    if len(template) > 1_000_000:
+        logger.warning(f"[Mustache] Template too large ({len(template)} chars), skipping resolution")
+        return template
+
+    # Normalize escape sequences: JSON stores \\n as literal backslash-n.
+    # We need actual newlines for the regex to match across lines.
+    _normalized = template.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '\r')
+
+    from agent.ec_skills.prompt_variable_providers import resolve_prompt_variables
+    import re as _re
+
+    # Extract all unique variable names used in the template
+    # IMPORTANT: Exclude closing tags like {{/llm_planner}} which should NOT be replaced
+    _simple_vars = _re.findall(r'\{\{(\w+)\}\}', _normalized)
+    # Filter out closing section tags (they start with / like {{/llm_planner}})
+    _simple_vars = [v for v in _simple_vars if not v.startswith('/')]
+
+    # Handle simple dot notation: {{node.field}}
+    _dot_vars = _re.findall(r'\{\{(\w+(?:\.\w+)*)\}\}', _normalized)
+    _dot_only_vars = [v for v in _dot_vars if v not in _simple_vars and '.' in v]
+
+    # Collect all unique top-level variable names needed
+    all_vars = set(_simple_vars)
+    for dv in _dot_only_vars:
+        top = dv.split('.')[0]
+        all_vars.add(top)
+
+    if not all_vars:
+        return _normalized
+
+    # Resolve using the same cascading provider as LLM nodes
+    fmt_ctx = resolve_prompt_variables(
+        variable_names=list(all_vars),
+        state=state,
+        mainwin=mainwin,
+    )
+
+    logger.info(f"[Mustache] simple_vars={_simple_vars}, dot={_dot_only_vars}")
+    logger.info(f"[Mustache] fmt_ctx keys={list(fmt_ctx.keys())}")
+    for k, v in fmt_ctx.items():
+        sv = repr(str(v)[:200]) if v else '(empty)'
+        logger.info(f"[Mustache]   {k} = {sv}")
+
+    result = _normalized
+
+    # --- 1. Replace top-level {{var}} (but NOT those inside section delimiters) ---
+    # Strategy: protect section-delimited areas, replace simple vars outside them.
+    # Simple and safe: use a placeholder approach.
+
+    # Collect all section ranges (start, end) to protect
+    protected_ranges = []  # list of (start, end)
+
+    # Match all section tags (opening, closing, inverted)
+    for _m in _re.finditer(r'\{\{[#^/]?\s*(\w+(?:\.\w+)*)\s*\}\}', _normalized):
+        tag_start = _m.start()
+        tag_end = _m.end()
+        # Extend range to include the full tag
+        protected_ranges.append((tag_start, tag_end))
+
+    def _is_protected(pos: int) -> bool:
+        for s, e in protected_ranges:
+            if s <= pos < e:
+                return True
+        return False
+
+    # Replace simple vars that are not inside a tag
+    for var in sorted(_simple_vars, key=len, reverse=True):
+        # Find all occurrences of {{var}}
+        for _m in _re.finditer(r'\{\{' + _re.escape(var) + r'\}\}', result):
+            span = (_m.start(), _m.end())
+            if not any(s <= span[0] < e or s < span[1] <= e for s, e in protected_ranges):
+                val = fmt_ctx.get(var, '')
+                if val is None:
+                    val = ''
+                result = result[:_m.start()] + str(val) + result[_m.end():]
+                # Recompute protected ranges after string change (simple approach: break and restart)
+                break
+
+    # --- 2. Replace dot-path vars {{a.b}} ---
+    for dv in sorted(_dot_only_vars, key=len, reverse=True):
+        parts = dv.split('.')
+        val = None
+        top_var = parts[0]
+        ctx_val = fmt_ctx.get(top_var)
+        if isinstance(ctx_val, dict):
+            val = _mustache_get(ctx_val, dv[len(top_var) + 1:])
+        if val is None:
+            val = ''
+        # Protect tag spans before replacing
+        protected_dot = []
+        for _m2 in _re.finditer(r'\{\{' + _re.escape(dv) + r'\}\}', result):
+            if not any(s <= _m2.start() < e for s, e in protected_ranges):
+                result = result[:_m2.start()] + str(val) + result[_m2.end():]
+                break
+
+    # --- 3. Recursively resolve all section blocks ---
+    result = _resolve_sections_recursive(result, fmt_ctx, state, mainwin)
+
+    return result
+
+
+def _resolve_sections_recursive(text: str, fmt_ctx: dict, state: dict, mainwin) -> str:
+    """
+    Recursively find and resolve Mustache section blocks in text.
+    
+    Handles nested sections correctly using a stack-based approach:
+      {{#a}}{{#b}}{{c}}{{/b}}{{/a}}
+      {{#a}}{{#b}}{{#list}}{{.}}{{/list}}{{/b}}{{/a}}
+    
+    Algorithm:
+    1. Use a stack to track open section tags
+    2. When we find an opening tag, push it onto the stack
+    3. When we find a closing tag, pop from stack until we find a matching opener
+    4. When we find a matching opener/opener pair at top of stack, extract body and render
+    """
+    import re as _re
+    
+    # Pattern to find ALL section tags (opening, closing, inverted)
+    # Matches: {{#name}}, {{^name}}, {{/name}}
+    tag_pattern = _re.compile(r'\{\{(#|\^|/)\s*(\w+)\s*\}\}')
+    
+    result = []
+    i = 0
+    _max_iterations = 10000  # Safety limit to prevent infinite loops
+    
+    for _iter in range(_max_iterations):
+        # Look for next section tag
+        match = tag_pattern.search(text, i)
+        if not match:
+            result.append(text[i:])
+            break
+        
+        # Add any text before this tag
+        result.append(text[i:match.start()])
+        
+        tag_type = match.group(1)  # '#', '^', or '/'
+        tag_name = match.group(2)
+        
+        if tag_type in ('#', '^'):
+            # Opening or inverted section tag
+            # Push a marker for this section onto a conceptual stack
+            # We'll process it when we find the matching closer
+            opener_pos = match.start()
+            opener_end = match.end()
+            
+            # Find the matching closing tag
+            depth = 1
+            search_pos = opener_end
+            
+            while search_pos < len(text):
+                next_match = tag_pattern.search(text, search_pos)
+                if not next_match:
+                    # No more tags
+                    break
+                
+                next_type = next_match.group(1)
+                next_name = next_match.group(2)
+                
+                if next_type == '/':
+                    # Closing tag
+                    if next_name == tag_name:
+                        depth -= 1
+                        if depth == 0:
+                            # Found matching closer
+                            body = text[opener_end:next_match.start()]
+                            closer_end = next_match.end()
+                            
+                            # Get section data from context
+                            section_data = fmt_ctx.get(tag_name)
+                            
+                            # Render the body (this recursively handles nested sections)
+                            rendered_body = _render_mustache_section(body, section_data, state, mainwin)
+                            
+                            # Handle inverted sections
+                            if tag_type == '^':
+                                if not section_data or (isinstance(section_data, (list, tuple)) and len(section_data) == 0):
+                                    result.append(rendered_body)
+                            else:
+                                result.append(rendered_body)
+                            
+                            # Continue after the closer
+                            i = closer_end
+                            break
+                    else:
+                        # Closing tag for a different section - skip it, don't decrement
+                        # It belongs to a nested section that will be processed separately
+                        pass
+                elif next_type in ('#', '^'):
+                    # Opening or inverted tag for another section
+                    if next_name == tag_name:
+                        # Nested section with same name
+                        depth += 1
+                
+                search_pos = next_match.end()
+            else:
+                # Depth never reached 0 - unmatched opener, keep as-is and advance past it
+                # to prevent infinite loop. Append the opener text and move i past it.
+                result.append(text[match.start():opener_end])
+                i = opener_end
+        elif tag_type == '/':
+            # Closing tag {{/name}} - this shouldn't happen at top level without opener
+            # Keep it as-is (it will be handled when processing the parent section)
+            result.append(match.group(0))
+            i = match.end()
+    else:
+        # Safety: max iterations reached, append remaining text
+        result.append(text[i:])
+    
+    return ''.join(result)
+
+
+def _get_nested_field(data: dict, path: str) -> Any:
+    """Get nested field from dict using dot-separated path."""
+    if not isinstance(data, dict):
+        return None
+    parts = path.split('.')
+    current = data
+    for part in parts:
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return None
+    return current
+
 
 
 def _compact_upstream_for_prompt(state: dict, max_chars: int = 10000) -> str:
@@ -1055,6 +1588,27 @@ def _compact_upstream_for_prompt(state: dict, max_chars: int = 10000) -> str:
     if len(payload) > max_chars:
         payload = payload[:max_chars] + "...(truncated)"
     return payload
+
+
+_MAX_TOOL_RESULT_ENTRIES = 50  # Keep only the most recent 50 tool results to limit memory
+
+
+def _trim_tool_result(state: dict) -> None:
+    """Prune state["tool_result"] to the most recent entries to limit memory.
+
+    Each node execution appends to tool_result (keyed by node name).  After
+    MAX_TOOL_RESULT_ENTRIES, older entries are dropped.
+    """
+    tr = state.get("tool_result")
+    if not isinstance(tr, dict) or len(tr) <= _MAX_TOOL_RESULT_ENTRIES:
+        return
+    try:
+        # Keep only the last MAX_TOOL_RESULT_ENTRIES entries by insertion order
+        items = list(tr.items())
+        state["tool_result"] = dict(items[-_MAX_TOOL_RESULT_ENTRIES:])
+        logger.debug(f"[build_node] Trimmed tool_result from {len(items)} to {_MAX_TOOL_RESULT_ENTRIES} entries")
+    except Exception:
+        pass
 
 
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
@@ -1704,6 +2258,17 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             skill_prompt_variables=skill_prompt_variables,
         )
         logger.debug(f"[LLM] node={node_name} resolved {len(format_context)} variables")
+        
+        # DEBUG: Log format_context for key variables to help debug template resolution
+        if any(v in ["input", "attachments", "llm_result", "query", "human_text"] for v in format_context):
+            try:
+                for _key in ["input", "attachments", "llm_result", "query", "human_text"]:
+                    if _key in format_context:
+                        _val = format_context[_key]
+                        _preview = str(_val)[:200] if _val else "(empty/None)"
+                        logger.info(f"[LLM_DEBUG] node={node_name} format_context[{_key}] = '{_preview}...'")
+            except Exception as _fmt_err:
+                logger.debug(f"[LLM] Failed to log format_context: {_fmt_err}")
 
         # Substitute {{var_name}} with values from format_context
         try:
@@ -2107,7 +2672,27 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             _invoke_async(llm_to_use, timeout_sec),
                             loop
                         )
-                        return future.result(timeout=timeout_sec + 5)
+                        import concurrent.futures as _cf
+                        _poll_interval = 0.5
+                        _deadline = time.time() + timeout_sec + 5
+                        while time.time() < _deadline:
+                            try:
+                                return future.result(timeout=_poll_interval)
+                            except _cf.TimeoutError:
+                                _tid = (state.get("attributes") or {}).get("task_id") if isinstance(state.get("attributes"), dict) else None
+                                if _tid:
+                                    try:
+                                        from agent.ec_tasks import cancellation_registry as _cr
+                                        _evt = _cr.get(_tid)
+                                        if _evt and _evt.is_set():
+                                            future.cancel()
+                                            raise InterruptedError("Task cancelled during LLM call")
+                                    except InterruptedError:
+                                        raise
+                                    except Exception:
+                                        pass
+                        future.cancel()
+                        raise TimeoutError(f"LLM call timed out after {timeout_sec + 5}s")
                     except RuntimeError:
                         # No running event loop - we're in sync context
                         # Try to run async in a new loop (best effort)
@@ -2124,6 +2709,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             # Fallback to sync
                             logger.debug(f"[HYBRID_LLM] Async failed ({e}), falling back to sync")
                             return _invoke_with_thread(llm_to_use, timeout_sec)
+
+                # ── Cancellation check: abort if task was cancelled before LLM call ──
+                task_id_for_cancel = (state.get("attributes") or {}).get("task_id") if isinstance(state.get("attributes"), dict) else None
+                if task_id_for_cancel:
+                    try:
+                        from agent.ec_tasks import cancellation_registry
+                        cancel_evt = cancellation_registry.get(task_id_for_cancel)
+                        if cancel_evt and cancel_evt.is_set():
+                            logger.warning(f"[build_llm_node] Task cancelled before LLM call, aborting node={full_node_name}")
+                            send_skill_editor_log("error", "LLM call cancelled by user")
+                            raise InterruptedError(f"Task cancelled before LLM call")
+                    except Exception:
+                        pass
 
                 # Single attempt (node-configured llm, no fallback)
                 # Use hybrid invocation for async/sync compatibility
@@ -2240,7 +2838,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 # Record token usage to database for the top-panel display
                 try:
                     from agent.ec_skills.token_tracker import token_tracker
-                    _task_id = state.get("task_id") if isinstance(state, dict) else None
+                    _task_id = (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None
                     _run_id = state.get("run_id") if isinstance(state, dict) else None
                     _session_id = (
                         state.get("session_id")
@@ -2434,7 +3032,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 # Record token usage to database for the top-panel display
                 try:
                     from agent.ec_skills.token_tracker import token_tracker
-                    _task_id = state.get("task_id") if isinstance(state, dict) else None
+                    _task_id = (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None
                     _run_id = state.get("run_id") if isinstance(state, dict) else None
                     _session_id = (
                         state.get("session_id")
@@ -2465,6 +3063,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
                 _parsed = standard_post_llm_func("skid0", full_node_name, state, _response)
                 state["result"] = _parsed
+
+                # ── Promote LLM result under node name for condition/template access ──
+                # Standard condition exprs use state["result"]["llm_planner"]["execution_plan"]["next_action"]
+                # but tool_result uses state["result"]["llm_planner"]. Ensure BOTH paths work.
+                inner = _parsed.get("llm_result", {})
+                if isinstance(inner, dict) and inner.get("llm_result"):
+                    # Double-wrapped: state["result"]["llm_result"]["llm_result"] → promote
+                    state["result"][node_name] = inner.get("llm_result")
+                elif isinstance(inner, dict):
+                    # Single-wrapped: state["result"]["llm_result"] → promote under node_name
+                    state["result"][node_name] = inner
+
                 _perf_llm("total", _t0)
 
             except Exception as _no_agent_err:
@@ -4154,6 +4764,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             log_msg = f"[MCP Multi-Tool] Completed {len(_tool_calls_to_run)} tool(s) ({len(_mt_succeeded)} succeeded)"
             logger.info(log_msg)
             send_skill_editor_log("info", log_msg)
+            _trim_tool_result(state)
             return state
 
         # ============================================================
@@ -4406,7 +5017,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 )
                 
                 timeout_s = float(config_metadata.get('timeout', 180) or 180)
-                task_id = state.get('attributes', {}).get('task_id') if isinstance(state, dict) else None
+                task_id = (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None
                 cancellation_event = None
                 if task_id:
                     try:
@@ -4594,6 +5205,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 except Exception:
                     pass
 
+                # Enforce overall tool_result dict size limit
+                _trim_tool_result(state)
+
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorMCPToolCallable({_actual_tool_name})")
             logger.error(err_msg)
@@ -4646,6 +5260,15 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
     prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
     tag = (config_metadata or {}).get("tag") or node_name
+
+    # Resolve Mustache-style templates in the prompt before passing to interrupt.
+    # This allows pend_event prompts to use upstream node data like {{llm_planner.question_to_user}}
+    _mainwin_for_pend = None
+    try:
+        from app_context import AppContext
+        _mainwin_for_pend = AppContext.get_main_window()
+    except Exception:
+        pass
 
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
@@ -4723,11 +5346,21 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             "timer_name": timer_name,
             "browser_event_label": browser_event_label,
         }
-        log_msg = f"[pend_event_node] Waiting for event: type={main_event}, browser_label={browser_event_label}, timer={timer_name}, node={node_name}"
-        logger.info(log_msg)
-        send_skill_editor_log("log", log_msg)
+        # Resolve Mustache templates in prompt before interrupt so upstream data appears in the prompt
+        resolved_prompt = _resolve_mustache_template(prompt, state, _mainwin_for_pend)
+        if resolved_prompt != prompt:
+            logger.info(f"[pend_event] Mustache resolved prompt: {resolved_prompt[:300]}...")
+            info["prompt_to_human"] = resolved_prompt
 
+        log_msg = f"[pend_event_node] Waiting for event: type={main_event}, browser_label={browser_event_label}, timer={timer_name}, node={node_name}"
+        logger.debug(f"[DEBUG PEND] 1 log_msg ready, node={node_name}")
+        logger.info(log_msg)
+        logger.debug(f"[DEBUG PEND] 2 logger.info done, node={node_name}")
+        send_skill_editor_log("log", log_msg)
+        logger.debug(f"[DEBUG PEND] 3 send_skill_editor_log done, node={node_name}")
+        logger.debug(f"[DEBUG PEND] 4 about to call interrupt, node={node_name}")
         resume_payload = interrupt(info)
+        logger.debug(f"[DEBUG PEND] 5 interrupt() RETURNED, node={node_name}")
 
         from agent.ec_skills.llm_utils.llm_utils import try_parse_json
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
@@ -4778,11 +5411,46 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             if isinstance(envelope, dict) and envelope.get("data"):
                 event_record["data"] = envelope["data"]
             state.setdefault("events", []).append(event_record)
-            # Expose the last event to LLM prompt templates via {{events}}
+            # Prune events list to prevent unbounded growth
+            if len(state["events"]) > 100:
+                state["events"] = state["events"][-100:]
+            # Store a COMPACT reference in prompt_refs — avoid storing large data payloads
+            # (envelope["data"] may contain human_text, screenshots, etc.) to prevent memory leak.
+            compact_event = {
+                "event_type": event_record.get("event_type", ""),
+                "source": event_record.get("source", ""),
+                "tag": event_record.get("tag", ""),
+                "node": event_record.get("node", ""),
+                "timestamp": event_record.get("timestamp", ""),
+            }
+            # Only include small scalar fields from data, skip large blobs
+            if isinstance(event_record.get("data"), dict):
+                for _ek, _ev in event_record["data"].items():
+                    if isinstance(_ev, (str, int, float, bool)) and len(str(_ev)) < 5000:
+                        compact_event[_ek] = _ev
             state.setdefault("prompt_refs", {})["events"] = json.dumps(
-                event_record, ensure_ascii=False, default=str
+                compact_event, ensure_ascii=False, default=str
             )
             logger.debug(f"[pend_event_node] Appended event to state['events']: type={event_record['event_type']}, source={event_record['source']}")
+            
+            # DEBUG: Log event data after appending to help debug input accumulation issues
+            try:
+                _event_data_keys = list(event_record.get("data", {}).keys()) if isinstance(event_record.get("data"), dict) else []
+                _human_text = event_record.get("data", {}).get("human_text") if isinstance(event_record.get("data"), dict) else None
+                _text = event_record.get("data", {}).get("text") if isinstance(event_record.get("data"), dict) else None
+                _content = event_record.get("data", {}).get("content") if isinstance(event_record.get("data"), dict) else None
+                _message = event_record.get("data", {}).get("message") if isinstance(event_record.get("data"), dict) else None
+                logger.info(
+                    f"[PEND_EVENT_DEBUG] node={node_name} event appended: "
+                    f"data_keys={_event_data_keys} "
+                    f"has_human_text={bool(_human_text)} "
+                    f"has_text={bool(_text)} "
+                    f"has_content={bool(_content)} "
+                    f"has_message={bool(_message)} "
+                    f"human_text_preview='{str(_human_text)[:80] if _human_text else ''}...'"
+                )
+            except Exception as _ev_debug_err:
+                logger.debug(f"[pend_event_node] Failed to log event debug info: {_ev_debug_err}")
         except Exception as ev_err:
             logger.debug(f"[pend_event_node] Failed to append event record: {ev_err}")
 
@@ -4907,7 +5575,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
 
     role = ((config_metadata or {}).get("role") or "assistant").lower()
     msg_tpl = (config_metadata or {}).get("message") or ""
-    wait_for_reply = bool((config_metadata or {}).get("wait_for_reply", False))
+    wait_for_reply_tpl = (config_metadata or {}).get("wait_for_reply") or False
     def _chat(state: dict, *, runtime=None, store=None, **kwargs):
         from agent.ec_tasks.message_sender import ChatMessageSender
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
@@ -4917,6 +5585,17 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
 
         logger.debug("in chat node....", state)
 
+        # Resolve Mustache-style template in the message using tool_result data.
+        # Supports: {{query}}, {{#llm_planner}}{{product_name}}{{/llm_planner}},
+        # and {{product_profile.product_name}} dot-path notation.
+        # Get mainwin from AppContext for proper variable resolution
+        _chat_mainwin = None
+        try:
+            from app_context import AppContext
+            _chat_mainwin = AppContext.get_main_window()
+        except Exception:
+            pass
+        resolved_response = _resolve_mustache_template(msg_tpl, state, mainwin=_chat_mainwin)
 
         # Try to deliver to GUI via ChatMessageSender (direct to GUI, no twin agent needed)
         try:
@@ -4934,6 +5613,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                 response = str(llm_output) if llm_output else ""
 
             state["job_related"] = state["result"].get("job_related", False)
+
             # DO NOT overwrite llm_result - downstream condition nodes need the full dict
             # state["result"]["llm_result"] = response  # REMOVED: this was destroying condition data
 
@@ -4959,40 +5639,61 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                 if isinstance(state.get("messages"), list) and len(state["messages"]) > 1:
                     chat_id = state["messages"][1]
 
-            if chat_id and response and str(response).strip():
-                # Check if this message originated from an external channel
-                _sent_via_channel = False
-                try:
-                    from app_context import AppContext
-                    _mw = AppContext.get_main_window()
-                    _bridge = getattr(_mw, "channel_bridge", None)
-                    if _bridge:
-                        _ch_result = _bridge.route_reply(state, response)
-                        if _ch_result is not None:
-                            _sent_via_channel = True
-                            logger.info(f"[chat_node] Sent response via channel, len={len(response)}")
-                except Exception as _ch_err:
-                    logger.debug(f"[chat_node] Channel bridge check failed: {_ch_err}")
+            if chat_id:
+                # Use template-resolved message if available, otherwise fall back to LLM output
+                _msg_to_send = resolved_response if (resolved_response and str(resolved_response).strip()) else (response or "")
+                if _msg_to_send and str(_msg_to_send).strip():
+                    _sent_via_channel = False
+                    try:
+                        from app_context import AppContext
+                        _mw = AppContext.get_main_window()
+                        _bridge = getattr(_mw, "channel_bridge", None)
+                        if _bridge:
+                            _ch_result = _bridge.route_reply(state, _msg_to_send)
+                            if _ch_result is not None:
+                                _sent_via_channel = True
+                                logger.info(f"[chat_node] Sent response via channel, len={len(_msg_to_send)}")
+                    except Exception as _ch_err:
+                        logger.debug(f"[chat_node] Channel bridge check failed: {_ch_err}")
 
-                if not _sent_via_channel:
-                    agent_id = state.get("messages", [""])[0] if isinstance(state.get("messages"), list) else ""
-                    agent_obj = None
-                    if agent_id:
-                        try:
-                            from agent.agent_service import get_agent_by_id
-                            agent_obj = get_agent_by_id(agent_id)
-                        except Exception:
-                            pass
-                    sender = ChatMessageSender(agent_obj)
-                    sender.send_text(chat_id, response)
-                    logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(response)}")
-                    send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
+                    if not _sent_via_channel:
+                        agent_id = state.get("messages", [""])[0] if isinstance(state.get("messages"), list) else ""
+                        agent_obj = None
+                        if agent_id:
+                            try:
+                                from agent.agent_service import get_agent_by_id
+                                agent_obj = get_agent_by_id(agent_id)
+                            except Exception:
+                                pass
+                        sender = ChatMessageSender(agent_obj)
+                        sender.send_text(chat_id, _msg_to_send)
+                        logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(_msg_to_send)}")
+                        send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
 
-                # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
-                if isinstance(state.get("attributes"), dict):
-                    state["attributes"]["chat_response_sent"] = True
-            elif not response or not str(response).strip():
-                logger.debug("[chat_node] Skipping send: response text is empty")
+                    # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
+                    if isinstance(state.get("attributes"), dict):
+                        state["attributes"]["chat_response_sent"] = True
+
+                    # Wait for user reply if configured
+                    if wait_for_reply_tpl:
+                        info = {
+                            "i_tag": node_name,
+                            "paused_at": node_name,
+                            "prompt_to_human": _msg_to_send,
+                            "event_type": "human_input",
+                        }
+                        resume_payload = interrupt(info)
+                        # Merge reply data into state
+                        if isinstance(resume_payload, dict):
+                            human_text = resume_payload.get("human_text")
+                            if human_text:
+                                state["input"] = human_text
+                            if "_state_patch" in resume_payload:
+                                patch = resume_payload.get("_state_patch", {})
+                                if isinstance(patch, dict):
+                                    for k, v in patch.items():
+                                        if isinstance(state, dict):
+                                            state[k] = v
             else:
                 logger.warning(f"[chat_node] No chatId found, cannot send response to GUI")
 
@@ -5049,6 +5750,7 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
                 tr = {}
                 state["tool_result"] = tr
             tr[node_name] = {"query": query, "documents": results}
+            _trim_tool_result(state)
         except Exception as _e:
             # Best-effort: record error without raising to keep the workflow moving
             try:
@@ -5421,6 +6123,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     system_prompt_content = resolved_system_prompt if resolved_system_prompt else None
     user_prompt_content = resolved_user_prompt if resolved_user_prompt else None
 
+    # Inject tools_to_use from skill node inputsValues when present.
+    # This is critical for skills that define tools_to_use in the node config
+    # (e.g. {{tools_schema}}) rather than inside the saved prompt record.
+    _inputs_tools = inputs.get("tools_to_use") or {}
+    _inputs_tools_content = _inputs_tools.get("content", "") if isinstance(_inputs_tools, dict) else str(_inputs_tools or "")
+    if _inputs_tools_content.strip():
+        logger.info(f"[BrowserAutomation] 📦 Found tools_to_use in inputsValues: {len(_inputs_tools_content)} chars")
+        try:
+            _tools_section = _format_tools_to_use_section([_inputs_tools_content])
+            if _tools_section:
+                _tools_label = "[Available Tools]\nAll MCP tool schemas (use exact names when calling):\n"
+                if system_prompt_content:
+                    system_prompt_content = system_prompt_content.rstrip() + "\n\n" + _tools_label + _tools_section
+                    logger.info(f"[BrowserAutomation] ✅ Appended tools_to_use to system prompt (+{len(_tools_section)} chars)")
+                else:
+                    system_prompt_content = _tools_label + _tools_section
+                    logger.info(f"[BrowserAutomation] ✅ Created system prompt from tools_to_use only (+{len(_tools_section)} chars)")
+        except Exception as _t_err:
+            logger.warning(f"[BrowserAutomation] Failed to resolve tools_to_use: {_t_err}")
+
     # If prompts are configured, use them to enhance the task text
     logger.info(f"[BrowserAutomation] 🔧 Before prompt override - task_text length: {len(task_text)} chars")
     if system_prompt_content or user_prompt_content:
@@ -5515,6 +6237,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     _cached_browser_sessions: dict[str, Any] = {}
     _last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
     _browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
+    _MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
 
     # Cache browser-use sub-agents across loop iterations (one per scope/task).
     # The browser-use Agent is heavyweight — it owns MessageManager, history, LLM
@@ -6018,6 +6741,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     except Exception as e:
                         logger.warning(f"[BrowserAutomation] Failed to restore focus after session recreation: {e}")
 
+                # Evict oldest entries if cache exceeds max size
+                if len(_cached_browser_sessions) >= _MAX_BROWSER_CACHE_SIZE:
+                    evicted = 0
+                    for _key in list(_cached_browser_sessions.keys()):
+                        if _key == browser_scope_key:
+                            continue
+                        # Only evict entries for non-chat scopes (chat sessions should be stable)
+                        if not _key.startswith("chat:"):
+                            _old_session = _cached_browser_sessions.pop(_key, None)
+                            _last_known_focus_target_ids.pop(_key, None)
+                            if _old_session is not None:
+                                _cached_passive_agents.pop(id(_old_session), None)
+                            evicted += 1
+                            if evicted >= 2:  # Remove up to 2 entries per insertion
+                                break
                 _cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
                 return auto_browser.browser_session
 
@@ -6041,6 +6779,40 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
+
+            # ── Runtime Mustache Template Resolution ──
+            # Resolve {{llm_result}}, {{browser_research}}, {{browser_executor}} etc. in task
+            # This MUST happen at runtime (not build time) because state contains the actual values
+            if state and "{{" in task:
+                try:
+                    _resolved_task = _resolve_mustache_template(task, state, mainwin)
+                    if _resolved_task != task:
+                        logger.info(
+                            f"[BrowserAutomation] ✅ Resolved mustache templates in task "
+                            f"(node={node_name}, original_len={len(task)}, resolved_len={len(_resolved_task)})"
+                        )
+                        send_skill_editor_log(
+                            "log",
+                            f"[BrowserAutomation] Resolved mustache templates in task "
+                            f"(len: {len(task)} → {len(_resolved_task)})"
+                        )
+                        # Log preview of resolved content (first 500 chars)
+                        preview = _resolved_task[:500] + "..." if len(_resolved_task) > 500 else _resolved_task
+                        logger.debug(f"[BrowserAutomation] Resolved task preview:\n{preview}")
+                        task = _resolved_task
+                    else:
+                        logger.warning(
+                            f"[BrowserAutomation] ⚠️ Task still contains unresolved mustache templates "
+                            f"(node={node_name}). Check that upstream nodes have executed and state contains the expected data."
+                        )
+                        send_skill_editor_log(
+                            "warning",
+                            f"[BrowserAutomation] Unresolved mustache templates in task for node={node_name}"
+                        )
+                except Exception as _mustache_err:
+                    logger.warning(
+                        f"[BrowserAutomation] Failed to resolve mustache templates: {_mustache_err}"
+                    )
 
             runtime_input = _extract_runtime_invocation_input(state)
             if runtime_input:
@@ -7293,7 +8065,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     "node_name": node_name,
                     "source_id": f"{skill_name}::{node_name}",
                     "source_name": f"{skill_name}::{node_name}",
-                    "task_id": state.get("task_id") if isinstance(state, dict) else None,
+                    "task_id": (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None,
                     "run_id": state.get("run_id") if isinstance(state, dict) else None,
                     "session_id": (
                         state.get("session_id")
@@ -7334,19 +8106,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 **({'max_clickable_elements_length': node_dom_limit} if node_dom_limit else {}),
             )
 
-            # Debug: Log the actual message_compaction settings
+            # Log the actual message_compaction settings (use INFO level for visibility)
             if 'message_compaction' in agent_kwargs:
                 mc = agent_kwargs['message_compaction']
-                logger.debug(
-                    f"[DEBUG] message_compaction settings:\n"
-                    f"  enabled={mc.enabled}\n"
-                    f"  compact_every_n_steps={mc.compact_every_n_steps}\n"
-                    f"  trigger_char_count={mc.trigger_char_count}\n"
-                    f"  trigger_token_count={mc.trigger_token_count}\n"
-                    f"  keep_last_items={mc.keep_last_items}\n"
-                    f"  summary_max_chars={mc.summary_max_chars}\n"
-                    f"  chars_per_token={mc.chars_per_token}"
+                logger.info(
+                    f"[BrowserAutomation] ⚡ Agent Config: "
+                    f"compaction=enabled={mc.enabled}, every={mc.compact_every_n_steps}steps, "
+                    f"trigger={mc.trigger_char_count}chars, keep={mc.keep_last_items}items, "
+                    f"summary={mc.summary_max_chars}chars, "
+                    f"max_clickable={agent_kwargs.get('max_clickable_elements_length', 'default')}, "
+                    f"max_input_tokens={agent_kwargs.get('max_input_tokens', 'N/A')}, "
+                    f"max_actions_per_step={agent_kwargs.get('max_actions_per_step', 'default')}"
                 )
+            else:
+                logger.warning("[BrowserAutomation] ⚠️ No message_compaction in agent_kwargs - history may grow unbounded!")
             
             # Check if extensions should be disabled (dev mode)
             # In dev mode: default to disabled (avoid network timeout)
@@ -7910,6 +8683,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     f"same_as_cached={_agent_session is _cached_browser_session} scope={_browser_scope_key}"
                 )
                 if _agent_session and _agent_session is not _cached_browser_session:
+                    # Evict oldest entries if cache exceeds max size
+                    if len(_cached_browser_sessions) >= _MAX_BROWSER_CACHE_SIZE:
+                        evicted = 0
+                        for _key in list(_cached_browser_sessions.keys()):
+                            if _key == _browser_scope_key:
+                                continue
+                            if not _key.startswith("chat:"):
+                                _old_sess = _cached_browser_sessions.pop(_key, None)
+                                _last_known_focus_target_ids.pop(_key, None)
+                                if _old_sess is not None:
+                                    _cached_passive_agents.pop(id(_old_sess), None)
+                                evicted += 1
+                                if evicted >= 2:
+                                    break
                     _cached_browser_sessions[_browser_scope_key] = _agent_session
                     try:
                         setattr(_agent_session, "_ecan_browser_scope_key", _browser_scope_key)
@@ -8053,18 +8840,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             # Look up cancellation_event from global registry by task_id
             from agent.ec_tasks import cancellation_registry
-            task_id = state.get('attributes', {}).get('task_id') if isinstance(state, dict) else None
+            task_id = (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None
             cancellation_event = cancellation_registry.get(task_id) if task_id else None
-            if cancellation_event and cancellation_event.is_set():
-                logger.info(f"[BrowserAutomation] Cancellation is set for task_id={task_id}")
-            elif cancellation_event:
-                logger.debug(f"[BrowserAutomation] Cancellation handle present but not set for task_id={task_id}")
+            if not cancellation_event:
+                logger.debug(f"[BrowserAutomation] No cancellation_event for task_id={task_id}")
+
+            # Store cancellation_event directly on the LLM so create_with_logging can poll it
+            # without a registry lookup by task_id (which may be stored at wrong state path).
+            if cancellation_event:
+                try:
+                    setattr(llm, "_ec_cancellation_event", cancellation_event)
+                except Exception:
+                    pass
 
             try:
                 async def _run_agent_call(**run_kwargs):
                     """Run agent with node-level limits (max_steps + optional hard timeout)."""
-                    if node_max_steps:
-                        run_kwargs.setdefault("max_steps", node_max_steps)
+                    # Safety ceiling: if maxSteps is not configured in the node, cap at 30 steps
+                    # to prevent an accidental infinite loop from running forever.
+                    # Set maxSteps explicitly in the node config for precise control.
+                    _effective_max_steps = node_max_steps if node_max_steps else 30
+                    run_kwargs.setdefault("max_steps", _effective_max_steps)
                     # max_actions_per_step is an Agent constructor param (already in agent_kwargs),
                     # NOT a run() param — do not pass it here or agent.run() raises TypeError.
                     run_coro = agent.run(**run_kwargs)
@@ -8079,10 +8875,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 agent_class_name = agent.__class__.__name__
 
                 # Resolve the target tab ID to keep focused across steps.
-                # Uses assignment_target_focus from the focus-preflight block above,
-                # falling back to _last_known_focus_target_id.
+                # IMPORTANT: per-step refocus is only enabled for rt_chat_bot by default.
+                # For research/executor flows, forcing refocus each step can bounce
+                # the agent back to the original search tab and cause repeated clicks.
+                # To enable for other skills: add `enable_step_refocus: true` in the
+                # node's inputsValues, or add the skill name to the condition below.
                 _step_focus_target = None
-                if hasattr(agent, 'step'):
+                _enable_step_refocus = (
+                    inputs.get("enable_step_refocus", {}).get("content", "")
+                    if isinstance(inputs, dict) else ""
+                )
+                if (_enable_step_refocus.lower() == "true"
+                        or skill_name == "rt_chat_bot") and hasattr(agent, 'step'):
                     _step_focus_target = (
                         locals().get("assignment_target_focus")
                         or _last_known_focus_target_id
@@ -8102,8 +8906,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     or (node_dom_focus_selector and hasattr(agent, 'step'))
                 )
 
+                # Always pass cancellation_event to agent.run() so stop button works
+                # This is CRITICAL for all agent types including browser-use
+                if cancellation_event:
+                    agent_kwargs['cancellation_event'] = cancellation_event
+                    logger.info(f"[BrowserAutomation] Passing cancellation_event to agent.run()")
+
                 if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
                     history = await _run_agent_call(cancellation_event=cancellation_event)
+                elif cancellation_event and not _needs_step_patch:
+                    # CRITICAL: Without cooperative cancellation, stop button has no effect.
+                    # Wrap agent.run() with a step-level cancel check so stop works for all nodes.
+                    async def _step_check_cancel(*a, **kw):
+                        if cancellation_event and cancellation_event.is_set():
+                            logger.info("[BrowserAutomation] Cancellation requested, stopping")
+                            raise asyncio.CancelledError("Task cancelled by user")
+                        return await agent.step(*a, **kw)
+                    agent.step = _step_check_cancel
+                    history = await agent.run(**agent_kwargs)
+                    # Check cancellation after agent.run() returns
+                    if cancellation_event and cancellation_event.is_set():
+                        logger.info("[BrowserAutomation] Cancellation set after agent.run() (simple path), stopping")
+                        raise asyncio.CancelledError("Task cancelled after LLM response")
                 elif _needs_step_patch:
                     _orig_step = agent.step
                     _patch_cancel = cancellation_event
@@ -8244,6 +9068,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 else:
                     history = await _run_agent_call()
 
+                # CRITICAL: Check cancellation after agent.run() returns
+                # Even if cancellation was set during execution, we need to stop here
+                if cancellation_event and cancellation_event.is_set():
+                    logger.info("[BrowserAutomation] Cancellation set after agent.run(), stopping node execution")
+                    raise asyncio.CancelledError("Task cancelled after LLM response")
 
                 # Persist focus target across node iterations to survive session churn.
                 try:
@@ -8292,6 +9121,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
 
                 return {"final": final, "history": str(history)}
+            except asyncio.CancelledError:
+                # CRITICAL: Cancellation must propagate up, NOT be converted to RuntimeError
+                logger.info("[BrowserAutomation] CancelledError caught, re-raising to propagate cancellation")
+                raise
             except asyncio.TimeoutError as e:
                 timeout_msg = (
                     f"Browser automation node timed out after {node_timeout_seconds}s"
@@ -9161,7 +9994,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
                                 f"{_worker_suffix} "
                                 f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
-                                f"task_id={state.get('task_id') if isinstance(state, dict) else ''}, "
+                                f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
                                 f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
                             )
                             info = run_async_in_persistent_worker_thread(
@@ -9194,7 +10027,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
                             f"{_worker_suffix} "
                             f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
-                            f"task_id={state.get('task_id') if isinstance(state, dict) else ''}, "
+                            f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
                             f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
                         )
                         info = run_async_in_persistent_worker_thread(

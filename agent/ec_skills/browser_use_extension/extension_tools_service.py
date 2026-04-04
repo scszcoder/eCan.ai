@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import urllib.request
+from datetime import datetime
 from typing import Any, Dict, Optional, List
 from pathlib import Path
 from utils.logger_helper import logger_helper as logger
@@ -93,8 +94,23 @@ async def download_file(params: DownloadFileAction) -> ActionResult:
     if not path:
         return ActionResult(error="download_file: path is required")
 
+    # Try the requested path first
+    out_dir = os.path.dirname(path)
+    
+    # Check if the requested directory is writable
+    fallback_dir = None
+    if out_dir and not _is_directory_writable(out_dir):
+        # Fallback to system temp directory
+        import tempfile
+        fallback_dir = os.path.join(tempfile.gettempdir(), "ecan_images")
+        logger.warning(
+            f"[download_file] Requested directory '{out_dir}' is not writable. "
+            f"Falling back to '{fallback_dir}'"
+        )
+        out_dir = fallback_dir
+        path = os.path.join(out_dir, os.path.basename(path))
+    
     try:
-        out_dir = os.path.dirname(path)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
 
@@ -109,11 +125,27 @@ async def download_file(params: DownloadFileAction) -> ActionResult:
             wf.write(data)
 
         _authorize_output_files_for_upload([path])
-        return ActionResult(
-            extracted_content=f"Downloaded file successfully: {url} -> {path} ({len(data)} bytes)"
-        )
+        result_msg = f"Downloaded file successfully: {url} -> {path} ({len(data)} bytes)"
+        if fallback_dir:
+            result_msg += f" (note: saved to fallback directory because {fallback_dir.replace(tempfile.gettempdir(), '$TMPDIR')} is writable)"
+        return ActionResult(extracted_content=result_msg)
     except Exception as e:
         return ActionResult(error=f"download_file failed: {e}")
+
+
+def _is_directory_writable(dir_path: str) -> bool:
+    """Check if a directory is writable by attempting to create and remove a test file."""
+    if not dir_path:
+        return False
+    test_file = os.path.join(dir_path, f".write_test_{os.getpid()}")
+    try:
+        os.makedirs(dir_path, exist_ok=True)
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+        return True
+    except Exception:
+        return False
 
 
 def _build_target_path(src: str, target_format: str, output_dir: Optional[str]) -> str:
@@ -1403,13 +1435,6 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
         include_in_memory=True,
         long_term_memory=f"Extracted raw markdown for query: {query}",
     )
-
-
-@custom_controller.action(
-    "Send a chat message to another agent via A2A protocol. "
-    "Use list_chat_agents first to discover available agents.",
-    param_model=SendChatAction,
-)
 async def bu_send_chat(params: SendChatAction) -> ActionResult:
     from agent.mcp.server.chat_utils.chat_tools import send_chat
 

@@ -9,6 +9,7 @@ This module handles the actual execution of tasks, including:
 - IPC status updates
 """
 
+import asyncio
 import time
 import traceback
 import uuid
@@ -57,12 +58,55 @@ class TaskExecutor:
     def __init__(self, task: "ManagedTask"):
         """
         Initialize executor for a task.
-        
+
         Args:
             task: The ManagedTask to execute.
         """
         self.task = task
-    
+
+    # ==================== Resource Cleanup ====================
+
+    def _clear_skill_module_caches(self):
+        """Clear skill module caches and checkpoints after execution to prevent memory accumulation."""
+        try:
+            # 1. Clear build_node module caches
+            try:
+                from agent.ec_skills.build_node import _clear_module_caches
+                _clear_module_caches()
+                logger.debug("[TaskExecutor] Cleared skill module caches")
+            except (ImportError, TypeError):
+                pass
+
+            # 2. Clear the skill's InMemorySaver checkpoints to prevent unbounded growth.
+            #    InMemorySaver stores every checkpoint in a dict keyed by thread_id.
+            #    Without clearing, the checkpoint dict grows indefinitely across executions.
+            if self.task and hasattr(self.task, "skill") and self.task.skill:
+                skill = self.task.skill
+                if hasattr(skill, "runnable") and skill.runnable:
+                    try:
+                        saver = getattr(skill.runnable, "checkpointer", None)
+                        if saver is not None:
+                            # InMemorySaver has storage (defaultdict), writes (defaultdict), blobs (defaultdict)
+                            # Each can be cleared via .clear() inherited from dict
+                            cleared = 0
+                            for attr in ("storage", "writes", "blobs"):
+                                coll = getattr(saver, attr, None)
+                                if coll is not None and hasattr(coll, "clear"):
+                                    cleared += len(coll) if hasattr(coll, "__len__") else 0
+                                    coll.clear()
+                            if cleared > 0:
+                                logger.debug(f"[TaskExecutor] Cleared {cleared} checkpoint entries from InMemorySaver")
+                    except Exception as _ckpt_err:
+                        logger.debug(f"[TaskExecutor] Failed to clear checkpoints: {_ckpt_err}")
+
+            # 3. Force garbage collection to reclaim Python object memory
+            import gc
+            collected = gc.collect(2)  # full collection
+            if collected > 0:
+                logger.debug(f"[TaskExecutor] GC collected {collected} objects")
+        except Exception as e:
+            logger.debug(f"[TaskExecutor] Failed to clear caches: {e}")
+
     # ==================== Config Preparation ====================
     
     def prepare_config(self, config: Optional[dict] = None, context: Optional[dict] = None) -> Tuple[dict, dict]:
@@ -300,6 +344,12 @@ class TaskExecutor:
         
         # Emit paused status
         st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+        # Forward human-facing fields from interrupt info to GUI
+        int_val = interrupt_obj.value
+        for _f in ("prompt_to_human", "qa_form_to_human", "notification_to_human",
+                    "event_type", "timer_name", "browser_event_label", "paused_at"):
+            if _f in int_val and int_val[_f]:
+                st_js[_f] = int_val[_f]
         self.emit_run_status("paused", i_tag, st_js)
         
         return i_tag, current_checkpoint
@@ -603,7 +653,8 @@ class TaskExecutor:
             cancellation_registry.unregister(self.task.id)
             if self.task.cancellation_event.is_set():
                 self.task.status.state = TaskState.canceled
-    
+            self._clear_skill_module_caches()
+
     async def astream_run(
         self,
         in_msg: Any = "",
@@ -678,7 +729,10 @@ class TaskExecutor:
                         logger.debug(f"async Step output: {log_step_str}")
                     except Exception:
                         pass
-                await self.task.pause_event.wait()
+                try:
+                    await asyncio.wait_for(self.task.pause_event.wait(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    pass
                 
                 # Check for cancellation
                 if self.task.cancellation_event.is_set():
@@ -768,6 +822,7 @@ class TaskExecutor:
                 await agen.aclose()
             except Exception:
                 pass
+            self._clear_skill_module_caches()
 
 
 # ==================== Convenience Functions ====================

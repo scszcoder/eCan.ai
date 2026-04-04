@@ -368,6 +368,9 @@ class EC_Agent(Agent):
 					port=self._a2a_port,
 					log_level="warning",
 					log_config=None,
+					limit_concurrency=10,        # 限制最大并发连接数，防止线程爆炸
+					backlog=128,                 # 限制等待队列
+					access_log=False,            # 关闭访问日志减少开销
 				)
 				server = uvicorn.Server(config)
 				
@@ -976,33 +979,38 @@ class EC_Agent(Agent):
 
 	def launch_dev_run_task(self, init_state):
 		"""Launches a development run, ensuring any previous dev run is cancelled first."""
+		import uuid
 		logger.info("Attempting to launch dev run task...")
-		DEV_RUN_ID = "0123456789"
+		DEV_RUN_KEY = "dev_run"  # Stable key for active_tasks tracking across restarts
+		DEV_RUN_ID = str(uuid.uuid4())  # Unique run_id for this specific execution
 
 		try:
 			# Check if a dev run is already active and cancel it
-			if self.is_task_running(DEV_RUN_ID):
-				logger.info(f"An existing dev run ({DEV_RUN_ID}) is active. Attempting to cancel it.")
+			if self.is_task_running(DEV_RUN_KEY):
+				logger.info(f"An existing dev run is active. Attempting to cancel it.")
 				with self.task_lock:
-					# Find the ManagedTask object associated with the running future
-					old_future = self.active_tasks.get(DEV_RUN_ID)
-					dev_task_instance = next((t for t in self.tasks if hasattr(t, 'run_id') and t.run_id == DEV_RUN_ID), None)
+					old_future = self.active_tasks.get(DEV_RUN_KEY)
+					# Find via dev_runner's current task (avoids stale run_id lookup)
+					_dev_runner = getattr(self, 'runner', None)
+					dev_task_instance = getattr(_dev_runner, '_dev_task', None) if _dev_runner else None
 
 					if dev_task_instance:
-						dev_task_instance.cancel() # Signal the task to stop
-						logger.info(f"Cancellation signal sent to task with run_id {DEV_RUN_ID}.")
+						if hasattr(dev_task_instance, 'stop'):
+							dev_task_instance.stop(reason="dev_stop", force=True)
+						elif hasattr(dev_task_instance, 'cancel'):
+							dev_task_instance.cancel()
+						logger.info(f"Cancellation signal sent to previous dev run task.")
 					else:
-						logger.warning(f"Could not find the ManagedTask object for run_id {DEV_RUN_ID} to send cancel signal.")
+						logger.warning(f"Could not find previous dev run ManagedTask to send cancel signal.")
 
 					if old_future:
-						# Wait for the old task to finish cancelling
 						try:
-							old_future.result(timeout=5) # Wait for up to 5 seconds
-							logger.info(f"Previous dev run task {DEV_RUN_ID} successfully cancelled.")
+							old_future.result(timeout=5)
+							logger.info(f"Previous dev run task successfully cancelled.")
 						except concurrent.futures.TimeoutError:
-							logger.error(f"Timeout waiting for previous dev run task {DEV_RUN_ID} to cancel.")
+							logger.error(f"Timeout waiting for previous dev run task to cancel.")
 						except Exception as e:
-							logger.info(f"Previous dev run task {DEV_RUN_ID} terminated. Exception during cancellation: {e}")
+							logger.info(f"Previous dev run task terminated. Exception during cancellation: {e}")
 
 			# Find the template task for development runs
 			dev_task_template = next((task for task in self.tasks if "run task for skill under development" in task.name.lower()), None)
@@ -1010,7 +1018,7 @@ class EC_Agent(Agent):
 				logger.error("Could not find the 'run task for skill under development' template task.")
 				return {"success": False, "error": "Dev task template not found."}
 
-			# Assign the unique run_id for tracking
+			# Assign a real unique run_id (replacing previous hardcoded placeholder)
 			dev_task_template.run_id = DEV_RUN_ID
 			dev_task_template.cancellation_event.clear() # Ensure the event is not set from a previous run
 
@@ -1020,11 +1028,16 @@ class EC_Agent(Agent):
 			# Associate the Future with the ManagedTask for unified cancellation
 			dev_task_template.future = future
 			with self.task_lock:
-				self.active_tasks[DEV_RUN_ID] = future
-			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_ID, f))
+				self.active_tasks[DEV_RUN_KEY] = future
+			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_KEY, f))
 
-			logger.info(f"New dev run task with run_id {DEV_RUN_ID} submitted and registered.")
-			return {"success": True, "message": "Dev run launched successfully."}
+			logger.info(f"New dev run task submitted: run_id={DEV_RUN_ID}, task_id={getattr(dev_task_template, 'id', None)}")
+			return {
+				"success": True,
+				"run_id": DEV_RUN_ID,
+				"task_id": getattr(dev_task_template, 'id', None),
+				"message": "Dev run launched successfully.",
+			}
 
 		except Exception as e:
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
@@ -1068,10 +1081,8 @@ class EC_Agent(Agent):
 			return {"success": False, "error": err_msg}
 
 	def cancel_dev_run_task(self):
-		logger.info("launching dev run task!")
 		try:
 			response = self.runner.cancel_dev_run()
-			logger.info("launching dev run task!", response)
 			return response
 		except Exception as e:
 			# Get the traceback information

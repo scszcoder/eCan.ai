@@ -202,7 +202,7 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
               type={property.type as string}
               required={required.includes(key)}
             >
-              {formComponent === 'prompt-editor' && (
+              {formComponent === 'prompt-editor' ? (
                 <CollapsiblePromptEditor
                   value={sanitizeFlowValue(field.value, property)}
                   onChange={field.onChange}
@@ -211,7 +211,7 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
                   defaultCollapsed={true}
                   collapsedLines={3}
                 />
-              )}
+              ) : null}
               {!formComponent && (
                 (() => {
                   if (property?.type === 'string') {
@@ -288,7 +288,7 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
           const v = dataInputsField?.value;
           const hasProps = v && v.properties && Object.keys(v.properties).length > 0;
           if (hasProps) return renderFromSchema(dataInputsField, 'data.inputs');
-          console.warn('[MCP][FormInputs] data.inputs is empty, falling back to inputs');
+          console.debug('[MCP][FormInputs] data.inputs is empty, falling back to inputs');
           return (
             <Field<JsonSchema> name="inputs">
               {({ field: legacyInputsField }) => {

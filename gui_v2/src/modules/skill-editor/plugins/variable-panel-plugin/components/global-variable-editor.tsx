@@ -26,7 +26,7 @@ export function GlobalVariableEditor() {
     });
 
     return () => {
-      disposable.dispose();
+      queueMicrotask(() => disposable.dispose());
     };
   }, []);
 

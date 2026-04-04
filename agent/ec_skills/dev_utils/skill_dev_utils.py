@@ -4,6 +4,7 @@ from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
 from utils.logger_helper import get_traceback
 from agent.ec_agents.create_dev_task import create_skill_dev_task
 import json
+from typing import Any, Dict, Optional
 
 
 def _load_dev_mapping_rules(skill_payload):
@@ -236,17 +237,262 @@ def run_dev_skill(mainwin, skill):
             goals=[]
         )
         results = tester_agent.launch_dev_run_task(init_state)
-        run_results = {"success": True, "error": "", "run_status": results}
+        run_results = {
+            "success": True,
+            "error": "",
+            "run_status": results,
+            "run_id": results.get("run_id"),
+            "task_id": results.get("task_id"),
+        }
     else:
         logger.debug("tester_agent NOT found >>>>>>>>")
         run_results = {"success": False, "error": "ErrorSetupDevSkill", "run_status": None}
 
     return run_results
 
-def cancel_run_dev_skill(mainwin):
-    tester_agent = find_tester_agent(mainwin)
-    if tester_agent:
-        results = tester_agent.cancel_dev_run_task()
+def _extract_cancel_identifiers(cancel_payload: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """Extract task/run identifiers from cancel request payload."""
+    payload = cancel_payload if isinstance(cancel_payload, dict) else {}
+
+    requested_task_id = payload.get("task_id") or payload.get("taskId")
+    requested_run_id = payload.get("run_id") or payload.get("runId")
+    requested_skill_id = payload.get("skill_id") or payload.get("skillId")
+    requested_skill_name = payload.get("skill_name") or payload.get("skillName")
+
+    skill_payload = payload.get("skill")
+    if isinstance(skill_payload, str):
+        try:
+            skill_payload = json.loads(skill_payload)
+        except Exception:
+            skill_payload = {}
+
+    if isinstance(skill_payload, dict):
+        requested_task_id = requested_task_id or skill_payload.get("task_id") or skill_payload.get("taskId")
+        requested_run_id = requested_run_id or skill_payload.get("run_id") or skill_payload.get("runId")
+        requested_skill_id = requested_skill_id or skill_payload.get("skill_id") or skill_payload.get("skillId")
+        requested_skill_name = requested_skill_name or skill_payload.get("skill_name") or skill_payload.get("skillName")
+
+    return {
+        "task_id": str(requested_task_id) if requested_task_id else None,
+        "run_id": str(requested_run_id) if requested_run_id else None,
+        "skill_id": str(requested_skill_id) if requested_skill_id else None,
+        "skill_name": str(requested_skill_name) if requested_skill_name else None,
+    }
+
+
+def _matches_cancel_target(task: Any, requested_task_id: Optional[str], requested_run_id: Optional[str]) -> bool:
+    task_id = str(getattr(task, "id", "") or "")
+    run_id = str(getattr(task, "run_id", "") or "")
+    task_state = getattr(task, "state", None) or {}
+    cloud_run_id = str(task_state.get("cloud_run_id", "") or "") if isinstance(task_state, dict) else ""
+
+    if requested_task_id and requested_task_id in {task_id, run_id, cloud_run_id}:
+        return True
+    if requested_run_id and requested_run_id in {task_id, run_id, cloud_run_id}:
+        return True
+    return False
+
+
+def _matches_skill_target(task: Any, requested_skill_id: Optional[str], requested_skill_name: Optional[str]) -> bool:
+    task_skill = getattr(task, "skill", None)
+    task_skill_id = str(
+        getattr(task_skill, "id", None)
+        or getattr(task, "skill_id", None)
+        or ""
+    )
+    task_skill_name = str(
+        getattr(task_skill, "name", None)
+        or getattr(task, "skill_name", None)
+        or ""
+    )
+    task_name = str(getattr(task, "name", "") or "")
+
+    if requested_skill_id and task_skill_id and task_skill_id == requested_skill_id:
+        return True
+
+    if requested_skill_name:
+        expected_name = requested_skill_name.lower()
+        if task_skill_name and task_skill_name.lower() == expected_name:
+            return True
+        if task_name and expected_name in task_name.lower():
+            return True
+
+    return False
+
+
+def _collect_candidate_tasks(mainwin):
+    candidates = []
+    seen_obj_ids = set()
+    for ag in getattr(mainwin, "agents", []) or []:
+        agent_name = getattr(getattr(ag, "card", None), "name", "?")
+        runner = getattr(ag, "runner", None)
+
+        for _task in (getattr(runner, "tasks", {}) or {}).values() if runner else []:
+            if _task is None:
+                continue
+            _obj_id = id(_task)
+            if _obj_id in seen_obj_ids:
+                continue
+            seen_obj_ids.add(_obj_id)
+            candidates.append((agent_name, _task, "runner.tasks"))
+
+        for _task in getattr(ag, "tasks", []) or []:
+            if _task is None:
+                continue
+            _obj_id = id(_task)
+            if _obj_id in seen_obj_ids:
+                continue
+            seen_obj_ids.add(_obj_id)
+            candidates.append((agent_name, _task, "agent.tasks"))
+
+        _dev_runner = getattr(runner, "dev_runner", None) if runner else None
+        _dev_task = getattr(_dev_runner, "_dev_task", None) if _dev_runner else None
+        if _dev_task is not None:
+            _obj_id = id(_dev_task)
+            if _obj_id not in seen_obj_ids:
+                seen_obj_ids.add(_obj_id)
+                candidates.append((agent_name, _dev_task, "dev_runner._dev_task"))
+
+    return candidates
+
+
+def _stop_task_obj(task: Any, reason: str = "ipc_cancel_run_skill") -> bool:
+    try:
+        if hasattr(task, "stop") and callable(task.stop):
+            task.stop(reason=reason, force=True)
+            return True
+        if hasattr(task, "cancel") and callable(task.cancel):
+            task.cancel()
+            return True
+    except Exception as _stop_err:
+        logger.warning(f"[cancel_run_dev_skill] Failed to stop task object: {_stop_err}")
+    return False
+
+
+def cancel_run_dev_skill(mainwin, cancel_payload: Optional[Dict[str, Any]] = None):
+    target_agent = None
+    identifiers = _extract_cancel_identifiers(cancel_payload)
+    requested_task_id = identifiers.get("task_id")
+    requested_run_id = identifiers.get("run_id")
+    requested_skill_id = identifiers.get("skill_id")
+    requested_skill_name = identifiers.get("skill_name")
+
+    logger.info(
+        "[cancel_run_dev_skill] Requested cancel identifiers: "
+        f"task_id={requested_task_id}, run_id={requested_run_id}, "
+        f"skill_id={requested_skill_id}, skill_name={requested_skill_name}"
+    )
+
+    candidates = _collect_candidate_tasks(mainwin)
+
+    # 1) Direct cancel path: if caller provides task_id/run_id, cancel the real running task first.
+    # This is required for auto-chatter tasks where dev_runner._dev_task may be None.
+    if requested_task_id or requested_run_id:
+        matched = []
+        for agent_name, _task, from_path in candidates:
+            if _matches_cancel_target(_task, requested_task_id, requested_run_id):
+                matched.append((agent_name, _task, from_path))
+
+        if matched:
+            stopped = False
+            for agent_name, task_obj, from_path in matched:
+                task_id = getattr(task_obj, "id", None)
+                run_id = getattr(task_obj, "run_id", None)
+                logger.info(
+                    "[cancel_run_dev_skill] Direct cancel hit: "
+                    f"agent={agent_name}, from={from_path}, task_id={task_id}, run_id={run_id}"
+                )
+                if _stop_task_obj(task_obj):
+                    stopped = True
+
+            if stopped:
+                return {
+                    "success": True,
+                    "error": "",
+                    "run_status": {
+                        "mode": "direct_task_cancel",
+                        "requested_task_id": requested_task_id,
+                        "requested_run_id": requested_run_id,
+                        "matched_count": len(matched),
+                    },
+                }
+
+        logger.warning(
+            "[cancel_run_dev_skill] Direct cancel found no matching task for "
+            f"task_id={requested_task_id}, run_id={requested_run_id}; fallback to dev-run path"
+        )
+
+    # 2) Skill-based fallback: if run_id/task_id is missing/wrong, still cancel the current running
+    # skill task by skill_id/skill_name (covers auto-chatter task IDs that frontend may not know).
+    if requested_skill_id or requested_skill_name:
+        skill_matched = []
+        for agent_name, _task, from_path in candidates:
+            if _matches_skill_target(_task, requested_skill_id, requested_skill_name):
+                skill_matched.append((agent_name, _task, from_path))
+
+        if skill_matched:
+            stopped = False
+            for agent_name, task_obj, from_path in skill_matched:
+                task_id = getattr(task_obj, "id", None)
+                run_id = getattr(task_obj, "run_id", None)
+                logger.info(
+                    "[cancel_run_dev_skill] Skill fallback cancel hit: "
+                    f"agent={agent_name}, from={from_path}, task_id={task_id}, run_id={run_id}, "
+                    f"skill_id={requested_skill_id}, skill_name={requested_skill_name}"
+                )
+                if _stop_task_obj(task_obj):
+                    stopped = True
+
+            if stopped:
+                return {
+                    "success": True,
+                    "error": "",
+                    "run_status": {
+                        "mode": "skill_fallback_cancel",
+                        "requested_skill_id": requested_skill_id,
+                        "requested_skill_name": requested_skill_name,
+                        "matched_count": len(skill_matched),
+                    },
+                }
+
+        logger.warning(
+            "[cancel_run_dev_skill] Skill fallback found no matching task for "
+            f"skill_id={requested_skill_id}, skill_name={requested_skill_name}; fallback to dev-run path"
+        )
+
+    # Prefer the agent that currently owns an active dev task.
+    # Using only find_tester_agent() can select an idle runner and make cancel no-op
+    # (observed as "task already done!" while another agent keeps running).
+    try:
+        for ag in getattr(mainwin, "agents", []) or []:
+            runner = getattr(ag, "runner", None)
+            dev_runner = getattr(runner, "dev_runner", None)
+            dev_task = getattr(dev_runner, "_dev_task", None) if dev_runner else None
+            if dev_task is not None:
+                target_agent = ag
+                logger.info(
+                    f"[cancel_run_dev_skill] Routing cancel to active agent: {getattr(getattr(ag, 'card', None), 'name', '?')} "
+                    f"(task_id={getattr(dev_task, 'id', None)}, run_id={getattr(dev_task, 'run_id', None)})"
+                )
+                break
+    except Exception as _scan_err:
+        logger.warning(f"[cancel_run_dev_skill] Failed scanning active dev task owner: {_scan_err}")
+
+    # Fallback to original behavior for compatibility.
+    if target_agent is None:
+        target_agent = find_tester_agent(mainwin)
+
+    if target_agent:
+        _runner = getattr(target_agent, "runner", None)
+        _dev_runner = getattr(_runner, "dev_runner", None)
+        _target_task = getattr(_dev_runner, "_dev_task", None) if _dev_runner else None
+        logger.info(
+            "[cancel_run_dev_skill] Cancel target details: "
+            f"agent={getattr(getattr(target_agent, 'card', None), 'name', '?')}, "
+            f"task_id={getattr(_target_task, 'id', None)}, run_id={getattr(_target_task, 'run_id', None)}"
+        )
+
+        results = target_agent.cancel_dev_run_task()
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         run_results = {"success": False, "error": "ErrorCancelRunDevSkill", "run_status": None}

@@ -7,7 +7,6 @@ Config keys: ``bot_token``, ``allowed_chat_ids`` (optional list),
 """
 from __future__ import annotations
 
-import logging
 import time
 from threading import Event
 from typing import Any, Callable, Dict, List, Optional
@@ -21,7 +20,7 @@ from agent.channels.base import (
 )
 from agent.channels.registry import ChannelRegistry
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 _API = "https://api.telegram.org/bot{token}/{method}"
 
@@ -34,6 +33,9 @@ class TelegramPlugin(ChannelPlugin):
         self._allowed: Optional[List[str]] = None
         self._default_agent_id: Optional[str] = None
         self._offset: int = 0
+        # Exponential backoff state for polling errors
+        self._poll_error_delay: float = 1.0  # seconds
+        self._poll_error_max_delay: float = 64.0  # seconds
 
     def configure(self, config: Dict[str, Any]) -> None:
         self._token = config.get("bot_token", "")
@@ -83,10 +85,17 @@ class TelegramPlugin(ChannelPlugin):
                         on_message(cm)
                     except Exception as e:
                         logger.error(f"[Telegram] on_message error: {e}")
+                # Success: reset backoff delay
+                self._poll_error_delay = 1.0
             except Exception as e:
                 if not stop_event.is_set():
-                    logger.warning(f"[Telegram] Poll error: {e}")
-                    time.sleep(3)
+                    logger.warning(f"[Telegram] Poll error: {e} — backing off for {self._poll_error_delay:.1f}s")
+                    time.sleep(self._poll_error_delay)
+                    # Exponential backoff: double delay, capped at max_delay
+                    self._poll_error_delay = min(
+                        self._poll_error_delay * 2,
+                        self._poll_error_max_delay
+                    )
         logger.info("[Telegram] Polling loop exited")
 
     def stop(self) -> None:

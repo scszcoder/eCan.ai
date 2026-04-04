@@ -22,148 +22,180 @@
 
 'use strict';
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const express = require('express');
-const axios = require('axios');
-const QRCode = require('qrcode');
-const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 
+// ─── pkg crypto polyfill ───────────────────────────────────────────────────────
+// pkg snapshots strip some Node.js built-ins; polyfill crypto for baileys.
+if (!globalThis.crypto && typeof require !== 'undefined') {
+  try {
+    const { webcrypto } = require('crypto');
+    if (webcrypto) globalThis.crypto = webcrypto;
+  } catch (_) { /* noop */ }
+}
+
 // ─── Config ──────────────────────────────────────────────────────────────────
+// pkg snapshots are read-only; __dirname inside the binary points into the
+// snapshot and is NOT writable.  Use process.execPath to find the real exe dir.
+const exeDir = path.dirname(process.execPath);
+const isPackaged = !process.execPath.endsWith('node') && !process.execPath.includes('node_modules/.bin/');
 
 const PORT = parseInt(process.env.PORT || '3210', 10);
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://127.0.0.1:5100/channel/whatsapp';
-const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, 'wa_session');
+// In a pkg binary the snapshot root is read-only; store session alongside the exe.
+// For development (running via `node index.js`), use __dirname which is writable.
+const SESSION_DIR = process.env.SESSION_DIR || (
+  isPackaged ? path.join(exeDir, 'wa_session') : path.join(__dirname, 'wa_session')
+);
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-const logger = pino({ level: LOG_LEVEL }).child({ name: 'wa-bridge' });
+// ─── Async bootstrap ─────────────────────────────────────────────────────────
+// All ESM deps (axios, @whiskeysockets/baileys) are loaded via dynamic import().
+// CJS deps (express, qrcode, pino) are loaded synchronously.
 
-// ─── State ────────────────────────────────────────────────────────────────────
+(async () => {
+  // Load ESM modules via dynamic import()
+  const [{ default: axios }, baileysMod] = await Promise.all([
+    import('axios'),
+    import('@whiskeysockets/baileys'),
+  ]);
 
-let sock = null;
-let qrBase64 = null;       // current QR image (null when paired)
-let connectionStatus = 'disconnected'; // disconnected | connecting | connected | error
-let phoneNumber = null;
-let reconnectTimeout = null;
+  const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+  } = baileysMod;
 
-// ─── Socket factory ───────────────────────────────────────────────────────────
+  // Load CJS modules
+  const express = require('express');
+  const QRCode = require('qrcode');
+  const pino = require('pino');
 
-async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-  const { version } = await fetchLatestBaileysVersion();
-  logger.info({ version }, 'Baileys version');
+  const logger = pino({ level: LOG_LEVEL }).child({ name: 'wa-bridge' });
 
-  sock = makeWASocket({
-    version,
-    auth: state,
-    logger: pino({ level: 'silent' }),   // suppress noisy baileys logs
-    printQRInTerminal: false,
-    browser: ['eCan.ai', 'Chrome', '120.0'],
-  });
+  // ─── State ────────────────────────────────────────────────────────────────────
 
-  connectionStatus = 'connecting';
+  let sock = null;
+  let qrBase64 = null;
+  let connectionStatus = 'disconnected';
+  let phoneNumber = null;
+  let reconnectTimeout = null;
 
-  sock.ev.on('creds.update', saveCreds);
+  // ─── Socket factory ───────────────────────────────────────────────────────────
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+  async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+    const { version } = await fetchLatestBaileysVersion();
+    logger.info({ version }, 'Baileys version');
 
-    if (qr) {
-      try {
-        qrBase64 = await QRCode.toDataURL(qr);
-        logger.info('QR code generated — scan with WhatsApp');
-      } catch (err) {
-        logger.error({ err }, 'QR encode failed');
+    sock = makeWASocket({
+      version,
+      auth: state,
+      logger: pino({ level: 'silent' }),
+      printQRInTerminal: false,
+      browser: ['eCan.ai', 'Chrome', '120.0'],
+    });
+
+    connectionStatus = 'connecting';
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        try {
+          qrBase64 = await QRCode.toDataURL(qr);
+          logger.info('QR code generated — scan with WhatsApp');
+        } catch (err) {
+          logger.error({ err }, 'QR encode failed');
+        }
       }
-    }
 
-    if (connection === 'close') {
-      qrBase64 = null;
-      const code = lastDisconnect?.error?.output?.statusCode;
-      const isLoggedOut = code === DisconnectReason.loggedOut;
-      logger.warn({ code, isLoggedOut }, 'Connection closed');
+      if (connection === 'close') {
+        qrBase64 = null;
+        const code = lastDisconnect?.error?.output?.statusCode;
+        const isLoggedOut = code === DisconnectReason.loggedOut;
+        logger.warn({ code, isLoggedOut }, 'Connection closed');
 
-      if (isLoggedOut) {
-        connectionStatus = 'disconnected';
-        phoneNumber = null;
-        // Wipe session so fresh QR is generated on next connect
-        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-        fs.mkdirSync(SESSION_DIR, { recursive: true });
-      } else {
-        connectionStatus = 'reconnecting';
+        if (isLoggedOut) {
+          connectionStatus = 'disconnected';
+          phoneNumber = null;
+          fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+          fs.mkdirSync(SESSION_DIR, { recursive: true });
+        } else {
+          connectionStatus = 'reconnecting';
+        }
+
+        if (!isLoggedOut) {
+          reconnectTimeout = setTimeout(() => {
+            logger.info('Reconnecting…');
+            connectToWhatsApp().catch((e) => logger.error({ e }, 'Reconnect failed'));
+          }, 5000);
+        }
       }
 
-      // Reconnect after a short delay (unless deliberately stopped)
-      if (!isLoggedOut) {
-        reconnectTimeout = setTimeout(() => {
-          logger.info('Reconnecting…');
-          connectToWhatsApp().catch((e) => logger.error({ e }, 'Reconnect failed'));
-        }, 5000);
+      if (connection === 'open') {
+        qrBase64 = null;
+        connectionStatus = 'connected';
+        phoneNumber = sock.user?.id?.split(':')[0] || null;
+        logger.info({ phoneNumber }, 'WhatsApp connected');
       }
-    }
+    });
 
-    if (connection === 'open') {
-      qrBase64 = null;
-      connectionStatus = 'connected';
-      phoneNumber = sock.user?.id?.split(':')[0] || null;
-      logger.info({ phoneNumber }, 'WhatsApp connected');
-    }
-  });
-
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
-    for (const msg of messages) {
-      if (msg.key.fromMe) continue;   // ignore own messages
-      await forwardToWebhook(msg);
-    }
-  });
-}
-
-// ─── Webhook forwarding ───────────────────────────────────────────────────────
-
-async function forwardToWebhook(msg) {
-  const jid = msg.key.remoteJid || '';
-  const senderId = msg.key.participant || jid.split('@')[0];
-  const content = msg.message;
-  const text =
-    content?.conversation ||
-    content?.extendedTextMessage?.text ||
-    content?.imageMessage?.caption ||
-    content?.videoMessage?.caption ||
-    '';
-
-  const payload = {
-    jid,
-    sender_id: senderId,
-    sender_name: msg.pushName || '',
-    text,
-    message_type: content?.imageMessage ? 'image' : content?.videoMessage ? 'video' : 'text',
-    timestamp: Number(msg.messageTimestamp) || Date.now() / 1000,
-    raw_message_id: msg.key.id,
-  };
-
-  try {
-    await axios.post(WEBHOOK_URL, payload, { timeout: 10000 });
-    logger.debug({ jid, text: text.slice(0, 60) }, 'Forwarded inbound message');
-  } catch (err) {
-    logger.warn({ err: err.message }, 'Failed to forward inbound message to webhook');
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return;
+      for (const msg of messages) {
+        if (msg.key.fromMe) continue;
+        await forwardToWebhook(msg);
+      }
+    });
   }
-}
 
-// ─── Express API ──────────────────────────────────────────────────────────────
+  // ─── Webhook forwarding ───────────────────────────────────────────────────────
 
-const app = express();
-app.use(express.json());
+  async function forwardToWebhook(msg) {
+    const jid = msg.key.remoteJid || '';
+    const senderId = msg.key.participant || jid.split('@')[0];
+    const content = msg.message;
+    const text =
+      content?.conversation ||
+      content?.extendedTextMessage?.text ||
+      content?.imageMessage?.caption ||
+      content?.videoMessage?.caption ||
+      '';
 
-app.get('/health', (_req, res) => res.json({ ok: true }));
+    const payload = {
+      jid,
+      sender_id: senderId,
+      sender_name: msg.pushName || '',
+      text,
+      message_type: content?.imageMessage ? 'image' : content?.videoMessage ? 'video' : 'text',
+      timestamp: Number(msg.messageTimestamp) || Date.now() / 1000,
+      raw_message_id: msg.key.id,
+    };
 
-// Root: browser-friendly QR viewer (auto-refreshes every 4 s until paired)
-app.get('/', (_req, res) => {
-  res.setHeader('Content-Type', 'text/html');
-  res.send(`<!DOCTYPE html>
+    try {
+      await axios.post(WEBHOOK_URL, payload, { timeout: 10000 });
+      logger.debug({ jid, text: text.slice(0, 60) }, 'Forwarded inbound message');
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Failed to forward inbound message to webhook');
+    }
+  }
+
+  // ─── Express API ──────────────────────────────────────────────────────────────
+
+  const app = express();
+  app.use(express.json());
+
+  app.get('/health', (_req, res) => res.json({ ok: true }));
+
+  app.get('/', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -205,7 +237,6 @@ app.get('/', (_req, res) => {
           return;
         }
         badge.classList.add(st.status === 'connecting' ? 'connecting' : 'disconnected');
-
         const qr = await fetch('/qr');
         if (qr.status === 204) {
           document.getElementById('qr-container').innerHTML = '';
@@ -233,88 +264,83 @@ app.get('/', (_req, res) => {
   </script>
 </body>
 </html>`);
-});
+  });
 
-app.get('/status', (_req, res) => {
-  res.json({ status: connectionStatus, phone_number: phoneNumber });
-});
+  app.get('/status', (_req, res) => {
+    res.json({ status: connectionStatus, phone_number: phoneNumber });
+  });
 
-app.get('/qr', (_req, res) => {
-  if (!qrBase64) {
-    return res.status(204).json({ message: 'No QR available (already connected or not started)' });
-  }
-  // Strip the data-URL prefix so the client gets raw base64
-  const base64 = qrBase64.replace(/^data:image\/png;base64,/, '');
-  res.json({ qr_base64: base64 });
-});
+  app.get('/qr', (_req, res) => {
+    if (!qrBase64) {
+      return res.status(204).json({ message: 'No QR available (already connected or not started)' });
+    }
+    const base64 = qrBase64.replace(/^data:image\/png;base64,/, '');
+    res.json({ qr_base64: base64 });
+  });
 
-app.post('/send', async (req, res) => {
-  const { jid, text } = req.body || {};
-  if (!jid || !text) return res.status(400).json({ error: 'jid and text are required' });
-  if (connectionStatus !== 'connected') return res.status(503).json({ error: 'Not connected to WhatsApp' });
+  app.post('/send', async (req, res) => {
+    const { jid, text } = req.body || {};
+    if (!jid || !text) return res.status(400).json({ error: 'jid and text are required' });
+    if (connectionStatus !== 'connected') return res.status(503).json({ error: 'Not connected to WhatsApp' });
 
-  try {
-    // Step 1: Resolve canonical JID
-    let resolvedJid = jid;
     try {
-      const [info] = await sock.onWhatsApp(jid);
-      if (info?.exists) {
-        resolvedJid = info.jid;
-        logger.info({ jid, resolvedJid }, 'JID resolved');
-      } else {
-        logger.warn({ jid }, 'Number not found on WhatsApp — sending anyway');
+      let resolvedJid = jid;
+      try {
+        const [info] = await sock.onWhatsApp(jid);
+        if (info?.exists) {
+          resolvedJid = info.jid;
+          logger.info({ jid, resolvedJid }, 'JID resolved');
+        } else {
+          logger.warn({ jid }, 'Number not found on WhatsApp — sending anyway');
+        }
+      } catch (lookupErr) {
+        logger.warn({ jid, err: lookupErr.message }, 'onWhatsApp lookup failed — sending anyway');
       }
-    } catch (lookupErr) {
-      logger.warn({ jid, err: lookupErr.message }, 'onWhatsApp lookup failed — sending anyway');
-    }
 
-    // Step 2: Force pre-key fetch so the recipient can decrypt the message.
-    // assertSessions downloads fresh pre-key bundles from WA servers, which
-    // prevents the "Waiting for this message" error on the recipient's device.
+      try {
+        await sock.assertSessions([resolvedJid], true);
+        logger.info({ resolvedJid }, 'Pre-key sessions asserted');
+      } catch (sessErr) {
+        logger.warn({ err: sessErr.message }, 'assertSessions failed — sending anyway');
+      }
+
+      const result = await sock.sendMessage(resolvedJid, { text });
+      res.json({ success: true, message_id: result?.key?.id, resolved_jid: resolvedJid });
+    } catch (err) {
+      logger.error({ err }, 'Send message failed');
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/send-media', async (req, res) => {
+    const { jid, url, caption = '', mimetype = 'image/jpeg' } = req.body || {};
+    if (!jid || !url) return res.status(400).json({ error: 'jid and url are required' });
+    if (connectionStatus !== 'connected') return res.status(503).json({ error: 'Not connected' });
+
+    const isVideo = mimetype.startsWith('video/');
     try {
-      await sock.assertSessions([resolvedJid], true);
-      logger.info({ resolvedJid }, 'Pre-key sessions asserted');
-    } catch (sessErr) {
-      logger.warn({ err: sessErr.message }, 'assertSessions failed — sending anyway');
+      const result = await sock.sendMessage(jid, {
+        [isVideo ? 'video' : 'image']: { url },
+        caption,
+        mimetype,
+      });
+      res.json({ success: true, message_id: result?.key?.id });
+    } catch (err) {
+      logger.error({ err }, 'Send media failed');
+      res.status(500).json({ error: err.message });
     }
+  });
 
-    const result = await sock.sendMessage(resolvedJid, { text });
-    res.json({ success: true, message_id: result?.key?.id, resolved_jid: resolvedJid });
-  } catch (err) {
-    logger.error({ err }, 'Send message failed');
-    res.status(500).json({ error: err.message });
-  }
-});
+  // ─── Start ────────────────────────────────────────────────────────────────────
 
-app.post('/send-media', async (req, res) => {
-  const { jid, url, caption = '', mimetype = 'image/jpeg' } = req.body || {};
-  if (!jid || !url) return res.status(400).json({ error: 'jid and url are required' });
-  if (connectionStatus !== 'connected') return res.status(503).json({ error: 'Not connected' });
+  app.listen(PORT, '127.0.0.1', () => {
+    logger.info({ port: PORT, webhook: WEBHOOK_URL }, 'Baileys bridge listening');
+    connectToWhatsApp().catch((e) => logger.error({ e }, 'Initial connect failed'));
+  });
 
-  const isVideo = mimetype.startsWith('video/');
-  try {
-    const result = await sock.sendMessage(jid, {
-      [isVideo ? 'video' : 'image']: { url },
-      caption,
-      mimetype,
-    });
-    res.json({ success: true, message_id: result?.key?.id });
-  } catch (err) {
-    logger.error({ err }, 'Send media failed');
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── Start ────────────────────────────────────────────────────────────────────
-
-app.listen(PORT, '127.0.0.1', () => {
-  logger.info({ port: PORT, webhook: WEBHOOK_URL }, 'Baileys bridge listening');
-  connectToWhatsApp().catch((e) => logger.error({ e }, 'Initial connect failed'));
-});
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-  logger.info('Shutting down');
-  clearTimeout(reconnectTimeout);
-  process.exit(0);
-});
+  process.on('SIGINT', () => {
+    logger.info('Shutting down');
+    clearTimeout(reconnectTimeout);
+    process.exit(0);
+  });
+})();

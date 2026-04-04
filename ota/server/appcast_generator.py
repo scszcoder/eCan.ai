@@ -24,15 +24,22 @@ class AppcastGenerator:
     
     def _extract_version_from_filename(self, filename):
         """Extract version from filename like eCan-1.0.0-macos-aarch64.pkg"""
-        # Try to extract version from filename
         import re
-        # Match version pattern: X.Y.Z (stop before platform name)
+        # Try eCan-{version}-{platform} pattern (macOS/Windows/Linux standard naming)
         # eCan-1.0.0-macos-aarch64.pkg -> 1.0.0
-        # eCan-1.2.3-beta.1-windows-amd64.exe -> 1.2.3-beta.1
+        # eCan-1.2.3-beta.1-windows-amd64-Setup.exe -> 1.2.3-beta.1
         match = re.search(r'-(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)(?:-(?:macos|darwin|windows|linux|amd64|aarch64|arm64|x86_64))', filename)
         if match:
             return match.group(1)
-        
+
+        # Try ecan-{version}_{arch}.deb pattern (DEB package naming)
+        # ecan-1.0.0_amd64.deb -> 1.0.0
+        # Non-greedy +? is required: without it, \d+ greedily consumes "1.0.0_a"
+        # leaving nothing for the trailing "_" to match.
+        match = re.search(r'ecan-(\d+?\.\d+?\.\d+?(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)_', filename)
+        if match:
+            return match.group(1)
+
         # Fallback: read from VERSION file
         try:
             project_root = Path(self.server_root).parent.parent
@@ -154,6 +161,7 @@ class AppcastGenerator:
             return {}
         
         # Package patterns to search for
+        # NOTE: Pattern order matters - more specific patterns first to avoid false matches
         patterns = [
             "eCan-*-macos-*.pkg",
             "eCan-*-macos-*.dmg",
@@ -161,6 +169,9 @@ class AppcastGenerator:
             "eCan-*-windows-*.msi",
             "eCan-*-linux-*.tar.gz",
             "eCan-*-linux-*.AppImage",
+            # DEB packages use lowercase "ecan" naming: ecan-{version}_{arch}.deb
+            "ecan-*_amd64.deb",
+            "ecan-*_aarch64.deb",
         ]
         
         packages = {}

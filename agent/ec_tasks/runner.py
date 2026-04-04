@@ -28,6 +28,11 @@ from agent.ec_skills.llm_utils.llm_utils import send_response_back
 from agent.ec_skills.prep_skills_run import prep_skills_run
 from langgraph.types import Command
 
+# Import thread registry for leak diagnosis (lazy to avoid circular imports)
+def _get_thread_registry():
+    from agent.ec_tasks.timer_service import _register_thread, _unregister_thread, _dump_thread_registry
+    return _register_thread, _unregister_thread, _dump_thread_registry
+
 from .resume import build_general_resume_payload, normalize_event, _safe_get
 from pydantic import TypeAdapter
 
@@ -110,10 +115,12 @@ class TaskRunner(Generic[Context]):
         self.tasks: Dict[str, ManagedTask] = {}
         
         # Skill execution thread pool
+        _max_workers = int(os.environ.get("ECAN_SKILL_WORKERS", "8"))
         self._skill_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=20,
-            thread_name_prefix="SkillExec"
+            max_workers=_max_workers,
+            thread_name_prefix="SkillExec",
         )
+        logger.info(f"[TaskRunner] SkillExecutor: max_workers={_max_workers}")
         
         # Per-task state for concurrent execution
         self._task_states: Dict[str, dict] = {}
@@ -1498,12 +1505,130 @@ class TaskRunner(Generic[Context]):
                 return task
         return None
 
-    def _ensure_chatter_task(self, request: Any = None, event_type: str = "", source: str = "") -> Optional[ManagedTask]:
-        """Ensure the agent has a chatter task for routing human_chat/a2a events."""
+    def _restart_task_execution(self, task: ManagedTask):
+        """Restart execution loop for a completed/failed task.
+        
+        This is called when a new message arrives for a task that has already
+        completed or failed. The task needs to be reset and its execution loop
+        restarted to process the new message.
+        """
+        try:
+            mainwin = getattr(self.agent, "mainwin", None)
+            thread_pool = getattr(mainwin, "threadPoolExecutor", None) if mainwin else None
+            
+            if not thread_pool:
+                logger.warning(f"[restart_task_execution] No thread pool available for task '{task.name}'")
+                return False
+                
+            if not hasattr(task, "run_id") or not task.run_id:
+                logger.warning(f"[restart_task_execution] Task '{task.name}' has no run_id")
+                return False
+            
+            # Check if already running
+            active_tasks = getattr(self.agent, "active_tasks", {}) or {}
+            if task.run_id in active_tasks:
+                future = active_tasks.get(task.run_id)
+                if future and not future.done():
+                    logger.info(f"[restart_task_execution] Task '{task.name}' already has active execution")
+                    return True
+            
+            # Reset task state
+            task_state = getattr(task, "status", None)
+            if task_state:
+                try:
+                    task_state.state = TaskState.submitted
+                except Exception:
+                    pass
+            
+            # Clear any previous state
+            if task.id in self._task_states:
+                self._task_states[task.id] = {'justStarted': True}
+            
+            # Start new execution loop
+            future = thread_pool.submit(self.launch_unified_run, task, ["message"])
+            with getattr(self.agent, "task_lock", type("DummyLock", (), {"__enter__": lambda s: None, "__exit__": lambda s, *a: None})()):
+                active_tasks[task.run_id] = future
+            logger.info(f"[restart_task_execution] Started execution loop for task '{task.name}', run_id={task.run_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[restart_task_execution] Failed to restart task '{getattr(task, 'name', '?')}': {e}")
+            return False
+
+    def _ensure_task_execution_alive(self, task: "ManagedTask", event_type: str = "") -> None:
+        """
+        Check whether a task's execution loop is still running; if not, restart it.
+
+        When routing finds an existing chat task, we need to ensure the worker loop is alive
+        to consume queued messages. If the task has terminated (completed/failed), restart
+        it — the new launch_unified_run cycle will begin a fresh skill execution from start_0
+        with a clean state, which is the correct behavior for a new user message.
+        """
+        if task is None:
+            return
+        try:
+            task_state = getattr(task, "status", None)
+            task_status = getattr(task_state, "state", None) if task_state else None
+            is_terminal = task_status in ("completed", "failed", "canceled") if task_status else False
+
+            active_tasks = getattr(self.agent, "active_tasks", {}) or {}
+            has_active_execution = (
+                task.run_id in active_tasks
+                and active_tasks[task.run_id] is not None
+                and not active_tasks[task.run_id].done()
+            )
+
+            if is_terminal or not has_active_execution:
+                logger.info(
+                    f"[ensure_task_execution_alive] Task '{task.name}' is "
+                    f"status={task_status}, active={has_active_execution}; restarting execution loop"
+                )
+                # Note: We no longer clear the queue here because:
+                # 1. If a new message was just queued, clearing would remove it
+                # 2. The restarted loop should process whatever is in the queue
+                self._restart_task_execution(task)
+            else:
+                logger.debug(f"[ensure_task_execution_alive] Task '{task.name}' has active execution")
+        except Exception as e:
+            logger.error(f"[ensure_task_execution_alive] Failed for task '{getattr(task, 'name', '?')}': {e}")
+
+    def _ensure_chatter_task(self, request: Any = None, event_type: str = "", source: str = "") -> Optional["ManagedTask"]:
+        """Ensure the agent has a chatter task for routing human_chat/a2a events.
+        
+        If an existing completed/failed task is found for the session, it will be
+        reset and its execution loop restarted to handle the new message.
+        """
         session_id = self._extract_session_key_from_request(event_type, request, source) if request is not None else ""
         if session_id:
             existing = self._find_chatter_task_by_session(session_id)
             if existing:
+                # Check if task needs to be restarted (completed/failed task with no active execution)
+                task_state = getattr(existing, "status", None)
+                task_status = getattr(task_state, "state", None) if task_state else None
+                is_terminal = task_status in ("completed", "failed", "canceled") if task_status else False
+                
+                # Check if task has an active execution loop
+                has_active_execution = False
+                if hasattr(existing, "run_id") and existing.run_id:
+                    active_tasks = getattr(self.agent, "active_tasks", {}) or {}
+                    if existing.run_id in active_tasks:
+                        future = active_tasks.get(existing.run_id)
+                        if future and not future.done():
+                            has_active_execution = True
+                
+                if is_terminal or not has_active_execution:
+                    logger.info(f"[ensure_chatter_task] Found completed task '{existing.name}' for session {session_id}, "
+                                f"status={task_status}, will restart execution loop")
+                    # Reset task state
+                    if task_state:
+                        try:
+                            task_state.state = TaskState.submitted
+                        except Exception:
+                            pass
+                    # Restart execution loop
+                    self._restart_task_execution(existing)
+                else:
+                    logger.info(f"[ensure_chatter_task] Found active task '{existing.name}' for session {session_id}")
                 return existing
         else:
             existing = self.find_chatter_tasks()
@@ -1651,6 +1776,12 @@ class TaskRunner(Generic[Context]):
                 try:
                     target_task.queue.put_nowait(request)
                     logger.info(f"[QUEUE] Message queued for task={target_task.name}")
+
+                    # Ensure the target task's execution loop is alive.
+                    # _resolve_event_routing may return a stale task whose loop has already
+                    # terminated (e.g. a completed/failed chat task with a backlog of messages).
+                    # Without this check the loop silently ignores the queued message forever.
+                    self._ensure_task_execution_alive(target_task, event_type)
                 except Exception as e:
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
@@ -2253,9 +2384,47 @@ class TaskRunner(Generic[Context]):
         dev_init_state: Optional[dict]
     ):
         """Submit task execution to thread pool."""
+        # Generate a unique invocation ID for tracing this call
+        import threading
+        import time as time_module
+        _call_id = f"{threading.current_thread().name}_{int(time_module.time()*1000)%100000}"
+
         # Extract waiter task ID
         waiter_task_id = self._extract_waiter_task_id(msg)
         
+        # First log: function entry
+        _entry_state = task.status.state
+        logger.info(f"[SUBMIT][{_call_id}] ENTER _submit_task_execution for '{task.name}', state={_entry_state!r}")
+        
+        # ── Interrupt guard: do NOT re-submit a task that is parked waiting for human input ──
+        # When a skill hits a pend_event / __interrupt__, it is parked and emits status="paused".
+        # The execution thread completes and the queue poll loop continues running.
+        # Without this guard, the next queue poll returns (task, None, False) which re-triggers
+        # _submit_task_execution, causing an infinite re-execution loop:
+        # skill runs → LLM fails → interrupt → re-submit → repeat.
+        #
+        # Check: if task.state == input_required, it means the previous execution parked on
+        # an interrupt. Do NOT re-run unless there's actual new input from the user.
+        _task_state = task.status.state
+        _is_input_required = _task_state == TaskState.input_required
+        logger.info(
+            f"[SUBMIT][{_call_id}] Guard check for '{task.name}': "
+            f"state={_task_state!r}, is_input_required={_is_input_required}"
+        )
+        if _is_input_required:
+            logger.warning(
+                f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r}"
+            )
+            try:
+                self._emit_task_status(task, "paused")
+                logger.warning(f"[SUBMIT][{_call_id}] ⛔ RETURNING early for '{task.name}' — skill is parked, waiting for human input")
+            except Exception as e:
+                logger.error(f"[SUBMIT][{_call_id}] Error in guard emit/return for '{task.name}': {e}")
+            return
+
+        # Initialize task state
+        logger.info(f"[SUBMIT][{_call_id}] Guard passed for '{task.name}', proceeding to submit...")
+
         # Initialize task state
         if task.id not in self._task_states:
             self._task_states[task.id] = {'justStarted': True}
@@ -2305,15 +2474,38 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.warning(f"[SUBMIT] Failed to amend event routing for task={task.name}: {e}")
         
-        # Create execution function
+        # ── Queue depth guard: reject if too many tasks are already queued ─────────
+        # Instead of a blocking semaphore (which would stall the main thread), we
+        # count pending futures to approximate queue depth.
+        try:
+            # Count futures not yet completed (pending + running)
+            _queued = sum(
+                1 for t_id, state in self._task_states.items()
+                if not state.get("_done", False)
+            )
+            _max_queued = int(os.environ.get("ECAN_SKILL_MAX_QUEUED", "40"))
+            if _queued > _max_queued:
+                logger.warning(
+                    f"[SUBMIT] Task queue at {_queued}/{_max_queued} — "
+                    f"rejecting task '{task.name}' to prevent memory exhaustion"
+                )
+                self._emit_task_status(task, "error")
+                return
+        except Exception:
+            pass
+
         def _execute():
-            if is_hybrid:
-                return self._execute_hybrid_cloud_task(task, msg, trigger_type, is_initial_run, dev_init_state)
-            if is_pure_cloud:
-                return self._execute_pure_cloud_task(task, trigger_type)
-            return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
-        
-        # Create callback
+            try:
+                if is_hybrid:
+                    return self._execute_hybrid_cloud_task(task, msg, trigger_type, is_initial_run, dev_init_state)
+                if is_pure_cloud:
+                    return self._execute_pure_cloud_task(task, trigger_type)
+                return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
+            finally:
+                # Mark task done in state tracker
+                if task.id in self._task_states:
+                    self._task_states[task.id]["_done"] = True
+
         def _on_complete(future):
             self._on_skill_complete(future, task, waiter_task_id, trigger_type)
         
@@ -2323,9 +2515,13 @@ class TaskRunner(Generic[Context]):
         except Exception:
             pass
         
-        # Submit
-        task_state = self._task_states.setdefault(task.id, {})
-        task_state['pending_since'] = None
+        # NOTE: pending_since is NOT cleared here. It was previously cleared at submit
+        # time, which caused an infinite loop: after pend_event interrupted and
+        # _on_skill_complete set pending_since, the next queue poll + submit would
+        # immediately clear it again → timeout never fires, skill re-runs forever.
+        #
+        # Clearing is now done INSIDE _execute_skill (below), ONLY when this is
+        # a genuine fresh initial run (is_initial_run=True), not a resume.
         future = self._skill_executor.submit(_execute)
         future.add_done_callback(_on_complete)
         
@@ -2695,13 +2891,21 @@ class TaskRunner(Generic[Context]):
                 await service.start()
 
             loop = getattr(mainwin, '_async_loop', None)
+            passive_thread_name = f"PassiveCmd-{run_id[:8]}"
             if loop and loop.is_running():
                 _asyncio.run_coroutine_threadsafe(_start(), loop)
             else:
                 def _run():
                     _asyncio.run(_start())
-                t = threading.Thread(target=_run, daemon=True)
+                t = threading.Thread(target=_run, daemon=True, name=passive_thread_name)
                 t.start()
+                sub_entry["_passive_thread"] = t
+                try:
+                    reg, _, _ = _get_thread_registry()
+                    reg("PassiveCmd", passive_thread_name)
+                    sub_entry["_passive_thread_reg"] = ("PassiveCmd", passive_thread_name)
+                except Exception:
+                    pass
 
             logger.info(f"[HybridCloud] Passive subscription started: client_id={client_id}, run_id={run_id}")
         except Exception as e:
@@ -2786,15 +2990,23 @@ class TaskRunner(Generic[Context]):
             sub_entry["task_id"] = task.id
 
             loop = getattr(mainwin, '_async_loop', None)
+            thread_name = f"TaskStatus-{run_id[:8]}"
+
             if loop and loop.is_running():
                 future = _asyncio.run_coroutine_threadsafe(_run_subscription(), loop)
                 sub_entry["status_future"] = future
             else:
-                def _run():
-                    _asyncio.run(_run_subscription())
-                t = threading.Thread(target=_run, daemon=True, name=f"TaskStatus-{run_id[:8]}")
+                # Track thread so we can join it on cleanup
+                t = threading.Thread(target=_run_subscription, daemon=True, name=thread_name)
                 t.start()
                 sub_entry["status_thread"] = t
+                # Register with global thread registry for diagnosis
+                try:
+                    reg, _, _ = _get_thread_registry()
+                    reg("TaskStatus", thread_name)
+                    sub_entry["_thread_reg"] = ("TaskStatus", thread_name)
+                except Exception:
+                    pass
 
             logger.info(f"[TaskStatus] onTaskStatus subscription started: task={task.name}, run_id={run_id}")
         except Exception as e:
@@ -2849,19 +3061,26 @@ class TaskRunner(Generic[Context]):
             logger.debug(f"[HybridCloud] No active subscriptions to clean up for run_id={run_id}")
             return
 
-        # Stop passive command service
+        # Stop passive command service (may own threads)
         passive_service = sub_entry.get("passive_service")
-        if passive_service:
+        passive_thread = sub_entry.get("_passive_thread")
+        if passive_service or passive_thread:
             try:
                 import asyncio as _asyncio
                 mainwin = self.agent.mainwin
                 loop = getattr(mainwin, '_async_loop', None)
 
                 async def _stop():
-                    await passive_service.stop()
+                    if passive_service:
+                        await passive_service.stop()
 
                 if loop and loop.is_running():
-                    _asyncio.run_coroutine_threadsafe(_stop(), loop)
+                    fut = _asyncio.run_coroutine_threadsafe(_stop(), loop)
+                    # Give it a moment to take effect, but don't block
+                    try:
+                        fut.result(timeout=2.0)
+                    except Exception:
+                        pass
                 else:
                     def _run():
                         _asyncio.run(_stop())
@@ -2871,14 +3090,57 @@ class TaskRunner(Generic[Context]):
             except Exception as e:
                 logger.warning(f"[HybridCloud] Error stopping passive subscription: {e}")
 
-        # Cancel task status subscription future
+        # Join passive subscription thread if exists
+        passive_thread = sub_entry.get("_passive_thread")
+        if passive_thread:
+            try:
+                passive_thread.join(timeout=5.0)
+                if passive_thread.is_alive():
+                    logger.warning(f"[HybridCloud] Passive thread still alive after join for run_id={run_id}")
+                else:
+                    logger.info(f"[HybridCloud] Passive thread joined for run_id={run_id}")
+            except Exception as e:
+                logger.warning(f"[HybridCloud] Error joining passive thread: {e}")
+
+        # Unregister passive thread from registry
+        passive_reg = sub_entry.get("_passive_thread_reg")
+        if passive_reg:
+            try:
+                _, unreg, _ = _get_thread_registry()
+                unreg(passive_reg[0], passive_reg[1])
+            except Exception:
+                pass
+
+        # Cancel asyncio task (for subscriptions running in main event loop)
         status_future = sub_entry.get("status_future")
         if status_future and hasattr(status_future, 'cancel'):
             try:
                 status_future.cancel()
-                logger.info(f"[HybridCloud] Cancelled task status subscription for run_id={run_id}")
+                logger.info(f"[HybridCloud] Cancelled task status asyncio future for run_id={run_id}")
             except Exception as e:
-                logger.warning(f"[HybridCloud] Error cancelling status subscription: {e}")
+                logger.warning(f"[HybridCloud] Error cancelling status future: {e}")
+
+        # Join the daemon thread that ran _asyncio.run(_run_subscription())
+        # This is critical: without join, the thread + its event loop persist forever.
+        status_thread = sub_entry.get("status_thread")
+        if status_thread:
+            try:
+                status_thread.join(timeout=5.0)
+                if status_thread.is_alive():
+                    logger.warning(f"[HybridCloud] TaskStatus thread still alive after join for run_id={run_id}")
+                else:
+                    logger.info(f"[HybridCloud] TaskStatus thread joined for run_id={run_id}")
+            except Exception as e:
+                logger.warning(f"[HybridCloud] Error joining status thread: {e}")
+
+        # Unregister from thread registry
+        thread_reg = sub_entry.get("_thread_reg")
+        if thread_reg:
+            try:
+                _, unreg, _ = _get_thread_registry()
+                unreg(thread_reg[0], thread_reg[1])
+            except Exception:
+                pass
 
         # Remove event routing entry for this run
         routing_key = f"passive_command_{run_id}"
@@ -3060,6 +3322,13 @@ class TaskRunner(Generic[Context]):
 
             def _is_retryable_error_text(error_text: str) -> bool:
                 et = (error_text or "").lower()
+                # Only retry on genuine server-side / service errors, NOT on:
+                # - timeout: timeout means the API didn't respond — the request may still be
+                #   processing server-side; retrying creates duplicate requests and infinite loops
+                #   when the skill also hits pend_event (interrupt), as the queue re-poll
+                #   re-triggers the interrupted task.
+                # - api connection / apiconnectionerror: almost always network/proxy issues,
+                #   retrying with same config rarely helps and also compounds with pend_event.
                 return any(
                     k in et
                     for k in (
@@ -3069,11 +3338,11 @@ class TaskRunner(Generic[Context]):
                         "service unavailable",
                         "rate limit",
                         "429",
-                        "timeout",
-                        "api connection",
-                        "apiconnectionerror",
                         "temporarily unavailable",
                         "internalservererror",
+                        "bad gateway",
+                        "502",
+                        "504",
                     )
                 )
 
@@ -3095,6 +3364,11 @@ class TaskRunner(Generic[Context]):
                 use_async = task_metadata.get("use_async", False)
             
             if is_initial_run:
+                # Clear pending_since on fresh start so timeout tracking starts clean.
+                # For resume (is_initial_run=False) we deliberately leave it intact
+                # so _check_pending_timeout can fire if the interrupt hangs.
+                self._task_states.setdefault(task.id, {})['pending_since'] = None
+
                 # Prepare state
                 if trigger_type == "dev" and isinstance(dev_init_state, dict):
                     final_state = self._prepare_dev_state(task, msg, dev_init_state)
@@ -3410,6 +3684,9 @@ class TaskRunner(Generic[Context]):
                 
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
+                    logger.info(f"[COMPLETE] task_interrupted=True for '{task.name}' (step has __interrupt__)")
+                else:
+                    logger.info(f"[COMPLETE] task_interrupted=False for '{task.name}' (step={step}, interrupt in step={isinstance(step, dict) and '__interrupt__' in step})")
                     # Send the LLM response back to the GUI/opposite agent
                     # Skip if a chat node already delivered the response (chat_response_sent flag)
                     if current_state and hasattr(current_state, 'values'):
@@ -3506,6 +3783,12 @@ class TaskRunner(Generic[Context]):
             if hasattr(task, 'future'):
                 task.future = None
                 logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
+            
+            # Clean up task state to prevent unbounded memory growth
+            # _task_states stores per-task execution metadata that accumulates over time
+            if task.id in self._task_states:
+                self._task_states.pop(task.id, None)
+                logger.debug(f"[COMPLETE] Cleared task state for task {task.name}")
             
             # Allow idle sleep once this task execution completes
             try:
