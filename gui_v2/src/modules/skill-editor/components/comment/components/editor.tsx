@@ -26,7 +26,7 @@ export const CommentEditor: FC<ICommentEditor> = (props) => {
       }
       onChange?.(model.value);
     });
-    return () => disposer.dispose();
+    return () => queueMicrotask(() => disposer.dispose());
   }, [model, onChange]);
 
   useEffect(() => {
