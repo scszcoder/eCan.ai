@@ -6,7 +6,7 @@ inputs:
   node-version:
     description: 'Node.js version'
     required: false
-    default: '18'
+    default: '20'
   bridge-dir:
     description: 'Path to the wabaileys-bridge directory'
     required: false
