@@ -2146,9 +2146,10 @@ async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionR
 #   Items       : [data-qa-id="qa-conversation-chat-item"]
 #   Name        : .MP1bk3ccfHC9V2SnPCGD (title attr) or .Jv6FtqUv5VoYARd2pp4y (text)
 #   Last msg    : .lF_M7QiFB0ukHWpMfQde span
-#   Timestamp   : .CEnLM8MEGksTdgi_8Lqf
-#   Unread badge: .rxAvaVFJHvpEGMc1ejm1  (div; empty = dot badge, number = count badge;
-#                 present only when session has unread messages; treated as unread=1 if empty)
+#   Timestamp   : .CEnLM8MEGksTdgi_8Lqf (absolute) or .FDBMBK87T0SHSZ_4swP6 (relative "45秒")
+#   Last msg ID : data-btm attr on bottom-row div (changes per message, used for change detection)
+#   Unread badge: .rxAvaVFJHvpEGMc1ejm1  (div; empty = CSS dot badge, number = count badge;
+#                 ALWAYS present in DOM — do NOT use :has() to filter by it)
 #   Tab buttons : [data-qa-id="qa-active-chat-tab"]  (当前会话)
 #                 [data-qa-id="qa-last-chat-tab"]    (最近联系)
 #
