@@ -342,9 +342,10 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
         merged = _default_dom_extractor_config(cfg)
         merged.update({k: v for k, v in advanced.items() if v is not None})
 
-        # If a saved extractor provides an explicit key_field, it must override any
-        # default identity config inherited from the control-page extractor.
-        explicit_key_field = str(advanced.get("key_field") or merged.get("key_field") or "").strip()
+        # If the ADVANCED config explicitly provides a key_field, override identity.
+        # Do NOT override when falling back to merged.key_field — that would clobber
+        # composite key_fields like ["name", "last_msg_id"] from the default config.
+        explicit_key_field = str(advanced.get("key_field") or "").strip()
         if explicit_key_field:
             merged["key_field"] = explicit_key_field
             merged["identity"] = {"key_fields": [explicit_key_field]}
@@ -402,13 +403,18 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
             merged["items"] = normalized_items
 
         # Some older saved monitor payloads omitted identity overrides even though
-        # they set key_field=msg_id. Reassert the effective identity after item merge.
+        # they set key_field=msg_id. Reassert the effective identity after item merge
+        # — BUT only if the identity wasn't already explicitly set with multiple fields
+        # (e.g. composite key ["name", "last_msg_id"] for change detection).
         effective_key_field = str(merged.get("key_field") or "").strip()
         if effective_key_field:
             identity_cfg = merged.get("identity")
             if not isinstance(identity_cfg, dict):
                 identity_cfg = {}
-            identity_cfg["key_fields"] = [effective_key_field]
+            existing_key_fields = identity_cfg.get("key_fields") if isinstance(identity_cfg.get("key_fields"), list) else []
+            if len(existing_key_fields) <= 1:
+                # Only override if identity has 0 or 1 key field (not composite)
+                identity_cfg["key_fields"] = [effective_key_field]
             merged["identity"] = identity_cfg
 
         return merged
@@ -1405,6 +1411,24 @@ async def _start_dom_mutation_monitor(
                 f"poll interval raised to {mutation_state['check_interval_ms']}ms, "
                 f"text skeleton dump on every heartbeat"
             )
+            # Log full config so we can verify what the extractor will use
+            _cfg_items = [(s.get("selector", "?"), list(s.get("fields", {}).keys())) for s in (extractor_cfg or {}).get("items", [])]
+            _cfg_roots = (extractor_cfg or {}).get("roots", [])
+            _cfg_identity = (extractor_cfg or {}).get("identity", {})
+            _cfg_emit = (extractor_cfg or {}).get("emit_on", "?")
+            _cfg_key_field = (extractor_cfg or {}).get("key_field", "?")
+            _cdp_filter = str(cfg.cdp_filter_expr or "")[:200]
+            logger.info(
+                f"[EventMonitor][DOM_DEBUG] CONFIG for '{cfg.label}':\n"
+                f"  cdp_filter_expr={_cdp_filter or '(empty)'}\n"
+                f"  resolved_from={'_resolve' if _cdp_filter else '_default'}\n"
+                f"  roots={_cfg_roots}\n"
+                f"  items={_cfg_items}\n"
+                f"  key_field={_cfg_key_field}\n"
+                f"  identity={_cfg_identity}\n"
+                f"  emit_on={_cfg_emit}\n"
+                f"  runtime_expr_len={len(runtime_expr or '')}"
+            )
         logger.info(f"[EventMonitor] DOM polling state initialized for '{cfg.label}'")
         
         # Create monitor object that can be checked periodically
@@ -1637,8 +1661,13 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
 
         # In DOM_DEBUG mode, log the raw extractor result (truncated)
         if mutation_state.get("_dom_debug") and _emit_heartbeat:
-            _raw_preview = str(dom_content or "")[:2000]
+            _raw_preview = str(dom_content or "")[:3000]
             logger.info(f"[EventMonitor][DOM_DEBUG] raw_result ({len(dom_content or '')} chars): {_raw_preview}")
+            # On first heartbeat, also show the runtime expression head (config embedded in JS)
+            if not mutation_state.get("_dom_debug_expr_logged"):
+                mutation_state["_dom_debug_expr_logged"] = True
+                _expr_head = str(runtime_expr or "")[:600]
+                logger.info(f"[EventMonitor][DOM_DEBUG] runtime_expr head ({len(runtime_expr or '')} total chars): {_expr_head}")
 
         if status in ("no_match", "empty"):
             debug_info = data.get("debug") if isinstance(data.get("debug"), dict) else {}
@@ -1702,18 +1731,62 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     _roots_json = json.dumps(
                         (extractor_cfg or {}).get("roots") or ["body"]
                     )
+                    _item_selectors_json = json.dumps(
+                        [s.get("selector", "") for s in (extractor_cfg or {}).get("items", [])]
+                    )
                     _dump_expr = f"""
 (function() {{
   var roots = {_roots_json};
+  var itemSelectors = {_item_selectors_json};
   var foundRoots = [];
   for (var i = 0; i < roots.length; i++) {{
-    var els = document.querySelectorAll(roots[i]);
-    for (var j = 0; j < els.length; j++) foundRoots.push(els[j]);
+    try {{
+      var els = document.querySelectorAll(roots[i]);
+      for (var j = 0; j < els.length; j++) foundRoots.push({{ el: els[j], selector: roots[i] }});
+    }} catch(e) {{}}
   }}
-  if (foundRoots.length === 0) foundRoots = [document.body];
   var lines = [];
+
+  // === SELECTOR VERIFICATION ===
+  lines.push('=== SELECTOR VERIFICATION ===');
+  lines.push('root_selectors_tried=' + roots.length + ' roots_found=' + foundRoots.length);
+  for (var ri = 0; ri < foundRoots.length; ri++) {{
+    lines.push('ROOT[' + ri + '] selector="' + foundRoots[ri].selector + '" tag=' + foundRoots[ri].el.tagName + '#' + (foundRoots[ri].el.id || ''));
+  }}
+  // Test each item selector directly on document (bypassing roots)
+  for (var si = 0; si < itemSelectors.length; si++) {{
+    var sel = itemSelectors[si];
+    try {{
+      var docCount = document.querySelectorAll(sel).length;
+      lines.push('ITEM_SEL[' + si + '] "' + sel.slice(0, 80) + '" doc_match=' + docCount);
+    }} catch(e) {{
+      lines.push('ITEM_SEL[' + si + '] "' + sel.slice(0, 80) + '" ERROR=' + e.message);
+    }}
+    // Also test within each root
+    for (var ri2 = 0; ri2 < foundRoots.length; ri2++) {{
+      try {{
+        var rootCount = foundRoots[ri2].el.querySelectorAll(sel).length;
+        lines.push('  within_root[' + ri2 + '] match=' + rootCount);
+      }} catch(e2) {{
+        lines.push('  within_root[' + ri2 + '] ERROR=' + e2.message);
+      }}
+    }}
+  }}
+  // Also try the raw [data-qa-id] selector as an independent sanity check
+  try {{
+    var qaAll = document.querySelectorAll('[data-qa-id]');
+    var qaIds = {{}};
+    for (var q = 0; q < qaAll.length; q++) {{
+      var qid = qaAll[q].getAttribute('data-qa-id');
+      qaIds[qid] = (qaIds[qid] || 0) + 1;
+    }}
+    lines.push('ALL_QA_IDS=' + JSON.stringify(qaIds));
+  }} catch(e) {{}}
+
+  // === TEXT SKELETON ===
+  if (foundRoots.length === 0) foundRoots = [{{ el: document.body, selector: 'body' }}];
   function walk(el, depth) {{
-    if (depth > 12 || lines.length > 200) return;
+    if (depth > 12 || lines.length > 300) return;
     var tag = (el.tagName || '').toLowerCase();
     if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'noscript') return;
     var ownText = '';
@@ -1736,9 +1809,10 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
     }}
     for (var k = 0; k < el.children.length; k++) walk(el.children[k], depth + 1);
   }}
+  lines.push('=== TEXT SKELETON ===');
   for (var r = 0; r < foundRoots.length; r++) {{
-    lines.push('=== ROOT ' + r + ': ' + foundRoots[r].tagName + '#' + (foundRoots[r].id || '') + ' ===');
-    walk(foundRoots[r], 0);
+    lines.push('--- ROOT ' + r + ': ' + foundRoots[r].el.tagName + '#' + (foundRoots[r].el.id || '') + ' ---');
+    walk(foundRoots[r].el, 0);
   }}
   return lines.join('\\n');
 }})()
@@ -1751,12 +1825,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 )
                 _skeleton = str((_dump_result.get("result") or {}).get("value") or "")
                 if _skeleton:
-                    # Log in chunks to avoid truncation by log handlers
-                    _max_dump = 4000
+                    _max_dump = 6000
                     _skeleton = _skeleton[:_max_dump]
                     logger.info(
                         f"[EventMonitor][DOM_DEBUG] label='{cfg.label}' "
-                        f"text_skeleton ({len(_skeleton)} chars):\n{_skeleton}"
+                        f"selector_verify + text_skeleton ({len(_skeleton)} chars):\n{_skeleton}"
                     )
             except Exception as _dump_err:
                 logger.info(f"[EventMonitor][DOM_DEBUG] dump failed: {_dump_err}")
