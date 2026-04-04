@@ -259,14 +259,17 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
         "page_url_patterns": page_patterns,  # empty = match any page
         "roots": selectors or ["body"],
         "items": [
-            # ── Feige (飞鸽) unread sessions ─────────────────────────────────
-            # Only matches session items that currently have an unread badge
-            # (.rxAvaVFJHvpEGMc1ejm1 visible).  When a customer sends a message
-            # the badge appears → item is "added" → monitor fires.
-            # When the agent reads the message the badge disappears → item is
-            # removed from the snapshot (not a trigger).
+            # ── Feige (飞鸽) sessions ─────────────────────────────────────────
+            # Matches ALL session items (not filtered by badge class).
+            # Detection strategy: use data-btm (last-message ID) as part of
+            # the composite identity key ["name", "last_msg_id"].
+            # When a new message arrives, data-btm changes → old key is removed,
+            # new key is added → emit_on:"added" fires.
+            # Avoids:
+            #   - :has() which silently fails in CDP querySelectorAll context
+            #   - obfuscated badge class names that change on each deploy
             {
-                "selector": '[data-qa-id="qa-conversation-chat-item"]:has(.rxAvaVFJHvpEGMc1ejm1)',
+                "selector": '[data-qa-id="qa-conversation-chat-item"]',
                 "fields": {
                     "name": {
                         "source": "attr",
@@ -277,13 +280,19 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
                             {"source": "text", "selector": ".Jv6FtqUv5VoYARd2pp4y"},
                         ],
                     },
-                    "unread": {
-                        "source": "text",
-                        "selector": ".rxAvaVFJHvpEGMc1ejm1",
+                    "last_msg_id": {
+                        # data-btm is the last-message ID tag; changes with each new message
+                        "source": "attr",
+                        "selector": "[data-btm]",
+                        "attr": "data-btm",
                     },
                     "last_message": {
                         "source": "text",
                         "selector": ".lF_M7QiFB0ukHWpMfQde span",
+                    },
+                    "timestamp": {
+                        "source": "text",
+                        "selector": ".CEnLM8MEGksTdgi_8Lqf",
                     },
                 },
             },
@@ -317,7 +326,9 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
         ],
         "key_field": "name",
         "identity": {
-            "key_fields": ["name"],
+            # Composite key: session name + last-message ID.
+            # Each new message changes last_msg_id → triggers "added".
+            "key_fields": ["name", "last_msg_id"],
         },
         "empty_text_patterns": ["no customers", "no active customers", "no customers yet"],
         "emit_on": "added",
