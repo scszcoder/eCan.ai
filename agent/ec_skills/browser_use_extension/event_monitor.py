@@ -342,13 +342,23 @@ def _resolve_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
         merged = _default_dom_extractor_config(cfg)
         merged.update({k: v for k, v in advanced.items() if v is not None})
 
-        # If the ADVANCED config explicitly provides a key_field, override identity.
-        # Do NOT override when falling back to merged.key_field — that would clobber
-        # composite key_fields like ["name", "last_msg_id"] from the default config.
+        # If the ADVANCED config explicitly provides a key_field, override identity —
+        # BUT only if the advanced config does NOT already provide a composite identity
+        # with multiple key_fields (e.g. ["customer_name", "last_message"]).
         explicit_key_field = str(advanced.get("key_field") or "").strip()
         if explicit_key_field:
             merged["key_field"] = explicit_key_field
-            merged["identity"] = {"key_fields": [explicit_key_field]}
+            adv_identity = advanced.get("identity")
+            adv_key_fields = (
+                adv_identity.get("key_fields")
+                if isinstance(adv_identity, dict) and isinstance(adv_identity.get("key_fields"), list)
+                else []
+            )
+            if len(adv_key_fields) > 1:
+                # Preserve the composite identity from the advanced config
+                merged["identity"] = adv_identity
+            else:
+                merged["identity"] = {"key_fields": [explicit_key_field]}
 
         # Support shorthand extractor configs saved by the skill editor, e.g.
         # {page_url_patterns, roots, item_selector, fields, key_field, filters}.
