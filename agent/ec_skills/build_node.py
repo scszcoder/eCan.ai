@@ -4207,6 +4207,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     else:
                         idx = start_idx + 1
 
+                # Collect ALL tool-call objects from the LLM output (not just the first)
+                _all_tool_objs = []
                 for obj in parsed_objects:
                     nested_tool_obj = {}
                     if isinstance(obj, dict):
@@ -4220,12 +4222,21 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         or 'tool_name' in obj
                         or 'tool_name' in nested_tool_obj
                     ):
-                        llm_result = obj
-                        logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {obj}")
-                        if 'result' in state and isinstance(state['result'], dict):
-                            state['result']['llm_result'] = obj
-                            logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
-                        break
+                        _all_tool_objs.append(obj)
+
+                if len(_all_tool_objs) > 1:
+                    # Multiple tool calls found — bundle as a multi-tool list so the
+                    # multi-tool executor (serial mode) runs them all sequentially.
+                    llm_result = {'tool': _all_tool_objs, 'multi_tool_calls': 'serial'}
+                    logger.info(f"[MCP Auto-Select] Found {len(_all_tool_objs)} tool calls, bundling as serial multi-tool")
+                    if 'result' in state and isinstance(state['result'], dict):
+                        state['result']['llm_result'] = llm_result
+                elif len(_all_tool_objs) == 1:
+                    llm_result = _all_tool_objs[0]
+                    logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {_all_tool_objs[0]}")
+                    if 'result' in state and isinstance(state['result'], dict):
+                        state['result']['llm_result'] = _all_tool_objs[0]
+                        logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
 
             # Merge propagated work_result back: LLM may have overwritten with empty values
             if _propagated_work_result and isinstance(llm_result, dict):
