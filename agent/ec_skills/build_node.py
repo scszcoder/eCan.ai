@@ -4364,6 +4364,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     for _target in (actual_tool_input, actual_tool_input.get('input')):
                         if isinstance(_target, dict) and 'agent_id' in _target and not _target.get('agent_id'):
                             _target['agent_id'] = _ctx_agent_id
+                        # Also auto-inject sender_agent_id for send_chat (same runtime agent_id).
+                        if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
+                            _target['sender_agent_id'] = _ctx_agent_id
             except Exception:
                 pass
 
@@ -5423,6 +5426,13 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 "node": event_record.get("node", ""),
                 "timestamp": event_record.get("timestamp", ""),
             }
+            # Include small scalar fields from context (e.g. senderId, chatId)
+            # so downstream LLM nodes can reference the sender for replies.
+            _ctx = event_record.get("context")
+            if isinstance(_ctx, dict):
+                for _ck, _cv in _ctx.items():
+                    if isinstance(_cv, (str, int, float, bool)) and len(str(_cv)) < 500:
+                        compact_event[_ck] = _cv
             # Only include small scalar fields from data, skip large blobs
             if isinstance(event_record.get("data"), dict):
                 for _ek, _ev in event_record["data"].items():
