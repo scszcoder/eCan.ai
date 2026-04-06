@@ -4224,19 +4224,48 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     ):
                         _all_tool_objs.append(obj)
 
+                # Collect completion flags (all_done, work_done) from non-tool
+                # JSON objects.  The LLM often emits these as a separate object
+                # after the tool-call JSON, e.g.:
+                #   {"tool_name":"send_chat", ...}
+                #   {"all_done": true, "work_done": true}
+                # Without merging, the condition node never sees all_done and
+                # the skill loop never exits.
+                _completion_flags: dict[str, Any] = {}
+                for obj in parsed_objects:
+                    if not isinstance(obj, dict):
+                        continue
+                    # Skip objects that are tool calls (already in _all_tool_objs)
+                    if obj in _all_tool_objs:
+                        continue
+                    for _flag_key in ('all_done', 'work_done'):
+                        if _flag_key in obj:
+                            _completion_flags[_flag_key] = obj[_flag_key]
+                if _completion_flags:
+                    logger.info(f"[MCP Auto-Select] Captured completion flags from non-tool objects: {_completion_flags}")
+
                 if len(_all_tool_objs) > 1:
                     # Multiple tool calls found — bundle as a multi-tool list so the
                     # multi-tool executor (serial mode) runs them all sequentially.
                     llm_result = {'tool': _all_tool_objs, 'multi_tool_calls': 'serial'}
+                    llm_result.update(_completion_flags)
                     logger.info(f"[MCP Auto-Select] Found {len(_all_tool_objs)} tool calls, bundling as serial multi-tool")
                     if 'result' in state and isinstance(state['result'], dict):
                         state['result']['llm_result'] = llm_result
                 elif len(_all_tool_objs) == 1:
                     llm_result = _all_tool_objs[0]
+                    llm_result.update(_completion_flags)
                     logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {_all_tool_objs[0]}")
                     if 'result' in state and isinstance(state['result'], dict):
                         state['result']['llm_result'] = _all_tool_objs[0]
                         logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
+                elif _completion_flags:
+                    # No tool calls but we have completion flags (e.g. LLM just
+                    # said {"all_done": true} without any tool call).
+                    llm_result = _completion_flags
+                    if 'result' in state and isinstance(state['result'], dict):
+                        state['result']['llm_result'] = llm_result
+                    logger.info(f"[MCP Auto-Select] No tool calls, but found completion flags: {_completion_flags}")
 
             # Merge propagated work_result back: LLM may have overwritten with empty values
             if _propagated_work_result and isinstance(llm_result, dict):
@@ -5539,7 +5568,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                                 fill_map[4] = fill_map.get(4) or params.get("content")
 
                     for idx, val in fill_map.items():
-                        if val and msg_list[idx] in (None, ""):
+                        if val and (msg_list[idx] in (None, "") or idx == 4):
+                            # idx 4 = content: always overwrite so subsequent
+                            # chat_message events carry the latest message text,
+                            # not the stale value from a previous event.
                             msg_list[idx] = val
         except Exception:
             pass
@@ -6878,9 +6910,33 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             "You MUST read the new message from the page and respond to it in the chat UI before calling done()."
                         )
                     elif _evt_type == "chat_message":
-                        _evt_lines.append(
-                            "A new chat message arrived from another agent or from the customer."
-                        )
+                        # Extract the actual response text from state["input"] or
+                        # event data so the browser-use LLM knows EXACTLY what to type.
+                        # Without this, it may see a previous reply in the DOM and
+                        # incorrectly assume the work is already done.
+                        _chat_response_text = ""
+                        _chat_customer_name = ""
+                        try:
+                            _cm_input = state.get("input", "") if isinstance(state, dict) else ""
+                            if isinstance(_cm_input, str) and _cm_input.strip():
+                                _cm_parsed = json.loads(_cm_input)
+                                if isinstance(_cm_parsed, dict):
+                                    _chat_response_text = _cm_parsed.get("response_text", "")
+                                    _chat_customer_name = _cm_parsed.get("customer_name", "")
+                        except (json.JSONDecodeError, Exception):
+                            pass
+                        if _chat_response_text:
+                            _evt_lines.append(
+                                f"A **NEW** reply was generated by another agent for customer **{_chat_customer_name}**. "
+                                f"You MUST type this exact reply into the chat input and send it NOW. "
+                                f"Do NOT skip this — even if you already sent a previous reply, this is a DIFFERENT message.\n\n"
+                                f"**Reply to send:**\n{_chat_response_text}"
+                            )
+                        else:
+                            _evt_lines.append(
+                                "A new chat message arrived from another agent or from the customer. "
+                                "Check the Current Invocation Input for the message content and act on it."
+                            )
                     task = f"{task}\n\n" + "\n".join(_evt_lines)
                     logger.info(
                         f"[BrowserAutomation] Injected triggering event context "
