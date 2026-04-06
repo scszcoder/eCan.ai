@@ -250,16 +250,11 @@ def _get_task_skill_info(task_id: str, request: Optional[Dict] = None, params: O
                 skill_id = skill_rel.get('skill_id')
                 
                 if skill_id:
-                    # Use get_handler_context to get the correct context provider
-                    from gui.ipc.context_bridge import get_handler_context
                     ctx = get_handler_context(request, params)
-                    
                     if ctx:
-                        # Use get_ec_db_mgr() method from ContextProvider
                         ec_db_mgr = ctx.get_ec_db_mgr()
                         if ec_db_mgr:
                             skill_service = ec_db_mgr.get_skill_service()
-                            
                             if skill_service:
                                 skill_result = skill_service.get_skill_by_id(skill_id)
                                 if skill_result.get('success') and skill_result.get('data'):
