@@ -2225,31 +2225,36 @@ _FEIGE_LIST_SESSIONS_JS = r"""
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
     var tsEl = el.querySelector('.CEnLM8MEGksTdgi_8Lqf');
     var ts = tsEl ? tsEl.textContent.trim() : '';
-    // Detect unread: try known class, then sup/badge elements, then aria attributes
+    // Detect unread count and tags from .rxAvaVFJHvpEGMc1ejm1
+    // This element can contain either a numeric unread badge OR a warning tag (e.g. 服务态度预警)
     var unread = 0;
+    var tags = [];
     var unreadEl = el.querySelector('.rxAvaVFJHvpEGMc1ejm1');
     if (unreadEl) {
-      unread = parseInt(unreadEl.textContent.trim(), 10) || 1;
-    } else {
+      var rawText = unreadEl.textContent.trim();
+      var parsed = parseInt(rawText, 10);
+      if (!isNaN(parsed) && String(parsed) === rawText) {
+        unread = parsed;
+      } else if (rawText) {
+        // Non-numeric text = tag (e.g. 服务态度预警)
+        tags.push(rawText);
+      }
+    }
+    if (unread === 0) {
       // Fallback: sup element (dot/number badge)
       var supEl = el.querySelector('sup');
       if (supEl) {
         unread = parseInt(supEl.textContent.trim(), 10) || 1;
-      } else {
-        // Fallback: any element with class containing 'badge' or 'unread' (case-insensitive)
-        var allEls = el.querySelectorAll('*');
-        for (var j = 0; j < allEls.length; j++) {
-          var cls = allEls[j].className || '';
-          if (typeof cls === 'string' && (cls.toLowerCase().indexOf('badge') >= 0 || cls.toLowerCase().indexOf('unread') >= 0)) {
-            var txt = allEls[j].textContent.trim();
-            unread = parseInt(txt, 10) || 1;
-            break;
-          }
-        }
       }
     }
-    if (!includeRead && unread === 0) continue;
-    results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread });
+    // Collect inline tags (e.g. 重复来访)
+    var tagEls = el.querySelectorAll('.obeJrSyU4KwAzGeRfcbk span');
+    for (var j = 0; j < tagEls.length; j++) {
+      var tagText = tagEls[j].textContent.trim();
+      if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
+    }
+    if (!includeRead && unread === 0 && tags.length === 0) continue;
+    results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread, tags: tags });
   }
   return JSON.stringify({ sessions: results, total_visible: items.length });
 })(INCLUDE_READ, MAX_SESSIONS);
