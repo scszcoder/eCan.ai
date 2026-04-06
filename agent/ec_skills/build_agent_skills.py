@@ -929,31 +929,34 @@ def _convert_db_skill_to_object(db_skill):
 
         logger.debug(f"[build_agent_skills] 🔄 Converting DB skill to object: '{skill_obj.name}', path={skill_obj.path}")
 
-        # ── Local-file-first: if the file exists, reload the entire skill from it.
-        # This catches direct edits, restart-after-save, and ensures my_skills/
-        # content always wins over stale DB records. ──────────────────────────
+        # ── ALWAYS use local file if it exists ─────────────────────────────────
+        # This ensures that any changes made in the Skill Editor are immediately
+        # reflected when the skill is executed, without requiring an app restart.
+        # The database is treated as metadata storage only (id, name, path, config).
+        # ─────────────────────────────────────────────────────────────────────────
         skill_path = (skill_obj.path or "").strip()
         if skill_path:
             core_path = Path(skill_path)
             if core_path.exists() and core_path.is_file():
-                # Use load_skill_from_folder to re-load from the local file.
-                # It will re-parse the JSON, recompile the workflow, and return
-                # a fresh EC_Skill with the latest file content.
+                # Always reload from local file - this is the source of truth
                 _skill_root = core_path.parent.parent if core_path.parent.name == "diagram_dir" else core_path.parent
                 local_sk = load_skill_from_folder(_skill_root, mainwin=None)
                 if local_sk and hasattr(local_sk, 'name') and local_sk.runnable:
                     logger.info(
                         f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
-                        f"(overriding DB content)"
+                        f"(always prefer file over DB)"
                     )
                     return local_sk
                 logger.warning(
                     f"[build_agent_skills] ⚠️ Local file exists for '{skill_obj.name}' "
-                    f"but load failed; falling back to DB content"
+                    f"but load failed"
                 )
             else:
-                logger.debug(f"[build_agent_skills] No local file at {skill_path}, using DB content")
+                logger.debug(f"[build_agent_skills] No local file at {skill_path}")
         # ── End local-file-first ──────────────────────────────────────────────
+
+        # If we reach here, file loading failed - use DB content as last resort
+        logger.warning(f"[build_agent_skills] ⚠️ Falling back to DB content for '{skill_obj.name}' (file not found or load failed)")
 
         # Load mapping rules from data_mapping.json
         mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)

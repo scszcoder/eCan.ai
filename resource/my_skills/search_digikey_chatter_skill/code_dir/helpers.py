@@ -183,11 +183,15 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # else:
         #     formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
-        # Use mainwin's llm object instead of hardcoded ChatOpenAI
-        # This ensures API keys are properly configured from the system's LLM manager
         llm = mainwin.llm if mainwin and mainwin.llm else None
         if not llm:
             raise ValueError("LLM not available in mainwin. Please configure LLM provider API key in Settings.")
+
+        # Safely extract provider/model info from the llm instance for error reporting
+        _llm_class = type(llm).__name__
+        _llm_model = getattr(llm, "model_name", None) or getattr(llm, "model", None) or "unknown"
+        _llm_provider = getattr(llm, "_provider_id", None) or "default"
+        _llm_base_url = getattr(llm, "openai_api_base", None) or getattr(llm, "base_url", None) or ""
 
         # Get recent context within token limit to reduce costs and fit within model limits
         recent_context = get_recent_context(state.get("history", []))
@@ -200,9 +204,14 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         print("llm_node_with_raw_file exiting.....", state)
         return state
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
-        logger.error(err_trace)
-        state["result"] = {"error": err_trace}
+        err_ctx = (
+            f"[Context] skill={skill_name} node={current_node_name} owner={owner} "
+            f"provider={_llm_provider} model={_llm_model} llm_class={_llm_class} "
+            f"base_url={_llm_base_url}"
+        )
+        err_trace = get_traceback(e, f"ErrorLLMInvoke skill={skill_name} node={current_node_name}")
+        logger.error(f"{err_trace} {err_ctx}")
+        state["result"] = {"error": f"{err_trace}\n{err_ctx}"}
         return state
 
 

@@ -465,7 +465,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     "duration_ms": int(max(duration_s, 0.0) * 1000),
                     "ts_ms": int(time.time() * 1000),
                 })
-                logger.info(
+                logger.debug(
                     f"[PERF][NODE] skill={skill_name} node={node_name} status={status} duration={duration_s:.3f}s"
                 )
             except Exception:
@@ -979,7 +979,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             out_str = _json.dumps(node_out, ensure_ascii=False, indent=None) if node_out else "(empty)"
             if len(out_str) > 2000:
                 out_str = out_str[:2000] + "…(truncated)"
-            logger.info(f"[NODE_OUTPUT] ✅ {node_name} => {out_str}")
+            logger.debug(f"[NODE_OUTPUT] ✅ {node_name} => {out_str}")
         except Exception:
             pass
 
