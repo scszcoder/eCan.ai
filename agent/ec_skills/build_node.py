@@ -5542,6 +5542,26 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
+        # ── Clear stale input from previous event cycle ──
+        # Without this, state["input"] from a previous chat_message cycle
+        # leaks into the next browser_event cycle.  The browser-use node
+        # injects state["input"] as "Current Invocation Input", so stale
+        # response_text causes the LLM to re-send old replies instead of
+        # running Phase-1 detection.  Clearing here ensures each cycle
+        # starts fresh; the new event's data (if any) will be set below
+        # by chat_attributes enrichment or human_text extraction.
+        _stale_input = state.pop("input", None)
+        _stale_msg4 = None
+        if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+            _stale_msg4 = state["messages"][4]
+            state["messages"][4] = ""
+        if _stale_input or _stale_msg4:
+            logger.info(
+                f"[pend_event] Cleared stale input from previous cycle "
+                f"(had_input={bool(_stale_input)}, had_msg4={bool(_stale_msg4)}, "
+                f"new_event={_rp_event_type}, node={node_name})"
+            )
+
         # Enrich state with chat metadata, if available
         try:
             chat_attrs = resume_payload.get("chat_attributes") if isinstance(resume_payload, dict) else None
@@ -5619,7 +5639,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             human_text_content = raw_ht.strip()
         elif isinstance(data, dict) and data.get("content"):
             human_text_content = data.get("content")
-        
+
         if human_text_content:
             # Set state["input"] so _get_human_input() in pre_llm_hook can find it
             state["input"] = human_text_content
