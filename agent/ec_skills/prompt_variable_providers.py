@@ -818,6 +818,16 @@ def resolve_prompt_variables(
                 logger.debug(f"[prompt_var] 'input' resolved from prompt_refs: '{str(prompt_refs[var])[:100]}...'")
             continue
 
+        # 1.2 Direct state key: {{input}} → state["input"] (the current invocation input).
+        # This must take priority over implicit tool_result lookups which may return
+        # stale condition-node outputs like {"all_done": false, "work_done": false}.
+        if var == "input":
+            _direct_input = state.get("input")
+            if isinstance(_direct_input, str) and _direct_input.strip():
+                resolved[var] = _direct_input
+                logger.debug(f"[prompt_var] 'input' resolved from state['input']: '{_direct_input[:100]}...'")
+                continue
+
         # 1.5 Implicit zero-config variables from previous node outputs.
         # This lowers prompt authoring cost:
         # - {{product_keyword}} can come directly from upstream JSON output.
