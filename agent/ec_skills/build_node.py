@@ -6901,6 +6901,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
 
             runtime_input = _extract_runtime_invocation_input(state)
+            _runtime_had_response_text = False
             if runtime_input:
                 task = (
                     f"{task}\n\n"
@@ -6915,6 +6916,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     "log",
                     f"[BrowserAutomation] Injected runtime input into task (len={len(runtime_input)})"
                 )
+                # Track if this input contains a chat_message response so we
+                # can clear it after the LLM processes it (preventing duplicates)
+                try:
+                    _ri_parsed = json.loads(runtime_input)
+                    if isinstance(_ri_parsed, dict) and _ri_parsed.get("response_text"):
+                        _runtime_had_response_text = True
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
 
             # ── Inject triggering event context ──
             # When this browser_automation node was resumed by pend_event after
@@ -6996,27 +7005,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # (feige, WhatsApp, etc.) as long as the adapter follows the naming convention.
             _hot_path_done = False
             try:
-                _hp_event_type = ""
                 _hp_response_text = ""
                 _hp_customer_name = ""
+                # Check all runtime input sources for response_text + customer_name.
+                # The chat_message data may arrive via A2A state injection into
+                # state["input"], state["messages"][4], or state["attributes"]["params"],
+                # regardless of the event_type in prompt_refs.events.
                 if isinstance(state, dict):
-                    _hp_pr = state.get("prompt_refs")
-                    if isinstance(_hp_pr, dict):
-                        _hp_evt_str = _hp_pr.get("events", "")
-                        if _hp_evt_str and isinstance(_hp_evt_str, str):
-                            _hp_evt = json.loads(_hp_evt_str)
-                            _hp_event_type = _hp_evt.get("event_type", "")
-                if _hp_event_type == "chat_message":
-                    _hp_input = state.get("input", "") if isinstance(state, dict) else ""
-                    if isinstance(_hp_input, str) and _hp_input.strip():
-                        _hp_parsed = json.loads(_hp_input)
-                        if isinstance(_hp_parsed, dict):
-                            _hp_response_text = str(_hp_parsed.get("response_text", "")).strip()
-                            _hp_customer_name = str(
-                                _hp_parsed.get("customer_name")
-                                or _hp_parsed.get("customer_id")
-                                or ""
-                            ).strip()
+                    # Use the same function the task text injection uses
+                    _hp_raw = _extract_runtime_invocation_input(state)
+                    if _hp_raw:
+                        try:
+                            _hp_parsed = json.loads(_hp_raw)
+                            if isinstance(_hp_parsed, dict):
+                                _hp_response_text = str(_hp_parsed.get("response_text", "")).strip()
+                                _hp_customer_name = str(
+                                    _hp_parsed.get("customer_name")
+                                    or _hp_parsed.get("customer_id")
+                                    or ""
+                                ).strip()
+                        except (json.JSONDecodeError, TypeError):
+                            pass
                 if _hp_response_text and _hp_customer_name:
                     # Look up *_open_session and *_send_message tools from the registry
                     from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_ctrl
@@ -7095,9 +7104,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                         "action": f"{_hp_open_name}+{_hp_send_name}",
                                         "customer": _hp_customer_name,
                                     }
+                                    # Clear response data from ALL sources to prevent
+                                    # duplicate sends on subsequent browser_event cycles.
+                                    # _extract_runtime_invocation_input reads from:
+                                    # state["input"], messages[4], and attributes.params
+                                    state["input"] = ""
+                                    if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+                                        state["messages"][4] = ""
+                                    try:
+                                        _hp_attrs = state.get("attributes")
+                                        if isinstance(_hp_attrs, dict):
+                                            _hp_attrs.pop("params", None)
+                                    except Exception:
+                                        pass
                                     logger.info(
                                         f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                        f"{_hp_customer_name} in ~1s (LLM bypassed), node={node_name}"
+                                        f"{_hp_customer_name} in ~1s (LLM bypassed), "
+                                        f"state['input'] cleared. node={node_name}"
                                     )
                                     send_skill_editor_log(
                                         "log",
@@ -9484,6 +9507,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         logger.debug(f"[TokenTracker] BrowserUse: no usage summary in history ({len(getattr(history, 'history', []))} steps)")
                 except Exception as _bu_tk_err:
                     logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
+
+                # ── Clear consumed response_text from all state sources ──
+                # After the LLM processes a chat_message response, clear it so
+                # subsequent browser_event cycles don't re-inject and re-send it.
+                if _runtime_had_response_text:
+                    state["input"] = ""
+                    if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+                        state["messages"][4] = ""
+                    try:
+                        _clr_attrs = state.get("attributes")
+                        if isinstance(_clr_attrs, dict):
+                            _clr_attrs.pop("params", None)
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"[BrowserAutomation] Cleared consumed response_text from state "
+                        f"(node={node_name}, skill={skill_name})"
+                    )
 
                 return {"final": final, "history": str(history)}
             except asyncio.CancelledError:
