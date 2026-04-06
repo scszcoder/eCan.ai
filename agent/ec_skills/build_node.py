@@ -6985,6 +6985,254 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception as _evt_inject_err:
                 logger.debug(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
 
+            # ── Hot-path: chat_message reply bypass ──
+            # When a chat_message arrives with a structured {response_text, customer_name}
+            # payload, skip the LLM entirely and call the registered chat adapter tools
+            # directly (e.g. *_open_session → *_send_message).  This cuts Phase-2 latency
+            # from ~15s (LLM think + multi-step) to ~2s (two direct tool calls).
+            #
+            # The hot-path is general-purpose: it discovers *_open_session / *_send_message
+            # tools from the controller registry, so it works with any chat platform
+            # (feige, WhatsApp, etc.) as long as the adapter follows the naming convention.
+            _hot_path_done = False
+            try:
+                _hp_event_type = ""
+                _hp_response_text = ""
+                _hp_customer_name = ""
+                if isinstance(state, dict):
+                    _hp_pr = state.get("prompt_refs")
+                    if isinstance(_hp_pr, dict):
+                        _hp_evt_str = _hp_pr.get("events", "")
+                        if _hp_evt_str and isinstance(_hp_evt_str, str):
+                            _hp_evt = json.loads(_hp_evt_str)
+                            _hp_event_type = _hp_evt.get("event_type", "")
+                if _hp_event_type == "chat_message":
+                    _hp_input = state.get("input", "") if isinstance(state, dict) else ""
+                    if isinstance(_hp_input, str) and _hp_input.strip():
+                        _hp_parsed = json.loads(_hp_input)
+                        if isinstance(_hp_parsed, dict):
+                            _hp_response_text = str(_hp_parsed.get("response_text", "")).strip()
+                            _hp_customer_name = str(
+                                _hp_parsed.get("customer_name")
+                                or _hp_parsed.get("customer_id")
+                                or ""
+                            ).strip()
+                if _hp_response_text and _hp_customer_name:
+                    # Look up *_open_session and *_send_message tools from the registry
+                    from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_ctrl
+                    _hp_actions = _hp_ctrl.registry.registry.actions
+                    _hp_open_fn = None
+                    _hp_send_fn = None
+                    _hp_open_name = ""
+                    _hp_send_name = ""
+                    for _act_name, _act_obj in _hp_actions.items():
+                        if _act_name.endswith("_open_session"):
+                            _hp_open_fn = _act_obj
+                            _hp_open_name = _act_name
+                        elif _act_name.endswith("_send_message"):
+                            _hp_send_fn = _act_obj
+                            _hp_send_name = _act_name
+                    if _hp_open_fn and _hp_send_fn:
+                        logger.info(
+                            f"[BrowserAutomation] HOT-PATH: chat_message with response_text detected, "
+                            f"bypassing LLM. customer={_hp_customer_name}, "
+                            f"tools={_hp_open_name}+{_hp_send_name}, node={node_name}"
+                        )
+                        send_skill_editor_log(
+                            "log",
+                            f"[BrowserAutomation] HOT-PATH: direct reply to {_hp_customer_name} "
+                            f"(skipping LLM)"
+                        )
+                        import asyncio as _hp_asyncio
+                        # Get or create browser session
+                        _hp_browser_session = await _get_or_create_browser_session(
+                            mainwin, state=state, calling_agent_id=calling_agent_id
+                        )
+                        if _hp_browser_session is None:
+                            logger.warning("[BrowserAutomation] HOT-PATH: no browser session, falling back to LLM")
+                        else:
+                            # Dynamically build param objects from the action's param_model
+                            _hp_open_param_model = _hp_open_fn.param_model
+                            _hp_send_param_model = _hp_send_fn.param_model
+                            _hp_open_params = _hp_open_param_model(customer_name=_hp_customer_name)
+                            _hp_send_params = _hp_send_param_model(text=_hp_response_text)
+
+                            # Call open_session
+                            _hp_open_result = await _hp_open_fn.function(
+                                _hp_open_params, browser_session=_hp_browser_session
+                            )
+                            _hp_open_ok = (
+                                _hp_open_result
+                                and not getattr(_hp_open_result, "error", None)
+                            )
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH: {_hp_open_name} → "
+                                f"{'OK' if _hp_open_ok else 'FAIL'}: "
+                                f"{getattr(_hp_open_result, 'extracted_content', '') or getattr(_hp_open_result, 'error', '')}"
+                            )
+                            if _hp_open_ok:
+                                # Small delay for page to settle after session switch
+                                await _hp_asyncio.sleep(0.5)
+                                # Call send_message
+                                _hp_send_result = await _hp_send_fn.function(
+                                    _hp_send_params, browser_session=_hp_browser_session
+                                )
+                                _hp_send_ok = (
+                                    _hp_send_result
+                                    and not getattr(_hp_send_result, "error", None)
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH: {_hp_send_name} → "
+                                    f"{'OK' if _hp_send_ok else 'FAIL'}: "
+                                    f"{getattr(_hp_send_result, 'extracted_content', '') or getattr(_hp_send_result, 'error', '')}"
+                                )
+                                if _hp_send_ok:
+                                    _hot_path_done = True
+                                    state.setdefault("result", {})["llm_result"] = {
+                                        "all_done": False,
+                                        "work_done": False,
+                                        "hot_path": True,
+                                        "action": f"{_hp_open_name}+{_hp_send_name}",
+                                        "customer": _hp_customer_name,
+                                    }
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH: reply sent to "
+                                        f"{_hp_customer_name} in ~1s (LLM bypassed), node={node_name}"
+                                    )
+                                    send_skill_editor_log(
+                                        "log",
+                                        f"[BrowserAutomation] HOT-PATH: reply sent to "
+                                        f"{_hp_customer_name} (LLM bypassed)"
+                                    )
+                                    return state
+                            if not _hot_path_done:
+                                logger.warning(
+                                    f"[BrowserAutomation] HOT-PATH: tool call failed, "
+                                    f"falling back to LLM. node={node_name}"
+                                )
+                    else:
+                        logger.debug(
+                            f"[BrowserAutomation] HOT-PATH: no *_open_session/*_send_message "
+                            f"tools registered, skipping hot-path"
+                        )
+            except Exception as _hp_err:
+                logger.debug(f"[BrowserAutomation] HOT-PATH: check failed (non-fatal): {_hp_err}")
+
+            # ── Hot-path: configurable action templates (Option B) ──
+            # Allows users to define custom hot-path triggers and action sequences
+            # in the node editor.  Currently default-bypassed; enable by setting
+            # hotPathActions in the node config.
+            # Config format:
+            #   hotPathActions: [
+            #     {
+            #       "trigger": {"event_type": "chat_message", "has_fields": ["response_text"]},
+            #       "actions": [
+            #         {"tool": "feige_open_session", "args": {"customer_name": "{{customer_name}}"}},
+            #         {"tool": "feige_send_message", "args": {"text": "{{response_text}}"}}
+            #       ]
+            #     }
+            #   ]
+            if not _hot_path_done:
+                try:
+                    _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
+                    _hp_b_actions_list = None
+                    if isinstance(_hp_b_raw, str) and _hp_b_raw.strip():
+                        _hp_b_actions_list = json.loads(_hp_b_raw)
+                    elif isinstance(_hp_b_raw, list):
+                        _hp_b_actions_list = _hp_b_raw
+                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
+                        # Determine current event type and payload fields
+                        _hp_b_evt_type = ""
+                        _hp_b_payload = {}
+                        if isinstance(state, dict):
+                            _hp_b_pr = state.get("prompt_refs")
+                            if isinstance(_hp_b_pr, dict):
+                                _hp_b_evt_str = _hp_b_pr.get("events", "")
+                                if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
+                                    _hp_b_evt = json.loads(_hp_b_evt_str)
+                                    _hp_b_evt_type = _hp_b_evt.get("event_type", "")
+                            _hp_b_input = state.get("input", "")
+                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                                _hp_b_parsed = json.loads(_hp_b_input)
+                                if isinstance(_hp_b_parsed, dict):
+                                    _hp_b_payload = _hp_b_parsed
+
+                        for _hp_b_rule in _hp_b_actions_list:
+                            if not isinstance(_hp_b_rule, dict):
+                                continue
+                            _hp_b_trigger = _hp_b_rule.get("trigger", {})
+                            # Check trigger conditions
+                            if _hp_b_trigger.get("event_type") and _hp_b_trigger["event_type"] != _hp_b_evt_type:
+                                continue
+                            _hp_b_required = _hp_b_trigger.get("has_fields", [])
+                            if not all(f in _hp_b_payload for f in _hp_b_required):
+                                continue
+                            # Trigger matched — execute action sequence
+                            _hp_b_action_seq = _hp_b_rule.get("actions", [])
+                            if not _hp_b_action_seq:
+                                continue
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH-B: trigger matched "
+                                f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
+                                f"executing {len(_hp_b_action_seq)} actions"
+                            )
+                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
+                            _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
+                            _hp_b_session = await _get_or_create_browser_session(
+                                mainwin, state=state, calling_agent_id=calling_agent_id
+                            )
+                            if not _hp_b_session:
+                                logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
+                                break
+                            _hp_b_all_ok = True
+                            import asyncio as _hp_b_asyncio
+                            for _hp_b_act in _hp_b_action_seq:
+                                _hp_b_tool_name = _hp_b_act.get("tool", "")
+                                _hp_b_args_tpl = _hp_b_act.get("args", {})
+                                # Resolve {{field}} placeholders from payload
+                                _hp_b_args = {}
+                                for _ak, _av in _hp_b_args_tpl.items():
+                                    if isinstance(_av, str) and _av.startswith("{{") and _av.endswith("}}"):
+                                        _field = _av[2:-2].strip()
+                                        _hp_b_args[_ak] = str(_hp_b_payload.get(_field, ""))
+                                    else:
+                                        _hp_b_args[_ak] = _av
+                                _hp_b_act_obj = _hp_b_actions_reg.get(_hp_b_tool_name)
+                                if not _hp_b_act_obj:
+                                    logger.warning(f"[BrowserAutomation] HOT-PATH-B: tool '{_hp_b_tool_name}' not found")
+                                    _hp_b_all_ok = False
+                                    break
+                                _hp_b_param_model = _hp_b_act_obj.param_model
+                                _hp_b_params = _hp_b_param_model(**_hp_b_args)
+                                # Call with browser_session if the function expects it
+                                import inspect as _hp_b_inspect
+                                _hp_b_sig = _hp_b_inspect.signature(_hp_b_act_obj.function)
+                                if "browser_session" in _hp_b_sig.parameters:
+                                    _hp_b_result = await _hp_b_act_obj.function(
+                                        _hp_b_params, browser_session=_hp_b_session
+                                    )
+                                else:
+                                    _hp_b_result = await _hp_b_act_obj.function(_hp_b_params)
+                                _hp_b_ok = _hp_b_result and not getattr(_hp_b_result, "error", None)
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → "
+                                    f"{'OK' if _hp_b_ok else 'FAIL'}"
+                                )
+                                if not _hp_b_ok:
+                                    _hp_b_all_ok = False
+                                    break
+                                await _hp_b_asyncio.sleep(0.3)
+                            if _hp_b_all_ok:
+                                state.setdefault("result", {})["llm_result"] = {
+                                    "all_done": False, "work_done": False,
+                                    "hot_path": True, "hot_path_type": "configurable",
+                                }
+                                logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={node_name}")
+                                return state
+                            break  # Only try first matching rule
+                except Exception as _hp_b_err:
+                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}")
+
             if skill_name == "rt_chat_bot":
                 assignment_scope = _extract_assignment_scope(runtime_input)
                 assignment_session_id = str(
