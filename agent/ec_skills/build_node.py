@@ -4336,11 +4336,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     return
 
             if work_done:
-                _sync_completion_flags(state)
-                log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
-                logger.info(log_msg)
-                send_skill_editor_log("info", log_msg)
-                return state
+                # If there's still a pending tool call (e.g. send_chat), execute it
+                # before honoring work_done — the LLM intended the tool to run first.
+                _has_pending_tool = (
+                    (next_tool_name and isinstance(next_tool_name, str) and next_tool_name.strip())
+                    or _multi_tool_list is not None
+                )
+                if not _has_pending_tool:
+                    _sync_completion_flags(state)
+                    log_msg = f"[MCP Auto-Select] work_done=True, no pending tool call, skipping for node '{node_name}'"
+                    logger.info(log_msg)
+                    send_skill_editor_log("info", log_msg)
+                    return state
+                else:
+                    log_msg = f"[MCP Auto-Select] work_done=True but has pending tool '{next_tool_name}' — executing tool first, then marking done"
+                    logger.info(log_msg)
+                    send_skill_editor_log("info", log_msg)
+                    # Fall through to tool execution below; completion flags
+                    # will be applied after the tool call completes.
 
             if (not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip()) and _multi_tool_list is None:
                 if 'message' in llm_result and not llm_result.get('message', '').strip():
