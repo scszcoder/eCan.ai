@@ -543,7 +543,7 @@ def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
         send_result = self_agent.a2a_send_chat_message_async(twin_agent, agent_response_message)
         return send_result
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorSendResponseBack")
+        err_trace = get_traceback(e, "ErrorSendResponseBack skill=search_digikey_chatter")
         logger.error(err_trace)
         return err_trace
 
@@ -562,7 +562,7 @@ def adapt_preliminary_info(preliminary_info, extra_info):
                 "metadata": {},
             })
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAdaptPreliminaryInfo")
+        err_trace = get_traceback(e, "ErrorAdaptPreliminaryInfo skill=search_digikey_chatter")
         logger.debug(err_trace)
         return []
     return components
@@ -614,7 +614,7 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
         else:
             state["error"] = "Unexpected tool result format"
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
+        state['error'] = get_traceback(e, "ErrorLocalSortSearchResultsNode skill=search_digikey_chatter")
         logger.error(state['error'])
     return state
 
@@ -727,7 +727,7 @@ def convert_rank_results_to_search_results(state) -> dict:
         print("notification ready.....")
         return notification
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorConvertRankResultsToSearchResults")
+        err_trace = get_traceback(e, "ErrorConvertRankResultsToSearchResults skill=search_digikey_chatter")
         logger.error(err_trace)
         return {
             "id": "search_results_form",
@@ -870,10 +870,10 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
                             state.clear()
                             state.update(merged)
                     except Exception as e:
-                        print(get_traceback(e, "ErrReRank0"))
+                        print(get_traceback(e, "ErrReRankMergeStatePatch skill=search_digikey_chatter"))
                         pass
         except Exception as e:
-            print(get_traceback(e, "ErrReRank1"))
+            print(get_traceback(e, "ErrReRankResumePayload skill=search_digikey_chatter"))
             pass
 
         logger.debug("[search_digikey_chatter_skill] re_rank_search_results_node resume payload received:",
@@ -949,6 +949,6 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         print("GraphInterrupt")
         raise
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
+        state['error'] = get_traceback(e, "ErrorReRankSearchResultsNode skill=search_digikey_chatter")
         logger.error(state['error'])
     return state
