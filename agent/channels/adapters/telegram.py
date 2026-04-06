@@ -41,6 +41,14 @@ class TelegramPlugin(ChannelPlugin):
         self._token = config.get("bot_token", "")
         if not self._token:
             raise ValueError("Telegram bot_token is required")
+        # Reject obvious placeholder tokens so the poller doesn't spin
+        # with 35-second connect timeouts, wasting a thread and GIL time.
+        _placeholder_tokens = {"YOUR_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN", ""}
+        if self._token in _placeholder_tokens or self._token.startswith("YOUR_"):
+            raise ValueError(
+                f"Telegram bot_token is a placeholder ('{self._token}'). "
+                "Set a real token or disable the Telegram channel."
+            )
         allowed = config.get("allowed_chat_ids")
         self._allowed = [str(c) for c in allowed] if allowed else None
         self._default_agent_id = config.get("default_agent_id") or None
