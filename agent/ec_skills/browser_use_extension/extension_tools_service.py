@@ -54,6 +54,15 @@ custom_controller = Controller()
 _current_agent_instance = None
 _current_runtime_context: Dict[str, Any] = {}
 
+# ── bu_send_chat dedup cache ──
+# Prevents the same message from being dispatched to the same recipient for the
+# same customer within a short time window.  Keyed on (recipient_id, customer_id);
+# value is the timestamp of the last send.  Entries older than the window are
+# lazily pruned on each check.
+import time as _time
+_SEND_CHAT_DEDUP_WINDOW_S = 60  # seconds
+_send_chat_dedup_cache: Dict[str, float] = {}  # key → timestamp
+
 
 
 def set_current_agent(agent):
@@ -1583,6 +1592,41 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
     # Discovery gate and duplicate-recipient detection are now handled
     # in chat_tools.send_chat() — the common path for both bu_send_chat
     # and MCP send_chat.  No need to duplicate here.
+
+    # ── Dedup: skip if same (recipient, customer) was sent recently ──
+    try:
+        _dedup_recipient = normalized_recipient_id or normalized_recipient_name
+        _dedup_customer = ""
+        _msg_str = config.get("message", "")
+        if isinstance(_msg_str, str):
+            _msg_obj = try_parse_json(_msg_str)
+            if isinstance(_msg_obj, dict):
+                _dedup_customer = str(
+                    _msg_obj.get("customer_id") or _msg_obj.get("customer_name") or ""
+                ).strip()
+        _dedup_key = f"{_dedup_recipient}|{_dedup_customer}" if _dedup_customer else ""
+        if _dedup_key:
+            now = _time.time()
+            # Prune old entries
+            _expired = [k for k, t in _send_chat_dedup_cache.items() if now - t > _SEND_CHAT_DEDUP_WINDOW_S]
+            for k in _expired:
+                _send_chat_dedup_cache.pop(k, None)
+            last_sent = _send_chat_dedup_cache.get(_dedup_key)
+            if last_sent is not None and now - last_sent < _SEND_CHAT_DEDUP_WINDOW_S:
+                logger.info(
+                    f"[bu_send_chat] DEDUP: skipping duplicate dispatch "
+                    f"(key={_dedup_key}, last_sent={now - last_sent:.1f}s ago, "
+                    f"window={_SEND_CHAT_DEDUP_WINDOW_S}s)"
+                )
+                return ActionResult(
+                    extracted_content=(
+                        f"Message already sent to this agent for customer '{_dedup_customer}' "
+                        f"{now - last_sent:.0f}s ago. Skipping duplicate dispatch."
+                    )
+                )
+            _send_chat_dedup_cache[_dedup_key] = now
+    except Exception as _dedup_err:
+        logger.debug(f"[bu_send_chat] Dedup check failed (non-fatal): {_dedup_err}")
 
     login = AppContext.login
     logger.info(
