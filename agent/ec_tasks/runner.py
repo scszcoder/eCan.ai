@@ -2432,10 +2432,17 @@ class TaskRunner(Generic[Context]):
         if _is_working and _has_real_message:
             logger.info(
                 f"[SUBMIT][{_call_id}] Guard: task '{task.name}' is working but received real message — "
-                f"queueing for next pend_event cycle"
+                f"re-queueing for next pend_event cycle"
             )
-            # Don't block real messages — they'll be picked up by the running pend_event.
-            # But don't start a second execution either.
+            # Don't start a second execution — but the message was already consumed
+            # from task.queue by _get_next_work_item(), so we must put it back.
+            # Otherwise it is silently dropped and the next pend_event cycle never
+            # sees it, leaving the customer without a reply.
+            try:
+                task.queue.put_nowait(msg)
+                logger.info(f"[SUBMIT][{_call_id}] Re-queued message for '{task.name}'")
+            except Exception as _requeue_err:
+                logger.error(f"[SUBMIT][{_call_id}] Failed to re-queue message for '{task.name}': {_requeue_err}")
             return
         if _is_input_required and not _has_real_message:
             logger.warning(
