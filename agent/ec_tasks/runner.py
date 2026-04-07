@@ -2407,9 +2407,10 @@ class TaskRunner(Generic[Context]):
         # an interrupt. Do NOT re-run unless there's actual new input from the user.
         _task_state = task.status.state
         _is_input_required = _task_state == TaskState.input_required
+        _is_working = _task_state == TaskState.working
         logger.info(
             f"[SUBMIT][{_call_id}] Guard check for '{task.name}': "
-            f"state={_task_state!r}, is_input_required={_is_input_required}"
+            f"state={_task_state!r}, is_input_required={_is_input_required}, is_working={_is_working}"
         )
         # Allow through if the message carries actual event data (browser_event,
         # chat_message, etc.) — these should resume the interrupted pend_event.
@@ -2418,6 +2419,24 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
+        # Block re-submission while already working. A second concurrent execution
+        # shares the cached browser-use agent object and other module-level state,
+        # causing unpredictable interference. The event is already in task.queue
+        # and will be picked up on the next pend_event cycle.
+        if _is_working and not _has_real_message:
+            logger.warning(
+                f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r} "
+                f"(already working, event will be processed in next cycle)"
+            )
+            return
+        if _is_working and _has_real_message:
+            logger.info(
+                f"[SUBMIT][{_call_id}] Guard: task '{task.name}' is working but received real message — "
+                f"queueing for next pend_event cycle"
+            )
+            # Don't block real messages — they'll be picked up by the running pend_event.
+            # But don't start a second execution either.
+            return
         if _is_input_required and not _has_real_message:
             logger.warning(
                 f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r}"
