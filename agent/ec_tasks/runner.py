@@ -2262,16 +2262,25 @@ class TaskRunner(Generic[Context]):
         
         # --- Message queue triggers ---
         if has_queue and current_task:
+            # Don't dequeue while the task is actively working — the message
+            # would just bounce (dequeue → guard blocks → re-queue → repeat).
+            # Wait until the task is idle (input_required / completed / failed)
+            # so the next dequeue can actually be processed.
+            _cur_state = getattr(getattr(current_task, "status", None), "state", None)
+            if _cur_state == TaskState.working:
+                if self._stop_event.wait(timeout=0.5):
+                    return None, None, False
+                return current_task, None, False
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
                 msg = current_task.queue.get(timeout=timeout)
-                
+
                 # Tag the message with trigger source
                 if isinstance(msg, dict):
                     msg["__trigger_source__"] = "message"
-                
+
                 return current_task, msg, True
-                
+
             except Empty:
                 # Check timeout for pending tasks
                 primary_trigger = "dev" if has_dev else "message" if has_message else triggers[0]

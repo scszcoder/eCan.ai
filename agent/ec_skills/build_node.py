@@ -5555,10 +5555,22 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
             _stale_msg4 = state["messages"][4]
             state["messages"][4] = ""
-        if _stale_input or _stale_msg4:
+        # Also clear state["attributes"]["params"] — _extract_runtime_invocation_input()
+        # reads response_text from attrs.params.metadata.params.content, which leaks
+        # across event cycles and causes the HOT-PATH to fire for stale chat_message
+        # replies when the actual triggering event is a browser_event (new customer
+        # message).  Only clear for non-chat_message events; chat_message events
+        # re-populate params via chat_attributes enrichment below.
+        _stale_attrs_params = None
+        if _rp_event_type != "chat_message":
+            _attrs = state.get("attributes")
+            if isinstance(_attrs, dict) and _attrs.get("params"):
+                _stale_attrs_params = _attrs.pop("params", None)
+        if _stale_input or _stale_msg4 or _stale_attrs_params:
             logger.info(
                 f"[pend_event] Cleared stale input from previous cycle "
                 f"(had_input={bool(_stale_input)}, had_msg4={bool(_stale_msg4)}, "
+                f"had_attrs_params={bool(_stale_attrs_params)}, "
                 f"new_event={_rp_event_type}, node={node_name})"
             )
 
@@ -6394,7 +6406,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if mode == "clear":
                         if hasattr(mm_state, 'agent_history_items'):
                             mm_state.agent_history_items.clear()
-                        logger.debug("[BrowserAutomation] loop_history_mode=clear: wiped message_manager history")
+                        # Also clear compacted_memory — this is browser-use's
+                        # cross-step summary (contains "Memory: ..." entries).
+                        # Without clearing it, stale dispatch tracking like
+                        # "sc is in pending_dispatches" persists and prevents
+                        # the LLM from re-dispatching customers with new messages.
+                        if hasattr(mm_state, 'compacted_memory'):
+                            mm_state.compacted_memory = None
+                        logger.debug("[BrowserAutomation] loop_history_mode=clear: wiped message_manager history + compacted_memory")
 
                     elif mode.startswith("trim:"):
                         try:
@@ -6955,11 +6974,42 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     ]
                     if _evt_label:
                         _evt_lines.append(f"Event label: **{_evt_label}**")
-                    if _evt_type == "browser_event" and _evt_label == "chat_message_added":
-                        _evt_lines.append(
-                            "A new customer message was just added to the assigned chat tab. "
-                            "You MUST read the new message from the page and respond to it in the chat UI before calling done()."
+                    _is_new_msg_event = (
+                        _evt_type == "browser_event"
+                        and _evt_label in ("chat_message_added", "新消息")
+                    )
+                    if _is_new_msg_event:
+                        _new_msg_hint = (
+                            "The sidebar detected a NEW or CHANGED customer message. "
+                            "You MUST check the session list for any customer whose last_message "
+                            "has changed since you last dispatched them. If a customer you already "
+                            "dispatched now shows a DIFFERENT latest message, dispatch them AGAIN "
+                            "with the new message — do NOT skip them because they are in pending_dispatches."
                         )
+                        # Extract added items from event data for more specific guidance
+                        try:
+                            _evt_body = _evt_ctx.get("params", {})
+                            if isinstance(_evt_body, dict):
+                                _evt_body_str = _evt_body.get("body", "")
+                                if isinstance(_evt_body_str, str):
+                                    _evt_body_parsed = json.loads(_evt_body_str)
+                                    _added = _evt_body_parsed.get("added", [])
+                                    if isinstance(_added, list) and _added:
+                                        _added_names = [
+                                            str(a.get("customer_name", "?")) for a in _added
+                                            if isinstance(a, dict)
+                                        ]
+                                        _added_msgs = [
+                                            str(a.get("last_message", "?"))[:60] for a in _added
+                                            if isinstance(a, dict)
+                                        ]
+                                        _new_msg_hint += (
+                                            f"\n\nChanged customers: {_added_names}"
+                                            f"\nLatest messages: {_added_msgs}"
+                                        )
+                        except Exception:
+                            pass
+                        _evt_lines.append(_new_msg_hint)
                     elif _evt_type == "chat_message":
                         # Extract the actual response text from state["input"] or
                         # event data so the browser-use LLM knows EXACTLY what to type.
