@@ -6345,6 +6345,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if hasattr(agent, 'task'):
                 agent.task = task
 
+            # Restore full AgentOutput if a previous run clobbered it.
+            # browser-use sets AgentOutput = DoneAgentOutput (done-only) when
+            # max_steps or max_failures is reached.  Since we cache and reuse
+            # the agent, subsequent rounds would only see the "done" tool and
+            # lose all custom actions (feige_*, bu_send_chat, etc.).
+            _full_output = getattr(agent, '_ecan_full_AgentOutput', None)
+            if _full_output is not None and hasattr(agent, 'AgentOutput'):
+                agent.AgentOutput = _full_output
+
             # Always reset AgentState fields that would cause run() to exit immediately
             # or behave incorrectly on re-entry:
             #   - n_steps: kept as-is by default but must not exceed max_steps; resetting
@@ -8762,10 +8771,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(f"[BrowserAutomation] Reusing cached browser-use agent (scope={_bu_scope_key}, mode={loop_history_mode})")
                 else:
                     agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                    if hasattr(agent, 'AgentOutput'):
+                        agent._ecan_full_AgentOutput = agent.AgentOutput
                     _cached_bu_agents[_bu_scope_key] = agent
                     logger.info(f"[BrowserAutomation] Created new browser-use agent and cached (scope={_bu_scope_key})")
                 _agent_ref["agent"] = agent
-                
+
             else:
                 # Mode 2: Connect to existing browser via CDP
                 logger.info(f"[BrowserAutomation] Mode: existing browser - connecting via CDP (type={browser_type_setting}, driver={browser_driver_setting})")
@@ -9023,6 +9034,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     else:
                         # First iteration for this task — create a new agent and cache it.
                         agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                        # Save the full AgentOutput so _reset_bu_agent_for_next_round
+                        # can restore it after browser-use clobbers it on max_steps/failures.
+                        if hasattr(agent, 'AgentOutput'):
+                            agent._ecan_full_AgentOutput = agent.AgentOutput
                         _cached_bu_agents[_bu_scope_key] = agent
                         logger.info(
                             f"[BrowserAutomation] Created new browser-use agent and cached "
