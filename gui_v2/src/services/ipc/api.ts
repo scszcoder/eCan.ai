@@ -2593,6 +2593,89 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'get_channel_test_messages' }, { channel_id: channel_id || '', since_ts: since_ts || 0 });
     }
 
+    // ── Skill History APIs ─────────────────────────────────────────────────────
+
+    /**
+     * Get history list for a skill
+     * @param skillId - The skill ID
+     * @param limit - Maximum number of records to return (default 100)
+     * @param offset - Number of records to skip (default 0)
+     */
+    public async getSkillHistoryList<T>(skillId: string, limit?: number, offset?: number): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_history_list' },
+            { skill_id: skillId, limit: limit || 100, offset: offset || 0 }
+        );
+    }
+
+    /**
+     * Get a specific history record
+     * @param historyId - The history record ID
+     */
+    public async getSkillHistory<T>(historyId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_history' },
+            { history_id: historyId }
+        );
+    }
+
+    /**
+     * Restore skill from a history record
+     * @param historyId - The history record ID to restore from
+     * @param skipBackup - Whether to skip creating backup of current state
+     */
+    public async restoreSkillFromHistory<T>(historyId: string, skipBackup?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'restore_skill_from_history' },
+            { history_id: historyId, skip_backup: skipBackup || false }
+        );
+    }
+
+    /**
+     * Delete a specific history record
+     * @param historyId - The history record ID to delete
+     */
+    public async deleteSkillHistory<T>(historyId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'delete_skill_history' },
+            { history_id: historyId }
+        );
+    }
+
+    /**
+     * Delete all history records for a skill
+     * @param skillId - The skill ID
+     */
+    public async deleteAllSkillHistory<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'delete_all_skill_history' },
+            { skill_id: skillId }
+        );
+    }
+
+    /**
+     * Get history count for a skill
+     * @param skillId - The skill ID
+     */
+    public async getSkillHistoryCount<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_history_count' },
+            { skill_id: skillId }
+        );
+    }
+
+    /**
+     * Compare two history versions
+     * @param historyId1 - First history record ID
+     * @param historyId2 - Second history record ID
+     */
+    public async compareSkillVersions<T>(historyId1: string, historyId2: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'compare_skill_versions' },
+            { history_id1: historyId1, history_id2: historyId2 }
+        );
+    }
+
 }
 
 /**

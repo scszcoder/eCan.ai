@@ -26,3 +26,4 @@ export { IconSwitchLineColored } from './IconSwitchLineColored';
 export { IconMouseColored } from './IconMouseColored';
 export { IconPadColored } from './IconPadColored';
 export { IconAddNodeColored } from './IconAddNodeColored';
+export { IconHistoryColored } from './IconHistoryColored';
