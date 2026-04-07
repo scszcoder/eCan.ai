@@ -7149,10 +7149,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _hp_b_sig = _hp_b_inspect.signature(_hp_b_act_obj.function)
                                 if "browser_session" in _hp_b_sig.parameters:
                                     _hp_b_result = await _hp_b_act_obj.function(
-                                        _hp_b_params, browser_session=_hp_b_session
+                                        params=_hp_b_params, browser_session=_hp_b_session
                                     )
                                 else:
-                                    _hp_b_result = await _hp_b_act_obj.function(_hp_b_params)
+                                    _hp_b_result = await _hp_b_act_obj.function(params=_hp_b_params)
                                 _hp_b_ok = _hp_b_result and not getattr(_hp_b_result, "error", None)
                                 logger.info(
                                     f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → "
@@ -9198,7 +9198,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _hp2_send_params = _hp2_send_fn.param_model(text=_hp2_response_text)
                                 # Call open_session
                                 _hp2_open_result = await _hp2_open_fn.function(
-                                    _hp2_open_params, browser_session=_hp2_session
+                                    params=_hp2_open_params, browser_session=_hp2_session
                                 )
                                 _hp2_open_ok = (
                                     _hp2_open_result
@@ -9212,7 +9212,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 if _hp2_open_ok:
                                     await asyncio.sleep(0.5)
                                     _hp2_send_result = await _hp2_send_fn.function(
-                                        _hp2_send_params, browser_session=_hp2_session
+                                        params=_hp2_send_params, browser_session=_hp2_session
                                     )
                                     _hp2_send_ok = (
                                         _hp2_send_result
