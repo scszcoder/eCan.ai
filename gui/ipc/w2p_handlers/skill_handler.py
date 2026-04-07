@@ -830,7 +830,88 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             actual_skill_id = result.get('id', skill_id)
             logger.info(f"Skill saved successfully: {skill_data['name']} (ID: {actual_skill_id})")
 
-            # Step 2: Update memory after database update succeeds
+            # Step 2: Save skill history (before updating memory and syncing)
+            try:
+                import os, base64
+                from gui.ipc.w2p_handlers.skill_history_handler import _get_history_service
+
+                def _collect_skill_directory(dir_path: str) -> dict:
+                    """Recursively collect all skill directory files as a snapshot.
+
+                    Returns a dict of {relative_path: {content, is_binary, size}}.
+                    Skips __pycache__, .pytest_cache, .DS_Store, and .pyc files.
+                    """
+                    SNAPSHOT_EXCLUDE_DIRS = {'__pycache__', '.pytest_cache', '.git', '.vscode', 'node_modules'}
+                    SNAPSHOT_EXCLUDE_FILES = {'.DS_Store'}
+
+                    if not dir_path or not os.path.isdir(dir_path):
+                        return {}
+
+                    files_snapshot = {}
+                    for root, dirs, files in os.walk(dir_path):
+                        # Prune excluded directories in-place so os.walk skips them
+                        dirs[:] = [d for d in dirs if d not in SNAPSHOT_EXCLUDE_DIRS]
+
+                        for fname in files:
+                            if fname in SNAPSHOT_EXCLUDE_FILES:
+                                continue
+                            full_path = os.path.join(root, fname)
+                            rel_path = os.path.relpath(full_path, dir_path)
+                            try:
+                                file_size = os.path.getsize(full_path)
+                                is_binary = False
+                                content = None
+
+                                if fname.endswith(('.py', '.json', '.txt', '.md', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.html', '.css', '.js', '.ts')):
+                                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                        content = f.read()
+                                elif fname.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf')):
+                                    with open(full_path, 'rb') as f:
+                                        content = base64.b64encode(f.read()).decode('ascii')
+                                    is_binary = True
+                                else:
+                                    # Try text first, fall back to binary
+                                    try:
+                                        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                            content = f.read()
+                                    except Exception:
+                                        with open(full_path, 'rb') as f:
+                                            content = base64.b64encode(f.read()).decode('ascii')
+                                        is_binary = True
+
+                                files_snapshot[rel_path] = {
+                                    'content': content,
+                                    'is_binary': is_binary,
+                                    'size': file_size,
+                                }
+                            except Exception as e:
+                                logger.debug(f"[skill_handler] Could not read file {rel_path}: {e}")
+
+                    return files_snapshot
+
+                history_service = _get_history_service(request, params)
+                if history_service:
+                    skill_data_with_id = skill_data.copy()
+                    skill_data_with_id['id'] = actual_skill_id
+
+                    # Collect all files from skill directory for complete snapshot
+                    skill_path = skill_data.get('path', '')
+                    if skill_path:
+                        skill_dir = os.path.dirname(skill_path)
+                        files_snapshot = _collect_skill_directory(skill_dir)
+                        skill_data_with_id['skill_files'] = files_snapshot
+                        logger.info(f"[skill_handler] Collected {len(files_snapshot)} files for history snapshot")
+
+                    history_result = history_service.save_history(actual_skill_id, skill_data_with_id, save_type='manual')
+                    if history_result.get('success'):
+                        history_record = history_result.get('data', {})
+                        logger.info(f"[skill_handler] Skill history saved: {history_record.get('id')}, version: {history_record.get('version')}")
+                    else:
+                        logger.warning(f"[skill_handler] Failed to save skill history: {history_result.get('error')}")
+            except Exception as history_err:
+                logger.warning(f"[skill_handler] Error saving skill history (non-fatal): {history_err}")
+
+            # Step 3: Update memory after database update succeeds
             _update_skill_in_memory(actual_skill_id, skill_data, request, params)
             try:
                 ctx = get_handler_context(request, params)
@@ -839,7 +920,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             except Exception:
                 pass
 
-            # Step 3: Clean up offline sync queue for this skill (remove pending add/update operations)
+            # Step 4: Clean up offline sync queue for this skill (remove pending add/update operations)
             try:
                 from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
                 sync_queue = get_offline_sync_queue()
@@ -852,7 +933,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             except Exception as e:
                 logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
 
-            # Step 4: Sync to cloud after memory update succeeds (async, fire and forget)
+            # Step 5: Sync to cloud after memory update succeeds (async, fire and forget)
             skill_data_with_id = skill_data.copy()
             skill_data_with_id['id'] = actual_skill_id
             
@@ -871,7 +952,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             if knowledge_ids:
                 _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
 
-            # Step 5: Sync skill source files to S3 (async, fire and forget)
+            # Step 6: Sync skill source files to S3 (async, fire and forget)
             if _SKILL_FILE_SYNC_AVAILABLE:
                 try:
                     upload_skill_files_to_cloud(skill_data_with_id)

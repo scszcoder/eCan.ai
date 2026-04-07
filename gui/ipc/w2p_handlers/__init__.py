@@ -10,6 +10,7 @@ try:
     from . import lightrag_handler  # noqa: F401 - LightRAG handlers (needed for progress tracking)
     from . import ryoais_handler  # noqa: F401 - ryoais device discovery handlers
     from . import label_config_handler  # noqa: F401 - Label config handlers (whitelisted)
+    from . import skill_history_handler  # noqa: F401 - Skill history handlers (version history)
 except Exception as e:
     import traceback
     print(f"[w2p_handlers] Failed to import handlers: {e}")
