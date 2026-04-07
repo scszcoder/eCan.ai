@@ -7053,152 +7053,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception as _evt_inject_err:
                 logger.debug(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
 
-            # ── Hot-path: chat_message reply bypass ──
-            # When a chat_message arrives with a structured {response_text, customer_name}
-            # payload, skip the LLM entirely and call the registered chat adapter tools
-            # directly (e.g. *_open_session → *_send_message).  This cuts Phase-2 latency
-            # from ~15s (LLM think + multi-step) to ~2s (two direct tool calls).
-            #
-            # The hot-path is general-purpose: it discovers *_open_session / *_send_message
-            # tools from the controller registry, so it works with any chat platform
-            # (feige, WhatsApp, etc.) as long as the adapter follows the naming convention.
+            # HOT-PATH flag — the actual hot-path runs after browser session
+            # setup (post-setup HOT-PATH near agent.run) where the CDP
+            # connection is live.  See "Post-setup HOT-PATH" block below.
             _hot_path_done = False
-            try:
-                _hp_response_text = ""
-                _hp_customer_name = ""
-                # Check all runtime input sources for response_text + customer_name.
-                # The chat_message data may arrive via A2A state injection into
-                # state["input"], state["messages"][4], or state["attributes"]["params"],
-                # regardless of the event_type in prompt_refs.events.
-                if isinstance(state, dict):
-                    # Use the same function the task text injection uses
-                    _hp_raw = _extract_runtime_invocation_input(state)
-                    if _hp_raw:
-                        try:
-                            _hp_parsed = json.loads(_hp_raw)
-                            if isinstance(_hp_parsed, dict):
-                                _hp_response_text = str(_hp_parsed.get("response_text", "")).strip()
-                                _hp_customer_name = str(
-                                    _hp_parsed.get("customer_name")
-                                    or _hp_parsed.get("customer_id")
-                                    or ""
-                                ).strip()
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                if _hp_response_text and _hp_customer_name:
-                    # Look up *_open_session and *_send_message tools from the registry
-                    from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_ctrl
-                    _hp_actions = _hp_ctrl.registry.registry.actions
-                    _hp_open_fn = None
-                    _hp_send_fn = None
-                    _hp_open_name = ""
-                    _hp_send_name = ""
-                    for _act_name, _act_obj in _hp_actions.items():
-                        if _act_name.endswith("_open_session"):
-                            _hp_open_fn = _act_obj
-                            _hp_open_name = _act_name
-                        elif _act_name.endswith("_send_message"):
-                            _hp_send_fn = _act_obj
-                            _hp_send_name = _act_name
-                    if _hp_open_fn and _hp_send_fn:
-                        logger.info(
-                            f"[BrowserAutomation] HOT-PATH: chat_message with response_text detected, "
-                            f"bypassing LLM. customer={_hp_customer_name}, "
-                            f"tools={_hp_open_name}+{_hp_send_name}, node={node_name}"
-                        )
-                        send_skill_editor_log(
-                            "log",
-                            f"[BrowserAutomation] HOT-PATH: direct reply to {_hp_customer_name} "
-                            f"(skipping LLM)"
-                        )
-                        import asyncio as _hp_asyncio
-                        # Get or create browser session
-                        _hp_browser_session = await _get_or_create_browser_session(
-                            mainwin, state=state, calling_agent_id=calling_agent_id
-                        )
-                        if _hp_browser_session is None:
-                            logger.warning("[BrowserAutomation] HOT-PATH: no browser session, falling back to LLM")
-                        else:
-                            # Dynamically build param objects from the action's param_model
-                            _hp_open_param_model = _hp_open_fn.param_model
-                            _hp_send_param_model = _hp_send_fn.param_model
-                            _hp_open_params = _hp_open_param_model(customer_name=_hp_customer_name)
-                            _hp_send_params = _hp_send_param_model(text=_hp_response_text)
-
-                            # Call open_session
-                            _hp_open_result = await _hp_open_fn.function(
-                                _hp_open_params, browser_session=_hp_browser_session
-                            )
-                            _hp_open_ok = (
-                                _hp_open_result
-                                and not getattr(_hp_open_result, "error", None)
-                            )
-                            logger.info(
-                                f"[BrowserAutomation] HOT-PATH: {_hp_open_name} → "
-                                f"{'OK' if _hp_open_ok else 'FAIL'}: "
-                                f"{getattr(_hp_open_result, 'extracted_content', '') or getattr(_hp_open_result, 'error', '')}"
-                            )
-                            if _hp_open_ok:
-                                # Small delay for page to settle after session switch
-                                await _hp_asyncio.sleep(0.5)
-                                # Call send_message
-                                _hp_send_result = await _hp_send_fn.function(
-                                    _hp_send_params, browser_session=_hp_browser_session
-                                )
-                                _hp_send_ok = (
-                                    _hp_send_result
-                                    and not getattr(_hp_send_result, "error", None)
-                                )
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH: {_hp_send_name} → "
-                                    f"{'OK' if _hp_send_ok else 'FAIL'}: "
-                                    f"{getattr(_hp_send_result, 'extracted_content', '') or getattr(_hp_send_result, 'error', '')}"
-                                )
-                                if _hp_send_ok:
-                                    _hot_path_done = True
-                                    state.setdefault("result", {})["llm_result"] = {
-                                        "all_done": False,
-                                        "work_done": False,
-                                        "hot_path": True,
-                                        "action": f"{_hp_open_name}+{_hp_send_name}",
-                                        "customer": _hp_customer_name,
-                                    }
-                                    # Clear response data from ALL sources to prevent
-                                    # duplicate sends on subsequent browser_event cycles.
-                                    # _extract_runtime_invocation_input reads from:
-                                    # state["input"], messages[4], and attributes.params
-                                    state["input"] = ""
-                                    if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
-                                        state["messages"][4] = ""
-                                    try:
-                                        _hp_attrs = state.get("attributes")
-                                        if isinstance(_hp_attrs, dict):
-                                            _hp_attrs.pop("params", None)
-                                    except Exception:
-                                        pass
-                                    logger.info(
-                                        f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                        f"{_hp_customer_name} in ~1s (LLM bypassed), "
-                                        f"state['input'] cleared. node={node_name}"
-                                    )
-                                    send_skill_editor_log(
-                                        "log",
-                                        f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                        f"{_hp_customer_name} (LLM bypassed)"
-                                    )
-                                    return state
-                            if not _hot_path_done:
-                                logger.warning(
-                                    f"[BrowserAutomation] HOT-PATH: tool call failed, "
-                                    f"falling back to LLM. node={node_name}"
-                                )
-                    else:
-                        logger.debug(
-                            f"[BrowserAutomation] HOT-PATH: no *_open_session/*_send_message "
-                            f"tools registered, skipping hot-path"
-                        )
-            except Exception as _hp_err:
-                logger.debug(f"[BrowserAutomation] HOT-PATH: check failed (non-fatal): {_hp_err}")
 
             # ── Hot-path: configurable action templates (Option B) ──
             # Allows users to define custom hot-path triggers and action sequences
@@ -9281,6 +9139,129 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _frontdesk_fastpath_result = await _maybe_run_frontdesk_dispatch_fastpath(agent)
             if _frontdesk_fastpath_result is not None:
                 return _frontdesk_fastpath_result
+
+            # ── HOT-PATH: chat_message reply bypass ──
+            # When a chat_message arrives with a structured {response_text,
+            # customer_name} payload, skip the LLM entirely and call the
+            # registered chat adapter tools directly (e.g. *_open_session →
+            # *_send_message).  This cuts Phase-2 latency from ~15s (LLM think
+            # + multi-step) to ~2s (two direct tool calls).
+            #
+            # Placed here (after browser session setup) so the CDP connection
+            # is live and the feige tools can execute JS on the page.
+            if not _hot_path_done:
+                try:
+                    _hp2_response_text = ""
+                    _hp2_customer_name = ""
+                    if isinstance(state, dict):
+                        _hp2_raw = _extract_runtime_invocation_input(state)
+                        if _hp2_raw:
+                            try:
+                                _hp2_parsed = json.loads(_hp2_raw)
+                                if isinstance(_hp2_parsed, dict):
+                                    _hp2_response_text = str(_hp2_parsed.get("response_text", "")).strip()
+                                    _hp2_customer_name = str(
+                                        _hp2_parsed.get("customer_name")
+                                        or _hp2_parsed.get("customer_id")
+                                        or ""
+                                    ).strip()
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                    if _hp2_response_text and _hp2_customer_name:
+                        _hp2_session = getattr(agent, "browser_session", None)
+                        if _hp2_session:
+                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp2_ctrl
+                            _hp2_actions = _hp2_ctrl.registry.registry.actions
+                            _hp2_open_fn = None
+                            _hp2_send_fn = None
+                            _hp2_open_name = ""
+                            _hp2_send_name = ""
+                            for _act_name, _act_obj in _hp2_actions.items():
+                                if _act_name.endswith("_open_session"):
+                                    _hp2_open_fn = _act_obj
+                                    _hp2_open_name = _act_name
+                                elif _act_name.endswith("_send_message"):
+                                    _hp2_send_fn = _act_obj
+                                    _hp2_send_name = _act_name
+                            if _hp2_open_fn and _hp2_send_fn:
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH: retrying with live session. "
+                                    f"customer={_hp2_customer_name}, "
+                                    f"tools={_hp2_open_name}+{_hp2_send_name}, node={node_name}"
+                                )
+                                send_skill_editor_log(
+                                    "log",
+                                    f"[BrowserAutomation] HOT-PATH: direct reply to "
+                                    f"{_hp2_customer_name} (skipping LLM)"
+                                )
+                                _hp2_open_params = _hp2_open_fn.param_model(customer_name=_hp2_customer_name)
+                                _hp2_send_params = _hp2_send_fn.param_model(text=_hp2_response_text)
+                                # Call open_session
+                                _hp2_open_result = await _hp2_open_fn.function(
+                                    _hp2_open_params, browser_session=_hp2_session
+                                )
+                                _hp2_open_ok = (
+                                    _hp2_open_result
+                                    and not getattr(_hp2_open_result, "error", None)
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH: {_hp2_open_name} → "
+                                    f"{'OK' if _hp2_open_ok else 'FAIL'}: "
+                                    f"{getattr(_hp2_open_result, 'extracted_content', '') or getattr(_hp2_open_result, 'error', '')}"
+                                )
+                                if _hp2_open_ok:
+                                    await asyncio.sleep(0.5)
+                                    _hp2_send_result = await _hp2_send_fn.function(
+                                        _hp2_send_params, browser_session=_hp2_session
+                                    )
+                                    _hp2_send_ok = (
+                                        _hp2_send_result
+                                        and not getattr(_hp2_send_result, "error", None)
+                                    )
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH: {_hp2_send_name} → "
+                                        f"{'OK' if _hp2_send_ok else 'FAIL'}: "
+                                        f"{getattr(_hp2_send_result, 'extracted_content', '') or getattr(_hp2_send_result, 'error', '')}"
+                                    )
+                                    if _hp2_send_ok:
+                                        _hot_path_done = True
+                                        state.setdefault("result", {})["llm_result"] = {
+                                            "all_done": False,
+                                            "work_done": False,
+                                            "hot_path": True,
+                                            "action": f"{_hp2_open_name}+{_hp2_send_name}",
+                                            "customer": _hp2_customer_name,
+                                        }
+                                        # Clear response data to prevent duplicate sends
+                                        state["input"] = ""
+                                        if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+                                            state["messages"][4] = ""
+                                        try:
+                                            _hp2_attrs = state.get("attributes")
+                                            if isinstance(_hp2_attrs, dict):
+                                                _hp2_attrs.pop("params", None)
+                                        except Exception:
+                                            pass
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
+                                            f"{_hp2_customer_name} (~1s, LLM bypassed), node={node_name}"
+                                        )
+                                        send_skill_editor_log(
+                                            "log",
+                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
+                                            f"{_hp2_customer_name} (LLM bypassed)"
+                                        )
+                                        return state
+                                if not _hot_path_done:
+                                    logger.warning(
+                                        f"[BrowserAutomation] HOT-PATH: tool call failed, "
+                                        f"falling back to LLM. node={node_name}"
+                                    )
+                except Exception as _hp2_err:
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH: failed (non-fatal, "
+                        f"falling back to LLM): {_hp2_err}"
+                    )
 
             # Register current agent instance so extension tools (e.g. list_files)
             # can auto-authorize discovered file paths for later read_long_content/read_file calls.
