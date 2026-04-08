@@ -109,34 +109,84 @@ class DBSkillService(BaseService):
     # ---- Skills ----
 
     def add_skill(self, data):
-        """Add a new skill"""
-        return self._add(DBAgentSkill, data)
+        """Add a new skill, or update if ID already exists (upsert by ID)
+        
+        This prevents duplicate skills when the same skill is saved multiple times
+        with the same ID (e.g., from cloud sync or multiple save operations).
+        """
+        try:
+            skill_id = data.get('id')
+
+            with self.session_scope() as s:
+                # Check if a skill with the same ID already exists
+                if skill_id:
+                    existing = s.query(DBAgentSkill).filter(
+                        DBAgentSkill.id == skill_id
+                    ).first()
+                    
+                    if existing:
+                        # Update existing record instead of creating duplicate
+                        for key, value in data.items():
+                            if hasattr(existing, key):
+                                setattr(existing, key, value)
+                        s.flush()
+                        return {"success": True, "id": existing.id, "data": existing.to_dict(), "error": None, "updated": True}
+
+                # No duplicate found, create new record
+                obj = DBAgentSkill(**data)
+                s.add(obj)
+                s.flush()
+                return {"success": True, "id": obj.id, "data": obj.to_dict(), "error": None, "updated": False}
+
+        except SQLAlchemyError as e:
+            return {"success": False, "id": data.get("id"), "data": None, "error": str(e)}
 
     def delete_skill(self, skill_id):
         """Delete a skill and all its relationships"""
         try:
             with self.session_scope() as s:
-                # First, delete all related records to avoid foreign key constraint issues
+                # First, try to find the skill by id
+                skill = s.get(DBAgentSkill, skill_id)
+                
+                # If not found by id, try by cloud_id (for cloud-synced skills)
+                if not skill:
+                    skill = s.query(DBAgentSkill).filter(
+                        DBAgentSkill.cloud_id == skill_id
+                    ).first()
+                
+                if not skill:
+                    # Try to find by askid as fallback (for legacy numeric askid)
+                    try:
+                        askid_num = int(skill_id) if skill_id.isdigit() else None
+                        if askid_num:
+                            skill = s.query(DBAgentSkill).filter(
+                                DBAgentSkill.askid == askid_num
+                            ).first()
+                    except (ValueError, TypeError):
+                        pass
+                
+                if not skill:
+                    return {"success": False, "id": skill_id, "data": None, "error": "Skill not found"}
+                
+                actual_skill_id = skill.id
+                
+                # Delete all related records to avoid foreign key constraint issues
                 # Delete agent-skill relationships
-                s.query(DBAgentSkillRel).filter(DBAgentSkillRel.skill_id == skill_id).delete()
+                s.query(DBAgentSkillRel).filter(DBAgentSkillRel.skill_id == actual_skill_id).delete()
                 
                 # Delete skill-tool relationships
-                s.query(DBSkillToolRel).filter(DBSkillToolRel.skill_id == skill_id).delete()
+                s.query(DBSkillToolRel).filter(DBSkillToolRel.skill_id == actual_skill_id).delete()
                 
                 # Delete skill-knowledge relationships
-                s.query(DBAgentSkillKnowledgeRel).filter(DBAgentSkillKnowledgeRel.skill_id == skill_id).delete()
+                s.query(DBAgentSkillKnowledgeRel).filter(DBAgentSkillKnowledgeRel.skill_id == actual_skill_id).delete()
                 
                 # Delete task-skill relationships
-                s.query(DBAgentTaskSkillRel).filter(DBAgentTaskSkillRel.skill_id == skill_id).delete()
+                s.query(DBAgentTaskSkillRel).filter(DBAgentTaskSkillRel.skill_id == actual_skill_id).delete()
                 
                 # Finally, delete the skill itself
-                skill = s.get(DBAgentSkill, skill_id)
-                if skill:
-                    s.delete(skill)
-                    s.flush()
-                    return {"success": True, "id": skill_id, "data": None, "error": None}
-                else:
-                    return {"success": False, "id": skill_id, "data": None, "error": "Skill not found"}
+                s.delete(skill)
+                s.flush()
+                return {"success": True, "id": actual_skill_id, "data": None, "error": None}
         except SQLAlchemyError as e:
             return {"success": False, "id": skill_id, "data": None, "error": str(e)}
 

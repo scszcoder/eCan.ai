@@ -88,7 +88,7 @@ class DBTaskService(BaseService):
         except SQLAlchemyError as e:
             return {"success": False, "id": id_, "data": None, "error": str(e)}
 
-    def _search(self, model, id_: str = None, name: str = None, desc_regex: str = None):
+    def _search(self, model, id_: str = None, name: str = None, desc_regex: str = None, deep: bool = False):
         """Generic search operation"""
         try:
             with self.session_scope() as s:
@@ -101,7 +101,7 @@ class DBTaskService(BaseService):
                 if desc_regex:
                     pattern = re.compile(desc_regex, re.IGNORECASE)
                     results = [r for r in results if pattern.search(getattr(r, 'description', '') or '')]
-                return [r.to_dict() for r in results]
+                return [r.to_dict(deep=deep) for r in results]
         except SQLAlchemyError as e:
             print(f"[SearchError] {e}")
             return []
@@ -142,9 +142,9 @@ class DBTaskService(BaseService):
         return self._update(DBAgentTask, task_id, fields)
 
     def query_tasks(self, id=None, name=None, description=None):
-        """Query tasks"""
+        """Query tasks. Use deep=True to include task-skill relationships with skill names."""
         return {"success": True,
-                "data": self._search(DBAgentTask, id, name, description),
+                "data": self._search(DBAgentTask, id, name, description, deep=True),
                 "error": None}
 
     def search_tasks(self, id=None, name=None, description=None):

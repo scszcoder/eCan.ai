@@ -203,7 +203,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   // Extract only id and name to avoid circular reference in deep comparison
   // Use primitive dependencies to avoid triggering deep comparison on circular structures
   const skillsKey = React.useMemo(() => {
-    // Use length as primitive dependency to avoid deep comparison
     return (skills || []).length;
   }, [skills?.length]);
 
@@ -214,10 +213,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   // Memoize skill options to avoid circular reference warnings
   // value is always the skill ID; label/display is the name
   const skillOptions = React.useMemo(() => {
-    return skillsSimplified.map((s) => ({ 
+    return skillsSimplified.map((s) => ({
       key: s.id,
-      value: s.id, 
-      label: s.name 
+      value: s.id,
+      label: s.name,
     }));
   }, [skillsSimplified]);
 
@@ -932,7 +931,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   showSearch
                                   allowClear
                                   size="large"
-                                  placeholder={t('pages.tasks.selectSkill', 'Select a skill')}
+                                  placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
                                   options={skillOptions}
                                   filterOption={(input, option) =>
                                     (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
