@@ -4207,6 +4207,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     else:
                         idx = start_idx + 1
 
+                # Collect ALL tool-call objects from the LLM output (not just the first)
+                _all_tool_objs = []
                 for obj in parsed_objects:
                     nested_tool_obj = {}
                     if isinstance(obj, dict):
@@ -4220,12 +4222,50 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         or 'tool_name' in obj
                         or 'tool_name' in nested_tool_obj
                     ):
-                        llm_result = obj
-                        logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {obj}")
-                        if 'result' in state and isinstance(state['result'], dict):
-                            state['result']['llm_result'] = obj
-                            logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
-                        break
+                        _all_tool_objs.append(obj)
+
+                # Collect completion flags (all_done, work_done) from non-tool
+                # JSON objects.  The LLM often emits these as a separate object
+                # after the tool-call JSON, e.g.:
+                #   {"tool_name":"send_chat", ...}
+                #   {"all_done": true, "work_done": true}
+                # Without merging, the condition node never sees all_done and
+                # the skill loop never exits.
+                _completion_flags: dict[str, Any] = {}
+                for obj in parsed_objects:
+                    if not isinstance(obj, dict):
+                        continue
+                    # Skip objects that are tool calls (already in _all_tool_objs)
+                    if obj in _all_tool_objs:
+                        continue
+                    for _flag_key in ('all_done', 'work_done'):
+                        if _flag_key in obj:
+                            _completion_flags[_flag_key] = obj[_flag_key]
+                if _completion_flags:
+                    logger.info(f"[MCP Auto-Select] Captured completion flags from non-tool objects: {_completion_flags}")
+
+                if len(_all_tool_objs) > 1:
+                    # Multiple tool calls found — bundle as a multi-tool list so the
+                    # multi-tool executor (serial mode) runs them all sequentially.
+                    llm_result = {'tool': _all_tool_objs, 'multi_tool_calls': 'serial'}
+                    llm_result.update(_completion_flags)
+                    logger.info(f"[MCP Auto-Select] Found {len(_all_tool_objs)} tool calls, bundling as serial multi-tool")
+                    if 'result' in state and isinstance(state['result'], dict):
+                        state['result']['llm_result'] = llm_result
+                elif len(_all_tool_objs) == 1:
+                    llm_result = _all_tool_objs[0]
+                    llm_result.update(_completion_flags)
+                    logger.debug(f"[MCP Auto-Select] Found target JSON with next tool selection: {_all_tool_objs[0]}")
+                    if 'result' in state and isinstance(state['result'], dict):
+                        state['result']['llm_result'] = _all_tool_objs[0]
+                        logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
+                elif _completion_flags:
+                    # No tool calls but we have completion flags (e.g. LLM just
+                    # said {"all_done": true} without any tool call).
+                    llm_result = _completion_flags
+                    if 'result' in state and isinstance(state['result'], dict):
+                        state['result']['llm_result'] = llm_result
+                    logger.info(f"[MCP Auto-Select] No tool calls, but found completion flags: {_completion_flags}")
 
             # Merge propagated work_result back: LLM may have overwritten with empty values
             if _propagated_work_result and isinstance(llm_result, dict):
@@ -4296,11 +4336,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     return
 
             if work_done:
-                _sync_completion_flags(state)
-                log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
-                logger.info(log_msg)
-                send_skill_editor_log("info", log_msg)
-                return state
+                # If there's still a pending tool call (e.g. send_chat), execute it
+                # before honoring work_done — the LLM intended the tool to run first.
+                _has_pending_tool = (
+                    (next_tool_name and isinstance(next_tool_name, str) and next_tool_name.strip())
+                    or _multi_tool_list is not None
+                )
+                if not _has_pending_tool:
+                    _sync_completion_flags(state)
+                    log_msg = f"[MCP Auto-Select] work_done=True, no pending tool call, skipping for node '{node_name}'"
+                    logger.info(log_msg)
+                    send_skill_editor_log("info", log_msg)
+                    return state
+                else:
+                    log_msg = f"[MCP Auto-Select] work_done=True but has pending tool '{next_tool_name}' — executing tool first, then marking done"
+                    logger.info(log_msg)
+                    send_skill_editor_log("info", log_msg)
+                    # Fall through to tool execution below; completion flags
+                    # will be applied after the tool call completes.
 
             if (not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip()) and _multi_tool_list is None:
                 if 'message' in llm_result and not llm_result.get('message', '').strip():
@@ -4364,6 +4417,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     for _target in (actual_tool_input, actual_tool_input.get('input')):
                         if isinstance(_target, dict) and 'agent_id' in _target and not _target.get('agent_id'):
                             _target['agent_id'] = _ctx_agent_id
+                        # Also auto-inject sender_agent_id for send_chat (same runtime agent_id).
+                        if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
+                            _target['sender_agent_id'] = _ctx_agent_id
             except Exception:
                 pass
 
@@ -5423,6 +5479,13 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 "node": event_record.get("node", ""),
                 "timestamp": event_record.get("timestamp", ""),
             }
+            # Include small scalar fields from context (e.g. senderId, chatId)
+            # so downstream LLM nodes can reference the sender for replies.
+            _ctx = event_record.get("context")
+            if isinstance(_ctx, dict):
+                for _ck, _cv in _ctx.items():
+                    if isinstance(_cv, (str, int, float, bool)) and len(str(_cv)) < 500:
+                        compact_event[_ck] = _cv
             # Only include small scalar fields from data, skip large blobs
             if isinstance(event_record.get("data"), dict):
                 for _ek, _ev in event_record["data"].items():
@@ -5479,6 +5542,38 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
+        # ── Clear stale input from previous event cycle ──
+        # Without this, state["input"] from a previous chat_message cycle
+        # leaks into the next browser_event cycle.  The browser-use node
+        # injects state["input"] as "Current Invocation Input", so stale
+        # response_text causes the LLM to re-send old replies instead of
+        # running Phase-1 detection.  Clearing here ensures each cycle
+        # starts fresh; the new event's data (if any) will be set below
+        # by chat_attributes enrichment or human_text extraction.
+        _stale_input = state.pop("input", None)
+        _stale_msg4 = None
+        if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+            _stale_msg4 = state["messages"][4]
+            state["messages"][4] = ""
+        # Also clear state["attributes"]["params"] — _extract_runtime_invocation_input()
+        # reads response_text from attrs.params.metadata.params.content, which leaks
+        # across event cycles and causes the HOT-PATH to fire for stale chat_message
+        # replies when the actual triggering event is a browser_event (new customer
+        # message).  Only clear for non-chat_message events; chat_message events
+        # re-populate params via chat_attributes enrichment below.
+        _stale_attrs_params = None
+        if _rp_event_type != "chat_message":
+            _attrs = state.get("attributes")
+            if isinstance(_attrs, dict) and _attrs.get("params"):
+                _stale_attrs_params = _attrs.pop("params", None)
+        if _stale_input or _stale_msg4 or _stale_attrs_params:
+            logger.info(
+                f"[pend_event] Cleared stale input from previous cycle "
+                f"(had_input={bool(_stale_input)}, had_msg4={bool(_stale_msg4)}, "
+                f"had_attrs_params={bool(_stale_attrs_params)}, "
+                f"new_event={_rp_event_type}, node={node_name})"
+            )
+
         # Enrich state with chat metadata, if available
         try:
             chat_attrs = resume_payload.get("chat_attributes") if isinstance(resume_payload, dict) else None
@@ -5518,7 +5613,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                                 fill_map[4] = fill_map.get(4) or params.get("content")
 
                     for idx, val in fill_map.items():
-                        if val and msg_list[idx] in (None, ""):
+                        if val and (msg_list[idx] in (None, "") or idx == 4):
+                            # idx 4 = content: always overwrite so subsequent
+                            # chat_message events carry the latest message text,
+                            # not the stale value from a previous event.
                             msg_list[idx] = val
         except Exception:
             pass
@@ -5553,7 +5651,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             human_text_content = raw_ht.strip()
         elif isinstance(data, dict) and data.get("content"):
             human_text_content = data.get("content")
-        
+
         if human_text_content:
             # Set state["input"] so _get_human_input() in pre_llm_hook can find it
             state["input"] = human_text_content
@@ -5971,6 +6069,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_dom_limit = None
 
+    # loopHistoryMode — controls how the browser-use sub-agent's history is handled
+    # when the agent is reused across pend_event loop iterations (within the same task).
+    # Values:
+    #   "clear"      (default) — wipe history + message_manager on each round; agent
+    #                            starts every iteration with a clean slate.  Best for
+    #                            stateless workflows (e.g. front-desk dispatch loop).
+    #   "trim:<N>"             — keep only the last N history items (rolling window).
+    #                            Useful when some recent context helps but full history bloats.
+    #   "accumulate"           — keep all history across rounds.  Use only for short-lived
+    #                            loops where cross-round memory is intentional.
+    _loop_history_mode_raw = (
+        ((inputs.get("loopHistoryMode") or {}).get("content") or "clear").strip().lower() or "clear"
+    )
+    # Normalise: "trim" without N defaults to trim:10
+    if _loop_history_mode_raw == "trim":
+        _loop_history_mode_raw = "trim:10"
+    loop_history_mode = _loop_history_mode_raw  # e.g. "clear", "trim:10", "accumulate"
+
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
     logger.info(
         f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
@@ -6220,6 +6336,114 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     _last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
     _browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
     _MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
+
+    # Cache browser-use sub-agents across loop iterations (one per scope/task).
+    # The browser-use Agent is heavyweight — it owns MessageManager, history, LLM
+    # client references, etc.  Re-creating it on every pend_event cycle wastes ~860 MB
+    # of allocations per cycle and adds unnecessary init overhead.
+    # Keyed by the same _browser_scope_key used for _cached_browser_sessions.
+    _cached_bu_agents: dict[str, Any] = {}
+
+    def _reset_bu_agent_for_next_round(agent: Any, mode: str, task: str) -> None:
+        """Reset a cached browser-use sub-agent for re-use in the next loop round.
+
+        Args:
+            agent: The browser-use Agent instance to reset.
+            mode:  loop_history_mode string — "clear", "trim:<N>", or "accumulate".
+            task:  The new task string for this round (updates agent.task).
+        """
+        try:
+            # Always update the task text so the agent knows what to do this round.
+            if hasattr(agent, 'task'):
+                agent.task = task
+
+            # Restore full AgentOutput if a previous run clobbered it.
+            # browser-use sets AgentOutput = DoneAgentOutput (done-only) when
+            # max_steps or max_failures is reached.  Since we cache and reuse
+            # the agent, subsequent rounds would only see the "done" tool and
+            # lose all custom actions (feige_*, bu_send_chat, etc.).
+            _full_output = getattr(agent, '_ecan_full_AgentOutput', None)
+            if _full_output is not None and hasattr(agent, 'AgentOutput'):
+                agent.AgentOutput = _full_output
+
+            # Always reset AgentState fields that would cause run() to exit immediately
+            # or behave incorrectly on re-entry:
+            #   - n_steps: kept as-is by default but must not exceed max_steps; resetting
+            #     to 1 gives each round a full fresh step budget.
+            #   - consecutive_failures: must be 0 or run() may abort before the first step.
+            #   - stopped: True would cause the main loop to break immediately.
+            #   - history.is_done(): True would skip the loop entirely on some paths.
+            st = getattr(agent, 'state', None)
+            if st is not None:
+                try:
+                    st.n_steps = 1
+                except Exception:
+                    pass
+                try:
+                    st.consecutive_failures = 0
+                except Exception:
+                    pass
+                try:
+                    st.stopped = False
+                except Exception:
+                    pass
+
+            if mode == "accumulate":
+                # Keep message history — nothing more to do.
+                logger.debug("[BrowserAutomation] loop_history_mode=accumulate: preserving full history")
+                return
+
+            # For "clear" and "trim" reset the message_manager state
+            # (context_messages, agent_history_items) so the LLM doesn't see stale DOM.
+            mm = getattr(agent, 'message_manager', None)
+            if mm:
+                mm_state = getattr(mm, 'state', None)
+                if mm_state:
+                    # Clear short-term context messages (current step DOM state, tool results)
+                    if hasattr(mm_state, 'context_messages'):
+                        mm_state.context_messages.clear()
+
+                    if mode == "clear":
+                        if hasattr(mm_state, 'agent_history_items'):
+                            mm_state.agent_history_items.clear()
+                        # Also clear compacted_memory — this is browser-use's
+                        # cross-step summary (contains "Memory: ..." entries).
+                        # Without clearing it, stale dispatch tracking like
+                        # "sc is in pending_dispatches" persists and prevents
+                        # the LLM from re-dispatching customers with new messages.
+                        if hasattr(mm_state, 'compacted_memory'):
+                            mm_state.compacted_memory = None
+                        logger.debug("[BrowserAutomation] loop_history_mode=clear: wiped message_manager history + compacted_memory")
+
+                    elif mode.startswith("trim:"):
+                        try:
+                            keep_n = int(mode.split(":", 1)[1])
+                        except (ValueError, IndexError):
+                            keep_n = 10
+                        if hasattr(mm_state, 'agent_history_items'):
+                            items = mm_state.agent_history_items
+                            if len(items) > keep_n:
+                                del items[:-keep_n]
+                        logger.debug(f"[BrowserAutomation] loop_history_mode={mode}: trimmed to last {keep_n} history items")
+
+            # Reset AgentHistoryList (used for final_result / is_done checks).
+            # Without this, history.is_done() returns True from the previous round and
+            # run() may exit before executing a single step.
+            hist = getattr(agent, 'history', None)
+            if hist is not None:
+                if mode == "clear":
+                    if hasattr(hist, 'history'):
+                        hist.history.clear()
+                elif mode.startswith("trim:"):
+                    try:
+                        keep_n = int(mode.split(":", 1)[1])
+                    except (ValueError, IndexError):
+                        keep_n = 10
+                    if hasattr(hist, 'history') and len(hist.history) > keep_n:
+                        del hist.history[:-keep_n]
+
+        except Exception as _reset_err:
+            logger.warning(f"[BrowserAutomation] _reset_bu_agent_for_next_round error (non-fatal): {_reset_err}")
 
     def _resolve_browser_scope_key(state: dict | None = None) -> str:
         """Resolve a stable browser scope key from workflow state.
@@ -6705,6 +6929,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
 
             runtime_input = _extract_runtime_invocation_input(state)
+            _runtime_had_response_text = False
             if runtime_input:
                 task = (
                     f"{task}\n\n"
@@ -6719,6 +6944,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     "log",
                     f"[BrowserAutomation] Injected runtime input into task (len={len(runtime_input)})"
                 )
+                # Track if this input contains a chat_message response so we
+                # can clear it after the LLM processes it (preventing duplicates)
+                try:
+                    _ri_parsed = json.loads(runtime_input)
+                    if isinstance(_ri_parsed, dict) and _ri_parsed.get("response_text"):
+                        _runtime_had_response_text = True
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
 
             # ── Inject triggering event context ──
             # When this browser_automation node was resumed by pend_event after
@@ -6741,15 +6974,77 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     ]
                     if _evt_label:
                         _evt_lines.append(f"Event label: **{_evt_label}**")
-                    if _evt_type == "browser_event" and _evt_label == "chat_message_added":
-                        _evt_lines.append(
-                            "A new customer message was just added to the assigned chat tab. "
-                            "You MUST read the new message from the page and respond to it in the chat UI before calling done()."
+                    _is_new_msg_event = (
+                        _evt_type == "browser_event"
+                        and _evt_label in ("chat_message_added", "新消息")
+                    )
+                    if _is_new_msg_event:
+                        _new_msg_hint = (
+                            "The sidebar detected a NEW or CHANGED customer message. "
+                            "You MUST check the session list for any customer whose last_message "
+                            "has changed since you last dispatched them. If a customer you already "
+                            "dispatched now shows a DIFFERENT latest message, dispatch them AGAIN "
+                            "with the new message — do NOT skip them because they are in pending_dispatches."
                         )
+                        # Extract added items from event data for more specific guidance
+                        try:
+                            _evt_body = _evt_ctx.get("params", {})
+                            if isinstance(_evt_body, dict):
+                                _evt_body_str = _evt_body.get("body", "")
+                                if isinstance(_evt_body_str, str):
+                                    _evt_body_parsed = json.loads(_evt_body_str)
+                                    _added = _evt_body_parsed.get("added", [])
+                                    if isinstance(_added, list) and _added:
+                                        _added_names = [
+                                            str(a.get("customer_name", "?")) for a in _added
+                                            if isinstance(a, dict)
+                                        ]
+                                        _added_msgs = [
+                                            str(a.get("last_message", "?"))[:60] for a in _added
+                                            if isinstance(a, dict)
+                                        ]
+                                        _new_msg_hint += (
+                                            f"\n\nChanged customers: {_added_names}"
+                                            f"\nLatest messages: {_added_msgs}"
+                                        )
+                        except Exception:
+                            pass
+                        _evt_lines.append(_new_msg_hint)
                     elif _evt_type == "chat_message":
-                        _evt_lines.append(
-                            "A new chat message arrived from another agent or from the customer."
-                        )
+                        # Extract the actual response text from state["input"] or
+                        # event data so the browser-use LLM knows EXACTLY what to type.
+                        # Without this, it may see a previous reply in the DOM and
+                        # incorrectly assume the work is already done.
+                        _chat_response_text = ""
+                        _chat_customer_name = ""
+                        try:
+                            _cm_input = state.get("input", "") if isinstance(state, dict) else ""
+                            if isinstance(_cm_input, str) and _cm_input.strip():
+                                _cm_parsed = json.loads(_cm_input)
+                                if isinstance(_cm_parsed, dict):
+                                    _chat_response_text = _cm_parsed.get("response_text", "")
+                                    _chat_customer_name = _cm_parsed.get("customer_name", "")
+                        except (json.JSONDecodeError, Exception):
+                            pass
+                        if _chat_response_text:
+                            # Escape quotes in response_text to avoid breaking
+                            # the tool-call syntax shown to the browser-use LLM.
+                            _safe_resp = _chat_response_text.replace('"', '\\"')
+                            _safe_cust = _chat_customer_name.replace('"', '\\"')
+                            _evt_lines.append(
+                                f"A **NEW** reply was generated by another agent for customer **{_chat_customer_name}**.\n\n"
+                                f"**You MUST execute these steps in order:**\n"
+                                f"1. Call `feige_open_session(customer_name=\"{_safe_cust}\")` to navigate to this customer's chat session\n"
+                                f"2. Call `feige_send_message(text=\"{_safe_resp}\")` to send the reply\n"
+                                f"3. Call `done()`\n\n"
+                                f"Do NOT skip this — even if you already sent a previous reply, this is a DIFFERENT message.\n"
+                                f"Do NOT call done() before completing steps 1 and 2."
+                            )
+                        else:
+                            _evt_lines.append(
+                                "A new chat message arrived from another agent or from the customer. "
+                                "Check the Current Invocation Input for the message content and act on it."
+                            )
                     task = f"{task}\n\n" + "\n".join(_evt_lines)
                     logger.info(
                         f"[BrowserAutomation] Injected triggering event context "
@@ -6757,6 +7052,126 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
             except Exception as _evt_inject_err:
                 logger.debug(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
+
+            # HOT-PATH flag — the actual hot-path runs after browser session
+            # setup (post-setup HOT-PATH near agent.run) where the CDP
+            # connection is live.  See "Post-setup HOT-PATH" block below.
+            _hot_path_done = False
+
+            # ── Hot-path: configurable action templates (Option B) ──
+            # Allows users to define custom hot-path triggers and action sequences
+            # in the node editor.  Currently default-bypassed; enable by setting
+            # hotPathActions in the node config.
+            # Config format:
+            #   hotPathActions: [
+            #     {
+            #       "trigger": {"event_type": "chat_message", "has_fields": ["response_text"]},
+            #       "actions": [
+            #         {"tool": "feige_open_session", "args": {"customer_name": "{{customer_name}}"}},
+            #         {"tool": "feige_send_message", "args": {"text": "{{response_text}}"}}
+            #       ]
+            #     }
+            #   ]
+            if not _hot_path_done:
+                try:
+                    _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
+                    _hp_b_actions_list = None
+                    if isinstance(_hp_b_raw, str) and _hp_b_raw.strip():
+                        _hp_b_actions_list = json.loads(_hp_b_raw)
+                    elif isinstance(_hp_b_raw, list):
+                        _hp_b_actions_list = _hp_b_raw
+                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
+                        # Determine current event type and payload fields
+                        _hp_b_evt_type = ""
+                        _hp_b_payload = {}
+                        if isinstance(state, dict):
+                            _hp_b_pr = state.get("prompt_refs")
+                            if isinstance(_hp_b_pr, dict):
+                                _hp_b_evt_str = _hp_b_pr.get("events", "")
+                                if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
+                                    _hp_b_evt = json.loads(_hp_b_evt_str)
+                                    _hp_b_evt_type = _hp_b_evt.get("event_type", "")
+                            _hp_b_input = state.get("input", "")
+                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                                _hp_b_parsed = json.loads(_hp_b_input)
+                                if isinstance(_hp_b_parsed, dict):
+                                    _hp_b_payload = _hp_b_parsed
+
+                        for _hp_b_rule in _hp_b_actions_list:
+                            if not isinstance(_hp_b_rule, dict):
+                                continue
+                            _hp_b_trigger = _hp_b_rule.get("trigger", {})
+                            # Check trigger conditions
+                            if _hp_b_trigger.get("event_type") and _hp_b_trigger["event_type"] != _hp_b_evt_type:
+                                continue
+                            _hp_b_required = _hp_b_trigger.get("has_fields", [])
+                            if not all(f in _hp_b_payload for f in _hp_b_required):
+                                continue
+                            # Trigger matched — execute action sequence
+                            _hp_b_action_seq = _hp_b_rule.get("actions", [])
+                            if not _hp_b_action_seq:
+                                continue
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH-B: trigger matched "
+                                f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
+                                f"executing {len(_hp_b_action_seq)} actions"
+                            )
+                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
+                            _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
+                            _hp_b_session = await _get_or_create_browser_session(
+                                mainwin, state=state, calling_agent_id=calling_agent_id
+                            )
+                            if not _hp_b_session:
+                                logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
+                                break
+                            _hp_b_all_ok = True
+                            import asyncio as _hp_b_asyncio
+                            for _hp_b_act in _hp_b_action_seq:
+                                _hp_b_tool_name = _hp_b_act.get("tool", "")
+                                _hp_b_args_tpl = _hp_b_act.get("args", {})
+                                # Resolve {{field}} placeholders from payload
+                                _hp_b_args = {}
+                                for _ak, _av in _hp_b_args_tpl.items():
+                                    if isinstance(_av, str) and _av.startswith("{{") and _av.endswith("}}"):
+                                        _field = _av[2:-2].strip()
+                                        _hp_b_args[_ak] = str(_hp_b_payload.get(_field, ""))
+                                    else:
+                                        _hp_b_args[_ak] = _av
+                                _hp_b_act_obj = _hp_b_actions_reg.get(_hp_b_tool_name)
+                                if not _hp_b_act_obj:
+                                    logger.warning(f"[BrowserAutomation] HOT-PATH-B: tool '{_hp_b_tool_name}' not found")
+                                    _hp_b_all_ok = False
+                                    break
+                                _hp_b_param_model = _hp_b_act_obj.param_model
+                                _hp_b_params = _hp_b_param_model(**_hp_b_args)
+                                # Call with browser_session if the function expects it
+                                import inspect as _hp_b_inspect
+                                _hp_b_sig = _hp_b_inspect.signature(_hp_b_act_obj.function)
+                                if "browser_session" in _hp_b_sig.parameters:
+                                    _hp_b_result = await _hp_b_act_obj.function(
+                                        params=_hp_b_params, browser_session=_hp_b_session
+                                    )
+                                else:
+                                    _hp_b_result = await _hp_b_act_obj.function(params=_hp_b_params)
+                                _hp_b_ok = _hp_b_result and not getattr(_hp_b_result, "error", None)
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → "
+                                    f"{'OK' if _hp_b_ok else 'FAIL'}"
+                                )
+                                if not _hp_b_ok:
+                                    _hp_b_all_ok = False
+                                    break
+                                await _hp_b_asyncio.sleep(0.3)
+                            if _hp_b_all_ok:
+                                state.setdefault("result", {})["llm_result"] = {
+                                    "all_done": False, "work_done": False,
+                                    "hot_path": True, "hot_path_type": "configurable",
+                                }
+                                logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={node_name}")
+                                return state
+                            break  # Only try first matching rule
+                except Exception as _hp_b_err:
+                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}")
 
             if skill_name == "rt_chat_bot":
                 assignment_scope = _extract_assignment_scope(runtime_input)
@@ -8256,9 +8671,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if browser_type_setting == 'new chromium':
                 # Mode 1: Let browser-use create and manage its own Chromium browser
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
-                agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                _bu_scope_key = _resolve_browser_scope_key(state)
+                _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
+                if _cached_bu_agent is not None:
+                    _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
+                    agent = _cached_bu_agent
+                    logger.info(f"[BrowserAutomation] Reusing cached browser-use agent (scope={_bu_scope_key}, mode={loop_history_mode})")
+                else:
+                    agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                    if hasattr(agent, 'AgentOutput'):
+                        agent._ecan_full_AgentOutput = agent.AgentOutput
+                    _cached_bu_agents[_bu_scope_key] = agent
+                    logger.info(f"[BrowserAutomation] Created new browser-use agent and cached (scope={_bu_scope_key})")
                 _agent_ref["agent"] = agent
-                
+
             else:
                 # Mode 2: Connect to existing browser via CDP
                 logger.info(f"[BrowserAutomation] Mode: existing browser - connecting via CDP (type={browser_type_setting}, driver={browser_driver_setting})")
@@ -8497,8 +8923,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
 
-                    # Create agent with existing browser session
-                    agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                    # Reuse cached browser-use sub-agent if available (avoids per-cycle
+                    # re-init overhead and the ~860 MB allocation spike).
+                    _bu_scope_key = _resolve_browser_scope_key(state)
+                    _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
+                    if _cached_bu_agent is not None:
+                        _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
+                        # Re-bind the session in case it was recreated by the preflight above.
+                        try:
+                            _cached_bu_agent.browser_session = browser_session
+                        except Exception:
+                            pass
+                        agent = _cached_bu_agent
+                        logger.info(
+                            f"[BrowserAutomation] Reusing cached browser-use agent "
+                            f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
+                        )
+                    else:
+                        # First iteration for this task — create a new agent and cache it.
+                        agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                        # Save the full AgentOutput so _reset_bu_agent_for_next_round
+                        # can restore it after browser-use clobbers it on max_steps/failures.
+                        if hasattr(agent, 'AgentOutput'):
+                            agent._ecan_full_AgentOutput = agent.AgentOutput
+                        _cached_bu_agents[_bu_scope_key] = agent
+                        logger.info(
+                            f"[BrowserAutomation] Created new browser-use agent and cached "
+                            f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
+                        )
                     _agent_ref["agent"] = agent
                 else:
                     # Fallback: browser session creation failed or unsupported driver
@@ -8687,6 +9139,129 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _frontdesk_fastpath_result = await _maybe_run_frontdesk_dispatch_fastpath(agent)
             if _frontdesk_fastpath_result is not None:
                 return _frontdesk_fastpath_result
+
+            # ── HOT-PATH: chat_message reply bypass ──
+            # When a chat_message arrives with a structured {response_text,
+            # customer_name} payload, skip the LLM entirely and call the
+            # registered chat adapter tools directly (e.g. *_open_session →
+            # *_send_message).  This cuts Phase-2 latency from ~15s (LLM think
+            # + multi-step) to ~2s (two direct tool calls).
+            #
+            # Placed here (after browser session setup) so the CDP connection
+            # is live and the feige tools can execute JS on the page.
+            if not _hot_path_done:
+                try:
+                    _hp2_response_text = ""
+                    _hp2_customer_name = ""
+                    if isinstance(state, dict):
+                        _hp2_raw = _extract_runtime_invocation_input(state)
+                        if _hp2_raw:
+                            try:
+                                _hp2_parsed = json.loads(_hp2_raw)
+                                if isinstance(_hp2_parsed, dict):
+                                    _hp2_response_text = str(_hp2_parsed.get("response_text", "")).strip()
+                                    _hp2_customer_name = str(
+                                        _hp2_parsed.get("customer_name")
+                                        or _hp2_parsed.get("customer_id")
+                                        or ""
+                                    ).strip()
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                    if _hp2_response_text and _hp2_customer_name:
+                        _hp2_session = getattr(agent, "browser_session", None)
+                        if _hp2_session:
+                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp2_ctrl
+                            _hp2_actions = _hp2_ctrl.registry.registry.actions
+                            _hp2_open_fn = None
+                            _hp2_send_fn = None
+                            _hp2_open_name = ""
+                            _hp2_send_name = ""
+                            for _act_name, _act_obj in _hp2_actions.items():
+                                if _act_name.endswith("_open_session"):
+                                    _hp2_open_fn = _act_obj
+                                    _hp2_open_name = _act_name
+                                elif _act_name.endswith("_send_message"):
+                                    _hp2_send_fn = _act_obj
+                                    _hp2_send_name = _act_name
+                            if _hp2_open_fn and _hp2_send_fn:
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH: retrying with live session. "
+                                    f"customer={_hp2_customer_name}, "
+                                    f"tools={_hp2_open_name}+{_hp2_send_name}, node={node_name}"
+                                )
+                                send_skill_editor_log(
+                                    "log",
+                                    f"[BrowserAutomation] HOT-PATH: direct reply to "
+                                    f"{_hp2_customer_name} (skipping LLM)"
+                                )
+                                _hp2_open_params = _hp2_open_fn.param_model(customer_name=_hp2_customer_name)
+                                _hp2_send_params = _hp2_send_fn.param_model(text=_hp2_response_text)
+                                # Call open_session
+                                _hp2_open_result = await _hp2_open_fn.function(
+                                    params=_hp2_open_params, browser_session=_hp2_session
+                                )
+                                _hp2_open_ok = (
+                                    _hp2_open_result
+                                    and not getattr(_hp2_open_result, "error", None)
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH: {_hp2_open_name} → "
+                                    f"{'OK' if _hp2_open_ok else 'FAIL'}: "
+                                    f"{getattr(_hp2_open_result, 'extracted_content', '') or getattr(_hp2_open_result, 'error', '')}"
+                                )
+                                if _hp2_open_ok:
+                                    await asyncio.sleep(0.5)
+                                    _hp2_send_result = await _hp2_send_fn.function(
+                                        params=_hp2_send_params, browser_session=_hp2_session
+                                    )
+                                    _hp2_send_ok = (
+                                        _hp2_send_result
+                                        and not getattr(_hp2_send_result, "error", None)
+                                    )
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH: {_hp2_send_name} → "
+                                        f"{'OK' if _hp2_send_ok else 'FAIL'}: "
+                                        f"{getattr(_hp2_send_result, 'extracted_content', '') or getattr(_hp2_send_result, 'error', '')}"
+                                    )
+                                    if _hp2_send_ok:
+                                        _hot_path_done = True
+                                        state.setdefault("result", {})["llm_result"] = {
+                                            "all_done": False,
+                                            "work_done": False,
+                                            "hot_path": True,
+                                            "action": f"{_hp2_open_name}+{_hp2_send_name}",
+                                            "customer": _hp2_customer_name,
+                                        }
+                                        # Clear response data to prevent duplicate sends
+                                        state["input"] = ""
+                                        if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+                                            state["messages"][4] = ""
+                                        try:
+                                            _hp2_attrs = state.get("attributes")
+                                            if isinstance(_hp2_attrs, dict):
+                                                _hp2_attrs.pop("params", None)
+                                        except Exception:
+                                            pass
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
+                                            f"{_hp2_customer_name} (~1s, LLM bypassed), node={node_name}"
+                                        )
+                                        send_skill_editor_log(
+                                            "log",
+                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
+                                            f"{_hp2_customer_name} (LLM bypassed)"
+                                        )
+                                        return state
+                                if not _hot_path_done:
+                                    logger.warning(
+                                        f"[BrowserAutomation] HOT-PATH: tool call failed, "
+                                        f"falling back to LLM. node={node_name}"
+                                    )
+                except Exception as _hp2_err:
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH: failed (non-fatal, "
+                        f"falling back to LLM): {_hp2_err}"
+                    )
 
             # Register current agent instance so extension tools (e.g. list_files)
             # can auto-authorize discovered file paths for later read_long_content/read_file calls.
@@ -8978,6 +9553,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         logger.debug(f"[TokenTracker] BrowserUse: no usage summary in history ({len(getattr(history, 'history', []))} steps)")
                 except Exception as _bu_tk_err:
                     logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
+
+                # ── Clear consumed response_text from all state sources ──
+                # After the LLM processes a chat_message response, clear it so
+                # subsequent browser_event cycles don't re-inject and re-send it.
+                if _runtime_had_response_text:
+                    state["input"] = ""
+                    if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
+                        state["messages"][4] = ""
+                    try:
+                        _clr_attrs = state.get("attributes")
+                        if isinstance(_clr_attrs, dict):
+                            _clr_attrs.pop("params", None)
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"[BrowserAutomation] Cleared consumed response_text from state "
+                        f"(node={node_name}, skill={skill_name})"
+                    )
 
                 return {"final": final, "history": str(history)}
             except asyncio.CancelledError:
