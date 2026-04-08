@@ -82,6 +82,7 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     # ID field with auto-generation
     id = Column(String(64), primary_key=True, default=lambda: f"skill_{uuid.uuid4().hex[:16]}")
     askid = Column(BigInteger, default=0)
+    cloud_id = Column(String(64), nullable=True)  # Cloud UUID for cross-reference
     name = Column(String(128), nullable=False)
     owner = Column(String(128), nullable=False)
     description = Column(Text)

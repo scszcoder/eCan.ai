@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional, Dict
+from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 import json
 import socket
 import requests
@@ -410,6 +410,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
 
 def _sync_runtime_task_skill(
     task_id: str,
+    agent_id: str,
     request: Optional[Dict] = None,
     params: Optional[Dict] = None,
     preferred_skill_ids: Optional[list] = None,
@@ -478,10 +479,29 @@ def _sync_runtime_task_skill(
             )
             return False
 
+        # ── Build a quick lookup of task_id → ManagedTask from mainwin.agent_tasks ──
+        mainwin_tasks_by_id: Dict[str, Any] = {}
+        mw_agent_tasks = ctx.get_agent_tasks() if ctx else []
+        for mt in mw_agent_tasks:
+            tid = getattr(mt, 'id', None)
+            if tid:
+                mainwin_tasks_by_id[tid] = mt
+
+        # ── Sync compiled skill into agent.tasks (agent-level) ──────────────────
         updated = 0
         agents = ctx.get_agents() if ctx else []
         for agent in agents or []:
+            aid = getattr(getattr(agent, 'card', None), 'id', None)
+            if aid != agent_id:
+                continue  # Skip agents that don't own this task
+
             agent_tasks = getattr(agent, 'tasks', None) or []
+            # Ensure agent.tasks is writable
+            if not isinstance(agent_tasks, list):
+                agent_tasks = []
+                agent.tasks = agent_tasks
+
+            task_found = False
             for t in agent_tasks:
                 if getattr(t, 'id', None) == task_id:
                     t.skill = compiled_skill
@@ -492,6 +512,42 @@ def _sync_runtime_task_skill(
                     if isinstance(current_state, dict):
                         t.state = _clear_skill_runtime_markers({'state': current_state}).get('state', {})
                     updated += 1
+                    task_found = True
+
+            # If the UI task is not in this agent's tasks yet, pull from mainwin pool.
+            # This is the core fix for "skill not triggered" — UI tasks (task_type=local)
+            # are never loaded into agent.tasks by agent_converter, so they are
+            # invisible to _ensure_chatter_task.
+            if not task_found and task_id in mainwin_tasks_by_id:
+                ui_task = mainwin_tasks_by_id[task_id]
+                if getattr(ui_task, 'skill', None) is None or \
+                   not getattr(ui_task.skill, 'runnable', None):
+                    ui_task.skill = compiled_skill
+                    current_metadata = getattr(ui_task, 'metadata', {}) or {}
+                    if isinstance(current_metadata, dict):
+                        ui_task.metadata = _clear_skill_runtime_markers(current_metadata)
+                    current_state = getattr(ui_task, 'state', None)
+                    if isinstance(current_state, dict):
+                        ui_task.state = _clear_skill_runtime_markers({'state': current_state}).get('state', {})
+                    # Also ensure 'message' trigger is present for chat routing
+                    triggers = getattr(ui_task, 'trigger', []) or []
+                    if isinstance(triggers, str):
+                        triggers = [t.strip() for t in triggers.split(',')]
+                    if 'message' not in triggers:
+                        triggers = list(triggers) + ['message']
+                        ui_task.trigger = triggers
+                    logger.info(
+                        f"[task_handler] ✅ Backfilled UI task into agent.tasks: "
+                        f"task_id={task_id}, task_name={getattr(ui_task, 'name', '')}, agent_id={agent_id}"
+                    )
+                    agent_tasks.append(ui_task)
+                    updated += 1
+                    task_found = True
+                else:
+                    logger.debug(
+                        f"[task_handler] ✅ UI task already has runnable skill (no append needed): "
+                        f"task_id={task_id}, skill={getattr(ui_task.skill, 'name', '')}"
+                    )
 
             # Runner may hold task refs in a dict as well
             runner = getattr(agent, 'runner', None)
@@ -1006,7 +1062,11 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
 
             # Step 2: Update memory after database update succeeds
             _update_agent_task_in_memory(actual_agent_task_id, agent_task_data)
-            _sync_runtime_task_skill(actual_agent_task_id, request=request, params=params, preferred_skill_ids=skill_ids)
+            _sync_runtime_task_skill(
+                actual_agent_task_id,
+                agent_id=agent_task_info.get('agent_id') if isinstance(agent_task_info, dict) else '',
+                request=request, params=params, preferred_skill_ids=skill_ids
+            )
 
             # Step 3: Clean up offline sync queue for this task (remove pending add/update operations)
             try:
@@ -1130,7 +1190,11 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
             # Step 2: Update memory after database creation succeeds
             _update_agent_task_in_memory(agent_task_id, agent_task_data)
-            _sync_runtime_task_skill(agent_task_id, request=request, params=params, preferred_skill_ids=skill_ids)
+            _sync_runtime_task_skill(
+                agent_task_id,
+                agent_id=agent_task_info.get('agent_id') if isinstance(agent_task_info, dict) else '',
+                request=request, params=params, preferred_skill_ids=skill_ids
+            )
 
             # Step 3: Sync to cloud after memory update succeeds (async, fire and forget)
             task_data_with_id = agent_task_data.copy()
@@ -1790,41 +1854,47 @@ def handle_query_agent_task_skill_rels(request: IPCRequest, params: Optional[Dic
         logger.info(f"[query_agent_task_skill_rels] Found {len(local_rels)} local relationships"
                     + (f" for task_id={task_id_filter}" if task_id_filter else ""))
 
-        if local_rels:
-            return create_success_response(request, local_rels)
-
-        # ── Cloud fallback (only when no local results and token available) ───
+        # ── Cloud supplement: always fetch (local rels may be stale) ────────────
         ctx = get_handler_context(request, params)
         token = ctx.get_auth_token() if ctx else None
-        if not token:
-            return create_success_response(request, [])
+        cloud_rels: list = []
 
-        try:
-            from agent.cloud_api.cloud_api import (
-                send_query_task_skill_relations_to_cloud,
-                get_appsync_endpoint,
-            )
-            endpoint = get_appsync_endpoint()
-            session = requests.Session()
-            if not q_settings:
-                username = resolve_username(request, params)
-                q_settings = {'byowneruser': True}
+        if token:
+            try:
+                from agent.cloud_api.cloud_api import (
+                    send_query_task_skill_relations_to_cloud,
+                    get_appsync_endpoint,
+                )
+                endpoint = get_appsync_endpoint()
+                session = requests.Session()
+                cloud_settings = q_settings or {'byowneruser': True}
 
-            result = send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoint)
-            if isinstance(result, list):
-                relationships = result
-            elif isinstance(result, dict):
-                if 'errorType' in result:
-                    logger.warning(f"[query_agent_task_skill_rels] Cloud API error: {result.get('message')}")
-                    return create_success_response(request, [])
-                relationships = result.get('items', result.get('relationships', []))
-            else:
-                relationships = []
-            logger.info(f"[query_agent_task_skill_rels] Cloud fallback: {len(relationships)} relationships")
-            return create_success_response(request, relationships)
-        except Exception as cloud_err:
-            logger.warning(f"[query_agent_task_skill_rels] Cloud query failed: {cloud_err}")
-            return create_success_response(request, [])
+                result = send_query_task_skill_relations_to_cloud(session, token, cloud_settings, endpoint)
+                if isinstance(result, list):
+                    cloud_rels = result
+                elif isinstance(result, dict):
+                    if 'errorType' in result:
+                        logger.warning(f"[query_agent_task_skill_rels] Cloud API error: {result.get('message')}")
+                    else:
+                        cloud_rels = result.get('items', result.get('relationships', []))
+                logger.info(f"[query_agent_task_skill_rels] Cloud returned {len(cloud_rels)} relationships")
+            except Exception as cloud_err:
+                logger.warning(f"[query_agent_task_skill_rels] Cloud query failed: {cloud_err}")
+
+        # ── Merge: local wins on (task_id, skill_id) ───────────────────────────
+        merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for rel in local_rels:
+            key = (str(rel.get('task_id') or '').strip(), str(rel.get('skill_id') or '').strip())
+            if key[0] and key[1]:
+                merged[key] = rel
+        for rel in cloud_rels:
+            key = (str(rel.get('task_id') or '').strip(), str(rel.get('skill_id') or '').strip())
+            if key[0] and key[1] and key not in merged:
+                merged[key] = rel
+
+        final_rels = list(merged.values())
+        logger.info(f"[query_agent_task_skill_rels] Merged result: {len(final_rels)} (local={len(local_rels)}, cloud={len(cloud_rels)}, deduped={len(final_rels) < len(local_rels) + len(cloud_rels)})")
+        return create_success_response(request, final_rels)
 
     except Exception as e:
         logger.error(f"Error in query agent task-skill relationships handler: {e}")

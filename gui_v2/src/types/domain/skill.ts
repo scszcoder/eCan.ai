@@ -73,6 +73,8 @@ export interface Skill {
   // Primary key and identifier
   id: string;
   askid?: number;
+  /** Cloud UUID when synced; used with local id to avoid duplicate list entries */
+  cloud_id?: string;
 
   // Basic information
   name: string;
