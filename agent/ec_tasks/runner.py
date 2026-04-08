@@ -822,26 +822,14 @@ class TaskRunner(Generic[Context]):
                 else:
                     routing_key_name = et
 
-                if et in {"chat_message", "human_chat", "channel_message"} and not task_session_id:
-                    existing_rule = self._global_event_routing.get(routing_key_name)
-                    if isinstance(existing_rule, dict):
-                        existing_chain = existing_rule.get("_rule_chain")
-                        if isinstance(existing_chain, list):
-                            filtered_chain = [
-                                r for r in existing_chain
-                                if not (isinstance(r, dict) and r.get("_auto_added_by_task") == task.id)
-                            ]
-                            if filtered_chain:
-                                self._global_event_routing[routing_key_name] = {"_rule_chain": filtered_chain}
-                            else:
-                                self._global_event_routing.pop(routing_key_name, None)
-                        elif existing_rule.get("_auto_added_by_task") == task.id:
-                            self._global_event_routing.pop(routing_key_name, None)
-                    logger.info(
-                        f"[EventRouting] Removed/skipped generic chat routing for task '{task.name}' with no sessionId"
-                    )
-                    amended = True
-                    continue
+                # Session-less chat tasks (no session_id) DO get a routing rule — they act as
+                # catch-all handlers that accept messages for any session not already owned by a
+                # session-specific task. The router's session-filter logic (in _resolve_event_routing)
+                # prefers session-specific tasks and only falls back to session-less ones when no
+                # session match exists. The pend_event node's own agentIds / match_fields do the
+                # final filtering after the message lands in the task queue.
+                # NOTE: browser_event tasks have always followed this pattern (never skipped for
+                # session-less). chat_message now follows the same principle.
 
                 # NOTE: browser_event routing is NOT skipped when sessionId is absent.
                 # Unlike chat messages, browser events (e.g. conversation_became_active
@@ -911,11 +899,16 @@ class TaskRunner(Generic[Context]):
                         f"(chatId -> sessionId='{task_session_id}') -> task '{task.name}'"
                     )
                 elif et in {"chat_message", "human_chat", "channel_message"} and not task_session_id:
+                    # Session-less chat tasks act as catch-all handlers. The router's
+                    # session-filter logic prefers session-specific tasks and only falls
+                    # back to session-less ones when no session match exists.
+                    if node_match_fields:
+                        rule["match_fields"] = list(node_match_fields)
+                        rule["match_mode"] = "all"
                     logger.info(
-                        f"[EventRouting] Skipping generic chat routing rule for task '{task.name}' "
-                        f"because it has no sessionId; fallback session-scoped chatter routing will handle assignment"
+                        f"[EventRouting] Added session-less chat routing rule: event '{et}' "
+                        f"-> task '{task.name}' (catch-all, {len(node_match_fields)} match fields)"
                     )
-                    continue
                 elif node_match_fields:
                     # Use match_fields from the node config for declarative matching
                     rule["match_fields"] = node_match_fields
@@ -1342,13 +1335,31 @@ class TaskRunner(Generic[Context]):
                         if self._get_task_session_id(t) == event_session_id
                     ]
                     if session_candidates:
+                        # Prefer session-specific tasks (exact match).
                         candidates = session_candidates
                     else:
-                        logger.debug(
-                            f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' "
-                            f"matched only non-session tasks; skipping because event session_id='{event_session_id}'"
-                        )
-                        continue
+                        # No session-specific task owns this session yet.
+                        # Fall back to session-less tasks (no session_id set) — they act as
+                        # catch-all handlers and do their own filtering via pend_event agentIds /
+                        # match_fields. This mirrors how browser_event tasks work: session-less
+                        # does not mean "unreachable", it means "accepts any session".
+                        sessionless_candidates = [
+                            t for t in candidates
+                            if not self._get_task_session_id(t)
+                        ]
+                        if sessionless_candidates:
+                            candidates = sessionless_candidates
+                            logger.debug(
+                                f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}': "
+                                f"no session-specific task for session='{event_session_id}', "
+                                f"falling back to {len(sessionless_candidates)} session-less candidate(s)"
+                            )
+                        else:
+                            logger.debug(
+                                f"[ROUTING] Rule candidate {idx}/{len(candidate_rules)} for '{etype}' "
+                                f"has no match for session='{event_session_id}' and no session-less fallback"
+                            )
+                            continue
 
                 match_fields = candidate_rule.get("match_fields")
                 if isinstance(match_fields, list) and match_fields:
@@ -2217,7 +2228,7 @@ class TaskRunner(Generic[Context]):
         has_auto = "auto" in triggers
         # Consolidate all message-based triggers (message, a2a_queue, chat_queue, interaction) into one
         has_message = "message" in triggers or any(t in triggers for t in ("a2a_queue", "chat_queue", "interaction"))
-        has_queue = has_message or has_dev
+        has_queue = has_message or has_dev or has_auto
         
         # --- Dev mode: initial kickoff ---
         if has_dev and current_task:
@@ -2251,16 +2262,25 @@ class TaskRunner(Generic[Context]):
         
         # --- Message queue triggers ---
         if has_queue and current_task:
+            # Don't dequeue while the task is actively working — the message
+            # would just bounce (dequeue → guard blocks → re-queue → repeat).
+            # Wait until the task is idle (input_required / completed / failed)
+            # so the next dequeue can actually be processed.
+            _cur_state = getattr(getattr(current_task, "status", None), "state", None)
+            if _cur_state == TaskState.working:
+                if self._stop_event.wait(timeout=0.5):
+                    return None, None, False
+                return current_task, None, False
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
                 msg = current_task.queue.get(timeout=timeout)
-                
+
                 # Tag the message with trigger source
                 if isinstance(msg, dict):
                     msg["__trigger_source__"] = "message"
-                
+
                 return current_task, msg, True
-                
+
             except Empty:
                 # Check timeout for pending tasks
                 primary_trigger = "dev" if has_dev else "message" if has_message else triggers[0]
@@ -2396,11 +2416,44 @@ class TaskRunner(Generic[Context]):
         # an interrupt. Do NOT re-run unless there's actual new input from the user.
         _task_state = task.status.state
         _is_input_required = _task_state == TaskState.input_required
+        _is_working = _task_state == TaskState.working
         logger.info(
             f"[SUBMIT][{_call_id}] Guard check for '{task.name}': "
-            f"state={_task_state!r}, is_input_required={_is_input_required}"
+            f"state={_task_state!r}, is_input_required={_is_input_required}, is_working={_is_working}"
         )
-        if _is_input_required:
+        # Allow through if the message carries actual event data (browser_event,
+        # chat_message, etc.) — these should resume the interrupted pend_event.
+        _has_real_message = (
+            isinstance(msg, dict)
+            and msg.get("__trigger_source__") == "message"
+            and not msg.get("__auto_kickoff__")
+        )
+        # Block re-submission while already working. A second concurrent execution
+        # shares the cached browser-use agent object and other module-level state,
+        # causing unpredictable interference. The event is already in task.queue
+        # and will be picked up on the next pend_event cycle.
+        if _is_working and not _has_real_message:
+            logger.warning(
+                f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r} "
+                f"(already working, event will be processed in next cycle)"
+            )
+            return
+        if _is_working and _has_real_message:
+            logger.info(
+                f"[SUBMIT][{_call_id}] Guard: task '{task.name}' is working but received real message — "
+                f"re-queueing for next pend_event cycle"
+            )
+            # Don't start a second execution — but the message was already consumed
+            # from task.queue by _get_next_work_item(), so we must put it back.
+            # Otherwise it is silently dropped and the next pend_event cycle never
+            # sees it, leaving the customer without a reply.
+            try:
+                task.queue.put_nowait(msg)
+                logger.info(f"[SUBMIT][{_call_id}] Re-queued message for '{task.name}'")
+            except Exception as _requeue_err:
+                logger.error(f"[SUBMIT][{_call_id}] Failed to re-queue message for '{task.name}': {_requeue_err}")
+            return
+        if _is_input_required and not _has_real_message:
             logger.warning(
                 f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r}"
             )
@@ -2410,6 +2463,11 @@ class TaskRunner(Generic[Context]):
             except Exception as e:
                 logger.error(f"[SUBMIT][{_call_id}] Error in guard emit/return for '{task.name}': {e}")
             return
+        if _is_input_required and _has_real_message:
+            logger.info(
+                f"[SUBMIT][{_call_id}] Guard bypassed for '{task.name}' — "
+                f"real message arrived while parked on interrupt, will resume"
+            )
 
         # Initialize task state
         logger.info(f"[SUBMIT][{_call_id}] Guard passed for '{task.name}', proceeding to submit...")

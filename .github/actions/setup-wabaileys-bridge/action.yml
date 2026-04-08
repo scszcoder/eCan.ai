@@ -6,7 +6,7 @@ inputs:
   node-version:
     description: 'Node.js version'
     required: false
-    default: '18'
+    default: '20'
   bridge-dir:
     description: 'Path to the wabaileys-bridge directory'
     required: false
@@ -58,7 +58,7 @@ runs:
       if: steps.check_source.outputs.source_exists == 'true'
       working-directory: ${{ inputs.bridge-dir }}
       shell: bash
-      timeout-minutes: 10
+      # timeout-minutes is not supported in composite action steps
       run: |
         echo "=== Installing wa_bridge Dependencies ==="
         echo "Bridge dir: ${{ inputs.bridge-dir }}"
@@ -83,7 +83,7 @@ runs:
       if: steps.check_source.outputs.source_exists == 'true'
       working-directory: ${{ inputs.bridge-dir }}
       shell: bash
-      timeout-minutes: 5
+      # timeout-minutes not supported in composite actions
       run: |
         echo "=== Verifying pkg availability ==="
         
@@ -105,7 +105,7 @@ runs:
       if: steps.check_source.outputs.source_exists == 'true'
       working-directory: ${{ inputs.bridge-dir }}
       shell: bash
-      timeout-minutes: 5
+      # timeout-minutes not supported in composite actions
       run: |
         echo "=== Verifying esbuild availability ==="
         
@@ -162,7 +162,7 @@ runs:
       if: steps.check_source.outputs.source_exists == 'true'
       working-directory: ${{ inputs.bridge-dir }}
       shell: bash
-      timeout-minutes: 15
+      # timeout-minutes not supported in composite actions
       env:
         PKG_TARGET: ${{ steps.pkg_target.outputs.pkg_target }}
       run: |

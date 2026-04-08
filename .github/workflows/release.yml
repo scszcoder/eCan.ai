@@ -694,7 +694,7 @@ jobs:
     - name: Setup WhatsApp Baileys Bridge Environment
       uses: ./.github/actions/setup-wabaileys-bridge
       with:
-        node-version: '18'
+        node-version: '20'
         bridge-dir: wabaileys-bridge
 
     # ------------------------------------------------------------------------
@@ -1572,7 +1572,7 @@ jobs:
       if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-wabaileys-bridge
       with:
-        node-version: '18'
+        node-version: '20'
         bridge-dir: wabaileys-bridge
 
     # ------------------------------------------------------------------------
@@ -2183,7 +2183,7 @@ jobs:
     - name: Setup WhatsApp Baileys Bridge Environment
       uses: ./.github/actions/setup-wabaileys-bridge
       with:
-        node-version: '18'
+        node-version: '20'
         bridge-dir: wabaileys-bridge
 
     - name: Install Linux system dependencies

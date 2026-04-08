@@ -153,13 +153,16 @@ class TaskExecutor:
         # Align config thread_id with context id
         effective_config["configurable"].setdefault("thread_id", context.get("id"))
         
+        # Always inject task identifiers into context so node_builder broadcasts
+        # on the same channel_id as the executor (fixes dual-channel issue).
+        context.setdefault("run_id", getattr(self.task, "run_id", "") or "")
+        context.setdefault("task_id", getattr(self.task, "id", "") or "")
+        context.setdefault("task_name", getattr(self.task, "name", "") or "")
+
         # Inject task lineage into context for nested task progress tracking
         lineage = self.task.metadata.get("lineage") if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict) else None
         if isinstance(lineage, dict) and lineage.get("correlation_id"):
             context["lineage"] = lineage
-            context.setdefault("run_id", getattr(self.task, "run_id", "") or "")
-            context.setdefault("task_id", getattr(self.task, "id", "") or "")
-            context.setdefault("task_name", getattr(self.task, "name", "") or "")
         
         return effective_config, context
     
@@ -872,11 +875,17 @@ def execute_task_hybrid(
     # Check environment variable for async mode (can be overridden)
     env_async = os.getenv("ECAN_ASYNC_EXECUTION", "true").lower() in ("1", "true", "yes", "on")
     use_async = use_async and env_async
-    
+
+    import threading as _th
+    _hybrid_thr = _th.current_thread().name
+    _task_name = getattr(task, 'name', '?')
+    _task_run_id = getattr(task, 'run_id', '?')
+    logger.info(f"[HYBRID] execute_task_hybrid called: task={_task_name}, run_id={_task_run_id}, thread={_hybrid_thr}, use_async={use_async}, executor_id={id(task)}")
+
     executor = TaskExecutor(task)
-    
+
     if not use_async:
-        logger.debug("[HYBRID] Using sync execution (async disabled)")
+        logger.info(f"[HYBRID] Using SYNC execution: task={_task_name}, thread={_hybrid_thr}")
         return executor.stream_run(in_msg, **kwargs)
     
     # Try async execution with fallback

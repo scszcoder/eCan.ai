@@ -784,6 +784,14 @@
       "monitorDonePolicies": {
         "keep": "保持监控运行",
         "stop": "停止监控"
+      },
+      "loopHistoryMode": "循环历史",
+      "loopHistoryModes": {
+        "clear": "每轮清空（默认）",
+        "trim5": "保留最近5步",
+        "trim10": "保留最近10步",
+        "trim20": "保留最近20步",
+        "accumulate": "跨轮累积"
       }
     }
   },
