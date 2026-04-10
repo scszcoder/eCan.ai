@@ -6979,18 +6979,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     ]
                     if _evt_label:
                         _evt_lines.append(f"Event label: **{_evt_label}**")
-                    _is_new_msg_event = (
-                        _evt_type == "browser_event"
-                        and _evt_label in ("chat_message_added", "新消息")
-                    )
-                    if _is_new_msg_event:
+                    if _evt_type == "browser_event":
                         _new_msg_hint = (
-                            "The DOM monitor detected a NEW or CHANGED item in the sidebar. "
-                            "A new message or state change has occurred — you MUST process it. "
-                            "Do NOT assume prior work is still valid; re-check the current state."
+                            "The DOM monitor detected a change in the watched region"
+                            + (f" (label: {_evt_label})" if _evt_label else "")
+                            + ". A new item or state change has occurred — you MUST "
+                            "process it. Do NOT assume prior work is still valid; "
+                            "re-check the current state."
                         )
                         # Inject raw event body items so the LLM has the current
-                        # sidebar snapshot without needing to call a list tool.
+                        # snapshot without needing to call a list tool.
                         try:
                             _evt_items = None
                             # Path 1: context.params.body (legacy)
@@ -7008,16 +7006,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     if isinstance(_be_body, dict):
                                         _evt_items = _be_body.get("items", [])
                             if isinstance(_evt_items, list) and _evt_items:
-                                # Compact each item to key fields only
+                                # Strip heavy fields (avatars, URLs) but keep
+                                # everything else — no domain-specific filtering.
+                                _skip_keys = {"avatar_url", "avatar", "image_url", "icon_url"}
                                 _compact_items = []
                                 for _it in _evt_items:
                                     if not isinstance(_it, dict):
                                         continue
-                                    _ci = {}
-                                    for _k in ("customer_name", "name", "last_message",
-                                               "unread_badge", "unread", "tags", "timestamp"):
-                                        if _k in _it and _it[_k] not in (None, "", []):
-                                            _ci[_k] = _it[_k]
+                                    _ci = {
+                                        k: v for k, v in _it.items()
+                                        if k not in _skip_keys
+                                        and v not in (None, "", [])
+                                    }
                                     if _ci:
                                         _compact_items.append(_ci)
                                 if _compact_items:
@@ -7025,12 +7025,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                         _compact_items, ensure_ascii=False, indent=2
                                     )
                                     _new_msg_hint += (
-                                        f"\n\nCurrent sidebar snapshot ({len(_compact_items)} items):"
+                                        f"\n\nCurrent snapshot ({len(_compact_items)} items):"
                                         f"\n```json\n{_items_json}\n```"
                                     )
                                     logger.info(
                                         f"[BrowserAutomation] Injected {len(_compact_items)} "
-                                        f"sidebar items into event hint (node={node_name})"
+                                        f"event items into task hint (node={node_name})"
                                     )
                         except Exception:
                             pass
