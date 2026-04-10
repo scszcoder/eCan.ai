@@ -6966,6 +6966,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # metadata so the LLM knows WHY this invocation was triggered.
             try:
                 _event_json = ""
+                _evt = None
+                _evt_type = ""
+                _evt_ctx = {}
+                _evt_label = ""
                 if isinstance(state, dict):
                     _pr = state.get("prompt_refs")
                     if isinstance(_pr, dict):
@@ -6974,10 +6978,29 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _evt = json.loads(_event_json)
                     _evt_type = _evt.get("event_type", "")
                     _evt_ctx = _evt.get("context", {}) if isinstance(_evt.get("context"), dict) else {}
+                # Fallback: if prompt_refs.events is empty, try to get event
+                # info from state["browser_event"] or state["attributes"]["browser_event"]
+                # (set by resume.py / pend_event node).
+                if not _evt_type and isinstance(state, dict):
+                    _be_fallback = (
+                        state.get("browser_event")
+                        or (state.get("attributes") or {}).get("browser_event")
+                    )
+                    if isinstance(_be_fallback, dict) and _be_fallback.get("type"):
+                        _evt_type = _be_fallback.get("type", "")
+                        _evt_ctx = {}
+                        _evt = _be_fallback
+                        logger.info(
+                            f"[BrowserAutomation] event injection fallback: "
+                            f"prompt_refs.events was empty, using state browser_event "
+                            f"(type={_evt_type}, sub_type={_be_fallback.get('sub_type', '')})"
+                        )
+                if _evt_type:
                     # sub_type/label may be at top-level OR inside context
                     _evt_label = (
                         _evt_ctx.get("sub_type") or _evt_ctx.get("label")
-                        or _evt.get("sub_type") or _evt.get("label")
+                        or (_evt.get("sub_type") if _evt else "")
+                        or (_evt.get("label") if _evt else "")
                         or ""
                     )
                     _evt_lines = [
@@ -6990,9 +7013,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _new_msg_hint = (
                             "The DOM monitor detected a change in the watched region"
                             + (f" (label: {_evt_label})" if _evt_label else "")
-                            + ". A new item or state change has occurred — you MUST "
-                            "process it. Do NOT assume prior work is still valid; "
-                            "re-check the current state."
+                            + ". A new item or state change has occurred.\n\n"
+                            "**CRITICAL RULES FOR THIS INVOCATION:**\n"
+                            "1. Your memory from previous rounds has been WIPED. You have NO record of any prior dispatches.\n"
+                            "2. Do NOT infer dispatch status from the chat DOM. Previous agent replies visible in the chat thread are for OLDER messages, not the current one.\n"
+                            "3. If the snapshot below shows a customer with a message that looks like a question, you MUST dispatch it — even if you see prior agent replies in the DOM.\n"
+                            "4. The ONLY way a message counts as \"already dispatched\" is if YOU called bu_send_chat for that EXACT message text in THIS round. Seeing prior replies in the chat is NOT evidence of dispatch."
                         )
                         # Inject raw event body items so the LLM has the current
                         # snapshot without needing to call a list tool.
@@ -7038,6 +7064,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     _new_msg_hint += (
                                         f"\n\nCurrent snapshot ({len(_compact_items)} items):"
                                         f"\n```json\n{_items_json}\n```"
+                                    )
+                                    # Add explicit "none dispatched" note to
+                                    # prevent the LLM from falsely claiming
+                                    # items were already handled.
+                                    _new_msg_hint += (
+                                        "\n\n**None of the above items have been dispatched in this round.** "
+                                        "You must process each actionable item from scratch."
                                     )
                                     logger.info(
                                         f"[BrowserAutomation] Injected {len(_compact_items)} "
@@ -7087,7 +7120,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"(event_type={_evt_type}, label={_evt_label}, node={node_name})"
                     )
             except Exception as _evt_inject_err:
-                logger.debug(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
+                logger.info(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
 
             # HOT-PATH flag — the actual hot-path runs after browser session
             # setup (post-setup HOT-PATH near agent.run) where the CDP
