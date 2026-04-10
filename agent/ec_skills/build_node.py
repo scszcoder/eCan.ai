@@ -6404,7 +6404,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         mm_state.context_messages.clear()
 
                     if mode == "clear":
+                        _had_history = False
+                        _had_memory = False
                         if hasattr(mm_state, 'agent_history_items'):
+                            _had_history = len(mm_state.agent_history_items) > 0
                             mm_state.agent_history_items.clear()
                         # Also clear compacted_memory — this is browser-use's
                         # cross-step summary (contains "Memory: ..." entries).
@@ -6412,8 +6415,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # "sc is in pending_dispatches" persists and prevents
                         # the LLM from re-dispatching customers with new messages.
                         if hasattr(mm_state, 'compacted_memory'):
+                            _had_memory = mm_state.compacted_memory is not None
                             mm_state.compacted_memory = None
-                        logger.debug("[BrowserAutomation] loop_history_mode=clear: wiped message_manager history + compacted_memory")
+                        logger.info(
+                            f"[BrowserAutomation] loop_history_mode=clear: wiped message_manager "
+                            f"(had_history={_had_history}, had_compacted_memory={_had_memory})"
+                        )
 
                     elif mode.startswith("trim:"):
                         try:
