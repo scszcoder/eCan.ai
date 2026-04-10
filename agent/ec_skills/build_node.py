@@ -6404,7 +6404,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         mm_state.context_messages.clear()
 
                     if mode == "clear":
+                        _had_history = False
+                        _had_memory = False
                         if hasattr(mm_state, 'agent_history_items'):
+                            _had_history = len(mm_state.agent_history_items) > 0
                             mm_state.agent_history_items.clear()
                         # Also clear compacted_memory — this is browser-use's
                         # cross-step summary (contains "Memory: ..." entries).
@@ -6412,8 +6415,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # "sc is in pending_dispatches" persists and prevents
                         # the LLM from re-dispatching customers with new messages.
                         if hasattr(mm_state, 'compacted_memory'):
+                            _had_memory = mm_state.compacted_memory is not None
                             mm_state.compacted_memory = None
-                        logger.debug("[BrowserAutomation] loop_history_mode=clear: wiped message_manager history + compacted_memory")
+                        logger.info(
+                            f"[BrowserAutomation] loop_history_mode=clear: wiped message_manager "
+                            f"(had_history={_had_history}, had_compacted_memory={_had_memory})"
+                        )
 
                     elif mode.startswith("trim:"):
                         try:
@@ -6979,61 +6986,63 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     ]
                     if _evt_label:
                         _evt_lines.append(f"Event label: **{_evt_label}**")
-                    _is_new_msg_event = (
-                        _evt_type == "browser_event"
-                        and _evt_label in ("chat_message_added", "新消息")
-                    )
-                    if _is_new_msg_event:
+                    if _evt_type == "browser_event":
                         _new_msg_hint = (
-                            "The sidebar detected a NEW or CHANGED customer message. "
-                            "You MUST check the session list for any customer whose last_message "
-                            "has changed since you last dispatched them. If a customer you already "
-                            "dispatched now shows a DIFFERENT latest message, dispatch them AGAIN "
-                            "with the new message — do NOT skip them because they are in pending_dispatches."
+                            "The DOM monitor detected a change in the watched region"
+                            + (f" (label: {_evt_label})" if _evt_label else "")
+                            + ". A new item or state change has occurred — you MUST "
+                            "process it. Do NOT assume prior work is still valid; "
+                            "re-check the current state."
                         )
-                        # Extract added/changed items from event data for more specific guidance.
-                        # The browser_event body may live in context.params.body (old path)
-                        # OR directly in the state's events list / _event_envelope.
+                        # Inject raw event body items so the LLM has the current
+                        # snapshot without needing to call a list tool.
                         try:
-                            _added = None
+                            _evt_items = None
                             # Path 1: context.params.body (legacy)
                             _evt_body = _evt_ctx.get("params", {})
                             if isinstance(_evt_body, dict):
                                 _evt_body_str = _evt_body.get("body", "")
                                 if isinstance(_evt_body_str, str) and _evt_body_str:
                                     _evt_body_parsed = json.loads(_evt_body_str)
-                                    _added = _evt_body_parsed.get("added", [])
-                            # Path 2: state events list (browser_event.body.items)
-                            if not _added and isinstance(state, dict):
-                                _be_data = state.get("browser_event")
+                                    _evt_items = _evt_body_parsed.get("items", [])
+                            # Path 2: state["attributes"]["browser_event"]["body"]["items"]
+                            # (resume.py stores it at attributes.browser_event)
+                            if not _evt_items and isinstance(state, dict):
+                                _be_data = (
+                                    state.get("browser_event")  # top-level (resume_payload)
+                                    or (state.get("attributes") or {}).get("browser_event")  # state_patch path
+                                )
                                 if isinstance(_be_data, dict):
                                     _be_body = _be_data.get("body", {})
                                     if isinstance(_be_body, dict):
-                                        _added = _be_body.get("added") or _be_body.get("changed")
-                                        # If no added/changed, use all items as candidates
-                                        if not _added:
-                                            _all_items = _be_body.get("items", [])
-                                            if isinstance(_all_items, list):
-                                                # Filter to items that look like customer messages
-                                                _added = [
-                                                    it for it in _all_items
-                                                    if isinstance(it, dict)
-                                                    and it.get("customer_name")
-                                                    and it.get("unread_badge")
-                                                ]
-                            if isinstance(_added, list) and _added:
-                                _added_names = [
-                                    str(a.get("customer_name", "?")) for a in _added
-                                    if isinstance(a, dict)
-                                ]
-                                _added_msgs = [
-                                    str(a.get("last_message", "?"))[:60] for a in _added
-                                    if isinstance(a, dict)
-                                ]
-                                _new_msg_hint += (
-                                    f"\n\nChanged customers: {_added_names}"
-                                    f"\nLatest messages: {_added_msgs}"
-                                )
+                                        _evt_items = _be_body.get("items", [])
+                            if isinstance(_evt_items, list) and _evt_items:
+                                # Strip heavy fields (avatars, URLs) but keep
+                                # everything else — no domain-specific filtering.
+                                _skip_keys = {"avatar_url", "avatar", "image_url", "icon_url"}
+                                _compact_items = []
+                                for _it in _evt_items:
+                                    if not isinstance(_it, dict):
+                                        continue
+                                    _ci = {
+                                        k: v for k, v in _it.items()
+                                        if k not in _skip_keys
+                                        and v not in (None, "", [])
+                                    }
+                                    if _ci:
+                                        _compact_items.append(_ci)
+                                if _compact_items:
+                                    _items_json = json.dumps(
+                                        _compact_items, ensure_ascii=False, indent=2
+                                    )
+                                    _new_msg_hint += (
+                                        f"\n\nCurrent snapshot ({len(_compact_items)} items):"
+                                        f"\n```json\n{_items_json}\n```"
+                                    )
+                                    logger.info(
+                                        f"[BrowserAutomation] Injected {len(_compact_items)} "
+                                        f"event items into task hint (node={node_name})"
+                                    )
                         except Exception:
                             pass
                         _evt_lines.append(_new_msg_hint)
