@@ -6967,7 +6967,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _evt = json.loads(_event_json)
                     _evt_type = _evt.get("event_type", "")
                     _evt_ctx = _evt.get("context", {}) if isinstance(_evt.get("context"), dict) else {}
-                    _evt_label = _evt_ctx.get("sub_type") or _evt_ctx.get("label") or ""
+                    # sub_type/label may be at top-level OR inside context
+                    _evt_label = (
+                        _evt_ctx.get("sub_type") or _evt_ctx.get("label")
+                        or _evt.get("sub_type") or _evt.get("label")
+                        or ""
+                    )
                     _evt_lines = [
                         "## Triggering Event",
                         f"This invocation was resumed by a **{_evt_type}** event.",
@@ -6986,27 +6991,49 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             "dispatched now shows a DIFFERENT latest message, dispatch them AGAIN "
                             "with the new message — do NOT skip them because they are in pending_dispatches."
                         )
-                        # Extract added items from event data for more specific guidance
+                        # Extract added/changed items from event data for more specific guidance.
+                        # The browser_event body may live in context.params.body (old path)
+                        # OR directly in the state's events list / _event_envelope.
                         try:
+                            _added = None
+                            # Path 1: context.params.body (legacy)
                             _evt_body = _evt_ctx.get("params", {})
                             if isinstance(_evt_body, dict):
                                 _evt_body_str = _evt_body.get("body", "")
-                                if isinstance(_evt_body_str, str):
+                                if isinstance(_evt_body_str, str) and _evt_body_str:
                                     _evt_body_parsed = json.loads(_evt_body_str)
                                     _added = _evt_body_parsed.get("added", [])
-                                    if isinstance(_added, list) and _added:
-                                        _added_names = [
-                                            str(a.get("customer_name", "?")) for a in _added
-                                            if isinstance(a, dict)
-                                        ]
-                                        _added_msgs = [
-                                            str(a.get("last_message", "?"))[:60] for a in _added
-                                            if isinstance(a, dict)
-                                        ]
-                                        _new_msg_hint += (
-                                            f"\n\nChanged customers: {_added_names}"
-                                            f"\nLatest messages: {_added_msgs}"
-                                        )
+                            # Path 2: state events list (browser_event.body.items)
+                            if not _added and isinstance(state, dict):
+                                _be_data = state.get("browser_event")
+                                if isinstance(_be_data, dict):
+                                    _be_body = _be_data.get("body", {})
+                                    if isinstance(_be_body, dict):
+                                        _added = _be_body.get("added") or _be_body.get("changed")
+                                        # If no added/changed, use all items as candidates
+                                        if not _added:
+                                            _all_items = _be_body.get("items", [])
+                                            if isinstance(_all_items, list):
+                                                # Filter to items that look like customer messages
+                                                _added = [
+                                                    it for it in _all_items
+                                                    if isinstance(it, dict)
+                                                    and it.get("customer_name")
+                                                    and it.get("unread_badge")
+                                                ]
+                            if isinstance(_added, list) and _added:
+                                _added_names = [
+                                    str(a.get("customer_name", "?")) for a in _added
+                                    if isinstance(a, dict)
+                                ]
+                                _added_msgs = [
+                                    str(a.get("last_message", "?"))[:60] for a in _added
+                                    if isinstance(a, dict)
+                                ]
+                                _new_msg_hint += (
+                                    f"\n\nChanged customers: {_added_names}"
+                                    f"\nLatest messages: {_added_msgs}"
+                                )
                         except Exception:
                             pass
                         _evt_lines.append(_new_msg_hint)
