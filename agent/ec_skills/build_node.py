@@ -7005,9 +7005,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 if isinstance(_evt_body_str, str) and _evt_body_str:
                                     _evt_body_parsed = json.loads(_evt_body_str)
                                     _evt_items = _evt_body_parsed.get("items", [])
-                            # Path 2: state["browser_event"]["body"]["items"]
+                            # Path 2: state["attributes"]["browser_event"]["body"]["items"]
+                            # (resume.py stores it at attributes.browser_event)
                             if not _evt_items and isinstance(state, dict):
-                                _be_data = state.get("browser_event")
+                                _be_data = (
+                                    state.get("browser_event")  # top-level (resume_payload)
+                                    or (state.get("attributes") or {}).get("browser_event")  # state_patch path
+                                )
                                 if isinstance(_be_data, dict):
                                     _be_body = _be_data.get("body", {})
                                     if isinstance(_be_body, dict):
