@@ -39,7 +39,7 @@ class Migration_310_to_311(BaseMigration):
 
             # Create skill_history table
             create_table_sql = """
-                CREATE TABLE skill_history (
+                CREATE TABLE IF NOT EXISTS skill_history (
                     id VARCHAR(64) PRIMARY KEY,
                     skill_id VARCHAR(64) NOT NULL,
                     skill_name VARCHAR(128) NOT NULL,
