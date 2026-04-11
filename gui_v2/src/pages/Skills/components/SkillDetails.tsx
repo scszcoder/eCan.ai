@@ -414,14 +414,17 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             };
 
             // Rename local folder if path indicates a local diagram and name changed
+            // Standard approach: uses skillId to uniquely identify the DB record
             try {
                 const currentPath = payload.path;
+                const skillId = skill?.id;  // Get skill ID for reliable DB update
                 const oldNameMatch = currentPath ? String(currentPath).replace(/\\/g, '/').match(/\/([^\/]+)_skill\/diagram_dir\//) : null;
                 const oldName = oldNameMatch?.[1];
                 const newName = payload.name;
                 if (!isNew && currentPath && oldName && newName && oldName !== newName) {
                     const api = IPCAPI.getInstance();
-                    const resp = await api.renameSkill(oldName, newName);
+                    // Pass skillId to ensure ID-based DB update
+                    const resp = await api.renameSkill(oldName, newName, undefined, skillId);
                     if (resp.success && resp.data?.skillRoot) {
                         const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
                         // update diagram path in payload to reflect rename
