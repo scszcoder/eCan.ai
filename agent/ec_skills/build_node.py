@@ -6438,7 +6438,59 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # lose all custom actions (feige_*, bu_send_chat, etc.).
             _full_output = getattr(agent, '_ecan_full_AgentOutput', None)
             if _full_output is not None and hasattr(agent, 'AgentOutput'):
+                _was_clobbered = agent.AgentOutput is not _full_output
                 agent.AgentOutput = _full_output
+                if _was_clobbered:
+                    logger.info(
+                        "[BrowserAutomation] AgentOutput was clobbered (DoneAgentOutput) — restored full AgentOutput"
+                    )
+
+            # Reset LoopDetector state.
+            # The loop detector tracks action hashes and page fingerprints across steps.
+            # Without resetting, the `done()` action hash accumulates across rounds,
+            # triggering false loop-detection nudges that confuse the LLM and may cause
+            # it to abandon its normal workflow (including skipping custom tool calls).
+            _ld = getattr(getattr(agent, 'state', None), 'loop_detector', None)
+            if _ld is not None:
+                _prev_rep = getattr(_ld, 'max_repetition_count', 0)
+                if hasattr(_ld, 'recent_action_hashes'):
+                    _ld.recent_action_hashes.clear()
+                if hasattr(_ld, 'recent_page_fingerprints'):
+                    _ld.recent_page_fingerprints.clear()
+                if hasattr(_ld, 'max_repetition_count'):
+                    _ld.max_repetition_count = 0
+                if hasattr(_ld, 'most_repeated_hash'):
+                    _ld.most_repeated_hash = None
+                if hasattr(_ld, 'consecutive_stagnant_pages'):
+                    _ld.consecutive_stagnant_pages = 0
+                if _prev_rep >= 3:
+                    logger.info(
+                        f"[BrowserAutomation] Reset LoopDetector "
+                        f"(was repetition={_prev_rep})"
+                    )
+
+            # Diagnostic: verify that the restored AgentOutput has custom actions.
+            # If it only has 'done', something went wrong with the save/restore.
+            try:
+                _ao = getattr(agent, 'AgentOutput', None)
+                if _ao is not None:
+                    # The action field's type annotation lists available actions as optional fields
+                    _action_field = _ao.model_fields.get('action')
+                    if _action_field and hasattr(_action_field.annotation, 'model_fields'):
+                        _action_names = list(_action_field.annotation.model_fields.keys())
+                        _n_actions = len(_action_names)
+                        if _n_actions <= 1:
+                            logger.warning(
+                                f"[BrowserAutomation] AgentOutput has only {_n_actions} actions "
+                                f"({_action_names}) — custom tools may be missing! "
+                                f"_ecan_full_AgentOutput={'set' if _full_output is not None else 'NOT set'}"
+                            )
+                        else:
+                            logger.debug(
+                                f"[BrowserAutomation] AgentOutput OK: {_n_actions} actions available"
+                            )
+            except Exception as _ao_check_err:
+                logger.debug(f"[BrowserAutomation] AgentOutput check failed: {_ao_check_err}")
 
             # Always reset AgentState fields that would cause run() to exit immediately
             # or behave incorrectly on re-entry:
@@ -8358,9 +8410,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
                     
                     history = await agent.run()
+                    # Log step budget usage
+                    try:
+                        _ag_st = getattr(agent, 'state', None)
+                        _ag_settings = getattr(agent, 'settings', None)
+                        _steps_used = getattr(_ag_st, 'n_steps', '?') if _ag_st else '?'
+                        _max_steps = getattr(_ag_settings, 'max_steps', '?') if _ag_settings else '?'
+                        _consec_fail = getattr(_ag_st, 'consecutive_failures', '?') if _ag_st else '?'
+                        _max_fail = getattr(_ag_settings, 'max_failures', '?') if _ag_settings else '?'
+                        _stopped = getattr(_ag_st, 'stopped', '?') if _ag_st else '?'
+                        _ao_is_done = agent.AgentOutput is getattr(agent, 'DoneAgentOutput', None) if hasattr(agent, 'AgentOutput') else '?'
+                        logger.info(
+                            f"[BrowserAutomation] CloudAgent run finished: "
+                            f"steps={_steps_used}/{_max_steps}, "
+                            f"failures={_consec_fail}/{_max_fail}, "
+                            f"stopped={_stopped}, "
+                            f"AgentOutput_clobbered={_ao_is_done}"
+                        )
+                    except Exception:
+                        pass
                     final = history.final_result() if hasattr(history, 'final_result') else None
                     _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
-                    
+
                     logger.info(f"[BrowserAutomation] CloudAgent completed")
                     send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent completed")
                     
@@ -9659,12 +9730,33 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception:
                     pass
                 
+                # Log step budget usage so we can tell at a glance whether
+                # max_steps was reached (which clobbers AgentOutput → DoneAgentOutput).
+                try:
+                    _ag_st = getattr(agent, 'state', None)
+                    _ag_settings = getattr(agent, 'settings', None)
+                    _steps_used = getattr(_ag_st, 'n_steps', '?') if _ag_st else '?'
+                    _max_steps = getattr(_ag_settings, 'max_steps', '?') if _ag_settings else '?'
+                    _consec_fail = getattr(_ag_st, 'consecutive_failures', '?') if _ag_st else '?'
+                    _max_fail = getattr(_ag_settings, 'max_failures', '?') if _ag_settings else '?'
+                    _stopped = getattr(_ag_st, 'stopped', '?') if _ag_st else '?'
+                    _ao_is_done = agent.AgentOutput is getattr(agent, 'DoneAgentOutput', None) if hasattr(agent, 'AgentOutput') else '?'
+                    logger.info(
+                        f"[BrowserAutomation] Run finished: "
+                        f"steps={_steps_used}/{_max_steps}, "
+                        f"failures={_consec_fail}/{_max_fail}, "
+                        f"stopped={_stopped}, "
+                        f"AgentOutput_clobbered={_ao_is_done}"
+                    )
+                except Exception as _step_log_err:
+                    logger.debug(f"[BrowserAutomation] Step count log failed: {_step_log_err}")
+
                 # Truncate long output for logging
                 history_str = str(history)
                 if len(history_str) > 10000:
                     history_str = history_str[:10000] + '... (truncated)'
                 logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
-                
+
                 final = history.final_result() if (history and hasattr(history, 'final_result')) else None
                 if history:
                     _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)

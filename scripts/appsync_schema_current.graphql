@@ -781,6 +781,7 @@ type Query {
   getLabelFormats(input: LabelFormatQueryInput): [LabelFormat!]!
   #    Skill editor (web mode) support
   getNodeStateSchema: NodeStateSchema
+  getNodesPrompts(nodes: [Node!]): AWSJSON!
   getOrgAgentTree(root_id: ID, username: String): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgs: [Org!]!
@@ -1618,6 +1619,12 @@ input MissionStatus {
   starttime: Int
   status: String
   usage: String
+}
+
+input Node {
+  askid: String!
+  name: String!
+  situation: String!
 }
 
 input Order {

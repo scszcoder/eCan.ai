@@ -1003,54 +1003,38 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
 def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Rename an existing skill root directory <old>_skill -> <new>_skill.
     
-    Now supports both my_skills/ directory and external directories.
+    Standard approach: uses skillId to uniquely identify the record.
+    ID-based lookup ensures no duplicates or missed updates.
 
     Params:
-      - oldName: Old skill name (without _skill suffix)
-      - newName: New skill name (without _skill suffix)
+      - oldName: Old skill name (without _skill suffix) - used for file system rename
+      - newName: New skill name (without _skill suffix) - used for file system rename
+      - skillId: (Required) The unique skill ID - used to locate DB record
       - currentFilePath: (Optional) Current skill JSON file path for external directories
-    Returns: { skillRoot: str }
+    Returns: { skillRoot: str, skillId: str }
     """
     try:
-        ok, data, err = validate_params(params, ['oldName', 'newName'])
+        ok, data, err = validate_params(params, ['oldName', 'newName', 'skillId'])
         if not ok:
             return create_error_response(request, 'INVALID_PARAMS', err or 'invalid')
         
         old_name = data['oldName']
         new_name = data['newName']
+        skill_id = data['skillId']
         current_file_path = data.get('currentFilePath')
         ctx = get_handler_context(request, params)
         old_skill_full_name = f"{old_name}_skill"
         new_skill_full_name = f"{new_name}_skill"
         
-        # Calculate skill_root_path if currentFilePath is provided
+        # Resolve skill_root_path from currentFilePath
         skill_root_path = None
         if current_file_path:
             current_path = Path(current_file_path)
             if 'diagram_dir' in str(current_path):
                 skill_root_path = str(current_path.parent.parent)
                 logger.info(f"[SKILL_RENAME] Using external directory: {skill_root_path}")
-        elif ctx:
-            try:
-                ec_db_mgr = ctx.get_ec_db_mgr()
-                if ec_db_mgr:
-                    skill_service = ec_db_mgr.get_skill_service()
-                    if skill_service:
-                        all_skills = skill_service.search_skills()
-                        for skill in all_skills:
-                            skill_name_db = skill.get('name', '')
-                            skill_path = skill.get('path', '')
-                            if skill_name_db == old_name or skill_name_db == old_skill_full_name:
-                                if skill_path:
-                                    candidate_path = Path(skill_path)
-                                    if 'diagram_dir' in str(candidate_path):
-                                        skill_root_path = str(candidate_path.parent.parent)
-                                        logger.info(f"[SKILL_RENAME] Resolved skill root from DB: {skill_root_path}")
-                                        break
-            except Exception as resolve_err:
-                logger.warning(f"[SKILL_RENAME] Failed to resolve skill path from DB: {resolve_err}")
         
-        # Rename the skill directory
+        # Rename the skill directory on file system
         _, rename_skill, _ = _get_extern_skills(request, params)
         new_path = rename_skill(old_name, new_name, skill_root_path)
         
@@ -1079,60 +1063,47 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
 
         new_skill_file = str(new_path / "diagram_dir" / f"{new_name}_skill.json")
 
-        # Update local DB and in-memory skill list immediately so rename works locally
+        # Update local DB by ID - standard approach: ID is the unique identifier
         try:
             if ctx:
                 ec_db_mgr = ctx.get_ec_db_mgr()
                 db_updated = False
-                target_skill_id = None
                 if ec_db_mgr:
                     skill_service = ec_db_mgr.get_skill_service()
                     if skill_service:
-                        all_skills = skill_service.search_skills()
-                        for skill in all_skills:
-                            skill_name_db = skill.get('name', '')
-                            skill_path = skill.get('path', '')
-                            name_match = skill_name_db == old_name or skill_name_db == old_skill_full_name
-                            path_match = bool(current_file_path) and skill_path == current_file_path
-                            if name_match or path_match:
-                                target_skill_id = skill.get('id')
-                                update_result = skill_service.update_skill(target_skill_id, {
-                                    'name': new_name,
-                                    'path': new_skill_file,
-                                })
-                                if update_result.get('success'):
-                                    logger.info(f"[SKILL_RENAME] âœ… Updated local DB (ID: {target_skill_id})")
-                                    db_updated = True
-                                else:
-                                    logger.warning(f"[SKILL_RENAME] âš ï¸ Failed to update local DB: {update_result.get('error')}")
-                                break
+                        # Standard ID-based lookup: skillId is the unique identifier
+                        update_result = skill_service.update_skill(skill_id, {
+                            'name': new_name,
+                            'path': new_skill_file,
+                        })
+                        if update_result.get('success'):
+                            logger.info(f"[SKILL_RENAME] Updated local DB by ID: {skill_id} -> name={new_name}")
+                            db_updated = True
+                        else:
+                            logger.warning(f"[SKILL_RENAME] Failed to update local DB by ID {skill_id}: {update_result.get('error')}")
+                
+                # Update in-memory skill list by ID
                 if hasattr(ctx, 'agent_skills'):
                     mem_updated = False
                     for mem_skill in (ctx.get_agent_skills() or []):
-                        if not hasattr(mem_skill, 'name'):
-                            continue
-                        skill_name = getattr(mem_skill, 'name', '')
-                        skill_path = getattr(mem_skill, 'path', '')
-                        name_match = skill_name == old_name or skill_name == old_skill_full_name
-                        path_match = bool(current_file_path) and skill_path == current_file_path
-                        if name_match or path_match:
-                            if skill_name.endswith('_skill'):
-                                mem_skill.name = new_skill_full_name
-                            else:
-                                mem_skill.name = new_name
+                        mem_skill_id = str(getattr(mem_skill, 'id', '') or '').strip()
+                        mem_askid = str(getattr(mem_skill, 'askid', '') or '').strip()
+                        if mem_skill_id == skill_id or mem_askid == skill_id:
+                            mem_skill.name = new_name
                             if hasattr(mem_skill, 'path'):
                                 mem_skill.path = new_skill_file
-                            logger.info(f"[SKILL_RENAME] âœ… Updated in-memory skill: {skill_name} -> {mem_skill.name}")
+                            logger.info(f"[SKILL_RENAME] Updated in-memory skill by ID: {skill_id} -> name={new_name}")
                             mem_updated = True
                             break
                     if not mem_updated:
-                        logger.info(f"[SKILL_RENAME] No matching in-memory skill found for rename: {old_name}")
+                        logger.warning(f"[SKILL_RENAME] No matching in-memory skill found for ID: {skill_id}")
+                
                 if not db_updated:
-                    logger.info(f"[SKILL_RENAME] Local DB update did not find a matching skill for: {old_name}")
+                    logger.warning(f"[SKILL_RENAME] Local DB update failed for ID: {skill_id}")
         except Exception as sync_err:
             logger.warning(f"[SKILL_RENAME] Failed to update local DB/memory after rename: {sync_err}")
 
-        logger.info(f"[SKILL_RENAME] âœ… File system rename complete. Local DB/memory updated immediately.")
+        logger.info(f"[SKILL_RENAME] File system rename complete. Local DB/memory updated immediately.")
         
         # Update backend recent files to ensure correct path is loaded after refresh
         try:

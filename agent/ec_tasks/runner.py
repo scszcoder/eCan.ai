@@ -1794,6 +1794,36 @@ class TaskRunner(Generic[Context]):
                             return
                         except Exception as e:
                             logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
+                    elif fallback_task is None:
+                        # No task configured for this agent — notify the user
+                        try:
+                            event = normalize_event(event_type, request, src=source)
+                            chat_id = (
+                                (event.get("context") or {}).get("chatId")
+                                or (event.get("data") or {}).get("chatId")
+                            )
+                            agent_name = getattr(getattr(self.agent, "card", None), "name", "Agent") or "Agent"
+                            if chat_id:
+                                try:
+                                    from utils.i18n_helper import detect_language
+                                    _lang = detect_language(default_lang="zh-CN", supported_languages=["zh-CN", "en-US"])
+                                except Exception:
+                                    _lang = "zh-CN"
+                                _no_task_msgs = {
+                                    "zh-CN": (
+                                        f"⚠️ 当前 Agent「{agent_name}」尚未配置可接收消息的 Task。"
+                                        f"请在 Agent 设置中添加一个名称包含 \"chat\"、触发方式为 \"message\" 的 Task，并关联对应的 Skill。"
+                                    ),
+                                    "en-US": (
+                                        f"⚠️ Agent \"{agent_name}\" has no Task configured to receive messages. "
+                                        f"Please add a Task whose name contains \"chat\", trigger is \"message\", "
+                                        f"and associate it with the appropriate Skill in Agent settings."
+                                    ),
+                                }
+                                sender = self._get_message_sender()
+                                sender.send_text(chat_id, _no_task_msgs.get(_lang, _no_task_msgs["zh-CN"]))
+                        except Exception as e:
+                            logger.error(f"[QUEUE] Failed to send no-task notification: {e}")
                 if event_type == "browser_event":
                     logger.warning(f"[QUEUE] No target task found for browser_event (sub_type={_sub_type}). Check pend_event browserEventLabel matches monitor label.")
                 else:
