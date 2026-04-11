@@ -189,7 +189,7 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
             >
                 {listContent}
             </ListCard>
-            {resizableList && (
+            {detailsContent !== undefined && resizableList && (
                 <Splitter
                     onMouseDown={(e) => {
                         draggingRef.current = true;
@@ -200,9 +200,13 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
                     }}
                 />
             )}
-            <DetailsCard variant="borderless" title={detailsTitle}>
-                {detailsContent}
-            </DetailsCard>
+            {detailsContent !== undefined ? (
+                <DetailsCard variant="borderless" title={detailsTitle}>
+                    {detailsContent}
+                </DetailsCard>
+            ) : (
+                <div style={{ flex: 1 }} />
+            )}
         </Container>
     );
 };
