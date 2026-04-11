@@ -23,8 +23,11 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
         if prompt_src=="cloud":
             nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, [node_info])
             if not nodes_prompts or len(nodes_prompts) == 0:
-                logger.warning(f"[LLM_HOOKS] No prompts returned from cloud for node {full_node_name}, using empty prompt")
-                state["prompts"] = []
+                logger.warning(f"[LLM_HOOKS] No prompts returned from cloud for node {full_node_name}, using local default prompt")
+                state["prompts"] = [
+                    ("system", "You are a helpful AI assistant. Respond naturally and helpfully to the user's messages."),
+                    ("human", "{human_input}"),
+                ]
             else:
                 state["prompts"] = nodes_prompts[0]
             logger.debug(f"[LLM_HOOKS] cloud state prompts: {state['input']} {nodes_prompts}")

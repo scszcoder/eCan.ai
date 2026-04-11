@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, message, Tooltip, Space } from 'antd';
-import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Button, message, Tooltip, Space, Drawer } from 'antd';
+import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined, CloseOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores/domain/skillStore';
@@ -10,7 +10,45 @@ import SkillDetails from './components/SkillDetails';
 import { logger } from '@/utils/logger';
 import type { Skill } from '@/types/domain/skill';
 import { get_ipc_api } from '../../services/ipc_api';
+import styled from '@emotion/styled';
 import './Skills.css';
+
+const FullWidthContainer = styled.div`
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+`;
+
+const HeaderBar = styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+`;
+
+const GridWithDetailContainer = styled.div`
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+`;
+
+const GridPanel = styled.div`
+    flex: 1;
+    overflow: hidden;
+`;
+
+// Edit Drawer样式 - 右侧滑出全功能编辑面板
+const EditDrawer = styled(Drawer)`
+    .ant-drawer-body {
+        padding: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+`;
 
 const Skills: React.FC = () => {
     const { t } = useTranslation();
@@ -25,7 +63,6 @@ const Skills: React.FC = () => {
         return Array.from(next);
     }, []);
 
-    // Use new skillStore
     const skills = useSkillStore((state) => state.items);
     const isLoading = useSkillStore((state) => state.loading);
     const fetchItems = useSkillStore((state) => state.fetchItems);
@@ -33,20 +70,12 @@ const Skills: React.FC = () => {
 
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
-
-    // Directly manage selected status
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
     const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
     const [subscribedSkillIds, setSubscribedSkillIds] = useState<string[]>([]);
 
-    const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
-        try {
-            const raw = localStorage.getItem('skills:list_view_mode');
-            return raw === 'grid' ? 'grid' : 'list';
-        } catch {
-            return 'list';
-        }
-    });
+    const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+    const [isEditingInGrid, setIsEditingInGrid] = useState(false);
 
     const selectItem = useCallback((skill: Skill) => {
         setSelectedSkill(skill);
@@ -57,15 +86,6 @@ const Skills: React.FC = () => {
 
         try {
             await fetchItems(username);
-            const fetchedSkills = useSkillStore.getState().items || [];
-            logger.info(
-                '[Skills][diag] store items after fetch:',
-                fetchedSkills.map((skill) => `${skill.name}#${skill.id}`)
-            );
-            logger.info(
-                '[Skills][diag] basic_chatter_xxx in store after fetch:',
-                fetchedSkills.some((skill) => skill.name === 'basic_chatter_xxx')
-            );
             const api = get_ipc_api();
 
             const [publicResp, subscribedResp] = await Promise.all([
@@ -100,17 +120,6 @@ const Skills: React.FC = () => {
         }
     }, [username, fetchSkills]);
 
-    useEffect(() => {
-        logger.debug(
-            '[Skills][diag] render skills:',
-            (skills || []).map((skill) => `${skill.name}#${skill.id}`)
-        );
-        logger.debug(
-            '[Skills][diag] basic_chatter_xxx in render skills:',
-            (skills || []).some((skill) => skill.name === 'basic_chatter_xxx')
-        );
-    }, [skills]);
-
     const handleRefresh = useCallback(async () => {
         if (!username) return;
 
@@ -144,69 +153,63 @@ const Skills: React.FC = () => {
         }
     }, [username, forceRefresh, t, normalizeSubscribedIds]);
 
+    const HeaderControls = () => (
+        <Space>
+            <Tooltip title={t('pages.skills.viewList', 'List view')}>
+                <Button
+                    type="text"
+                    shape="circle"
+                    icon={<UnorderedListOutlined />}
+                    onClick={() => {
+                        setViewMode('list');
+                        setIsEditingInGrid(false);
+                        try { localStorage.setItem('skills:list_view_mode', 'list'); } catch { /* ignore */ }
+                    }}
+                    style={{
+                        background: viewMode === 'list' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+                        border: 'none',
+                        color: 'rgba(203, 213, 225, 0.9)',
+                    }}
+                />
+            </Tooltip>
+            <Tooltip title={t('pages.skills.viewGrid', 'Grid view')}>
+                <Button
+                    type="text"
+                    shape="circle"
+                    icon={<AppstoreOutlined />}
+                    onClick={() => {
+                        setViewMode('grid');
+                        setIsEditingInGrid(false);
+                        try { localStorage.setItem('skills:list_view_mode', 'grid'); } catch { /* ignore */ }
+                    }}
+                    style={{
+                        background: viewMode === 'grid' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+                        border: 'none',
+                        color: 'rgba(203, 213, 225, 0.9)',
+                    }}
+                />
+            </Tooltip>
+            <Tooltip title={t('pages.skills.refresh')}>
+                <Button
+                    type="text"
+                    shape="circle"
+                    icon={<ReloadOutlined />}
+                    onClick={handleRefresh}
+                    loading={isLoading}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'rgba(203, 213, 225, 0.9)',
+                    }}
+                />
+            </Tooltip>
+        </Space>
+    );
+
     const listTitle = (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.skills.title')}</span>
-            <Space>
-                <Tooltip title={t('pages.skills.viewList', 'List view')}>
-                    <Button
-                        type="text"
-                        shape="circle"
-                        icon={<UnorderedListOutlined />}
-                        onClick={() => {
-                            setViewMode('list');
-                            try {
-                                localStorage.setItem('skills:list_view_mode', 'list');
-                            } catch {
-                                // ignore
-                            }
-                        }}
-                        style={{
-                            background: viewMode === 'list' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
-                            border: 'none',
-                            color: 'rgba(203, 213, 225, 0.9)',
-                            boxShadow: 'none'
-                        }}
-                    />
-                </Tooltip>
-                <Tooltip title={t('pages.skills.viewGrid', 'Grid view')}>
-                    <Button
-                        type="text"
-                        shape="circle"
-                        icon={<AppstoreOutlined />}
-                        onClick={() => {
-                            setViewMode('grid');
-                            try {
-                                localStorage.setItem('skills:list_view_mode', 'grid');
-                            } catch {
-                                // ignore
-                            }
-                        }}
-                        style={{
-                            background: viewMode === 'grid' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
-                            border: 'none',
-                            color: 'rgba(203, 213, 225, 0.9)',
-                            boxShadow: 'none'
-                        }}
-                    />
-                </Tooltip>
-                <Tooltip title={t('pages.skills.refresh')}>
-                    <Button
-                        type="text"
-                        shape="circle"
-                        icon={<ReloadOutlined />}
-                        onClick={handleRefresh}
-                        loading={isLoading}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'rgba(203, 213, 225, 0.9)',
-                            boxShadow: 'none'
-                        }}
-                    />
-                </Tooltip>
-                {/* Add button removed - skills are created from skill_editor */}
-            </Space>
+            <HeaderControls />
         </div>
     );
 
@@ -216,21 +219,15 @@ const Skills: React.FC = () => {
     };
 
     const handleSkillCancel = () => {
-        // Cancel process:
-        // - If in new mode, close details panel
-        // - If in edit mode, no extra processing needed (SkillDetails handles internally)
         if (isAddingNew) {
             setIsAddingNew(false);
             setSelectedSkill(null);
         }
-        // In edit mode, SkillDetails will automatically restore data and exit edit mode, no need to close panel
     };
 
     const handleSkillDelete = () => {
-        // After delete, clear selected status and close details page
-        logger.info('[Skills] handleSkillDelete called, selectedSkill before:', selectedSkill ? `${selectedSkill.name}#${selectedSkill.id}` : null);
         setSelectedSkill(null);
-        logger.info('[Skills] handleSkillDelete completed, selectedSkill after:', null);
+        setIsEditingInGrid(false);
     };
 
     const handleSelectedSkillChange = useCallback((updatedSkill: Skill) => {
@@ -242,7 +239,6 @@ const Skills: React.FC = () => {
         const api = get_ipc_api();
         const resp = await api.subscribeToSkill(username, skillId);
         if (!resp.success) throw new Error((resp.error as any)?.message || t('pages.skills.subscribeFailed', 'Subscribe failed'));
-        // Also check the mutation result's success field
         const result = resp.data as any;
         if (result && result.success === false) throw new Error(result.error || t('pages.skills.subscribeFailed', 'Subscribe failed'));
         setSubscribedSkillIds(prev => {
@@ -261,7 +257,6 @@ const Skills: React.FC = () => {
         const api = get_ipc_api();
         const resp = await api.unsubscribeFromSkill(username, skillId);
         if (!resp.success) throw new Error((resp.error as any)?.message || t('pages.skills.unsubscribeFailed', 'Unsubscribe failed'));
-        // Also check the mutation result's success field
         const result = resp.data as any;
         if (result && result.success === false) throw new Error(result.error || t('pages.skills.unsubscribeFailed', 'Unsubscribe failed'));
         setSubscribedSkillIds(prev => {
@@ -275,6 +270,65 @@ const Skills: React.FC = () => {
         });
     };
 
+    // Grid view with detail drawer (Drawer style for full editing experience)
+    if (viewMode === 'grid') {
+        return (
+            <FullWidthContainer>
+                <HeaderBar>
+                    <span style={{ fontSize: '16px', fontWeight: 600 }}>{t('pages.skills.title')}</span>
+                    <HeaderControls />
+                </HeaderBar>
+                <SkillList
+                    skills={skills}
+                    publicSkills={publicSkills}
+                    loading={isLoading}
+                    onSelectSkill={selectItem}
+                    selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
+                    viewMode={viewMode}
+                    username={username || ''}
+                    subscribedSkillIds={subscribedSkillIds}
+                    onEditInGrid={() => setIsEditingInGrid(true)}
+                    onSubscribe={handleSubscribe}
+                    onUnsubscribe={handleUnsubscribe}
+                />
+                <EditDrawer
+                    title={null}
+                    placement="right"
+                    width={800}
+                    open={isEditingInGrid && !!selectedSkill}
+                    onClose={() => {
+                        setIsEditingInGrid(false);
+                        setSelectedSkill(null);
+                    }}
+                    closable={false}
+                    styles={{
+                        body: { padding: 0, background: 'var(--bg-primary)' },
+                        header: { display: 'none' },
+                    }}
+                >
+                    {selectedSkill && (
+                        <SkillDetails
+                            skill={selectedSkill}
+                            isNew={false}
+                            onRefresh={handleRefresh}
+                            onSave={handleSkillSave}
+                            onSkillChange={handleSelectedSkillChange}
+                            onCancel={() => {
+                                setIsEditingInGrid(false);
+                                setSelectedSkill(null);
+                            }}
+                            onDelete={handleSkillDelete}
+                            subscribedSkillIds={subscribedSkillIds}
+                            onSubscribe={handleSubscribe}
+                            onUnsubscribe={handleUnsubscribe}
+                        />
+                    )}
+                </EditDrawer>
+            </FullWidthContainer>
+        );
+    }
+
+    // List view: detail layout
     return (
         <DetailLayout
             listTitle={listTitle}
@@ -294,6 +348,8 @@ const Skills: React.FC = () => {
                     viewMode={viewMode}
                     username={username || ''}
                     subscribedSkillIds={subscribedSkillIds}
+                    onSubscribe={handleSubscribe}
+                    onUnsubscribe={handleUnsubscribe}
                 />
             }
             detailsContent={
