@@ -166,7 +166,7 @@ class DBTaskService(BaseService):
                     and_(DBAgentTaskSkillRel.task_id == task_id,
                          DBAgentTaskSkillRel.skill_id == skill_id)
                 ).first()
-                
+
                 if existing:
                     # Update existing association
                     existing.role = role
@@ -174,8 +174,9 @@ class DBTaskService(BaseService):
                     existing.is_required = is_required
                     existing.skill_config = skill_config or {}
                     s.flush()
+                    s.commit()
                     return {"success": True, "data": existing.to_dict(), "error": None}
-                
+
                 # Create new association
                 association = DBAgentTaskSkillRel(
                     task_id=task_id,
@@ -187,6 +188,7 @@ class DBTaskService(BaseService):
                 )
                 s.add(association)
                 s.flush()
+                s.commit()
                 return {"success": True, "data": association.to_dict(), "error": None}
         except Exception as e:
             return {"success": False, "data": None, "error": str(e)}
@@ -203,6 +205,8 @@ class DBTaskService(BaseService):
                 if association:
                     s.delete(association)
                     s.flush()
+                    # Explicit commit to ensure data is persisted
+                    s.commit()
                     return {"success": True, "data": None, "error": None}
                 else:
                     return {"success": False, "data": None, "error": "Association not found"}

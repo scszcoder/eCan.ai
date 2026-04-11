@@ -8,6 +8,7 @@ import type { IPCAPI } from '../ipc/api';
 import { ResourceAPI, APIResponse } from '../../stores/base/types';
 import { Task, CreateTaskInput, UpdateTaskInput } from '../../types/domain/task';
 import { logger } from '../../utils/logger';
+import { isWebPlatform } from '@/config/platform';
 
 /**
  * Agent Task API Service类
@@ -41,6 +42,12 @@ export class TaskAPI implements ResourceAPI<Task> {
         } else if (response.data && typeof response.data === 'object' && 'tasks' in response.data) {
           tasks = (response.data as any).tasks || [];
         }
+
+        // 统一在桌面端和 Web 端都对 task 合并 skill_ids
+        // 后端 get_agent_tasks 已正确返回 skill_ids，
+        // 但前端 TaskDetail 组件通过 queryAgentTaskSkillRels 加载关联，
+        // 这里不做合并，避免重复查询；保持 skill_ids 由后端返回即可。
+        // (原 isWebPlatform 条件已移除，因为桌面端也走同样路径)
 
         logger.debug('[TaskAPI] Successfully fetched agent tasks:', tasks.length);
 
