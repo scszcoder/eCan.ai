@@ -17,8 +17,14 @@ class CognitoService:
     def __init__(self):
         self.cognito_client = None
         self.jwks = None
-        # Preload JWKS to avoid blocking during login
-        self._preload_jwks()
+        # 启动后台线程预加载 JWKS，避免阻塞 splash 启动
+        self._start_async_jwks_preload()
+
+    def _start_async_jwks_preload(self):
+        """启动后台线程异步预加载 JWKS，避免阻塞启动过程"""
+        import threading
+        thread = threading.Thread(target=self._preload_jwks, name="JWKS-Preload", daemon=True)
+        thread.start()
 
     def _get_cognito_client(self):
         if not self.cognito_client:

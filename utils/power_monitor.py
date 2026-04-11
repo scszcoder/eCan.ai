@@ -175,37 +175,21 @@ class PowerMonitor:
 # Qt event filter (internal)
 # ---------------------------------------------------------------------------
 
-class _PowerEventFilter:
+class _PowerEventFilter(QObject):
     """Lightweight QObject event filter that intercepts QEvent.Sleep / QEvent.Resume."""
 
-    def __init__(self, monitor: PowerMonitor):
+    def __init__(self, monitor: "PowerMonitor"):
         from PySide6.QtCore import QObject, QEvent
-        # We need to be a QObject to act as an event filter
-        self._qobj = _QtEventFilterBridge(monitor)
+        super().__init__()
+        self._monitor = monitor
 
-    def __getattr__(self, name):
-        """Proxy attribute access to the underlying QObject."""
-        return getattr(self._qobj, name)
-
-
-class _QtEventFilterBridge:
-    """Actual QObject subclass that does the filtering."""
-
-    def __new__(cls, monitor: PowerMonitor):
-        from PySide6.QtCore import QObject, QEvent
-
-        class _Bridge(QObject):
-            def __init__(self, mon: PowerMonitor):
-                super().__init__()
-                self._monitor = mon
-
-            def eventFilter(self, obj, event):
-                etype = event.type()
-                # QEvent.Type.Sleep = 168, QEvent.Type.Resume = 169 (Qt 6)
-                if etype == QEvent.Type.Sleep:
-                    self._monitor._handle_sleep()
-                elif etype == QEvent.Type.Resume:
-                    self._monitor._handle_wake()
-                return False  # never consume the event
-
-        return _Bridge(monitor)
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        etype = event.type()
+        # QEvent.Type.Sleep = 168, QEvent.Type.Resume = 169 (Qt 6)
+        # 使用 hasattr 安全检查，避免 macOS 上不存在这些类型
+        if hasattr(QEvent.Type, 'Sleep') and etype == QEvent.Type.Sleep:
+            self._monitor._handle_sleep()
+        elif hasattr(QEvent.Type, 'Resume') and etype == QEvent.Type.Resume:
+            self._monitor._handle_wake()
+        return False  # never consume the event
