@@ -201,6 +201,16 @@ class MiniSpecBuilder:
         # Post-build processing: Fix framework paths for all platforms
         self._fix_framework_paths()
 
+        # Fix cv2 OpenSSL conflict: replace cv2's bundled OpenSSL 3.0 with homebrew's newer version
+        self._fix_cv2_openssl_conflict()
+
+        # Prune unused large packages from bundle (torch is not used at runtime)
+        self._prune_unused_packages()
+
+        # Re-sign all binaries with ad-hoc signature after all modifications (macOS)
+        # Must run AFTER every step that calls install_name_tool or replaces dylibs
+        self._resign_macos_bundle()
+
         # Verify Playwright browsers were packaged correctly
         self._verify_packaged_playwright()
 
@@ -1608,6 +1618,371 @@ if sys.platform == 'darwin':
             print(f"[MINIBUILD] Warning: Info.plist URL scheme update failed: {e}")
             import traceback
             traceback.print_exc()
+
+    def _resign_macos_bundle(self) -> None:
+        """Re-sign all .so/.dylib files and the main executable with ad-hoc signature.
+
+        Required on macOS 15+ / macOS 26+ because the OS enforces that mapped pages
+        match their code signature. Any install_name_tool or file-replace operation
+        after the initial PyInstaller build invalidates the original signatures, which
+        causes a SIGKILL (Code Signature Invalid) at runtime.
+        """
+        if not platform_handler.is_macos:
+            return
+        try:
+            dist_dir = self.project_root / "dist"
+            if not dist_dir.exists():
+                return
+
+            signed = 0
+            failed = 0
+            for bundle_dir in dist_dir.iterdir():
+                if not bundle_dir.is_dir():
+                    continue
+
+                if bundle_dir.suffix == ".app":
+                    # .app bundle: sign individual files, NOT --deep.
+                    # --deep recurses into nested .app bundles (e.g. Playwright's
+                    # Chromium__dot__app) which have pre-signed frameworks that
+                    # reject ad-hoc re-signing and abort the whole operation.
+                    playwright_dir = bundle_dir / "Contents" / "Frameworks" / "third_party"
+                    libs = [
+                        p for p in bundle_dir.rglob("*")
+                        if not p.is_symlink() and p.is_file()
+                        and p.suffix in (".dylib", ".so")
+                        and not str(p).startswith(str(playwright_dir))
+                    ]
+                    for lib in libs:
+                        r = subprocess.run(
+                            ["codesign", "--force", "--sign", "-", str(lib)],
+                            capture_output=True
+                        )
+                        if r.returncode == 0:
+                            signed += 1
+                        else:
+                            failed += 1
+
+                    # Sign the main executable inside Contents/MacOS/
+                    # --no-strict: skip nested-bundle validation so Chromium
+                    # Framework.framework inside Playwright does not abort signing.
+                    macos_dir = bundle_dir / "Contents" / "MacOS"
+                    if macos_dir.exists():
+                        for exe in macos_dir.iterdir():
+                            if exe.is_file() and not exe.is_symlink():
+                                r = subprocess.run(
+                                    ["codesign", "--force", "--sign", "-",
+                                     "--no-strict", str(exe)],
+                                    capture_output=True, text=True
+                                )
+                                if r.returncode == 0:
+                                    signed += 1
+                                else:
+                                    failed += 1
+                                    print(f"  [RESIGN] FAILED {exe.name}: {r.stderr.strip()}")
+                else:
+                    # One-dir bundle: sign dylibs/so first, then the main executable
+                    libs = [
+                        p for p in bundle_dir.rglob("*")
+                        if not p.is_symlink() and p.is_file()
+                        and p.suffix in (".dylib", ".so")
+                    ]
+                    for lib in libs:
+                        r = subprocess.run(
+                            ["codesign", "--force", "--sign", "-", str(lib)],
+                            capture_output=True
+                        )
+                        if r.returncode == 0:
+                            signed += 1
+                        else:
+                            failed += 1
+
+                    # Sign the main executable last
+                    main_exe = bundle_dir / bundle_dir.name
+                    if main_exe.exists() and main_exe.is_file():
+                        r = subprocess.run(
+                            ["codesign", "--force", "--sign", "-", str(main_exe)],
+                            capture_output=True, text=True
+                        )
+                        if r.returncode == 0:
+                            signed += 1
+                        else:
+                            failed += 1
+                            print(f"  [RESIGN] FAILED main exe: {r.stderr.strip()}")
+
+            print(f"[MINIBUILD] Ad-hoc re-signed {signed} binaries" +
+                  (f", {failed} failed" if failed else ""))
+
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: ad-hoc re-signing failed: {e}")
+
+    def _fix_cv2_openssl_conflict(self) -> None:
+        """Replace cv2's bundled OpenSSL 3.0.x with a newer compatible version.
+
+        cv2 (opencv-python-headless) bundles libcrypto 3.0.0 which is missing
+        _X509_STORE_get1_objects (added in OpenSSL 3.1.0). Python 3.12's _ssl module
+        is compiled against a newer OpenSSL and needs this symbol. If cv2's old
+        libcrypto ends up on the dynamic linker path first, SSL fails to load entirely.
+
+        Platform handling:
+          macOS  – replace .dylibs/libcrypto.3.dylib with Homebrew OpenSSL 3.x,
+                   fix install names via install_name_tool.
+          Linux  – replace .libs/libcrypto.so.3 with the system OpenSSL 3.x,
+                   fix SONAME via patchelf.
+          Windows – replace cv2's libcrypto-3-x64.dll with the one shipped by
+                   the running Python interpreter (always the correct version).
+        """
+        dist_dir = self.project_root / "dist"
+        if not dist_dir.exists():
+            return
+
+        try:
+            if platform_handler.is_macos:
+                self._fix_cv2_openssl_macos(dist_dir)
+            elif platform_handler.is_linux:
+                self._fix_cv2_openssl_linux(dist_dir)
+            else:
+                self._fix_cv2_openssl_windows(dist_dir)
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: cv2 OpenSSL fix failed: {e}")
+
+    def _fix_cv2_openssl_macos(self, dist_dir: Path) -> None:
+        """macOS: replace cv2/.dylibs/libcrypto.3.dylib with Homebrew OpenSSL."""
+        homebrew_crypto = Path("/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib")
+        homebrew_ssl = Path("/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib")
+
+        if not homebrew_crypto.exists():
+            print("[MINIBUILD] Warning: /opt/homebrew/opt/openssl@3 not found, skipping cv2 SSL fix")
+            return
+
+        fixed = 0
+        for crypto_path in dist_dir.rglob("cv2/.dylibs/libcrypto.3.dylib"):
+            ssl_path = crypto_path.parent / "libssl.3.dylib"
+
+            # Replace libcrypto and fix its install name
+            os.chmod(crypto_path, 0o644)
+            shutil.copy2(homebrew_crypto, crypto_path)
+            subprocess.run(
+                ["install_name_tool", "-id", "@rpath/libcrypto.3.dylib", str(crypto_path)],
+                capture_output=True
+            )
+
+            # Replace libssl and fix its install name + libcrypto reference
+            if homebrew_ssl.exists() and ssl_path.exists():
+                res = subprocess.run(["otool", "-L", str(homebrew_ssl)],
+                                     capture_output=True, text=True)
+                crypto_ref = None
+                for line in res.stdout.splitlines():
+                    stripped = line.strip().split()[0] if line.strip() else ""
+                    if "libcrypto" in stripped and stripped != "@rpath/libcrypto.3.dylib":
+                        crypto_ref = stripped
+                        break
+
+                os.chmod(ssl_path, 0o644)
+                shutil.copy2(homebrew_ssl, ssl_path)
+                subprocess.run(
+                    ["install_name_tool", "-id", "@rpath/libssl.3.dylib", str(ssl_path)],
+                    capture_output=True
+                )
+                if crypto_ref:
+                    subprocess.run(
+                        ["install_name_tool", "-change", crypto_ref,
+                         "@rpath/libcrypto.3.dylib", str(ssl_path)],
+                        capture_output=True
+                    )
+
+            print(f"  [SSL-FIX] Updated cv2 OpenSSL 3.0 → 3.6 in: {crypto_path.relative_to(dist_dir)}")
+            fixed += 1
+
+        if fixed:
+            print(f"[MINIBUILD] Fixed cv2 OpenSSL conflict in {fixed} location(s)")
+        else:
+            print("[MINIBUILD] No cv2 OpenSSL dylibs found (skipped)")
+
+    def _fix_cv2_openssl_linux(self, dist_dir: Path) -> None:
+        """Linux: replace cv2/.libs/libcrypto.so.3 with system OpenSSL via patchelf."""
+        # Check patchelf is available
+        if subprocess.run(["which", "patchelf"], capture_output=True).returncode != 0:
+            print("[MINIBUILD] Warning: patchelf not found, skipping cv2 SSL fix on Linux")
+            print("[MINIBUILD]   Install with: apt-get install patchelf")
+            return
+
+        # Find system libcrypto.so.3 – check common multiarch paths
+        system_crypto = None
+        candidates = [
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+            "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
+            "/usr/lib/arm-linux-gnueabihf/libcrypto.so.3",
+            "/usr/lib64/libcrypto.so.3",
+            "/usr/lib/libcrypto.so.3",
+        ]
+        for c in candidates:
+            if Path(c).exists():
+                system_crypto = Path(c)
+                break
+
+        if system_crypto is None:
+            # Try ldconfig as fallback
+            res = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True)
+            for line in res.stdout.splitlines():
+                if "libcrypto.so.3" in line and "=>" in line:
+                    system_crypto = Path(line.split("=>")[-1].strip())
+                    if system_crypto.exists():
+                        break
+                    system_crypto = None
+
+        if system_crypto is None:
+            print("[MINIBUILD] Warning: system libcrypto.so.3 not found, skipping cv2 SSL fix on Linux")
+            return
+
+        system_ssl = system_crypto.parent / "libssl.so.3"
+        fixed = 0
+
+        # cv2 on Linux (manylinux) bundles libs in .libs/
+        for crypto_path in list(dist_dir.rglob("cv2/.libs/libcrypto.so.3*")):
+            if crypto_path.is_symlink():
+                continue
+            ssl_path = crypto_path.parent / "libssl.so.3"
+
+            # Replace libcrypto and fix its SONAME
+            os.chmod(crypto_path, 0o644)
+            shutil.copy2(system_crypto, crypto_path)
+            subprocess.run(
+                ["patchelf", "--set-soname", "libcrypto.so.3", str(crypto_path)],
+                capture_output=True
+            )
+
+            # Replace libssl and fix its SONAME + libcrypto NEEDED entry
+            if system_ssl.exists() and ssl_path.exists():
+                # Find what libcrypto NEEDED name libssl currently declares
+                res = subprocess.run(["patchelf", "--print-needed", str(system_ssl)],
+                                     capture_output=True, text=True)
+                old_crypto_needed = next(
+                    (n.strip() for n in res.stdout.splitlines() if "libcrypto" in n), None
+                )
+                os.chmod(ssl_path, 0o644)
+                shutil.copy2(system_ssl, ssl_path)
+                subprocess.run(
+                    ["patchelf", "--set-soname", "libssl.so.3", str(ssl_path)],
+                    capture_output=True
+                )
+                if old_crypto_needed and old_crypto_needed != "libcrypto.so.3":
+                    subprocess.run(
+                        ["patchelf", "--replace-needed", old_crypto_needed,
+                         "libcrypto.so.3", str(ssl_path)],
+                        capture_output=True
+                    )
+
+            print(f"  [SSL-FIX] Updated cv2 OpenSSL in: {crypto_path.relative_to(dist_dir)}")
+            fixed += 1
+
+        if fixed:
+            print(f"[MINIBUILD] Fixed cv2 OpenSSL conflict in {fixed} location(s)")
+        else:
+            print("[MINIBUILD] No cv2 OpenSSL .libs found (skipped — may not be needed on this distro)")
+
+    def _fix_cv2_openssl_windows(self, dist_dir: Path) -> None:
+        """Windows: replace cv2's bundled libcrypto-3-x64.dll with Python's own copy."""
+        import sys as _sys
+        # Python ships libcrypto-3.dll / libcrypto-3-x64.dll in its DLLs directory
+        python_dlls_dir = Path(_sys.base_prefix) / "DLLs"
+        crypto_dll_names = ["libcrypto-3-x64.dll", "libcrypto-3.dll"]
+
+        source_crypto: Optional[Path] = None
+        for name in crypto_dll_names:
+            candidate = python_dlls_dir / name
+            if candidate.exists():
+                source_crypto = candidate
+                break
+
+        if source_crypto is None:
+            print("[MINIBUILD] Warning: Python libcrypto DLL not found, skipping cv2 SSL fix on Windows")
+            return
+
+        ssl_dll_name = source_crypto.name.replace("crypto", "ssl")
+        source_ssl = python_dlls_dir / ssl_dll_name
+
+        fixed = 0
+        # cv2 on Windows places DLLs directly inside the cv2/ package directory
+        for crypto_path in list(dist_dir.rglob(f"cv2/{source_crypto.name}")):
+            ssl_path = crypto_path.parent / ssl_dll_name
+
+            shutil.copy2(source_crypto, crypto_path)
+            if source_ssl.exists() and ssl_path.exists():
+                shutil.copy2(source_ssl, ssl_path)
+
+            print(f"  [SSL-FIX] Updated cv2 OpenSSL DLL in: {crypto_path.relative_to(dist_dir)}")
+            fixed += 1
+
+        if fixed:
+            print(f"[MINIBUILD] Fixed cv2 OpenSSL conflict in {fixed} location(s)")
+        else:
+            print("[MINIBUILD] No cv2 OpenSSL DLLs found (skipped)")
+
+    def _prune_unused_packages(self) -> None:
+        """Remove large unused packages from the bundle (e.g. torch)."""
+        try:
+            # Check config for packages to prune
+            prune_cfg = self.cfg.get("build", {}).get("pyinstaller", {}).get("optimization", {}).get("prune_packages", {})
+            if not prune_cfg.get("enabled", True):
+                return
+
+            packages_to_prune = set(prune_cfg.get("packages", []))
+            if not packages_to_prune:
+                return
+
+            dist_dir = self.project_root / "dist"
+            if not dist_dir.exists():
+                return
+
+            # Find all .app bundles and regular app directories
+            app_bundles = list(dist_dir.glob("*.app"))
+            for item in dist_dir.iterdir():
+                if item.is_dir() and not item.suffix == ".app":
+                    app_bundles.append(item)
+            if not app_bundles:
+                return
+
+            total_saved = 0
+            for bundle in app_bundles:
+                saved = self._prune_bundle_packages(bundle, packages_to_prune)
+                total_saved += saved
+
+            if total_saved > 0:
+                print(f"[MINIBUILD] Pruned unused packages, saved ~{total_saved / 1024 / 1024:.1f} MB")
+            else:
+                print("[MINIBUILD] No unused packages to prune")
+
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: package pruning failed: {e}")
+
+    def _prune_bundle_packages(self, bundle: Path, packages: Set[str]) -> int:
+        """Remove unused packages from a bundle. Returns bytes saved."""
+        saved = 0
+
+        # Cross-platform: packages can be at various locations
+        # macOS: Contents/Resources/<pkg>, Contents/Frameworks/<pkg>
+        # Linux: <pkg> at bundle root or in _internal/ or lib/
+        # Windows: <pkg> at bundle root or in _internal/ or Lib/
+        for pkg in sorted(packages):
+            # Check all possible package locations
+            for subpath in [pkg, f"_internal/{pkg}", f"lib/{pkg}", f"Lib/{pkg}"]:
+                for base in [
+                    bundle,  # bundle root (Linux/Windows)
+                    bundle / "Contents" / "Resources",  # macOS Resources
+                    bundle / "Contents" / "Frameworks",  # macOS Frameworks
+                ]:
+                    pkg_path = base / subpath
+                    if pkg_path.exists():
+                        size = sum(
+                            f.stat().st_size
+                            for f in pkg_path.rglob("*")
+                            if f.is_file() and not f.is_symlink()
+                        )
+                        shutil.rmtree(pkg_path, ignore_errors=True)
+                        print(f"  Removed: {pkg_path.relative_to(bundle)} (~{size/1024/1024:.1f} MB)")
+                        saved += size
+
+        return saved
 
 
 __all__ = ["MiniSpecBuilder"]
