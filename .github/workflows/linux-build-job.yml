@@ -169,6 +169,9 @@ jobs:
           dpkg-dev \
           fakeroot
         
+        # Install patchelf (required by post-build cv2 OpenSSL fix)
+        sudo apt-get install -y -qq patchelf
+        
         echo "✅ System dependencies installed"
 
     - name: Install AppImage tools

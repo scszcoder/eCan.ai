@@ -1865,18 +1865,22 @@ export class IPCAPI {
     }
 
     /**
-     * Rename skill (now supports both my_skills and external directories)
-     * @param oldName - Old skill name (without _skill suffix)
-     * @param newName - New skill name (without _skill suffix)
+     * Rename skill - uses ID-based approach for reliable DB update
+     * @param oldName - Old skill name (without _skill suffix) - used for file system rename
+     * @param newName - New skill name (without _skill suffix) - used for file system rename
      * @param currentFilePath - (Optional) Current skill JSON file path for external directories
+     * @param skillId - (Required) The unique skill ID - used to locate DB record for update
      * @returns API response with skillRoot path
      */
-    public async renameSkill(oldName: string, newName: string, currentFilePath?: string): Promise<APIResponse<{ skillRoot: string }>> {
+    public async renameSkill(oldName: string, newName: string, currentFilePath?: string, skillId?: string): Promise<APIResponse<{ skillRoot: string; skillId: string }>> {
         const params: any = { oldName, newName };
         if (currentFilePath) {
             params.currentFilePath = currentFilePath;
         }
-        return apiRouter.execute<{ skillRoot: string }>(
+        if (skillId) {
+            params.skillId = skillId;
+        }
+        return apiRouter.execute<{ skillRoot: string; skillId: string }>(
             { method: 'skills.rename' },
             params
         );

@@ -1067,8 +1067,10 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Check if skill exists
+        # Check if skill exists by ID (local id, cloud_id, or askid)
+        # Standard logic: exists = update, not exists = create
         existing_skill = skill_service.get_skill_by_id(skill_id)
+        
         memory_skill_data = None
         try:
             ctx = get_handler_context(request, params)
@@ -1109,13 +1111,14 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         except Exception as mem_lookup_err:
             logger.debug(f"[skill_handler] Failed memory lookup for save_agent_skill: {mem_lookup_err}")
 
+        # Standard logic: ID exists = update, ID not exists = create
         if existing_skill.get('success') and existing_skill.get('data'):
             existing_data = existing_skill['data']
             skill_data = _prepare_skill_data(existing_data, username, skill_id)
             for key in skill_info:
                 if key in skill_data:
                     skill_data[key] = skill_info[key]
-            logger.info(f"Updating existing skill: {skill_id}")
+            logger.info(f"[skill_handler] ID check passed: updating existing skill {skill_id}")
             result = skill_service.update_skill(skill_id, skill_data)
         elif memory_skill_data is not None:
             base_id = str(memory_skill_data.get('id') or skill_id)
@@ -1123,9 +1126,10 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             for key in skill_info:
                 if key in skill_data:
                     skill_data[key] = skill_info[key]
-            logger.info(f"Creating missing DB skill from memory snapshot before update: {base_id}")
+            logger.info(f"[skill_handler] ID not in DB, found in memory: creating DB record from memory snapshot {base_id}")
             result = skill_service.add_skill(skill_data)
         else:
+            # ID not found in DB, not found in memory = create new record
             sparse_update_only = set(skill_info.keys()).issubset({'id', 'public', 'rentable', 'price', 'price_model'})
             if sparse_update_only:
                 logger.error(f"[skill_handler] Refusing to create sparse skill during save_agent_skill: id={skill_id}, keys={list(skill_info.keys())}")
@@ -1135,7 +1139,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
                     'Skill not found locally for partial update. Refresh the skill list and try again.'
                 )
             skill_data = _prepare_skill_data(skill_info, username, skill_id)
-            logger.info(f"Creating new skill: {skill_id}")
+            logger.info(f"[skill_handler] ID not found anywhere: creating new skill record {skill_id}")
             result = skill_service.add_skill(skill_data)
 
         if result.get('success'):
