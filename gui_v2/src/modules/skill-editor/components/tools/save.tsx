@@ -711,7 +711,7 @@ export const Save = ({ disabled }: SaveProps) => {
         setDataMappingDirty(false);
       }
 
-      // 4. Handle skill rename if name changed
+      // 4. Handle skill rename if name changed - uses ID-based approach for reliable DB update
       let effectivePath = currentFilePath || null;
       try {
         if (effectivePath) {
@@ -721,8 +721,20 @@ export const Save = ({ disabled }: SaveProps) => {
           const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
 
           if (oldBase && proposedBase && oldBase !== proposedBase) {
+            // Resolve DB skill ID for reliable rename: use store match first
+            const resolvedSkillName = (updatedSkillInfo as any)?.skillName || (updatedSkillInfo as any)?.name || '';
+            const storeItems = useSkillStore.getState().items;
+            const storeMatch = storeItems.find((s: any) =>
+              (effectivePath && s.path && s.path === effectivePath) ||
+              (resolvedSkillName && s.name === resolvedSkillName)
+            );
+            const renameSkillId = storeMatch?.id
+              ? String(storeMatch.id)
+              : ((updatedSkillInfo as any)?.skillId || (updatedSkillInfo as any)?.id || '');
+            
             const api = IPCAPI.getInstance();
-            const resp = await api.renameSkill(oldBase, proposedBase);
+            // Pass skillId to ensure ID-based DB update
+            const resp = await api.renameSkill(oldBase, proposedBase, undefined, renameSkillId);
             if (resp.success && resp.data?.skillRoot) {
               const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
               effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
@@ -733,20 +745,29 @@ export const Save = ({ disabled }: SaveProps) => {
               // Also update the skill store immediately so syncSkillToDBAndStore can
               // look up the correct DB ID by the new name/path.
               const skillStoreState = useSkillStore.getState();
-              const oldEntries = skillStoreState.items.filter(
-                (s: any) => s.name === oldBase || s.name === `${oldBase}_skill`,
-              );
-              if (oldEntries.length > 0) {
-                // Update the first match to the new name
-                skillStoreState.updateItem(String(oldEntries[0].id), {
+              if (renameSkillId) {
+                // Update by ID instead of name match
+                skillStoreState.updateItem(renameSkillId, {
                   name: proposedBase,
                   path: effectivePath,
                 } as any);
-                console.log('[Save] Updated skill store after rename:', oldBase, '->', proposedBase);
-                // Remove any extra duplicates with the old name
-                for (let i = 1; i < oldEntries.length; i++) {
-                  skillStoreState.removeItem(String(oldEntries[i].id));
-                  console.log('[Save] Removed stale old-name entry after rename:', oldEntries[i].id, oldEntries[i].name);
+                console.log('[Save] Updated skill store after rename by ID:', renameSkillId, oldBase, '->', proposedBase);
+              } else {
+                // Fallback to name-based match if no ID
+                const oldEntries = skillStoreState.items.filter(
+                  (s: any) => s.name === oldBase || s.name === `${oldBase}_skill`,
+                );
+                if (oldEntries.length > 0) {
+                  skillStoreState.updateItem(String(oldEntries[0].id), {
+                    name: proposedBase,
+                    path: effectivePath,
+                  } as any);
+                  console.log('[Save] Updated skill store after rename (fallback):', oldBase, '->', proposedBase);
+                  // Remove any extra duplicates with the old name
+                  for (let i = 1; i < oldEntries.length; i++) {
+                    skillStoreState.removeItem(String(oldEntries[i].id));
+                    console.log('[Save] Removed stale old-name entry after rename:', oldEntries[i].id, oldEntries[i].name);
+                  }
                 }
               }
             }
