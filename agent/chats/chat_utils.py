@@ -110,6 +110,18 @@ def gui_a2a_send_chat(mainwin, req):
         logger.error("[chat_utils] No chatId found in request parameters")
         return {"error": "No chatId provided"}
 
+    # Guard: if agents list is not ready yet, bail out gracefully.
+    # The message has already been saved to the DB by handle_send_chat,
+    # so nothing is lost. Retrying when the user sends the next message
+    # will succeed once agents have been built and launched.
+    if not agents:
+        logger.warning(
+            f"[chat_utils] Agents not yet ready (receiverId={params.get('receiverId')}), "
+            f"skipping routing for chatId={chat_id}. "
+            f"Message is saved in DB and will be picked up on the next user action."
+        )
+        return None
+
     # --- Resolve recipient agent ---
     def _find_agent_by_id(agent_id: str):
         return next(
@@ -127,16 +139,17 @@ def gui_a2a_send_chat(mainwin, req):
 
     # 2. Fallback: look up chat members from DB, pick the non-sender member
     if not recipient_agent:
-        db_chat_service: DBChatService = mainwin.db_chat_service
-        this_chat = db_chat_service.get_chat_by_id(chat_id, deep=False)
-        if this_chat.get("success"):
-            member_ids = [m["userId"] for m in this_chat["data"].get("members", [])]
-            for mid in member_ids:
-                if mid != sender_id:
-                    recipient_agent = _find_agent_by_id(mid)
-                    if recipient_agent:
-                        recipient_id = mid
-                        break
+        db_chat_service = mainwin.ec_db_mgr.get_chat_service()
+        if db_chat_service:
+            this_chat = db_chat_service.get_chat_by_id(chat_id, deep=False)
+            if this_chat.get("success"):
+                member_ids = [m["userId"] for m in this_chat["data"].get("members", [])]
+                for mid in member_ids:
+                    if mid != sender_id:
+                        recipient_agent = _find_agent_by_id(mid)
+                        if recipient_agent:
+                            recipient_id = mid
+                            break
 
     # 3. Last resort: first agent with a runner (skip twin if still around)
     if not recipient_agent:

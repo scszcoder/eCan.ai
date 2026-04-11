@@ -33,6 +33,17 @@ export enum SkillRunMode {
 }
 
 /**
+ * Skill source - origin of the skill in the system.
+ * 
+ * Defined values:
+ * - 'ui': Skill created through the UI (skill editor / scaffold)
+ * - 'code': Built-in code-based skill from resource/my_skills (read-only, auto-built)
+ * - 'subscribed': Third-party skill subscribed from marketplace (read-only, synced from cloud)
+ * - 'external': Skill with files on disk but managed outside the system
+ */
+export type SkillSource = 'ui' | 'code' | 'subscribed' | 'external';
+
+/**
  * UI information - matches EC_Skill.ui_info
  */
 export interface SkillUIInfo {
@@ -73,6 +84,8 @@ export interface Skill {
   // Primary key and identifier
   id: string;
   askid?: number;
+  /** Cloud UUID when synced; used with local id to avoid duplicate list entries */
+  cloud_id?: string;
 
   // Basic information
   name: string;
@@ -115,8 +128,8 @@ export interface Skill {
   status?: SkillStatus | string; // UI status
   category?: string; // Category
 
-  // Source type: 'code' for code-based skills, 'ui' for UI-created skills
-  source?: 'ui' | 'code';
+  // Source type: origin of the skill ('ui'/'code'/'subscribed'/'external')
+  source?: SkillSource;
 
   // Usage statistics
   usageCount?: number;

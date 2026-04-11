@@ -183,11 +183,15 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         # else:
         #     formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
-        # Use mainwin's llm object instead of hardcoded ChatOpenAI
-        # This ensures API keys are properly configured from the system's LLM manager
         llm = mainwin.llm if mainwin and mainwin.llm else None
         if not llm:
             raise ValueError("LLM not available in mainwin. Please configure LLM provider API key in Settings.")
+
+        # Safely extract provider/model info from the llm instance for error reporting
+        _llm_class = type(llm).__name__
+        _llm_model = getattr(llm, "model_name", None) or getattr(llm, "model", None) or "unknown"
+        _llm_provider = getattr(llm, "_provider_id", None) or "default"
+        _llm_base_url = getattr(llm, "openai_api_base", None) or getattr(llm, "base_url", None) or ""
 
         # Get recent context within token limit to reduce costs and fit within model limits
         recent_context = get_recent_context(state.get("history", []))
@@ -200,9 +204,14 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         print("llm_node_with_raw_file exiting.....", state)
         return state
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
-        logger.error(err_trace)
-        state["result"] = {"error": err_trace}
+        err_ctx = (
+            f"[Context] skill={skill_name} node={current_node_name} owner={owner} "
+            f"provider={_llm_provider} model={_llm_model} llm_class={_llm_class} "
+            f"base_url={_llm_base_url}"
+        )
+        err_trace = get_traceback(e, f"ErrorLLMInvoke skill={skill_name} node={current_node_name}")
+        logger.error(f"{err_trace} {err_ctx}")
+        state["result"] = {"error": f"{err_trace}\n{err_ctx}"}
         return state
 
 
@@ -534,7 +543,7 @@ def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
         send_result = self_agent.a2a_send_chat_message_async(twin_agent, agent_response_message)
         return send_result
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorSendResponseBack")
+        err_trace = get_traceback(e, "ErrorSendResponseBack skill=search_digikey_chatter")
         logger.error(err_trace)
         return err_trace
 
@@ -553,7 +562,7 @@ def adapt_preliminary_info(preliminary_info, extra_info):
                 "metadata": {},
             })
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAdaptPreliminaryInfo")
+        err_trace = get_traceback(e, "ErrorAdaptPreliminaryInfo skill=search_digikey_chatter")
         logger.debug(err_trace)
         return []
     return components
@@ -605,7 +614,7 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
         else:
             state["error"] = "Unexpected tool result format"
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
+        state['error'] = get_traceback(e, "ErrorLocalSortSearchResultsNode skill=search_digikey_chatter")
         logger.error(state['error'])
     return state
 
@@ -718,7 +727,7 @@ def convert_rank_results_to_search_results(state) -> dict:
         print("notification ready.....")
         return notification
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorConvertRankResultsToSearchResults")
+        err_trace = get_traceback(e, "ErrorConvertRankResultsToSearchResults skill=search_digikey_chatter")
         logger.error(err_trace)
         return {
             "id": "search_results_form",
@@ -861,10 +870,10 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
                             state.clear()
                             state.update(merged)
                     except Exception as e:
-                        print(get_traceback(e, "ErrReRank0"))
+                        print(get_traceback(e, "ErrReRankMergeStatePatch skill=search_digikey_chatter"))
                         pass
         except Exception as e:
-            print(get_traceback(e, "ErrReRank1"))
+            print(get_traceback(e, "ErrReRankResumePayload skill=search_digikey_chatter"))
             pass
 
         logger.debug("[search_digikey_chatter_skill] re_rank_search_results_node resume payload received:",
@@ -940,6 +949,6 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         print("GraphInterrupt")
         raise
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
+        state['error'] = get_traceback(e, "ErrorReRankSearchResultsNode skill=search_digikey_chatter")
         logger.error(state['error'])
     return state

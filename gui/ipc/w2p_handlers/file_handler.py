@@ -1,4 +1,4 @@
-﻿"""
+"""
 File operation IPC handlers for the Skill Editor.
 Provides platform-aware file dialogs and file I/O operations.
 """
@@ -972,22 +972,28 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
         diagram_path = str(path / "diagram_dir" / f"{name}_skill.json") if kind == "diagram" else ""
         
         # Sync skill to database so it appears in skill list
+        actual_skill_id = None
         if kind == "diagram" and diagram_path:
             try:
                 from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
                 sync_result = sync_skill_from_file(diagram_path)
                 if sync_result.get('success'):
-                    logger.info(f"[IPC] skills.scaffold: skill synced to database (ID: {sync_result.get('skill_id')})")
+                    actual_skill_id = sync_result.get('skill_id')
+                    logger.info(f"[IPC] skills.scaffold: skill synced to database (ID: {actual_skill_id})")
                 else:
                     logger.warning(f"[IPC] skills.scaffold: failed to sync skill to database: {sync_result.get('error')}")
             except Exception as sync_err:
                 logger.warning(f"[IPC] skills.scaffold: failed to sync skill: {sync_err}")
         
-        return create_success_response(request, { 
-            'skillRoot': str(path), 
+        response_data = {
+            'skillRoot': str(path),
             'name': name,
-            'diagramPath': diagram_path
-        })
+            'diagramPath': diagram_path,
+        }
+        if actual_skill_id:
+            response_data['skillId'] = actual_skill_id
+
+        return create_success_response(request, response_data)
     except Exception as e:
         logger.error(f"[IPC] skills.scaffold error: {e}")
         return create_error_response(request, 'SCAFFOLD_ERROR', str(e))
@@ -1091,7 +1097,7 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                             if name_match or path_match:
                                 target_skill_id = skill.get('id')
                                 update_result = skill_service.update_skill(target_skill_id, {
-                                    'name': new_skill_full_name,
+                                    'name': new_name,
                                     'path': new_skill_file,
                                 })
                                 if update_result.get('success'):

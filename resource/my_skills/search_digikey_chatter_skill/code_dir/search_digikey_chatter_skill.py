@@ -153,7 +153,7 @@ def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
         send_result = self_agent.a2a_send_chat_message_async(twin_agent, agent_response_message)
         return send_result
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorSendResponseBack")
+        err_trace = get_traceback(e, f"ErrorSendResponseBack skill={THIS_SKILL_NAME}")
         logger.error(err_trace)
         return err_trace
 
@@ -171,7 +171,7 @@ def adapt_preliminary_info(preliminary_info, extra_info):
                 "metadata": {},
             })
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAdaptPreliminaryInfo")
+        err_trace = get_traceback(e, f"ErrorAdaptPreliminaryInfo skill={THIS_SKILL_NAME}")
         logger.debug(err_trace)
         return []
     return components
@@ -222,8 +222,9 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
         else:
             state["error"] = "Unexpected tool result format"
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
-        logger.error(state['error'])
+        err_trace = get_traceback(e, f"ErrorQueryComponentSpecsNode skill={THIS_SKILL_NAME}")
+        state['error'] = err_trace
+        logger.error(err_trace)
     return state
 
 def convert_table_headers_to_params(headers):
@@ -331,8 +332,9 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
         else:
             state["error"] = "Unexpected tool result format"
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
-        logger.error(state['error'])
+        err_trace = get_traceback(e, f"ErrorQueryFOMBasicsNode skill={THIS_SKILL_NAME}")
+        state['error'] = err_trace
+        logger.error(err_trace)
     return state
 
 def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -390,8 +392,9 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
         else:
             state["error"] = "Unexpected tool result format"
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
-        logger.error(state['error'])
+        err_trace = get_traceback(e, f"ErrorLocalSortSearchResultsNode skill={THIS_SKILL_NAME}")
+        state['error'] = err_trace
+        logger.error(err_trace)
     return state
 
 def find_key(data, target_key, path=None):
@@ -568,7 +571,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                 elif hasattr(tool_result, 'isError') and tool_result.isError:
                     state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
             except Exception as e:
-                state['error'] = get_traceback(e, "ErrorPostQueryComponents")
+                state['error'] = get_traceback(e, f"ErrorPostQueryComponents skill={THIS_SKILL_NAME}")
             return state
 
         wf.add_node("post_query_components", node_builder(post_query_components, "post_query_components", THIS_SKILL_NAME, OWNER, bp_manager))
@@ -622,7 +625,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                 logger.debug("prep_run_search tool input:", state["tool_input"])
 
             except Exception as e:
-                state['error'] = get_traceback(e, "ErrorPrepRunSearch")
+                state['error'] = get_traceback(e, f"ErrorPrepRunSearch skill={THIS_SKILL_NAME}")
 
             return state
 
@@ -651,7 +654,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
 
                         logger.debug("post_run_search attrs:", state["attributes"].get("search_results"))
             except Exception as e:
-                state['error'] = get_traceback(e, "ErrorPostRunSearch")
+                state['error'] = get_traceback(e, f"ErrorPostRunSearch skill={THIS_SKILL_NAME}")
             return state
 
         wf.add_node("post_run_search", node_builder(post_run_search, "post_run_search", THIS_SKILL_NAME, OWNER, bp_manager))
@@ -715,7 +718,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                     err_msg = "ErrorPrepQueryFOM: No component to work on....."
                     state['error'] = err_msg
             except Exception as e:
-                err_msg = get_traceback(e, "ErrorPrepQueryFOM")
+                err_msg = get_traceback(e, f"ErrorPrepQueryFOM skill={THIS_SKILL_NAME}")
                 state['error'] = err_msg
                 logger.error(err_msg)
             return state
@@ -798,7 +801,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                         state["result"] = {"llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
                         send_data_back2human("send_chat", "form", fom_form, state)
             except Exception as e:
-                err_msg = get_traceback(e, "ErrorPostQueryFOM")
+                err_msg = get_traceback(e, f"ErrorPostQueryFOM skill={THIS_SKILL_NAME}")
                 logger.error(f"{err_msg}")
                 state['error'] = err_msg
             return state
@@ -853,7 +856,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                 state["tool_input"] = {"input": body}
                 print("prep local sort......tool input:", state["tool_input"])
             except Exception as e:
-                state['error'] = get_traceback(e, "ErrorPrepLocalSort")
+                state['error'] = get_traceback(e, f"ErrorPrepLocalSort skill={THIS_SKILL_NAME}")
             return state
 
         wf.add_node("prep_local_sort", node_builder(prep_local_sort, "prep_local_sort", THIS_SKILL_NAME, OWNER, bp_manager))
@@ -875,7 +878,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
 
                 logger.debug("post_local_sort................done!")
             except Exception as e:
-                state['error'] = get_traceback(e, "ErrorPostLocalSort")
+                state['error'] = get_traceback(e, f"ErrorPostLocalSort skill={THIS_SKILL_NAME}")
             return state
 
         wf.add_node("post_local_sort", node_builder(post_local_sort, "post_local_sort", THIS_SKILL_NAME, OWNER, bp_manager))
@@ -911,5 +914,5 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         logger.info(f"[search_digikey_chatter_skill] Built skill {THIS_SKILL_NAME}", skill.name, skill.id, skill.mapping_rules)
         return skill
     except Exception as e:
-        logger.error(get_traceback(e, "ErrorBuildSearchDigikeyChatterSkill"))
+        logger.error(get_traceback(e, f"ErrorBuildSearchDigikeyChatterSkill skill={THIS_SKILL_NAME}"))
         return None

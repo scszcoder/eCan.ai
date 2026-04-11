@@ -11,9 +11,10 @@ from agent.cloud_worker.cloud_logger import send_skill_editor_log
 # Simulated function registry to map node types to actual Python functions.
 # You need to populate this in your real implementation
 def _default_noop_builder(data, node_id, skill_name, owner, bp_mgr):
-    def _noop(state: dict, **kwargs):
+    from agent.ec_skill import node_builder
+    def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
-    return _noop
+    return node_builder(_noop, node_id, skill_name, owner, bp_mgr)
 
 function_registry = {
     "llm": build_llm_node,
@@ -381,11 +382,9 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         # Get the appropriate builder function from the registry
         builder_func = function_registry.get(node_type, _default_noop_builder)
 
-        # Call the builder function with the node's data to get the raw callable
-        raw_callable = builder_func(node_data, raw_ns, skill_name, owner, bp_manager)
-
-        # Wrap the raw callable with the node_builder to add retries, context, etc.
-        node_callable = node_builder(raw_callable, block_id, skill_name, owner, bp_manager)
+        # Call the builder function with the node's data to get the callable.
+        # Builder functions already wrap with node_builder() internally.
+        node_callable = builder_func(node_data, raw_ns, skill_name, owner, bp_manager)
 
         # Add the constructed node to the workflow
         workflow.add_node(sanitized_block_id, node_callable)
@@ -562,10 +561,9 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
                 except Exception:
                     pass
             builder_func = function_registry.get(ntype, _default_noop_builder)
-            # Create runtime callable via builder
-            raw_callable = builder_func(node_data, nid, skill_name, owner, bp_mgr)
-            # Wrap with node_builder to add retries/context/breakpoints
-            node_callable = node_builder(raw_callable, nid, skill_name, owner, bp_mgr)
+            # Create runtime callable via builder — builder functions already
+            # wrap with node_builder() internally, so no second wrap needed.
+            node_callable = builder_func(node_data, nid, skill_name, owner, bp_mgr)
             workflow.add_node(sid(nid), node_callable)
 
             # If loop/group provides nested blocks, add those into the same graph namespace (best-effort)

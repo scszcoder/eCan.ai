@@ -54,6 +54,15 @@ custom_controller = Controller()
 _current_agent_instance = None
 _current_runtime_context: Dict[str, Any] = {}
 
+# ── bu_send_chat dedup cache ──
+# Prevents the same message from being dispatched to the same recipient for the
+# same customer within a short time window.  Keyed on (recipient_id, customer_id);
+# value is the timestamp of the last send.  Entries older than the window are
+# lazily pruned on each check.
+import time as _time
+_SEND_CHAT_DEDUP_WINDOW_S = 60  # seconds
+_send_chat_dedup_cache: Dict[str, float] = {}  # key → timestamp
+
 
 
 def set_current_agent(agent):
@@ -1435,6 +1444,12 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
         include_in_memory=True,
         long_term_memory=f"Extracted raw markdown for query: {query}",
     )
+
+@custom_controller.action(
+    "Send a chat message to another agent via A2A (Agent-to-Agent) protocol. "
+    "Use bu_select_agents first to discover available agents and their IDs.",
+    param_model=SendChatAction,
+)
 async def bu_send_chat(params: SendChatAction) -> ActionResult:
     from agent.mcp.server.chat_utils.chat_tools import send_chat
 
@@ -1577,6 +1592,41 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
     # Discovery gate and duplicate-recipient detection are now handled
     # in chat_tools.send_chat() — the common path for both bu_send_chat
     # and MCP send_chat.  No need to duplicate here.
+
+    # ── Dedup: skip if same (recipient, customer) was sent recently ──
+    try:
+        _dedup_recipient = normalized_recipient_id or normalized_recipient_name
+        _dedup_customer = ""
+        _msg_str = config.get("message", "")
+        if isinstance(_msg_str, str):
+            _msg_obj = try_parse_json(_msg_str)
+            if isinstance(_msg_obj, dict):
+                _dedup_customer = str(
+                    _msg_obj.get("customer_id") or _msg_obj.get("customer_name") or ""
+                ).strip()
+        _dedup_key = f"{_dedup_recipient}|{_dedup_customer}" if _dedup_customer else ""
+        if _dedup_key:
+            now = _time.time()
+            # Prune old entries
+            _expired = [k for k, t in _send_chat_dedup_cache.items() if now - t > _SEND_CHAT_DEDUP_WINDOW_S]
+            for k in _expired:
+                _send_chat_dedup_cache.pop(k, None)
+            last_sent = _send_chat_dedup_cache.get(_dedup_key)
+            if last_sent is not None and now - last_sent < _SEND_CHAT_DEDUP_WINDOW_S:
+                logger.info(
+                    f"[bu_send_chat] DEDUP: skipping duplicate dispatch "
+                    f"(key={_dedup_key}, last_sent={now - last_sent:.1f}s ago, "
+                    f"window={_SEND_CHAT_DEDUP_WINDOW_S}s)"
+                )
+                return ActionResult(
+                    extracted_content=(
+                        f"Message already sent to this agent for customer '{_dedup_customer}' "
+                        f"{now - last_sent:.0f}s ago. Skipping duplicate dispatch."
+                    )
+                )
+            _send_chat_dedup_cache[_dedup_key] = now
+    except Exception as _dedup_err:
+        logger.debug(f"[bu_send_chat] Dedup check failed (non-fatal): {_dedup_err}")
 
     login = AppContext.login
     logger.info(
@@ -2167,17 +2217,29 @@ async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionR
 #
 # Selectors confirmed from live DOM captures (Feige customer-service web app).
 # Session list panel:
-#   Items      : [data-qa-id="qa-conversation-chat-item"]
-#   Name       : .MP1bk3ccfHC9V2SnPCGD  (title attr) or .Jv6FtqUv5VoYARd2pp4y
-#   Last msg   : .lF_M7QiFB0ukHWpMfQde span
-#   Timestamp  : .CEnLM8MEGksTdgi_8Lqf
-#   Unread badge: .rxAvaVFJHvpEGMc1ejm1
-#   Scroll root: #chantListScrollArea
+#   Scroll root : #chantListScrollArea
+#   Items       : [data-qa-id="qa-conversation-chat-item"]
+#   Name        : .MP1bk3ccfHC9V2SnPCGD (title attr) or .Jv6FtqUv5VoYARd2pp4y (text)
+#   Last msg    : .lF_M7QiFB0ukHWpMfQde span
+#   Timestamp   : .CEnLM8MEGksTdgi_8Lqf (absolute) or .FDBMBK87T0SHSZ_4swP6 (relative "45秒")
+#   Last msg ID : data-btm attr on bottom-row div (changes per message, used for change detection)
+#   Unread badge: .rxAvaVFJHvpEGMc1ejm1  (div; empty = CSS dot badge, number = count badge;
+#                 ALWAYS present in DOM — do NOT use :has() to filter by it)
+#   Tab buttons : [data-qa-id="qa-active-chat-tab"]  (当前会话)
+#                 [data-qa-id="qa-last-chat-tab"]    (最近联系)
 #
-# Chat thread:
-#   Input box  : div[contenteditable="true"]   (first match inside .chat-input or similar)
-#   Send button: button[data-qa-id="qa-send-btn"]  — TODO: verify from live capture
-#   Messages   : .message-item or [data-qa-id*="message"]  — TODO: verify from live capture
+# Chat thread (confirmed from live DOM):
+#   Message wrappers : [data-qa-id="qa-message-warpper"]  ← Feige typo, NOT "wrapper"
+#   Bubble element   : .iD7SHBvMhm4OhfCsBGr1
+#   Agent bubble     : .messageIsMe   (flex-direction: row-reverse)
+#   Customer bubble  : .messageNotMe  (flex-direction: row)
+#   Timestamp        : .O4UWWFoQxgMq4AWHMq25
+#   Message id       : data-id attr on child div of wrapper
+#   System messages  : .BqNO6cexAGBsZgUmEzIE or .e0Bi5IauHWvUG8773oi9
+#
+# Chat compose area (confirmed from live DOM):
+#   Input   : textarea[data-qa-id="qa-send-message-textarea"]
+#   Send btn: [data-qa-id="qa-send-message-button"]  (div, not button)
 #
 # If a selector stops working, run feige_get_chat_thread or feige_list_sessions with
 # extract_dom=True to get fresh HTML snippets and update the constants below.
@@ -2207,10 +2269,36 @@ _FEIGE_LIST_SESSIONS_JS = r"""
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
     var tsEl = el.querySelector('.CEnLM8MEGksTdgi_8Lqf');
     var ts = tsEl ? tsEl.textContent.trim() : '';
+    // Detect unread count and tags from .rxAvaVFJHvpEGMc1ejm1
+    // This element can contain either a numeric unread badge OR a warning tag (e.g. 服务态度预警)
+    var unread = 0;
+    var tags = [];
     var unreadEl = el.querySelector('.rxAvaVFJHvpEGMc1ejm1');
-    var unread = unreadEl ? parseInt(unreadEl.textContent.trim(), 10) || 0 : 0;
-    if (!includeRead && unread === 0) continue;
-    results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread });
+    if (unreadEl) {
+      var rawText = unreadEl.textContent.trim();
+      var parsed = parseInt(rawText, 10);
+      if (!isNaN(parsed) && String(parsed) === rawText) {
+        unread = parsed;
+      } else if (rawText) {
+        // Non-numeric text = tag (e.g. 服务态度预警)
+        tags.push(rawText);
+      }
+    }
+    if (unread === 0) {
+      // Fallback: sup element (dot/number badge)
+      var supEl = el.querySelector('sup');
+      if (supEl) {
+        unread = parseInt(supEl.textContent.trim(), 10) || 1;
+      }
+    }
+    // Collect inline tags (e.g. 重复来访)
+    var tagEls = el.querySelectorAll('.obeJrSyU4KwAzGeRfcbk span');
+    for (var j = 0; j < tagEls.length; j++) {
+      var tagText = tagEls[j].textContent.trim();
+      if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
+    }
+    if (!includeRead && unread === 0 && tags.length === 0) continue;
+    results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread, tags: tags });
   }
   return JSON.stringify({ sessions: results, total_visible: items.length });
 })(INCLUDE_READ, MAX_SESSIONS);
@@ -2293,30 +2381,38 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
 # snapshot (e.g. via extract_dom on the right-hand pane) and update the JS.
 _FEIGE_GET_THREAD_JS = r"""
 (function(maxMessages) {
-  // Try common Feige message selectors (update if DOM changes)
-  var selectors = [
-    '[data-qa-id*="message-item"]',
-    '.message-item',
-    '[class*="messageItem"]',
-    '[class*="chat-message"]',
-  ];
-  var msgs = [];
-  for (var s = 0; s < selectors.length; s++) {
-    msgs = Array.from(document.querySelectorAll(selectors[s]));
-    if (msgs.length > 0) break;
-  }
+  // Confirmed selectors from live DOM capture (note Feige typo: "warpper" not "wrapper")
+  // Each message wrapper: [data-qa-id="qa-message-warpper"] > div[data-id] > div.tC9ap6QtAyeCD0jfuMns
+  // Agent message:   inner div with flex-direction:row-reverse  OR  class containing "messageIsMe"
+  // Customer message: inner div with flex-direction:row          OR  class containing "messageNotMe"
+  // System/event:    div.tC9ap6QtAyeCD0jfuMns containing no leaveMessageWrapper (just text spans)
+  var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
   var results = [];
-  var start = Math.max(0, msgs.length - maxMessages);
-  for (var i = start; i < msgs.length; i++) {
-    var el = msgs[i];
-    var text = el.innerText || el.textContent || '';
-    var isAgent = el.classList.contains('self') || el.classList.contains('right') ||
-                  el.getAttribute('data-sender-type') === 'agent';
-    var tsEl = el.querySelector('time, [class*="time"], [class*="timestamp"]');
+  var start = Math.max(0, wrappers.length - maxMessages);
+  for (var i = start; i < wrappers.length; i++) {
+    var wrap = wrappers[i];
+    // Message bubble element (has the actual text)
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!bubble) {
+      // System/event message (no bubble) — capture inner text of the system span
+      var sysEl = wrap.querySelector('.BqNO6cexAGBsZgUmEzIE, .e0Bi5IauHWvUG8773oi9, .rcHPT4n3TlQD0Nu4sSiv');
+      if (sysEl) {
+        results.push({ index: i, text: sysEl.textContent.trim(), is_agent: false, is_system: true, timestamp: '' });
+      }
+      continue;
+    }
+    var text = (bubble.querySelector('pre') || bubble).textContent.trim();
+    // Determine sender from CSS class on the bubble itself
+    var isAgent = bubble.classList.contains('messageIsMe');
+    // Timestamp lives in a sibling of the bubble
+    var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
-    results.push({ index: i, text: text.trim(), is_agent: isAgent, timestamp: ts });
+    // data-id on the wrapper's direct child can serve as a message ID
+    var msgIdEl = wrap.querySelector('[data-id]');
+    var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
+    results.push({ index: i, text: text, is_agent: isAgent, is_system: false, timestamp: ts, msg_id: msgId });
   }
-  return JSON.stringify({ messages: results, total_found: msgs.length, selector_used: msgs.length > 0 ? 'matched' : 'none' });
+  return JSON.stringify({ messages: results, total_found: wrappers.length, selector_used: wrappers.length > 0 ? 'matched' : 'none' });
 })(MAX_MESSAGES);
 """
 
@@ -2349,16 +2445,17 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 _FEIGE_SEND_MESSAGE_JS = r"""
 (function(text) {
-  // Find the contenteditable input in the chat compose area
+  // Confirmed from live DOM: input is a <textarea data-qa-id="qa-send-message-textarea">
+  // Send button is <div data-qa-id="qa-send-message-button" role="button">
   var inputSelectors = [
-    '[data-qa-id="qa-chat-input"]',
+    '[data-qa-id="qa-send-message-textarea"]',
+    'textarea[placeholder*="发送"]',
+    'textarea',
     '[contenteditable="true"]',
-    'div[contenteditable]',
   ];
   var input = null;
   for (var s = 0; s < inputSelectors.length; s++) {
     var candidates = Array.from(document.querySelectorAll(inputSelectors[s]));
-    // Prefer the one that is visible and not read-only
     for (var c = 0; c < candidates.length; c++) {
       var el = candidates[c];
       var rect = el.getBoundingClientRect();
@@ -2368,17 +2465,22 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
 
-  // Focus and set text
+  // Set text on textarea using React's native setter so React state updates
   input.focus();
-  document.execCommand('selectAll', false, null);
-  document.execCommand('insertText', false, text);
+  var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+  if (nativeSetter && nativeSetter.set) {
+    nativeSetter.set.call(input, text);
+  } else {
+    input.value = text;
+  }
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Try send button first
+  // Try confirmed send button first: <div data-qa-id="qa-send-message-button">
   var sendSelectors = [
+    '[data-qa-id="qa-send-message-button"]',
     '[data-qa-id="qa-send-btn"]',
     'button[class*="send"]',
-    'button[aria-label*="send" i]',
-    'button[title*="send" i]',
   ];
   var sendBtn = null;
   for (var sb = 0; sb < sendSelectors.length; sb++) {
@@ -2387,11 +2489,10 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   if (sendBtn) {
     sendBtn.click();
-    return JSON.stringify({ sent: true, method: 'button_click' });
+    return JSON.stringify({ sent: true, method: 'button_click', selector: sendSelectors[sb] });
   }
-  // Fallback: simulate Enter keypress
-  var ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-  input.dispatchEvent(ev);
+  // Fallback: simulate Enter keypress on the textarea
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
   return JSON.stringify({ sent: true, method: 'enter_key' });
 })(MESSAGE_TEXT);
 """

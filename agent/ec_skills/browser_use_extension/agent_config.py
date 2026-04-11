@@ -487,12 +487,12 @@ def get_agent_kwargs_with_compaction(
     
     # Use ULTRA-AGGRESSIVE compaction: compress after every step, keep only latest
     # This minimizes token usage by keeping only the latest message
-    logger.info(f"[AgentConfig] 📋 Using ultra-aggressive compaction (compress every step, keep only latest)")
+    logger.info(f"[AgentConfig] 📋 Using aggressive compaction (compress every step, keep last 10)")
     compaction_settings = MessageCompactionSettings(
         enabled=True,  # Enable compaction to actually remove old history
         compact_every_n_steps=1,  # Compress after EVERY step
         trigger_char_count=1,  # Always trigger (minimum threshold)
-        keep_last_items=1,  # Keep only the latest item after compaction
+        keep_last_items=10,  # Keep recent items to preserve action history across rounds
         summary_max_chars=500,  # Minimal summary
         chars_per_token=3.5,
     )
@@ -557,7 +557,7 @@ def get_agent_kwargs_with_compaction(
     # Note: We don't set max_history_items because:
     # 1. browser-use requires it to be None or > 5
     # 2. We use ultra-aggressive compaction to control history instead
-    # 3. Compaction with keep_last_items=1 effectively keeps only the latest state
+    # 3. Compaction with keep_last_items=10 preserves recent action history across rounds
     
     # Validate configuration for potential issues
     _validate_agent_config(agent_kwargs, context_length)

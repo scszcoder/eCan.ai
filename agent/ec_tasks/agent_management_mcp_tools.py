@@ -539,9 +539,48 @@ def _get_agent_id(agent) -> str:
 
 
 def _resolve_skill(agent, skill_name: str, skill_id: str):
-    """Find a skill on the agent by name or id."""
+    """Find a skill on the agent by name or id.
+
+    Reloads from disk if the skill has a local file path, to pick up the latest changes.
+    """
     skills = getattr(agent, "skills", []) or []
-    for sk in skills:
+    for i, sk in enumerate(skills):
+        if skill_name and getattr(sk, "name", "") != skill_name:
+            if skill_id and getattr(sk, "id", "") != skill_id:
+                continue
+        # else matched
+
+        skill_path = getattr(sk, "path", None) or ""
+        if skill_path:
+            from pathlib import Path
+            p = Path(skill_path)
+            if p.exists() and p.is_file() and p.suffix.lower() == ".json":
+                # Only hot-reload if the skill is currently attached to an active task
+                _in_use = False
+                try:
+                    from agent.ec_tasks.task_mcp_tools import _is_skill_in_use_by_active_task
+                    _in_use = _is_skill_in_use_by_active_task(sk, mainwin)
+                except Exception:
+                    pass
+                if not _in_use:
+                    logger.debug(f"[_resolve_skill] Skill '{getattr(sk, 'name', '')}' not in active use, skipping reload")
+                    # Return based on match type
+                    if skill_name and getattr(sk, "name", "") == skill_name:
+                        return sk
+                    if skill_id and getattr(sk, "id", "") == skill_id:
+                        return sk
+                    return sk
+                try:
+                    from agent.ec_skills.build_agent_skills import load_skill_from_folder
+                    _skill_root = p.parent.parent if p.parent.name == "diagram_dir" else p.parent
+                    reloaded_sk = load_skill_from_folder(_skill_root, mainwin=None)
+                    if reloaded_sk and getattr(reloaded_sk, "runnable", None) is not None:
+                        skills[i] = reloaded_sk
+                        logger.info(f"[_resolve_skill] ✅ Reloaded skill '{getattr(reloaded_sk, 'name', '')!r}'")
+                        return reloaded_sk
+                except Exception as e:
+                    logger.warning(f"[_resolve_skill] ⚠️ Reload failed: {e}, using cached")
+
         if skill_name and getattr(sk, "name", "") == skill_name:
             return sk
         if skill_id and getattr(sk, "id", "") == skill_id:

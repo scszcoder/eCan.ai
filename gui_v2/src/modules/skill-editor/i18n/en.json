@@ -120,6 +120,7 @@
     "open": "Open",
     "save": "Save",
     "saveAs": "Save As",
+    "history": "Version History",
     "newSkill": "New Skill",
     "info": "Info",
     "comment": "Comment",
@@ -756,6 +757,14 @@
       "monitorDonePolicies": {
         "keep": "Keep monitors running",
         "stop": "Stop monitors"
+      },
+      "loopHistoryMode": "Loop History",
+      "loopHistoryModes": {
+        "clear": "Clear each round (default)",
+        "trim5": "Keep last 5 steps",
+        "trim10": "Keep last 10 steps",
+        "trim20": "Keep last 20 steps",
+        "accumulate": "Accumulate all rounds"
       }
     },
     "mcp": {
@@ -801,5 +810,45 @@
   "formComponents": {
     "expandPrompt": "Expand to view all",
     "collapsePrompt": "Collapse"
+  },
+  "history": {
+    "title": "Skill Version History",
+    "records": "{{count}} records",
+    "version": "Version",
+    "saveType": "Save Type",
+    "savedAt": "Saved At",
+    "fileSize": "File Size",
+    "changeSummary": "Change Summary",
+    "actions": "Actions",
+    "viewDetails": "View Details",
+    "restore": "Restore This Version",
+    "delete": "Delete",
+    "deleteRecord": "Delete this history record?",
+    "deleteAll": "Delete All",
+    "deleteAllHistory": "Delete all history for this skill?",
+    "deleteAllDesc": "This action cannot be undone.",
+    "restoreSuccess": "Restored to version {{version}}",
+    "deleteSuccess": "History record deleted",
+    "deleteAllSuccess": "All history records deleted",
+    "deleteFailed": "Failed to delete history record",
+    "deleteAllFailed": "Failed to delete history",
+    "showingRecords": "Showing {{shown}} of {{total}} records (max {{max}})",
+    "noHistory": "No History Records",
+    "noHistoryDesc": "History will appear here after you save the skill.",
+    "loadMore": "Load More",
+    "loading": "Loading history...",
+    "dismiss": "Dismiss",
+    "selectedVersion": "Selected Version Details",
+    "skillId": "Skill ID",
+    "historyId": "History ID",
+    "created": "Created",
+    "storedFields": "Stored Fields",
+    "saveTypeLabels": {
+      "manual": "Manual Save",
+      "auto_save": "Auto Save",
+      "restore": "Restored",
+      "restore_backup": "Backup",
+      "save_as": "Save As"
+    }
   }
 }

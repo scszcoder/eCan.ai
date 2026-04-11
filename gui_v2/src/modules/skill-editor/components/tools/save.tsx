@@ -520,12 +520,25 @@ async function syncSkillToDBAndStore(
       local_helper_machine: localHelperMachine,
     };
 
+    // Resolve the real DB skill ID: prefer a match from the skill store (by path or name)
+    // over skillInfo.skillId which may be a frontend UUID that does not exist in the DB.
+    const resolvedSkillName = skillInfo.skillName || skillInfo.name || '';
+    const resolvedPath = filePath || skillInfo.path || '';
+    const storeItems = useSkillStore.getState().items;
+    const storeMatch = storeItems.find((s: any) =>
+      (resolvedPath && s.path && s.path === resolvedPath) ||
+      (resolvedSkillName && s.name === resolvedSkillName)
+    );
+    const dbSkillId = storeMatch?.id
+      ? String(storeMatch.id)
+      : (skillInfo.skillId || skillInfo.id || '');
+
     // Build the payload that save_agent_skill IPC handler expects
     // IMPORTANT: Only send fields that exist on GraphQL SkillUpdateInput.
     // Persist hybrid-cloud settings inside `config`.
     const skillPayload: Record<string, any> = {
-      id: skillInfo.skillId || skillInfo.id,
-      name: skillInfo.skillName || skillInfo.name || 'Unnamed Skill',
+      id: dbSkillId,
+      name: resolvedSkillName || 'Unnamed Skill',
       description: skillInfo.description || '',
       version: skillInfo.version || '1.0.0',
       path: filePath || skillInfo.path || '',
@@ -589,6 +602,15 @@ function updateSkillStoreFromPayload(
     store.updateItem(skillId, storeItem);
     console.log('[SKILL_IO][STORE] Updated existing skill in store:', skillId);
   } else {
+    // Remove any stale entries with the same name (different ID) before adding,
+    // to prevent duplicates when the skill ID changes between scaffold and save.
+    const sameName = store.items.filter(
+      (s) => s.name === skillPayload.name && String(s.id) !== skillId,
+    );
+    sameName.forEach((s) => {
+      console.log('[SKILL_IO][STORE] Removing stale duplicate (name match, id mismatch):', s.id);
+      store.removeItem(String(s.id));
+    });
     store.addItem(storeItem as any);
     console.log('[SKILL_IO][STORE] Added new skill to store:', skillId);
   }
@@ -705,6 +727,28 @@ export const Save = ({ disabled }: SaveProps) => {
               const newRoot: string = String(resp.data.skillRoot).replace(/\\/g, '/');
               effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
               setCurrentFilePath(effectivePath);
+              // CRITICAL: Sync the new name into skillInfo store so subsequent saves
+              // use the new name (not the old store name which would overwrite the rename).
+              setSkillInfo({ ...(updatedSkillInfo as any), skillName: proposedBase });
+              // Also update the skill store immediately so syncSkillToDBAndStore can
+              // look up the correct DB ID by the new name/path.
+              const skillStoreState = useSkillStore.getState();
+              const oldEntries = skillStoreState.items.filter(
+                (s: any) => s.name === oldBase || s.name === `${oldBase}_skill`,
+              );
+              if (oldEntries.length > 0) {
+                // Update the first match to the new name
+                skillStoreState.updateItem(String(oldEntries[0].id), {
+                  name: proposedBase,
+                  path: effectivePath,
+                } as any);
+                console.log('[Save] Updated skill store after rename:', oldBase, '->', proposedBase);
+                // Remove any extra duplicates with the old name
+                for (let i = 1; i < oldEntries.length; i++) {
+                  skillStoreState.removeItem(String(oldEntries[i].id));
+                  console.log('[Save] Removed stale old-name entry after rename:', oldEntries[i].id, oldEntries[i].name);
+                }
+              }
             }
           }
         }
