@@ -126,6 +126,15 @@ else
     echo -e "   安装命令：sudo apt-get install dpkg"
 fi
 
+# 检查 patchelf（cv2 OpenSSL 冲突修复必需）
+if command -v patchelf &> /dev/null; then
+    PATCHELF_VERSION=$(patchelf --version 2>&1 | head -1)
+    echo -e "${GREEN}✅ patchelf：$PATCHELF_VERSION${NC}"
+else
+    echo -e "${RED}❌ patchelf 未安装（cv2 SSL 修复将跳过，可能导致 SSL 启动失败）${NC}"
+    echo -e "   安装命令：sudo apt-get install patchelf"
+fi
+
 echo ""
 
 # ============================================================================

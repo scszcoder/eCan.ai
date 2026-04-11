@@ -33,7 +33,6 @@ dashscope==1.25.0
 # ============================================================================
 # AI & MACHINE LEARNING - MEMORY & RETRIEVAL
 # ============================================================================
-mem0ai==1.0.4
 langmem==0.0.30
 # chroma-hnswlib==0.7.6  # Commented out - no Python 3.14 wheels available
 
@@ -41,7 +40,7 @@ langmem==0.0.30
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
 # ============================================================================
 openai==2.16.0
-ollama>=0.1.0,<1.0.0        # Required by mem0, browser_use, langchain
+ollama>=0.1.0,<1.0.0        # Required by browser_use, langchain
 anthropic>=0.18.0,<1.0.0    # Anthropic Claude (optional LLM provider)
 voyageai>=0.2.0,<1.0.0      # Voyage AI embeddings (optional)
 tokenizers>=0.22.0,<0.24.0  # Required by transformers>=4.57
@@ -65,12 +64,12 @@ threadpoolctl==3.6.0
 # ============================================================================
 # COMPUTER VISION & IMAGE PROCESSING
 # ============================================================================
-opencv-python==4.11.0.86
+opencv-python-headless==4.11.0.86  # headless: ~40MB, saves ~130MB vs full opencv
 pillow==12.1.1
 pdf2image==1.17.0
 imutils==0.5.4
 pytesseract==0.3.13
-paddleocr==3.4.0
+rapidocr-onnxruntime==1.3.3  # Lightweight OCR engine (~20MB, replaces ~200MB paddleocr)
 
 # ============================================================================
 # WEB SCRAPING & AUTOMATION
@@ -177,7 +176,7 @@ pypika-tortoise==0.6.3
 # ============================================================================
 # MONITORING & TELEMETRY
 # ============================================================================
-posthog==7.7.0  # Required by browser-use 0.12.5, compatible with mem0ai
+posthog==7.7.0  # Required by browser-use 0.12.5
 
 # ============================================================================
 # TESTING
