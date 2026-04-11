@@ -75,6 +75,12 @@ const isCodeGenerated = (item: any): boolean => {
   return item.source === 'code';
 };
 
+/** Normalize skill name for grouping/dedupe (trim + Unicode NFKC). */
+const skillNameDedupeKey = (name: unknown): string =>
+  String(name ?? '')
+    .normalize('NFKC')
+    .trim();
+
 // 多选TagEdit器 - 使用 Select mode="tags" Implementation友好交互
 // Support预Definition选项（国际化）和UserCustomInput
 const TagsEditor: React.FC<{
@@ -117,26 +123,43 @@ const TagsEditor: React.FC<{
 
   // 使用 useMemo Cache选项，避免重复计算
   const selectOptions = useMemo(() => {
-    return options.map((opt, index) => {
-      // 支持对象格式（包含 hasId 标记）和字符串格式
+    const seen = new Set<string>();
+    const out: Array<{
+      label: string;
+      value: string;
+      hasId?: boolean;
+      key: string;
+      title: string;
+    }> = [];
+    let index = 0;
+    for (const opt of options) {
       if (typeof opt === 'object') {
-        return {
+        const val = String(opt.value ?? '');
+        if (seen.has(val)) continue;
+        seen.add(val);
+        out.push({
           label: getDisplayText(opt.label),
           value: opt.value,
           hasId: opt.hasId,
-          key: `option-${index}-${opt.value}`,
-          title: ''
-        };
+          key: `option-${index}-${val}`,
+          title: '',
+        });
+      } else {
+        const displayText = getDisplayText(opt);
+        const val = String(opt);
+        if (seen.has(val)) continue;
+        seen.add(val);
+        out.push({
+          label: displayText,
+          value: opt,
+          hasId: true,
+          key: `option-${index}-${val}`,
+          title: '',
+        });
       }
-      const displayText = getDisplayText(opt);
-      return {
-        label: displayText,
-        value: opt,
-        hasId: true, // 字符串格式默认为有效
-        key: `option-${index}-${opt}`,
-        title: ''
-      };
-    });
+      index += 1;
+    }
+    return out;
   }, [options, getDisplayText]);
 
   // ProcessSelect变化 - WhenUserSelect预Definition选项时，Storage国际化 key；CustomInput时，Storage原文
@@ -506,10 +529,23 @@ const AgentDetails: React.FC = () => {
 
   const skillMap = useMemo(() => {
     const map = new Map();
-    // ⚠️ 保护机制：只包含有 id 的 skills
+    // 去重：按规范化 name 分组，保留 UI / 订阅 skill 优先于 code
+    const skillGroups = new Map<string, any[]>();
     (storeSkills || []).forEach((s: any) => {
-      if (s.name && s.id) map.set(s.name, s);
+      const key = skillNameDedupeKey(s.name);
+      if (!key || !s.id) return;
+      if (!skillGroups.has(key)) skillGroups.set(key, []);
+      skillGroups.get(key)!.push(s);
     });
+
+    skillGroups.forEach((group, key) => {
+      const uiSkill = group.find(s => s.source === 'ui' || s.source === 'subscribed');
+      const selected = uiSkill || group.find(s => !isCodeGenerated(s)) || group[0];
+      // Form / TagsEditor 用展示名做 key：用选中项的原始 name，保证与已保存的 agent.skills 一致
+      const formKey = selected?.name != null ? String(selected.name) : key;
+      map.set(formKey, selected);
+    });
+
     return map;
   }, [storeSkills]);
 
@@ -551,38 +587,37 @@ const AgentDetails: React.FC = () => {
   }, [storeTasks]);
 
   const skillOptions = useMemo(() => {
-    // ⚠️ 保护机制：标记代码生成的 skills（通过 source 字段判断）
-    // 去重：按 name 分组，收集所有同名项，然后选择优先级最高的（UI > Code）
     const skillGroups = new Map<string, any[]>();
     (storeSkills || []).forEach((s: any) => {
-      const name = s.name;
-      if (!name) return;
-      
-      if (!skillGroups.has(name)) {
-        skillGroups.set(name, []);
-      }
-      skillGroups.get(name)!.push(s);
+      const key = skillNameDedupeKey(s.name);
+      if (!key) return;
+      if (!skillGroups.has(key)) skillGroups.set(key, []);
+      skillGroups.get(key)!.push(s);
     });
-    
-    // 对每组同名 skills，选择优先级最高的：UI 创建 > 代码生成
-    const uniqueSkills = Array.from(skillGroups.values()).map(group => {
-      // 优先选择 UI 创建的（source !== 'code'）
-      const uiSkill = group.find(s => !isCodeGenerated(s));
-      const selected = uiSkill || group[0]; // 如果都是 code，选第一个
-      
+
+    const uniqueSkills = Array.from(skillGroups.values()).map((group) => {
+      const uiSkill = group.find(s => s.source === 'ui' || s.source === 'subscribed');
+      const selected = uiSkill || group.find(s => !isCodeGenerated(s)) || group[0];
       return {
         id: selected.id,
         name: selected.name,
         isCodeGen: isCodeGenerated(selected),
       };
     });
-    
-    return uniqueSkills.map((s: any) => ({
+
+    // 最终按 value（展示用 name）去重，防止相同字符串出现两行
+    const byValue = new Map<string, (typeof uniqueSkills)[0]>();
+    for (const s of uniqueSkills) {
+      const v = String(s.name ?? '');
+      if (!byValue.has(v)) byValue.set(v, s);
+    }
+
+    return Array.from(byValue.values()).map((s: any) => ({
       key: s.id || `skill-${s.name}`,
       label: s.name,
-      value: s.name, // ✅ 使用 name 作为 value（与 Agent 保存格式一致）
+      value: s.name,
       disabled: s.isCodeGen,
-      hasId: !s.isCodeGen, // hasId: false 表示代码生成的项，显示红色 ❌
+      hasId: !s.isCodeGen,
     }));
   }, [storeSkills]);
 
@@ -647,7 +682,9 @@ const AgentDetails: React.FC = () => {
   }, [username, fetchVehicles]);
 
 
-  // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first
+  // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first.
+  // useEffectOnActive ensures the list refreshes every time this component becomes active
+  // (e.g. user switches back from another page), so the skill selector always shows fresh data.
   useEffect(() => {
     const fetchIfNeeded = async () => {
       try {
@@ -658,18 +695,18 @@ const AgentDetails: React.FC = () => {
           uname = (loginInfo?.success && (loginInfo.data as any)?.last_login?.username) || '';
         }
         if (uname) {
-          // 并行加载 tasks 和 skills，提高加载速度
+          // Parallel load tasks and skills to speed up
           const promises = [];
-          
+
           // Always check current store state directly to avoid stale closure
           const currentTasks = useTaskStore.getState().items;
           const currentSkills = useSkillStore.getState().items;
-          
-          console.log('[AgentDetails] Checking tasks/skills:', { 
-            tasksCount: currentTasks?.length || 0, 
-            skillsCount: currentSkills?.length || 0 
+
+          console.log('[AgentDetails] Checking tasks/skills:', {
+            tasksCount: currentTasks?.length || 0,
+            skillsCount: currentSkills?.length || 0
           });
-          
+
           if (!currentTasks || currentTasks.length === 0) {
             console.log('[AgentDetails] Fetching tasks for user:', uname);
             promises.push(
@@ -689,7 +726,7 @@ const AgentDetails: React.FC = () => {
                 })
             );
           }
-          
+
           if (!currentSkills || currentSkills.length === 0) {
             console.log('[AgentDetails] Fetching skills for user:', uname);
             promises.push(
@@ -709,8 +746,8 @@ const AgentDetails: React.FC = () => {
                 })
             );
           }
-          
-          // 等待所有加载完成
+
+          // Wait for all loads to complete
           if (promises.length > 0) {
             await Promise.all(promises);
           }
@@ -722,7 +759,68 @@ const AgentDetails: React.FC = () => {
     fetchIfNeeded();
   }, [username, setTasks, setSkills]);
 
+  // Force refresh tasks/skills every time the component becomes active so the dropdown
+  // always shows the latest data (e.g. after creating a new skill on the Skills page)
+  useEffectOnActive(() => {
+    const refreshSkillsAndTasks = async () => {
+      try {
+        const api = get_ipc_api();
+        let uname = username;
+        if (!uname) {
+          const loginInfo = await api.getLastLoginInfo<any>();
+          uname = (loginInfo?.success && (loginInfo.data as any)?.last_login?.username) || '';
+        }
+        if (!uname) return;
+
+        console.log('[AgentDetails] Force refreshing tasks/skills on activate...');
+        const [tasksRes, skillsRes] = await Promise.allSettled([
+          api.getAgentTasks<{ tasks: any[] }>(uname, []),
+          api.getAgentSkills<{ skills: any[] }>(uname, []),
+        ]);
+
+        if (tasksRes.status === 'fulfilled' && tasksRes.value?.success) {
+          const tasksData = tasksRes.value.data?.tasks || tasksRes.value.data;
+          if (Array.isArray(tasksData)) {
+            setTasks(tasksData as any);
+            console.log('[AgentDetails] Refreshed tasks:', tasksData.length);
+          }
+        }
+        if (skillsRes.status === 'fulfilled' && skillsRes.value?.success) {
+          const skillsData = skillsRes.value.data?.skills || skillsRes.value.data;
+          if (Array.isArray(skillsData)) {
+            setSkills(skillsData as any);
+            console.log('[AgentDetails] Refreshed skills:', skillsData.length);
+          }
+        }
+      } catch (e) {
+        console.warn('[AgentDetails] Error refreshing tasks/skills on activate:', e);
+      }
+    };
+
+    refreshSkillsAndTasks();
+  }, [username]);
+
   const [form] = Form.useForm<AgentDetailsForm>();
+
+  // Re-resolve skill IDs → names whenever skillMap becomes available.
+  // This handles the race where agent data loads before the skills store is populated.
+  useEffect(() => {
+    if (!skillMap || skillMap.size === 0) return;
+    const current: string[] = form.getFieldValue('skills') || [];
+    if (current.length === 0) return;
+    // Check if any value looks like an ID (not found as a key in skillMap)
+    const hasUnresolved = current.some((v) => !skillMap.has(v));
+    if (!hasUnresolved) return;
+    const resolved = current.map((v) => {
+      if (skillMap.has(v)) return v; // already a name key
+      const found = Array.from(skillMap.values()).find((sk: any) => String(sk.id) === v);
+      return found ? found.name : v;
+    });
+    if (resolved.some((v, i) => v !== current[i])) {
+      form.setFieldsValue({ skills: resolved });
+    }
+  }, [skillMap, form]);
+
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
   const [orgDataLoaded, setOrgDataLoaded] = useState(false);
@@ -880,7 +978,24 @@ const AgentDetails: React.FC = () => {
           // Skills/tasks from backend are objects with {id, name, ...}
           const skillNames = Array.from(new Set(
             (agent.skills || []).map((s: any) => {
-              if (typeof s === 'string') return s;
+              if (typeof s === 'string') {
+                // 1. If s is already a known skill name, keep it
+                if (skillMap.has(s)) return s;
+                // 2. Try to resolve s as a DB ID → name
+                const byId = Array.from(skillMap.values()).find((sk: any) => String(sk.id) === s);
+                if (byId) return byId.name;
+                // 3. Try direct storeSkills lookup by name or id
+                const inStore = (storeSkills || []).find(
+                  (sk: any) => sk.name === s || String(sk.id) === s,
+                );
+                if (inStore) return inStore.name;
+                // 4. If skillMap is empty (skills not loaded yet), keep s as-is so the
+                //    useEffect can resolve it later when skillMap becomes available.
+                if (skillMap.size === 0) return s;
+                // 5. skillMap is loaded but s doesn't match anything — likely a stale UUID, discard.
+                const looksLikeId = /^[0-9a-f-]{8,}$/i.test(s) || /^\d+$/.test(s);
+                return looksLikeId ? null : s;
+              }
               // Try multiple fields: name, skill_name, id
               return s.name || s.skill_name || s.id || String(s);
             }).filter(Boolean)  // Remove empty values
@@ -1218,7 +1333,15 @@ const AgentDetails: React.FC = () => {
       // Convert skills and tasks from names to IDs
       const skillIds = (values.skills || []).map((skillName: string) => {
         const skill = skillMap.get(skillName);
-        return skill?.id || skillName;
+        if (skill?.id) return skill.id;
+        // skillMap may be empty if skills store hasn't loaded yet.
+        // Try to find by name in storeSkills directly.
+        const byName = (storeSkills || []).find((s: any) => s.name === skillName);
+        if (byName?.id) return byName.id;
+        // If value looks like a UUID/ID that exists in store, return as-is (already an id).
+        const byId = (storeSkills || []).find((s: any) => String(s.id) === skillName);
+        if (byId?.id) return byId.id;
+        return skillName;
       }).filter(Boolean);
       
       const taskIds = (values.tasks || []).map((taskName: string) => {
@@ -1455,8 +1578,14 @@ const AgentDetails: React.FC = () => {
                 if (typeof s === 'object' && s !== null) {
                   return s.name || s.skill_name || s.id;
                 } else if (typeof s === 'string') {
-                  const skillFromMap = Array.from(skillMap.values()).find(skill => skill.id === s);
-                  return skillFromMap ? skillFromMap.name : s;
+                  if (skillMap.has(s)) return s;
+                  const byId = Array.from(skillMap.values()).find((skill: any) => String(skill.id) === s);
+                  if (byId) return byId.name;
+                  const inStore = (storeSkills || []).find((sk: any) => sk.name === s || String(sk.id) === s);
+                  if (inStore) return inStore.name;
+                  if (skillMap.size === 0) return s; // keep UUID; useEffect will resolve
+                  const looksLikeId = /^[0-9a-f-]{8,}$/i.test(s) || /^\d+$/.test(s);
+                  return looksLikeId ? null : s;
                 }
                 return null;
               }).filter(Boolean);
@@ -1528,8 +1657,14 @@ const AgentDetails: React.FC = () => {
                   if (typeof s === 'object' && s !== null) {
                     return s.name || s.skill_name || s.id;
                   } else if (typeof s === 'string') {
-                    const skillFromMap = Array.from(skillMap.values()).find(skill => skill.id === s);
-                    return skillFromMap ? skillFromMap.name : s;
+                    if (skillMap.has(s)) return s;
+                    const byId = Array.from(skillMap.values()).find((skill: any) => String(skill.id) === s);
+                    if (byId) return byId.name;
+                    const inStore = (storeSkills || []).find((sk: any) => sk.name === s || String(sk.id) === s);
+                    if (inStore) return inStore.name;
+                    if (skillMap.size === 0) return s; // keep UUID; useEffect will resolve
+                    const looksLikeId = /^[0-9a-f-]{8,}$/i.test(s) || /^\d+$/.test(s);
+                    return looksLikeId ? null : s;
                   }
                   return null;
                 }).filter(Boolean);

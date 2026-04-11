@@ -10,6 +10,7 @@ import { createSkillInfo } from '../../typings/skill-info';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { detectPlatform } from '../../../../config/platform';
 import { useUserStore } from '../../../../stores/userStore';
+import { useSkillStore } from '../../../../stores/domain/skillStore';
 
 interface NewPageProps {
   disabled?: boolean;
@@ -189,6 +190,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     let skillRoot: string | null = null;
     let diagramJsonPath: string | null = null;
     let mappingJsonForStore: any = null;
+    let backendSkillId: string | null = null;  // DB-generated ID from scaffold response
     
     try {
       // Generate skill JSON and bundle JSON with correct skillName (no _skill suffix)
@@ -275,10 +277,14 @@ export const NewPage = ({ disabled }: NewPageProps) => {
 
         if (scaffoldResponse.success && scaffoldResponse.data) {
           setPreviewMode(false);
-          skillRoot = (scaffoldResponse.data as any).skillRoot;
-          diagramJsonPath = (scaffoldResponse.data as any).diagramPath || 
+          const scaffoldData = scaffoldResponse.data as any;
+          skillRoot = scaffoldData.skillRoot;
+          diagramJsonPath = scaffoldData.diagramPath ||
             `${skillRoot}/diagram_dir/${skillBaseName}_skill.json`;
-          console.log('[NEW_SKILL] Scaffolded skill structure:', { skillRoot, diagramJsonPath });
+          // IMPORTANT: Use the DB-generated skillId from backend, not the frontend UUID.
+          // This ensures subsequent saves use the correct DB ID (fixes P0-B02).
+          backendSkillId = scaffoldData.skillId || null;
+          console.log('[NEW_SKILL] Scaffolded skill structure:', { skillRoot, diagramJsonPath, backendSkillId });
           mappingJsonForStore = mappingJson;
         } else {
           console.error('[NEW_SKILL] Failed to scaffold skill:', scaffoldResponse.error);
@@ -303,9 +309,14 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     workflowDocument.fromJSON(emptyFlow);
     tools.fitView && tools.fitView();
     
-    // Update skill info store with correct skillName (no _skill suffix)
+    // Update skill info store with correct skillName and DB-generated skillId
     const info = createSkillInfo(emptyFlow);
     info.skillName = skillBaseName;  // User input, no _skill suffix
+    // Use the backend DB skillId so subsequent saves work correctly (P0-B02)
+    if (backendSkillId) {
+      info.skillId = backendSkillId;
+      console.log('[NEW_SKILL] Using backend skillId:', backendSkillId);
+    }
     setSkillInfo(info);
     if (mappingJsonForStore) {
       setDataMappingJson(JSON.stringify(mappingJsonForStore, null, 2), false);
@@ -317,7 +328,28 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     const mappingPath = diagramJsonPath ? `${diagramJsonPath.split('/diagram_dir/')[0]}/data_mapping.json` : null;
     setDataMappingPath(mappingPath);
     useSkillInfoStore.getState().setHasUnsavedChanges(false);
-    
+
+    // Add to useSkillStore so Skills page shows the new skill immediately (P1-B09)
+    const skillId = backendSkillId || info.skillId;
+    if (skillId) {
+      try {
+        useSkillStore.getState().addItem({
+          id: skillId,
+          name: skillBaseName,
+          owner: username || '',
+          description: '',
+          version: '1.0.0',
+          path: diagramJsonPath || '',
+          level: 'entry',
+          source: 'ui',
+          status: 'active',
+        } as any);
+        console.log('[NEW_SKILL] Added to useSkillStore:', skillId);
+      } catch (e) {
+        console.warn('[NEW_SKILL] Failed to add to useSkillStore:', e);
+      }
+    }
+
     console.log('[NEW_SKILL] Created new skill:', diagramJsonPath);
     
     Modal.success({

@@ -238,6 +238,33 @@ def _skill_matches(skill, skill_name: str, skill_id: str) -> bool:
     return False
 
 
+def _is_skill_in_use_by_active_task(skill_obj, mainwin) -> bool:
+    """Check if a skill is attached to any active (non-terminal) task.
+
+    Only hot-reload skills that are actually running, to avoid unnecessary I/O
+    when the skill is just being edited but not actively used.
+    """
+    inactive_states = {"completed", "failed", "canceled"}
+    try:
+        skill_name = getattr(skill_obj, "name", "")
+        skill_id = getattr(skill_obj, "id", "")
+        for agent in _iter_agents(mainwin):
+            for task in getattr(agent, "tasks", []) or []:
+                task_skill = getattr(task, "skill", None)
+                if task_skill is None:
+                    continue
+                if not _skill_matches(task_skill, skill_name, skill_id):
+                    continue
+                status = getattr(task, "status", None)
+                state = getattr(status, "state", None) if status else None
+                state_str = getattr(state, "value", None) or str(state or "")
+                if state_str.lower() not in inactive_states:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def _find_existing_task_across_agents(mainwin, *, skill_name: str, skill_id: str, task_name: str = ""):
     normalized_task_name = (task_name or "").strip().lower()
 
@@ -297,15 +324,58 @@ def _find_existing_task_for_session_across_agents(mainwin, *, skill_name: str, s
 
 
 def _resolve_skill_global(mainwin, skill_name: str, skill_id: str):
-    """Search mainwin.agent_skills (global skill list) as fallback when no agent has the skill."""
+    """Search mainwin.agent_skills (global skill list) as fallback when no agent has the skill.
+
+    For skills with a local file path, always reload from disk to ensure the latest
+    version (e.g., after a Skill Editor save) is used. This makes skill changes
+    take effect immediately without requiring an app restart.
+    """
     global_skills = getattr(mainwin, "agent_skills", []) or []
-    for sk in global_skills:
-        if _skill_matches(sk, skill_name, skill_id):
-            logger.info(
-                f"[_resolve_skill_global] Found skill in mainwin.agent_skills: "
-                f"name={getattr(sk, 'name', '')!r}, id={getattr(sk, 'id', '')!r}"
-            )
-            return sk
+    for i, sk in enumerate(global_skills):
+        if not _skill_matches(sk, skill_name, skill_id):
+            continue
+
+        # Check if skill has a local file path (source='ui' or source='code' with path)
+        skill_path = getattr(sk, "path", None) or ""
+        if skill_path:
+            from pathlib import Path
+            p = Path(skill_path)
+            if p.exists() and p.is_file() and p.suffix.lower() == ".json":
+                # Only hot-reload if the skill is currently attached to an active task
+                if not _is_skill_in_use_by_active_task(sk, mainwin):
+                    logger.debug(f"[_resolve_skill_global] Skill '{getattr(sk, 'name', '')}' not in active use, skipping reload")
+                    return sk
+                logger.info(
+                    f"[_resolve_skill_global] Reloading skill from file: {skill_path!r}"
+                )
+                try:
+                    from agent.ec_skills.build_agent_skills import load_skill_from_folder
+                    _skill_root = p.parent.parent if p.parent.name == "diagram_dir" else p.parent
+                    reloaded_sk = load_skill_from_folder(_skill_root, mainwin=None)
+                    if reloaded_sk and getattr(reloaded_sk, "runnable", None) is not None:
+                        # Update the memory cache so subsequent calls reuse the fresh copy
+                        global_skills[i] = reloaded_sk
+                        logger.info(
+                            f"[_resolve_skill_global] ✅ Reloaded skill '{getattr(reloaded_sk, 'name', '')!r}' "
+                            f"with {len(getattr(reloaded_sk.runnable, 'nodes', []))} nodes"
+                        )
+                        return reloaded_sk
+                    else:
+                        logger.warning(
+                            f"[_resolve_skill_global] ⚠️ Reload from file failed (no runnable), "
+                            f"falling back to cached version"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[_resolve_skill_global] ⚠️ Failed to reload skill from {skill_path!r}: {e}, "
+                        f"using cached version"
+                    )
+
+        logger.info(
+            f"[_resolve_skill_global] Found skill in mainwin.agent_skills: "
+            f"name={getattr(sk, 'name', '')!r}, id={getattr(sk, 'id', '')!r}"
+        )
+        return sk
     return None
 
 
@@ -419,11 +489,49 @@ def _resolve_or_create_task(agent, *, task_id, task_name, skill_name, skill_id, 
 
 
 def _resolve_skill(agent, skill_name: str, skill_id: str):
-    """Find a skill on the agent by name or id."""
+    """Find a skill on the agent by name or id.
+
+    For skills with a local file path, always reload from disk to pick up the latest
+    changes (e.g., after a Skill Editor save). This makes edits take effect immediately.
+    """
     skills = getattr(agent, "skills", []) or []
-    for sk in skills:
-        if _skill_matches(sk, skill_name, skill_id):
-            return sk
+    for i, sk in enumerate(skills):
+        if not _skill_matches(sk, skill_name, skill_id):
+            continue
+
+        skill_path = getattr(sk, "path", None) or ""
+        if skill_path:
+            from pathlib import Path
+            p = Path(skill_path)
+            if p.exists() and p.is_file() and p.suffix.lower() == ".json":
+                # Only hot-reload if the skill is currently attached to an active task
+                if not _is_skill_in_use_by_active_task(sk, agent.mainwin if hasattr(agent, "mainwin") else None):
+                    logger.debug(f"[_resolve_skill] Skill '{getattr(sk, 'name', '')}' not in active use, skipping reload")
+                    return sk
+                logger.info(f"[_resolve_skill] Reloading skill from file: {skill_path!r}")
+                try:
+                    from agent.ec_skills.build_agent_skills import load_skill_from_folder
+                    _skill_root = p.parent.parent if p.parent.name == "diagram_dir" else p.parent
+                    reloaded_sk = load_skill_from_folder(_skill_root, mainwin=None)
+                    if reloaded_sk and getattr(reloaded_sk, "runnable", None) is not None:
+                        skills[i] = reloaded_sk
+                        logger.info(
+                            f"[_resolve_skill] ✅ Reloaded skill '{getattr(reloaded_sk, 'name', '')!r}' "
+                            f"with {len(getattr(reloaded_sk.runnable, 'nodes', []))} nodes"
+                        )
+                        return reloaded_sk
+                    else:
+                        logger.warning(
+                            f"[_resolve_skill] ⚠️ Reload from file failed, falling back to cached version"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[_resolve_skill] ⚠️ Failed to reload skill from {skill_path!r}: {e}, "
+                        f"using cached version"
+                    )
+
+        return sk
+
     available = [
         {
             "name": getattr(s, "name", "?"),

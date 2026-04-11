@@ -25,6 +25,7 @@ LOG_FILTER_CONFIG = {
     'contains': [
         'queryStream',      # 所有查询流相关消息（chunk, done, start等）
         'agentStream',      # Agent流式消息
+        'skill_editor_log', # Skill编辑器日志，广播频繁且无意义
     ],
     # 以这些后缀结尾的消息类型会被屏蔽
     'endswith': [

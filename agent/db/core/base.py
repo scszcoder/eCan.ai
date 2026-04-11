@@ -48,7 +48,8 @@ def get_engine(db_path: str = ECAN_BASE_DB):
         connect_args={
             'check_same_thread': False,
             'timeout': 120,  # Increase timeout to 120 seconds for long-running operations
-            'isolation_level': None,  # Use autocommit mode to reduce lock contention
+            # Remove isolation_level=None (forces autocommit, breaks session.commit())
+            # Let SQLAlchemy manage transaction boundaries properly
         }
     )
     # Set SQLite pragmas for better concurrency using event listeners

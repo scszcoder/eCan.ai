@@ -635,6 +635,8 @@ const SkillList: React.FC<SkillListProps> = ({
             return isOwnedByOwner || isOwnedByPath || isLocalCodeSkill;
         });
 
+        logger.debug('[SkillList][mySkills] skills count:', skills?.length, 'candidates count:', candidates.length);
+
         const localPreferredNames = new Set(
             candidates
                 .filter((skill) => {
@@ -659,7 +661,16 @@ const SkillList: React.FC<SkillListProps> = ({
             return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
         });
 
-        return applyFiltersAndSort(rows);
+        // Deduplicate by ID to prevent stale store entries from showing twice
+        const seenIds = new Set<string>();
+        const dedupedRows = rows.filter((skill) => {
+            const id = String((skill as any)?.id ?? '');
+            if (!id || seenIds.has(id)) return false;
+            seenIds.add(id);
+            return true;
+        });
+
+        return applyFiltersAndSort(dedupedRows);
     }, [skills, filters, username]);
     const storeSkills = useMemo(() => applyFiltersAndSort(publicSkills || []), [publicSkills, filters]);
 

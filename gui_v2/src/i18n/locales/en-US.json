@@ -1573,6 +1573,7 @@
       "refresh": "Refresh",
       "skill": "Skill",
       "skillPlaceholder": "Select a skill",
+      "noSkillsAssociated": "No skills associated. Click Add to associate a skill.",
       "priorityLabel": "Priority",
       "triggerLabel": "Trigger",
       "scheduleDetails": "Schedule",

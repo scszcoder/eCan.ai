@@ -6,11 +6,22 @@ for all database models in the eCan.ai system.
 """
 
 from sqlalchemy import Column, Integer, String, DateTime, Text, JSON
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 # Import the unified Base from core
 from ..core.base import Base
+
+
+def _datetime_to_epoch_ms(value: datetime) -> int:
+    """Convert stored datetime to UTC epoch milliseconds for APIs / frontend.
+
+    Naive datetimes from legacy SQLite rows were written as UTC wall time; without
+    this, ``.timestamp()`` treats naive values as *local* time and shifts the UI.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return int(value.timestamp() * 1000)
 
 
 class BaseModel(Base):
@@ -27,8 +38,8 @@ class BaseModel(Base):
     
     # Common fields for all models
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     
     def to_dict(self) -> dict:
         """
@@ -41,7 +52,7 @@ class BaseModel(Base):
         for column in self.__table__.columns:
             value = getattr(self, column.name)
             if isinstance(value, datetime):
-                value = int(value.timestamp() * 1000)  # Convert to milliseconds
+                value = _datetime_to_epoch_ms(value)
             result[column.name] = value
         return result
     
@@ -55,7 +66,7 @@ class BaseModel(Base):
         for key, value in data.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
     
     def __repr__(self):
         """String representation of the model."""
@@ -68,8 +79,8 @@ class TimestampMixin:
     
     Provides created_at and updated_at fields with automatic management.
     """
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class SoftDeleteMixin:
@@ -78,7 +89,7 @@ class SoftDeleteMixin:
     
     Provides deleted_at field and is_deleted property.
     """
-    deleted_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     
     @property
     def is_deleted(self) -> bool:
@@ -87,7 +98,7 @@ class SoftDeleteMixin:
     
     def soft_delete(self):
         """Mark the record as deleted."""
-        self.deleted_at = datetime.utcnow()
+        self.deleted_at = datetime.now(timezone.utc)
     
     def restore(self):
         """Restore a soft deleted record."""

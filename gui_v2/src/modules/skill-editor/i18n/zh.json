@@ -120,6 +120,7 @@
     "open": "打开",
     "save": "保存",
     "saveAs": "另存为",
+    "history": "版本历史",
     "newSkill": "新建技能",
     "info": "信息",
     "comment": "注释",
@@ -797,5 +798,45 @@
   "formComponents": {
     "expandPrompt": "展开查看全部",
     "collapsePrompt": "收起"
+  },
+  "history": {
+    "title": "技能版本历史",
+    "records": "{{count}} 条记录",
+    "version": "版本",
+    "saveType": "保存类型",
+    "savedAt": "保存时间",
+    "fileSize": "文件大小",
+    "changeSummary": "变更摘要",
+    "actions": "操作",
+    "viewDetails": "查看详情",
+    "restore": "恢复此版本",
+    "delete": "删除",
+    "deleteRecord": "确定删除此历史记录？",
+    "deleteAll": "全部删除",
+    "deleteAllHistory": "删除该技能的所有历史记录？",
+    "deleteAllDesc": "此操作不可撤销。",
+    "restoreSuccess": "已恢复到版本 {{version}}",
+    "deleteSuccess": "历史记录已删除",
+    "deleteAllSuccess": "所有历史记录已删除",
+    "deleteFailed": "删除历史记录失败",
+    "deleteAllFailed": "删除历史失败",
+    "showingRecords": "显示 {{shown}} / {{total}} 条记录（最多 {{max}} 条）",
+    "noHistory": "暂无历史记录",
+    "noHistoryDesc": "保存技能后，历史记录将显示在此处。",
+    "loadMore": "加载更多",
+    "loading": "正在加载历史...",
+    "dismiss": "关闭",
+    "selectedVersion": "选中版本详情",
+    "skillId": "技能 ID",
+    "historyId": "历史 ID",
+    "created": "创建时间",
+    "storedFields": "存储字段",
+    "saveTypeLabels": {
+      "manual": "手动保存",
+      "auto_save": "自动保存",
+      "restore": "已恢复",
+      "restore_backup": "备份",
+      "save_as": "另存为"
+    }
   }
 }

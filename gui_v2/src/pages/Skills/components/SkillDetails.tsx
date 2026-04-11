@@ -503,6 +503,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const handleDelete = () => {
         if (!skill || !username) return;
 
+        logger.info('[SkillDetails] handleDelete called', {
+            skillId: String((skill as any)?.id),
+            skillIdType: typeof (skill as any)?.id,
+            skillName: (skill as any)?.name,
+        });
+
         showDeleteConfirm({
             title: t('pages.skills.deleteConfirmTitle', 'Delete Skill'),
             message: t('pages.skills.deleteConfirmMessage', `Are you sure you want to delete "${(skill as any)?.name}"? This action cannot be undone.`),
@@ -527,7 +533,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             deleteResult?.mem_deleted ||
                             deleteResult?.file_deleted ||
                             deleteResult?.cloud_deleted ||
-                            deleteResult?.cloud_cached
+                            deleteResult?.cloud_cached ||
+                            // API call succeeded but skill not found anywhere = already gone, treat as success
+                            deleteResult?.message?.includes('not found')
                         )
                     );
                     logger.info('[SkillDetails] deleteAgentSkill response', {
@@ -540,7 +548,18 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         message.success(t('pages.skills.deleteSuccess', 'Skill deleted successfully'));
                         // Remove from store
                         const removeItem = useSkillStore.getState().removeItem;
+                        logger.info('[SkillDetails] Before removeItem, store items:', {
+                            skillId,
+                            storeItemsCount: useSkillStore.getState().items.length,
+                            storeItems: useSkillStore.getState().items.map((s: any) => `${s.name}#${s.id}`),
+                        });
                         removeItem(skillId);
+                        logger.info('[SkillDetails] After removeItem, store items:', {
+                            skillId,
+                            storeItemsCount: useSkillStore.getState().items.length,
+                            storeItems: useSkillStore.getState().items.map((s: any) => `${s.name}#${s.id}`),
+                            stillHasDeletedSkill: useSkillStore.getState().items.some((s: any) => s.id === skillId || String(s.id) === skillId),
+                        });
                         // Call onDelete callback to close detail page
                         if (onDelete) {
                             onDelete();

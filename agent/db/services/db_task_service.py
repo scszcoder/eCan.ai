@@ -88,7 +88,7 @@ class DBTaskService(BaseService):
         except SQLAlchemyError as e:
             return {"success": False, "id": id_, "data": None, "error": str(e)}
 
-    def _search(self, model, id_: str = None, name: str = None, desc_regex: str = None):
+    def _search(self, model, id_: str = None, name: str = None, desc_regex: str = None, deep: bool = False):
         """Generic search operation"""
         try:
             with self.session_scope() as s:
@@ -101,7 +101,7 @@ class DBTaskService(BaseService):
                 if desc_regex:
                     pattern = re.compile(desc_regex, re.IGNORECASE)
                     results = [r for r in results if pattern.search(getattr(r, 'description', '') or '')]
-                return [r.to_dict() for r in results]
+                return [r.to_dict(deep=deep) for r in results]
         except SQLAlchemyError as e:
             print(f"[SearchError] {e}")
             return []
@@ -142,9 +142,9 @@ class DBTaskService(BaseService):
         return self._update(DBAgentTask, task_id, fields)
 
     def query_tasks(self, id=None, name=None, description=None):
-        """Query tasks"""
+        """Query tasks. Use deep=True to include task-skill relationships with skill names."""
         return {"success": True,
-                "data": self._search(DBAgentTask, id, name, description),
+                "data": self._search(DBAgentTask, id, name, description, deep=True),
                 "error": None}
 
     def search_tasks(self, id=None, name=None, description=None):
@@ -166,7 +166,7 @@ class DBTaskService(BaseService):
                     and_(DBAgentTaskSkillRel.task_id == task_id,
                          DBAgentTaskSkillRel.skill_id == skill_id)
                 ).first()
-                
+
                 if existing:
                     # Update existing association
                     existing.role = role
@@ -174,8 +174,9 @@ class DBTaskService(BaseService):
                     existing.is_required = is_required
                     existing.skill_config = skill_config or {}
                     s.flush()
+                    s.commit()
                     return {"success": True, "data": existing.to_dict(), "error": None}
-                
+
                 # Create new association
                 association = DBAgentTaskSkillRel(
                     task_id=task_id,
@@ -187,6 +188,7 @@ class DBTaskService(BaseService):
                 )
                 s.add(association)
                 s.flush()
+                s.commit()
                 return {"success": True, "data": association.to_dict(), "error": None}
         except Exception as e:
             return {"success": False, "data": None, "error": str(e)}
@@ -203,6 +205,8 @@ class DBTaskService(BaseService):
                 if association:
                     s.delete(association)
                     s.flush()
+                    # Explicit commit to ensure data is persisted
+                    s.commit()
                     return {"success": True, "data": None, "error": None}
                 else:
                     return {"success": False, "data": None, "error": "Association not found"}
