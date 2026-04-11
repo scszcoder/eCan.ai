@@ -52,11 +52,32 @@ export function createResourceStore<T extends BaseResource>(
     // Base CRUD Operation
     setItems: (items: T[]) => {
       logger.debug(`[${name}Store] Setting ${items.length} items`);
-      set({ items, lastFetched: Date.now(), error: null });
+      const seenIds = new Set<string>();
+      const deduped = items.filter((item) => {
+        const id = String(item.id ?? '');
+        if (!id || seenIds.has(id)) return false;
+        seenIds.add(id);
+        return true;
+      });
+      if (deduped.length !== items.length) {
+        logger.warn(`[${name}Store] setItems: deduplicated ${items.length - deduped.length} duplicate(s)`);
+      }
+      set({ items: deduped, lastFetched: Date.now(), error: null });
     },
     
     addItem: (item: T) => {
-      logger.debug(`[${name}Store] Adding item:`, item.id);
+      const currentItems = get().items;
+      const itemId = item.id;
+      const itemIdStr = itemId != null ? String(itemId) : '';
+      const alreadyExists = (currentItems as T[]).some((existing: T) => {
+        const existingId = (existing as any).id;
+        return itemIdStr !== '' && String(existingId ?? '') === itemIdStr;
+      });
+      if (alreadyExists) {
+        logger.debug(`[${name}Store] addItem: item id=${itemIdStr} already exists, skipping`);
+        return;
+      }
+      logger.debug(`[${name}Store] Adding item:`, itemId);
       set((state: BaseStoreState<T>) => ({
         items: [...state.items, item]
       }));
@@ -64,24 +85,33 @@ export function createResourceStore<T extends BaseResource>(
     
     updateItem: (id: string, updates: Partial<T>) => {
       logger.debug(`[${name}Store] Updating item:`, id);
+      const idStr = String(id);
       set((state: BaseStoreState<T>) => ({
         items: state.items.map(item => 
-          item.id === id ? { ...item, ...updates } : item
+          String(item.id) === idStr ? { ...item, ...updates } : item
         )
       }));
     },
     
     removeItem: (id: string) => {
       logger.debug(`[${name}Store] Removing item:`, id);
+      const currentItems = get().items;
+      logger.debug(`[${name}Store] Current items before remove:`, currentItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
+      logger.debug(`[${name}Store] Target id to remove: "${id}" (type:${typeof id})`);
+      const idStr = String(id);
       set((state: BaseStoreState<T>) => ({
-        items: state.items.filter(item => item.id !== id)
+        items: state.items.filter(item => String(item.id) !== idStr)
       }));
+      const newItems = get().items;
+      logger.debug(`[${name}Store] Items after remove:`, newItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
+      logger.debug(`[${name}Store] Remove result:`, { id, beforeCount: currentItems.length, afterCount: newItems.length, removed: currentItems.length - newItems.length });
     },
     
     // QueryMethod
     getItemById: (id: string) => {
       const items = get().items;
-      return items.find((item: T) => item.id === id) || null;
+      const idStr = String(id);
+      return items.find((item: T) => String(item.id) === idStr) || null;
     },
     
     getItems: () => {
@@ -223,29 +253,50 @@ export function createExtendedResourceStore<
       },
 
       addItem: (item: T) => {
+        const currentItems = get().items;
+        const itemId = item.id;
+        const itemIdStr = itemId != null ? String(itemId) : '';
+        const alreadyExists = (currentItems as T[]).some((existing: T) => {
+          const existingId = (existing as any).id;
+          return itemIdStr !== '' && String(existingId ?? '') === itemIdStr;
+        });
+        if (alreadyExists) {
+          logger.debug(`[${name}Store] addItem: item id=${itemIdStr} already exists, skipping`);
+          return;
+        }
         set((state: BaseStoreState<T>) => ({
           items: [...state.items, item]
         }));
       },
 
       updateItem: (id: string, updates: Partial<T>) => {
+        const idStr = String(id);
         set((state: BaseStoreState<T>) => ({
           items: state.items.map(item =>
-            item.id === id ? { ...item, ...updates } : item
+            String(item.id) === idStr ? { ...item, ...updates } : item
           )
         }));
       },
 
       removeItem: (id: string) => {
+        logger.debug(`[${name}Store] Removing item:`, id);
+        const currentItems = get().items;
+        logger.debug(`[${name}Store] Current items before remove:`, currentItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
+        logger.debug(`[${name}Store] Target id to remove: "${id}" (type:${typeof id})`);
+        const idStr = String(id);
         set((state: BaseStoreState<T>) => ({
-          items: state.items.filter(item => item.id !== id)
+          items: state.items.filter(item => String(item.id) !== idStr)
         }));
+        const newItems = get().items;
+        logger.debug(`[${name}Store] Items after remove:`, newItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
+        logger.debug(`[${name}Store] Remove result:`, { id, beforeCount: currentItems.length, afterCount: newItems.length, removed: currentItems.length - newItems.length });
       },
       
       // QueryMethod
       getItemById: (id: string) => {
         const items = get().items;
-        return items.find((item: T) => item.id === id) || null;
+        const idStr = String(id);
+        return items.find((item: T) => String(item.id) === idStr) || null;
       },
       
       getItems: () => {

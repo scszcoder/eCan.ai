@@ -130,3 +130,18 @@ class CloudAPIConstants:
             return True
         except ValueError:
             return False
+
+
+class SkillSource(str, Enum):
+    """Skill source/origin enumeration.
+
+    Defined values:
+    - ui: Skill created through the UI (skill editor / scaffold). Editable.
+    - code: Built-in code-based skill from resource/my_skills. Read-only.
+    - subscribed: Third-party skill subscribed from marketplace. Read-only, synced from cloud.
+    - external: Skill with files on disk but managed outside the system.
+    """
+    UI = 'ui'
+    CODE = 'code'
+    SUBSCRIBED = 'subscribed'
+    EXTERNAL = 'external'

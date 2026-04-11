@@ -110,7 +110,7 @@ jobs:
     - name: Setup WhatsApp Baileys Bridge Environment
       uses: ./.github/actions/setup-wabaileys-bridge
       with:
-        node-version: '18'
+        node-version: '20'
         bridge-dir: wabaileys-bridge
 
     # ------------------------------------------------------------------------

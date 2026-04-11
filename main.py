@@ -712,6 +712,17 @@ try:
     progress_manager.update_progress(33, "Patching browser-use to UTF-8...")
     _patch_browser_use_to_utf8()
 
+    # Compatibility shim: httpx >= 0.20 renamed TimeoutError → TimeoutException.
+    # browser-use still catches httpx.TimeoutError in its retry loop;
+    # without this alias every LLM call fails with AttributeError.
+    try:
+        import httpx
+        if not hasattr(httpx, 'TimeoutError'):
+            httpx.TimeoutError = httpx.TimeoutException
+            print("[HTTPX_FIX] ✅ httpx.TimeoutError alias added for browser-use compatibility")
+    except Exception as _httpx_e:
+        print(f"[HTTPX_FIX] Warning: Could not add httpx.TimeoutError alias: {_httpx_e}")
+
 
 
 
@@ -820,6 +831,7 @@ try:
             )
             if _tracemalloc:
                 logger.info("[MemoryMonitor] tracemalloc enabled for leak detection")
+                logger.warning("[MemoryMonitor] ⚠️ ECAN_TRACEMALLOC=1 is set — this adds significant CPU/memory overhead. Consider running without this flag for normal operation.")
         except Exception as e:
             logger.warning(f"Failed to start memory monitor: {e}")
 

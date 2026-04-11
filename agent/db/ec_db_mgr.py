@@ -23,6 +23,7 @@ from .migrations.migration_config import LATEST_DATABASE_VERSION
 from .services.db_agent_service import DBAgentService
 from .services.db_org_service import DBOrgService
 from .services.db_skill_service import DBSkillService
+from .services.db_skill_history_service import DBSkillHistoryService
 from .services.db_chat_service import DBChatService
 from .services.db_task_service import DBTaskService
 from .services.db_avatar_service import DBAvatarService
@@ -167,10 +168,10 @@ class ECDBMgr:
                 # Create version record for latest version using direct SQL
                 latest_version = LATEST_DATABASE_VERSION
                 import uuid
-                from datetime import datetime
+                from datetime import datetime, timezone
                 
                 version_id = str(uuid.uuid4())
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 
                 session.execute(text("""
                     INSERT INTO db_version (id, version, description, upgraded_at, created_at, updated_at)
@@ -238,6 +239,7 @@ class ECDBMgr:
             self.agent_service = DBAgentService(engine=self.engine)
             self.org_service = DBOrgService(engine=self.engine)
             self.skill_service = DBSkillService(engine=self.engine)
+            self.skill_history_service = DBSkillHistoryService(engine=self.engine)
             self.chat_service = DBChatService(engine=self.engine)
             self.task_service = DBTaskService(engine=self.engine)
             self.token_usage_service = DBTokenUsageService(engine=self.engine)

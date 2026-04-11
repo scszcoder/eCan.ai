@@ -228,7 +228,9 @@ const Skills: React.FC = () => {
 
     const handleSkillDelete = () => {
         // After delete, clear selected status and close details page
+        logger.info('[Skills] handleSkillDelete called, selectedSkill before:', selectedSkill ? `${selectedSkill.name}#${selectedSkill.id}` : null);
         setSelectedSkill(null);
+        logger.info('[Skills] handleSkillDelete completed, selectedSkill after:', null);
     };
 
     const handleSelectedSkillChange = useCallback((updatedSkill: Skill) => {

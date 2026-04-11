@@ -115,7 +115,29 @@ class ChatLambdaProxy(BaseChatModel):
             'stream': False,
         }
         if output_format:
-            payload['output_schema'] = output_format.model_json_schema()
+            _schema = output_format.model_json_schema()
+            payload['output_schema'] = _schema
+            # Diagnostic: log action count so we can detect when tools vanish.
+            try:
+                _defs = _schema.get('$defs', _schema.get('definitions', {}))
+                _action_names = [k for k in _defs if k.endswith('ActionModel')]
+                _action_count = len(_action_names)
+                _has_bu = any('BuSelectAgents' in n or 'bu_select' in n.lower() for n in _action_names)
+                _has_feige = any('Feige' in n or 'feige' in n.lower() for n in _action_names)
+                if _action_count < 10 or not _has_bu or not _has_feige:
+                    logger.warning(
+                        f"[ChatLambdaProxy] TOOL SCHEMA ISSUE: {_action_count} ActionModels, "
+                        f"has_bu={_has_bu}, has_feige={_has_feige}, "
+                        f"output_format={output_format.__name__}, "
+                        f"actions={_action_names}"
+                    )
+                else:
+                    logger.debug(
+                        f"[ChatLambdaProxy] Schema OK: {_action_count} ActionModels "
+                        f"(bu={_has_bu}, feige={_has_feige})"
+                    )
+            except Exception as _diag_err:
+                logger.debug(f"[ChatLambdaProxy] Schema diagnostic failed: {_diag_err}")
 
         url = self.lambda_endpoint.rstrip('/') + _CHAT_PATH
         headers = self._build_headers()

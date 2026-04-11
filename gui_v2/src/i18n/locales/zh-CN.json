@@ -1564,6 +1564,7 @@
       "refresh": "刷新",
       "skill": "技能",
       "skillPlaceholder": "选择技能",
+      "noSkillsAssociated": "尚未关联任何技能。点击\"添加\"以关联技能。",
       "priorityLabel": "优先级",
       "triggerLabel": "触发器",
       "scheduleDetails": "调度详情",

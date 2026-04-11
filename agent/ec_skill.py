@@ -171,7 +171,8 @@ class EC_Skill(AgentSkill):
     """Holds a compiled LangGraph runnable and metadata."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    askid: int = 0
+    askid: str = ""  # Changed to str to support UUID format cloud IDs
+    cloud_id: str = ""  # Cloud UUID for cross-reference
     work_flow: StateGraph = StateGraph(State)        # {"app_name": "app_context", ....} "ecbot" being the internal rpa runs.
     diagram: dict = {}
     runnable: CompiledStateGraph = None
@@ -213,6 +214,8 @@ class EC_Skill(AgentSkill):
     # author, prompt resolution must query DynamoDB under *skill_owner*
     # instead of the runner identity so the correct prompts are loaded.
     skill_owner: str = ""
+    # Skill status: active / inactive / deleted
+    status: str = "active"
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -297,6 +300,10 @@ class EC_Skill(AgentSkill):
             "local_helper_skill_id": self.local_helper_skill_id,
             "local_helper_machine": self.local_helper_machine,
             "skill_owner": self.skill_owner,
+            "cloud_id": self.cloud_id,
+            "run_mode": getattr(self, 'run_mode', 'released'),
+            "mapping_rules": getattr(self, 'mapping_rules', {}),
+            "status": getattr(self, 'status', 'active'),
         }
 
 
@@ -441,7 +448,11 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         attempts = 0
         last_exc = None
         result = None
-        logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}")
+        import threading, traceback as _tb
+        _thr = threading.current_thread().name
+        _wrapper_id = id(wrapper)
+        _caller = ''.join(_tb.format_stack()[-4:-1]).replace('\n', ' | ')
+        logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}, thread={_thr}, wrapper_id={_wrapper_id}, caller={_caller[-500:]}")
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
 
         node_t0 = time.perf_counter()
@@ -465,7 +476,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     "duration_ms": int(max(duration_s, 0.0) * 1000),
                     "ts_ms": int(time.time() * 1000),
                 })
-                logger.info(
+                logger.debug(
                     f"[PERF][NODE] skill={skill_name} node={node_name} status={status} duration={duration_s:.3f}s"
                 )
             except Exception:
@@ -979,7 +990,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             out_str = _json.dumps(node_out, ensure_ascii=False, indent=None) if node_out else "(empty)"
             if len(out_str) > 2000:
                 out_str = out_str[:2000] + "…(truncated)"
-            logger.info(f"[NODE_OUTPUT] ✅ {node_name} => {out_str}")
+            logger.debug(f"[NODE_OUTPUT] ✅ {node_name} => {out_str}")
         except Exception:
             pass
 

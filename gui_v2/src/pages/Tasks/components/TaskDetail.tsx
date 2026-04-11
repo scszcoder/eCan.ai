@@ -121,6 +121,40 @@ type ExtendedTask = Task & {
   skills?: string[];  // Support multiple skills
 };
 
+// Skill Select that hides unresolvable UUIDs (shows placeholder) in edit mode.
+// Form.Item passes value/onChange automatically when used as a direct child.
+const SkillSelect = ({
+  value,
+  onChange,
+  skillOptions,
+  placeholder,
+}: {
+  value?: string;
+  onChange?: (v: string | undefined) => void;
+  skillOptions: { value: any; label: string }[];
+  placeholder: string;
+}) => {
+  const knownIds = React.useMemo(
+    () => new Set(skillOptions.map((o) => String(o.value))),
+    [skillOptions],
+  );
+  const selectVal = value && !knownIds.has(String(value)) ? undefined : value;
+  return (
+    <Select
+      showSearch
+      allowClear
+      size="large"
+      placeholder={placeholder}
+      options={skillOptions}
+      value={selectVal}
+      onChange={onChange}
+      filterOption={(input, option) =>
+        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+      }
+    />
+  );
+};
+
 // Helper to safely convert to dayjs object
 const toDayjs = (date: string | Date | null | undefined) => {
   if (!date) return undefined;
@@ -167,6 +201,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       priority: raw.priority || 'none',
       trigger: raw.trigger,
       skill_ids: raw.skill_ids,
+      skill_names: raw.skill_names,
       cloud_based: raw.cloud_based,
       status: raw.status,
       state: raw.state,
@@ -203,7 +238,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   // Extract only id and name to avoid circular reference in deep comparison
   // Use primitive dependencies to avoid triggering deep comparison on circular structures
   const skillsKey = React.useMemo(() => {
-    // Use length as primitive dependency to avoid deep comparison
     return (skills || []).length;
   }, [skills?.length]);
 
@@ -214,10 +248,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   // Memoize skill options to avoid circular reference warnings
   // value is always the skill ID; label/display is the name
   const skillOptions = React.useMemo(() => {
-    return skillsSimplified.map((s) => ({ 
+    return skillsSimplified.map((s) => ({
       key: s.id,
-      value: s.id, 
-      label: s.name 
+      value: s.id,
+      label: s.name,
     }));
   }, [skillsSimplified]);
 
@@ -309,10 +343,28 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
   React.useEffect(() => {
     if (task) {
-      // Skill association is purely ID-based; name is only for display
+      const rawSkillNames: string[] = (task as any).skill_names || [];
       const rawSkillIds: string[] = (task as any).skill_ids || [];
-      // Form stores IDs directly
-      const taskSkills: string[] = rawSkillIds;
+      const sourceLen = Math.max(rawSkillIds.length, rawSkillNames.length);
+      const taskSkills: string[] = Array.from({ length: sourceLen }, (_, i) => {
+        const rawId = String(rawSkillIds[i] || '');
+        const rawName = String(rawSkillNames[i] || '');
+        // Try by ID first (most reliable — avoids empty-name or case-mismatch issues)
+        if (rawId) {
+          const byId = skillsSimplified.find((sk) => String(sk.id) === rawId);
+          if (byId) return String(byId.id);
+        }
+        // Try by name
+        if (rawName) {
+          const byName = skillsSimplified.find((sk) => sk.name === rawName);
+          if (byName) return String(byName.id);
+          // Also try name as an ID value (legacy)
+          const byNameAsId = skillsSimplified.find((sk) => String(sk.id) === rawName);
+          if (byNameAsId) return String(byNameAsId.id);
+        }
+        // Keep as-is; skillsKey effect will re-resolve after store loads
+        return rawId || rawName;
+      });
       
       // Metadata is clean (no skill stored in it anymore)
       const metadata = (task as any).metadata || {};
@@ -379,7 +431,24 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       form.resetFields();
       setEditMode(false);
     }
-  }, [taskKey, username]); // form is stable; skillsKey re-init handled separately below
+  }, [taskKey, username, (task as any).skill_ids]); // skill_ids 变化时重新初始化表单
+
+  // Re-normalize skill IDs when skills store loads (handles race: task loads before skills).
+  React.useEffect(() => {
+    if (skillsSimplified.length === 0) return;
+    const current: string[] = form.getFieldValue('skills') || [];
+    if (current.length === 0) return;
+    const resolved = current.map((s) => {
+      const byId = skillsSimplified.find((sk) => String(sk.id) === String(s));
+      if (byId) return String(byId.id);
+      const byName = skillsSimplified.find((sk) => sk.name === s);
+      if (byName) return String(byName.id);
+      return s; // keep original — do not remove skills the store hasn't loaded yet
+    }).filter(Boolean);
+    if (resolved.length !== current.length || resolved.some((v, i) => v !== current[i])) {
+      form.setFieldsValue({ skills: resolved });
+    }
+  }, [skillsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCancel = () => {
     if (isNew) {
@@ -543,8 +612,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               newTaskId = payload.id;
             }
           }
-          console.log('[TaskDetail] Saved, Task ID:', newTaskId);
-
           // Web app: keep task↔skills relations in agent_task_skill_rels.
           // If this call fails (e.g., local dev GraphQL schema), we don't block saving the task itself.
           try {
@@ -928,22 +995,31 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                               style={{ flex: 1, marginBottom: 0 }}
                             >
                               {editMode || isNew ? (
-                                <Select
-                                  showSearch
-                                  allowClear
-                                  size="large"
-                                  placeholder={t('pages.tasks.selectSkill', 'Select a skill')}
-                                  options={skillOptions}
-                                  filterOption={(input, option) =>
-                                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                  }
+                                <SkillSelect
+                                  skillOptions={skillOptions}
+                                  placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
                                 />
                               ) : (
                                 <Form.Item noStyle shouldUpdate>
                                   {({ getFieldValue }) => {
                                     const skillId = getFieldValue(['skills', name]);
-                                    const found = skillsSimplified.find((s) => s.id === skillId);
-                                    return <Input readOnly size="large" value={found ? found.name : skillId} />;
+                                    const found = skillsSimplified.find(
+                                      (s) => String(s.id) === String(skillId) || s.name === skillId,
+                                    );
+                                    let displayVal: string;
+                                    if (found) {
+                                      displayVal = found.name;
+                                    } else {
+                                      // Fallback: use skill_names returned directly from backend
+                                      const backendName: string = ((task as any).skill_names || [])[name] || '';
+                                      if (backendName) {
+                                        displayVal = backendName;
+                                      } else {
+                                        const looksLikeId = /^[0-9a-f-]{8,}$/i.test(String(skillId || '')) || /^\d+$/.test(String(skillId || ''));
+                                        displayVal = looksLikeId ? '' : String(skillId || '');
+                                      }
+                                    }
+                                    return <Input readOnly size="large" value={displayVal} placeholder="" />;
                                   }}
                                 </Form.Item>
                               )}

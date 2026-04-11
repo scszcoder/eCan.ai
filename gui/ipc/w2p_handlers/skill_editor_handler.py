@@ -1348,7 +1348,7 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                             target_skill_id = skill_id_from_info
                                             if target_skill_id:
                                                 update_result = skill_service.update_skill(target_skill_id, {
-                                                    'name': expected_new_stem,
+                                                    'name': new_base_name,
                                                     'path': str(new_skill_file),
                                                 })
                                                 if update_result.get('success'):
@@ -1367,7 +1367,7 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                                     if path_match or name_match:
                                                         skill_id = skill.get('id')
                                                         update_result = skill_service.update_skill(skill_id, {
-                                                            'name': expected_new_stem,
+                                                            'name': new_base_name,
                                                             'path': str(new_skill_file),
                                                         })
                                                         if update_result.get('success'):
@@ -1415,10 +1415,15 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                                 from agent.ec_skills.build_agent_skills import load_skill_from_folder
                                                 new_skill = load_skill_from_folder(Path(str(new_skill_file)).parent.parent, mainwin=ctx)
                                                 if new_skill:
+                                                    # Pin the canonical DB id so the random UUID from
+                                                    # load_skill_from_folder doesn't leak into memory
+                                                    # and later cause a duplicate DB row on save.
+                                                    if skill_id_from_info:
+                                                        new_skill.id = skill_id_from_info
                                                     agent_skills = ctx.get_agent_skills()
                                                     if agent_skills is not None:
                                                         agent_skills.append(new_skill)
-                                                    logger.info(f"[AutoSave] ✅ New skill added to memory: {new_skill.name}")
+                                                    logger.info(f"[AutoSave] ✅ New skill added to memory: {new_skill.name} (id={new_skill.id})")
                                                     mem_updated = True
                                             except Exception as load_err:
                                                 logger.warning(f"[AutoSave] ⚠️ Failed to load skill into memory: {load_err}")

@@ -2,7 +2,7 @@ import logging
 import traceback
 import uuid
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Optional, Dict, Set
+from typing import TYPE_CHECKING, Any, Optional, Dict, Set, Tuple, List
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -877,70 +877,51 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                 'message': 'Database service not available; returning empty org structure'
             })
         
-        # 🔥 Optimization: Prefer memory, sync from database if memory is empty
-        # This ensures both performance and data consistency
-        all_agents = []
-        
-        if ctx.get_agents():
-            # Data in memory, use directly (best performance)
-            all_agents = [agent.to_dict(owner=username) for agent in ctx.get_agents()]
-            logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
-        else:
-            # Memory empty, sync from database (ensure data availability)
-            logger.info(f"[agent_handler] Memory cache empty, syncing from database...")
+        # ── Merge memory + DB agents, deduplicate by ID (memory wins) ──────────
+        # Strategy:
+        #   • memory: EC_Agent objects (authoritative runtime state)
+        #   • DB     : agent dicts (authoritative persisted config)
+        #   • merge  : same ID → keep memory row; DB rows backfill only missing IDs
+        mem_agents_map: Dict[str, Any] = {}
+        for agent in ctx.get_agents():
+            aid = getattr(getattr(agent, 'card', None), 'id', None)
+            if aid:
+                mem_agents_map[aid] = agent.to_dict(owner=username)
+
+        logger.info(f"[agent_handler] Memory agents: {len(mem_agents_map)}")
+
+        db_agents_map: Dict[str, Any] = {}
+        if ec_db_mgr and ec_db_mgr.agent_service:
             try:
-                # Get database service from ctx (ec_db_mgr already retrieved above)
-                if not ec_db_mgr or not ec_db_mgr.agent_service:
-                    logger.error(f"[agent_handler] Database service not available")
-                    return create_error_response(request, 'DB_ERROR', 'Database service not available')
-                
-                db_service = ec_db_mgr.agent_service
-                db_result = db_service.get_agents_by_owner(username)
-                
-                # Improved error handling - check if db_result is valid
-                if not db_result:
-                    logger.error(f"[agent_handler] Failed to query agents from database: db_service returned None")
-                elif not isinstance(db_result, dict):
-                    logger.error(f"[agent_handler] Failed to query agents from database: unexpected result type {type(db_result)}")
-                elif db_result.get('success'):
-                    # Note: data can be empty list [], which is valid
-                    db_agents = db_result.get('data') or []
-                    logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
-                    
-                    # Convert to EC_Agent and add to memory — but only if skills are
-                    # already compiled.  During startup the build pipeline hasn't
-                    # finished yet, so mainwin.agent_skills is empty and converting
-                    # here would produce broken stubs that overwrite the real agents.
+                db_result = ec_db_mgr.agent_service.get_agents_by_owner(username)
+                if db_result and isinstance(db_result, dict) and db_result.get('success'):
+                    for ag_dict in db_result.get('data') or []:
+                        aid = ag_dict.get('id')
+                        if aid and aid not in mem_agents_map:
+                            db_agents_map[aid] = ag_dict
+                    logger.info(f"[agent_handler] DB backfill agents (not in memory): {len(db_agents_map)}")
+
+                    # Try to convert DB agents to EC_Agent and add to memory if skills are ready
                     converter = _get_converter()
                     main_win = ctx.main_window
                     skills_ready = bool(getattr(main_win, 'agent_skills', None))
-                    if not converter or not skills_ready:
-                        if not converter:
-                            logger.error("[agent_handler] Agent converter unavailable; returning DB agent dicts")
-                        else:
-                            logger.info("[agent_handler] Skills not compiled yet during startup; returning DB agent dicts without converting to EC_Agent")
-                        all_agents.extend(db_agents)
-                    else:
-                        agents = ctx.get_agents()
-                        agents.clear()
-                        for db_agent_dict in db_agents:
+                    if converter and skills_ready:
+                        converted = 0
+                        for db_agent_dict in db_agents_map.values():
                             try:
                                 ec_agent = converter(db_agent_dict, main_win)
                                 if ec_agent:
-                                    agents.append(ec_agent)
-                                    all_agents.append(ec_agent.to_dict(owner=username))
+                                    ctx.get_agents().append(ec_agent)
+                                    converted += 1
                             except Exception as e:
-                                logger.warning(f"[agent_handler] Failed to convert agent: {e}")
-                                logger.debug(traceback.format_exc())
-                                continue
-                    
-                    logger.info(f"[agent_handler] Synced {len(ctx.get_agents())} agents to memory")
-                else:
-                    error_msg = db_result.get('error', 'Unknown error')
-                    logger.error(f"[agent_handler] Failed to query agents from database: {error_msg}")
+                                logger.debug(f"[agent_handler] DB agent convert skip: {e}")
+                        logger.info(f"[agent_handler] Converted {converted} DB agents to EC_Agent in memory")
             except Exception as e:
-                logger.error(f"[agent_handler] Error syncing agents from database: {e}")
-                logger.debug(traceback.format_exc())
+                logger.warning(f"[agent_handler] DB agent query failed: {e}")
+
+        all_agents = list(mem_agents_map.values()) + list(db_agents_map.values())
+        if len(all_agents) < len(mem_agents_map) + len(db_agents_map):
+            logger.info(f"[agent_handler] Deduped {len(mem_agents_map) + len(db_agents_map)} -> {len(all_agents)} agents by ID")
         
         # Get org manager for organization data
         ec_org_ctrl = get_ec_org_ctrl()

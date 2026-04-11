@@ -85,6 +85,11 @@ from .skill_model import (
     DBAgentSkill
 )
 
+# Import skill history model
+from .skill_history_model import (
+    DBSkillHistory
+)
+
 # Import vehicle-related models
 from .vehicle_model import (
     DBAgentVehicle
@@ -148,6 +153,7 @@ __all__ = [
 
     # Skill models
     'DBAgentSkill',
+    'DBSkillHistory',
     
     # Vehicle models
     'DBAgentVehicle',
@@ -185,6 +191,7 @@ MODEL_REGISTRY = {
     'DBAgentKnowledge': DBAgentKnowledge,
     'DBAgentOrg': DBAgentOrg,
     'DBAgentSkill': DBAgentSkill,
+    'DBSkillHistory': DBSkillHistory,
     'DBAgentVehicle': DBAgentVehicle,
     'DBAvatarResource': DBAvatarResource,
     'TokenUsage': TokenUsage,

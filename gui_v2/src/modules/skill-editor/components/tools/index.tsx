@@ -32,6 +32,7 @@ import { GitMenu } from './git';
 import { HelpPanel } from '../help/help-panel';
 import { NewPage } from './new-page';
 import { ProblemButton } from '../problem-panel';
+import { HistoryButton } from '../history';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../stores/running-node-store';
@@ -288,6 +289,7 @@ const ToolsInner = () => {
         <NewPage disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly || previewMode} />
         <SaveAs disabled={playground.config.readonly || previewMode} />
+        <HistoryButton disabled={playground.config.readonly || previewMode} />
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <SkillNameBadge />
         <Info />

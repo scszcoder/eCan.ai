@@ -248,6 +248,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     { label: t('nodes.browserAutomation.monitorDonePolicies.keep'), value: 'keep' },
     { label: t('nodes.browserAutomation.monitorDonePolicies.stop'), value: 'stop' },
   ], [t]);
+  const LOOP_HISTORY_MODE_OPTIONS = useMemo(() => [
+    { label: t('nodes.browserAutomation.loopHistoryModes.clear'), value: 'clear' },
+    { label: t('nodes.browserAutomation.loopHistoryModes.trim5'), value: 'trim:5' },
+    { label: t('nodes.browserAutomation.loopHistoryModes.trim10'), value: 'trim:10' },
+    { label: t('nodes.browserAutomation.loopHistoryModes.trim20'), value: 'trim:20' },
+    { label: t('nodes.browserAutomation.loopHistoryModes.accumulate'), value: 'accumulate' },
+  ], [t]);
 
   const [eventMonitorsExpanded, setEventMonitorsExpanded] = useState(false);
   const [expandedMonitorIndexes, setExpandedMonitorIndexes] = useState<number[]>([]);
@@ -846,6 +853,21 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Loop History Mode */}
+        <FormItem name="loopHistoryMode" label={t('nodes.browserAutomation.loopHistoryMode')} type="string" vertical>
+          <Field<string> name="inputsValues.loopHistoryMode.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || 'clear'}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={LOOP_HISTORY_MODE_OPTIONS}
+                style={{ width: '100%' }}
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
         {/* Event Monitors Section (collapsible) */}
         <div
           style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
@@ -1387,6 +1409,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'maxActionsPerStep',
               'domFocusSelector',
               'domLimit',
+              'loopHistoryMode',
               'eventMonitors',
             ];
             

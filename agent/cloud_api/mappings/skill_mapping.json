@@ -14,7 +14,12 @@
   
   "excluded_fields": [
     "agid",
-    "skid"
+    "skid",
+    "skill_owner",
+    "status",
+    "run_mode",
+    "mapping_rules",
+    "ui_info"
   ],
   
   "operation_specific_exclusions": {
