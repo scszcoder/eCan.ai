@@ -353,16 +353,16 @@ def gen_agent_from_cloud_data(mainwin, ajs):
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if ajs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in ajs['skills'].split(",")]
+            skids = [s.strip() for s in ajs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if ajs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in ajs['tasks'].split(",")]
+            taskids = [s.strip() for s in ajs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -404,18 +404,18 @@ def gen_new_agent(mainwin, ajs):
         all_tasks = mainwin.agent_tasks
         logger.debug("ajs:", ajs)
         if ajs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in ajs['skills'].split(",")]
+            skids = [s.strip() for s in ajs['skills'].split(",") if s.strip()]
         else:
             skids = []
 
         logger.debug("skids:", skids, len(all_skills), all_skills[0])
-        agent_skills = [sk for sk in all_skills if int(sk.id) in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if ajs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in ajs['tasks'].split(",")]
+            taskids = [s.strip() for s in ajs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -620,16 +620,16 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if askjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in askjs['skills'].split(",")]
+            skids = [s.strip() for s in askjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if askjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in askjs['tasks'].split(",")]
+            taskids = [s.strip() for s in askjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -670,16 +670,16 @@ def gen_new_agent_skill(mainwin, askjs):
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if askjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in askjs['skills'].split(",")]
+            skids = [s.strip() for s in askjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if askjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in askjs['tasks'].split(",")]
+            taskids = [s.strip() for s in askjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -848,18 +848,19 @@ def load_agent_tools_from_cloud(mainwin):
 def gen_agent_tools_from_cloud_data(mainwin, taskjs):
     try:
         llm = mainwin.llm
+        all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if taskjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in taskjs['skills'].split(",")]
+            skids = [s.strip() for s in taskjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_tasks if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if taskjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in taskjs['tasks'].split(",")]
+            taskids = [s.strip() for s in taskjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -895,18 +896,19 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
 def gen_new_agent_tools(mainwin, tooljs):
     try:
         llm = mainwin.llm
+        all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if tooljs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in tooljs['skills'].split(",")]
+            skids = [s.strip() for s in tooljs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_tasks if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if tooljs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in tooljs['tasks'].split(",")]
+            taskids = [s.strip() for s in tooljs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -1090,18 +1092,19 @@ def load_agent_tasks_from_cloud(mainwin):
 def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
     try:
         llm = mainwin.llm
+        all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if taskjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in taskjs['skills'].split(",")]
+            skids = [s.strip() for s in taskjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_tasks if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if taskjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in taskjs['tasks'].split(",")]
+            taskids = [s.strip() for s in taskjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -1137,18 +1140,19 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
 def gen_new_agent_tasks(mainwin, taskjs):
     try:
         llm = mainwin.llm
+        all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if taskjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in taskjs['skills'].split(",")]
+            skids = [s.strip() for s in taskjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_tasks if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if taskjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in taskjs['tasks'].split(",")]
+            taskids = [s.strip() for s in taskjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -1312,16 +1316,16 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if kjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in kjs['skills'].split(",")]
+            skids = [s.strip() for s in kjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if kjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in kjs['tasks'].split(",")]
+            taskids = [s.strip() for s in kjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -1360,16 +1364,16 @@ def gen_new_knowledge(mainwin, kjs):
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
         if kjs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in kjs['skills'].split(",")]
+            skids = [s.strip() for s in kjs['skills'].split(",") if s.strip()]
         else:
             skids = []
-        agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
+        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
         if kjs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in kjs['tasks'].split(",")]
+            taskids = [s.strip() for s in kjs['tasks'].split(",") if s.strip()]
         else:
             taskids = []
-        agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
+        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)

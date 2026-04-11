@@ -214,6 +214,8 @@ class EC_Skill(AgentSkill):
     # author, prompt resolution must query DynamoDB under *skill_owner*
     # instead of the runner identity so the correct prompts are loaded.
     skill_owner: str = ""
+    # Skill status: active / inactive / deleted
+    status: str = "active"
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -298,6 +300,10 @@ class EC_Skill(AgentSkill):
             "local_helper_skill_id": self.local_helper_skill_id,
             "local_helper_machine": self.local_helper_machine,
             "skill_owner": self.skill_owner,
+            "cloud_id": self.cloud_id,
+            "run_mode": getattr(self, 'run_mode', 'released'),
+            "mapping_rules": getattr(self, 'mapping_rules', {}),
+            "status": getattr(self, 'status', 'active'),
         }
 
 

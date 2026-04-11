@@ -133,7 +133,13 @@ class DBSkillService(BaseService):
                         return {"success": True, "id": existing.id, "data": existing.to_dict(), "error": None, "updated": True}
 
                 # No duplicate found, create new record
-                obj = DBAgentSkill(**data)
+                # Filter to only DB-model columns to avoid TypeError from extra fields
+                # added by _prepare_skill_data (e.g. skill_owner, status, run_mode,
+                # mapping_rules, ui_info). These are stored inside config/owner, not as
+                # separate columns.
+                db_columns = {c.name for c in DBAgentSkill.__table__.columns}
+                db_data = {k: v for k, v in data.items() if k in db_columns}
+                obj = DBAgentSkill(**db_data)
                 s.add(obj)
                 s.flush()
                 return {"success": True, "id": obj.id, "data": obj.to_dict(), "error": None, "updated": False}
@@ -194,6 +200,14 @@ class DBSkillService(BaseService):
         """Update a skill"""
         return self._update(DBAgentSkill, skill_id, fields)
 
+    def update_skill_askid(self, skill_id, askid):
+        """Update the cloud askid for a skill.
+
+        Called after a successful cloud ADD to link the local record to its cloud id,
+        preventing duplicate entries on app restart.
+        """
+        return self.update_skill(skill_id, {"askid": askid})
+
     def query_skills(self, id=None, name=None, description=None):
         """Query skills"""
         return {"success": True,
@@ -206,14 +220,30 @@ class DBSkillService(BaseService):
         return result.get("data", [])
 
     def get_skill_by_id(self, skill_id):
-        """Get a skill by ID"""
+        """Get a skill by primary id, or by cloud_id / askid (same resolution as delete_skill)."""
+        if not skill_id:
+            return {"success": False, "data": None, "error": "Skill not found"}
         try:
             with self.session_scope() as s:
                 skill = s.get(DBAgentSkill, skill_id)
                 if skill:
                     return {"success": True, "data": skill.to_dict(), "error": None}
-                else:
-                    return {"success": False, "data": None, "error": "Skill not found"}
+                skill = s.query(DBAgentSkill).filter(
+                    DBAgentSkill.cloud_id == str(skill_id)
+                ).first()
+                if skill:
+                    return {"success": True, "data": skill.to_dict(), "error": None}
+                try:
+                    askid_num = int(skill_id) if str(skill_id).isdigit() else None
+                    if askid_num:
+                        skill = s.query(DBAgentSkill).filter(
+                            DBAgentSkill.askid == askid_num
+                        ).first()
+                        if skill:
+                            return {"success": True, "data": skill.to_dict(), "error": None}
+                except (ValueError, TypeError):
+                    pass
+                return {"success": False, "data": None, "error": "Skill not found"}
         except SQLAlchemyError as e:
             return {"success": False, "data": None, "error": str(e)}
     

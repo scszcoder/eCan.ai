@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Any
 import inspect
 import json
+from agent.cloud_api.constants import SkillSource
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 # from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
 # from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill
@@ -30,6 +31,44 @@ from config.app_info import app_info
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
 from agent.db.models.skill_model import DBAgentSkill
+
+
+def _log_duplicate_names(all_skills: list) -> None:
+    """Log skills sharing the same name with different IDs.
+
+    Same name + different IDs is legitimate (e.g. a built-in example and a user skill
+    can share a name). Only warns about the same ID appearing twice (merge bug).
+    """
+    id_count: dict = {}
+    for sk in all_skills:
+        if not hasattr(sk, 'name'):
+            continue
+        sk_id = getattr(sk, 'id', None)
+        id_count[sk_id] = id_count.get(sk_id, 0) + 1
+
+    name_count: dict = {}
+    for sk in all_skills:
+        if not hasattr(sk, 'name'):
+            continue
+        name_count[sk.name] = name_count.get(sk.name, 0) + 1
+
+    dup_ids = {i: c for i, c in id_count.items() if c > 1}
+    dup_names = {n: c for n, c in name_count.items() if c > 1}
+
+    if dup_ids:
+        # Same ID appearing multiple times — this IS a bug
+        logger.warning(f"[build_agent_skills] ⚠️ Duplicate skill IDs detected: {dup_ids}")
+        for sk in all_skills:
+            if getattr(sk, 'id', None) in dup_ids:
+                logger.warning(
+                    f"[build_agent_skills]   -> id={sk.id!r}  name={sk.name!r}  "
+                    f"askid={getattr(sk, 'askid', '')!r}  path={getattr(sk, 'path', '')!r}"
+                )
+    elif dup_names:
+        # Same name with different IDs — legitimate, just informational
+        logger.info(f"[build_agent_skills] ℹ️ Skills sharing a name (different IDs — normal): {dup_names}")
+    else:
+        logger.info(f"[build_agent_skills] ✅ No duplicate IDs or names in final list")
 
 
 
@@ -287,7 +326,7 @@ def create_skill_from_resource(
         # Only bundled resource examples are read-only code skills.
         # User-created appdata/my_skills entries should remain editable.
         if is_resource_example:
-            sk.source = "code"
+            sk.source = SkillSource.CODE.value
             try:
                 from agent.ec_skill import _generate_stable_id
                 sk.id = _generate_stable_id(sk.name, sk.source)
@@ -324,7 +363,7 @@ async def create_search_digikey_chatter_skill(mainwin) -> Optional[EC_Skill]:
             return None
 
         # Treat resource examples as code-based skills (read-only + deterministic id)
-        sk.source = "code"
+        sk.source = SkillSource.CODE.value
         try:
             from agent.ec_skill import _generate_stable_id
             sk.id = _generate_stable_id(sk.name, sk.source)
@@ -504,34 +543,31 @@ async def build_agent_skills(mainwin, skill_path=""):
         # 1. Database skills (UI-created): saved in DB, use DB ID
         # 2. Code skills: Built-in + resource/my_skills examples, use stable ID, source="code"
         
+        # Merge DB skills and code skills by ID.
+        # ID is globally unique — two skills with the same ID are the same skill.
+        # - DB (memory_skills) is authoritative: loaded first, always kept.
+        # - Disk (code_skills) supplements only: added only if their ID is not already present,
+        #   so they never overwrite authoritative DB entries.
+        # Same name with different IDs is legitimate and both entries are kept.
         skills_dict = {}
-        
-        # First add database/cloud skills (UI-created)
+
         for skill in memory_skills:
             if skill is not None and hasattr(skill, 'name'):
-                skills_dict[skill.name] = skill
-        
-        # Then add code skills (built-in + examples)
-        # IMPORTANT: editable DB/UI skills must win over code skills with the same name.
-        # Otherwise a user-created skill can be silently replaced by a read-only code skill
-        # and become non-editable/non-publishable in the UI.
-        if code_skills:
-            for skill in code_skills:
-                if skill is not None and hasattr(skill, 'name'):
-                    if skill.name in skills_dict:
-                        existing_skill = skills_dict.get(skill.name)
-                        existing_source = str(getattr(existing_skill, 'source', '') or '').strip().lower()
-                        if existing_source != 'code':
-                            logger.info(
-                                f"[build_agent_skills] Keeping editable DB/UI skill '{skill.name}' "
-                                f"instead of overriding with code skill"
-                            )
-                            continue
-                        logger.info(f"[build_agent_skills] � Code skill '{skill.name}' overrides existing code version")
-                    if not getattr(skill, 'source', None):
-                        skill.source = "code"
-                    skills_dict[skill.name] = skill
-        
+                skills_dict[skill.id] = skill
+
+        for skill in code_skills:
+            if skill is not None and hasattr(skill, 'name'):
+                if skill.id in skills_dict:
+                    # Same ID already in DB — DB is authoritative, skip disk duplicate
+                    logger.debug(
+                        f"[build_agent_skills] Skipping disk duplicate of id={skill.id} "
+                        f"(DB entry already present)"
+                    )
+                    continue
+                if not getattr(skill, 'source', None):
+                    skill.source = SkillSource.CODE.value
+                skills_dict[skill.id] = skill
+
         # Convert back to list
         all_skills = list(skills_dict.values())
 
@@ -546,6 +582,9 @@ async def build_agent_skills(mainwin, skill_path=""):
         logger.info(f"[build_agent_skills] - DB/Cloud skills: {len(memory_skills)}")
         logger.info(f"[build_agent_skills] - Code skills: {len(code_skills or [])}")
         logger.info(f"[build_agent_skills] - Skill names: {skill_names}")
+
+        # ── Detect duplicate names (should not happen with correct id-based dedup) ──
+        _log_duplicate_names(all_skills)
 
         return all_skills
 
@@ -820,6 +859,15 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
 
     # skill_owner tracks the original author (for prompt resolution on rented skills)
     skill_obj.skill_owner = v.str('skill_owner', '') or v.str('owner', '')
+    skill_obj.cloud_id = v.str('cloud_id', '') or ''
+
+    # run_mode: developing / released — stored in config or top-level
+    config = skill_obj.config or {}
+    skill_obj.run_mode = config.get('run_mode') or config.get('mode') or v.str('run_mode', 'developing')
+    skill_obj.mapping_rules = config.get('mapping_rules') or skill_obj.mapping_rules or {}
+
+    # status: active / inactive / deleted — stored in config or top-level
+    skill_obj.status = config.get('status') or v.str('status', 'active')
 
 
 def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, dict | None]:
@@ -942,6 +990,11 @@ def _convert_db_skill_to_object(db_skill):
                 _skill_root = core_path.parent.parent if core_path.parent.name == "diagram_dir" else core_path.parent
                 local_sk = load_skill_from_folder(_skill_root, mainwin=None)
                 if local_sk and hasattr(local_sk, 'name') and local_sk.runnable:
+                    # Preserve the canonical DB id. load_skill_from_folder creates a fresh
+                    # EC_Skill() with a random UUID; without this line every startup puts a
+                    # random UUID in memory, so save_agent_skill never finds the DB record
+                    # and inserts a duplicate row instead of updating the existing one.
+                    local_sk.id = skill_obj.id
                     logger.info(
                         f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
                         f"(always prefer file over DB)"

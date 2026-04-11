@@ -16,6 +16,289 @@ from pathlib import Path
 # Track locally-deleted skill IDs to prevent cloud re-sync from re-adding them
 _DELETED_SKILL_IDS: set = set()
 
+
+def _log_skill_dupes(skills_dicts: list, username: str) -> None:
+    """Log duplicate skill entries by ID and by (owner, name).
+
+    - Same ID appearing multiple times → IS a merge bug (must be fixed).
+    - Same (owner, name) with different IDs → may indicate duplicate cloud uploads
+      or historical data issues; flagged as warning but handled by cleanup.
+    """
+    user_l = (username or "").strip().lower()
+
+    # Count by ID
+    id_count = {}
+    for sk in skills_dicts:
+        if not isinstance(sk, dict):
+            continue
+        sk_id = str(sk.get("id") or "").strip()
+        if sk_id:
+            id_count[sk_id] = id_count.get(sk_id, 0) + 1
+    dup_ids = {i: c for i, c in id_count.items() if c > 1}
+
+    # Count by (owner, name)
+    name_count = {}
+    for sk in skills_dicts:
+        if not isinstance(sk, dict):
+            continue
+        owner = str(sk.get("owner") or "").strip().lower() or user_l or "_"
+        name = str(sk.get("name") or "").strip().lower()
+        key = (owner, name)
+        name_count[key] = name_count.get(key, 0) + 1
+    dup_names = {k: c for k, c in name_count.items() if c > 1}
+
+    if dup_ids:
+        # Same ID appearing multiple times — this IS a merge bug (must be fixed)
+        logger.warning(f"[skill_handler] ⚠️ Duplicate skill IDs detected: {dup_ids}")
+        for sk in skills_dicts:
+            if not isinstance(sk, dict):
+                continue
+            sk_id = str(sk.get("id") or "").strip()
+            if sk_id in dup_ids:
+                logger.warning(
+                    f"[skill_handler]   -> id={sk.get('id')!r}  name={sk.get('name')!r}  "
+                    f"askid={sk.get('askid')!r}  source={sk.get('source')!r}"
+                )
+    elif dup_names:
+        # Same (owner, name) with different IDs — this is NORMAL (e.g. after a rename).
+        # The _cleanup_duplicate_skills background thread will handle it asynchronously.
+        logger.info(f"[skill_handler] ℹ️ Skills sharing (owner, name) with different IDs "
+                    f"(cleanup will run in background): {dup_names}")
+    else:
+        logger.info(f"[skill_handler] ✅ No duplicate IDs or names in final list")
+
+
+def _cleanup_duplicate_skills(
+    skills_dicts: list,
+    username: str,
+    request: IPCRequest,
+    params: dict
+) -> None:
+    """Detect and delete duplicate cloud skills with the same (owner, name) but different IDs.
+
+    This function:
+    1. Groups all skills by (owner, name), regardless of source
+    2. For groups with multiple skills, keeps the one with the most recent update
+    3. Marks other duplicates for deletion from cloud
+    4. Removes duplicates from the in-memory list (frontend won't see them)
+
+    Note: Runs in a background thread to avoid blocking the UI.
+
+    Args:
+        skills_dicts: Combined list of local + cloud skills
+        username: Current user
+        request: IPC request object
+        params: Request parameters
+    """
+    from collections import defaultdict
+    from agent.cloud_api.constants import DataType
+
+    user_l = str(username or '').strip().lower()
+    duplicate_groups = defaultdict(list)
+
+    # Group all skills by (owner, name), regardless of source
+    for sk in skills_dicts:
+        if not isinstance(sk, dict):
+            continue
+
+        name = str(sk.get('name') or '').strip().lower()
+        owner = str(sk.get('owner') or '').strip().lower() or user_l or '_'
+        key = (owner, name)
+
+        skill_id = str(sk.get('id') or '').strip()
+        skill_askid = str(sk.get('askid') or '').strip()
+
+        # Skip if already in _DELETED_SKILL_IDS
+        if skill_id in _DELETED_SKILL_IDS or skill_askid in _DELETED_SKILL_IDS:
+            continue
+
+        duplicate_groups[key].append(sk)
+
+    # Find groups with duplicates
+    groups_to_clean = {k: v for k, v in duplicate_groups.items() if len(v) > 1}
+
+    if not groups_to_clean:
+        logger.debug(f"[_cleanup_duplicate_skills] No duplicate groups found")
+        return
+
+    logger.warning(f"[_cleanup_duplicate_skills] Found {len(groups_to_clean)} duplicate groups to clean up")
+
+    for (owner, name), skills in groups_to_clean.items():
+        # Sort by update time (descending) - prefer most recently updated
+        def get_updated_time(sk):
+            config = sk.get('config', {})
+            if isinstance(config, dict):
+                updated = config.get('updated_at') or config.get('updatedAt')
+                if updated:
+                    try:
+                        from datetime import datetime
+                        return datetime.fromisoformat(str(updated).replace('Z', '+00:00'))
+                    except Exception:
+                        pass
+            return None
+
+        sorted_skills = sorted(
+            skills,
+            key=lambda s: (get_updated_time(s) is not None, get_updated_time(s) or ''),
+            reverse=True
+        )
+
+        keeper = sorted_skills[0]
+        duplicates = sorted_skills[1:]
+
+        keeper_id = keeper.get('id') or keeper.get('askid')
+        logger.info(
+            f"[_cleanup_duplicate_skills] Cleaning group (owner={owner}, name={name}): "
+            f"keeping id={keeper_id}, removing {len(duplicates)} duplicates"
+        )
+
+        for dup in duplicates:
+            dup_id = dup.get('id')
+            dup_askid = dup.get('askid')
+
+            if not dup_id:
+                logger.debug(f"[_cleanup_duplicate_skills] Skipping duplicate without id: {dup}")
+                continue
+
+            # Mark as deleted so it won't be re-added
+            _DELETED_SKILL_IDS.add(str(dup_id))
+            if dup_askid:
+                _DELETED_SKILL_IDS.add(str(dup_askid))
+
+            # Remove from in-memory list so frontend won't see duplicates
+            try:
+                skills_dicts.remove(dup)
+            except ValueError:
+                pass
+
+            # Queue deletion to cloud
+            try:
+                _sync_skill_delete_to_cloud({
+                    'id': dup_id,
+                    'askid': dup_askid,
+                    'owner': dup.get('owner'),
+                    'name': dup.get('name'),
+                    'path': dup.get('path'),
+                })
+                logger.info(
+                    f"[_cleanup_duplicate_skills] ✅ Queued delete for duplicate: "
+                    f"id={dup_id}, name={dup.get('name')}"
+                )
+            except Exception as del_err:
+                logger.warning(
+                    f"[_cleanup_duplicate_skills] Failed to queue delete for id={dup_id}: {del_err}"
+                )
+
+
+def _dedupe_skills_list_owner_name(skills_list: list, username: str) -> list:
+    """Return a new list with at most one skill per (owner, normalized name).
+
+    Preserves the first occurrence in list order (memory + DB backfill before cloud),
+    so local rows win over duplicate cloud rows with the same display name.
+    """
+    user_l = str(username or "").strip().lower()
+    seen: set = set()
+    out: list = []
+    for sk in skills_list:
+        if not isinstance(sk, dict):
+            out.append(sk)
+            continue
+        raw_name = sk.get("name")
+        name = str(raw_name or "").strip().lower()
+        if not name:
+            out.append(sk)
+            continue
+        owner = str(sk.get("owner") or "").strip().lower() or user_l or "_"
+        key = (owner, name)
+        if key in seen:
+            logger.debug(
+                f"[skill_handler] Deduped duplicate (owner, name) for API list: "
+                f"name={raw_name!r} id={sk.get('id')!r} askid={sk.get('askid')!r}"
+            )
+            continue
+        seen.add(key)
+        out.append(sk)
+    return out
+
+
+def _sync_cleanup_duplicate_skills(
+    skills_dicts: list,
+    username: str,
+    request: IPCRequest,
+    params: dict
+) -> None:
+    """Synchronously remove duplicate (owner, name) groups, keeping the most recent.
+
+    Unlike the async _cleanup_duplicate_skills (which also deletes from cloud),
+    this version only removes duplicate dicts from the in-memory list so the
+    frontend never sees duplicates. Cloud deletions are still queued async.
+    """
+    from collections import defaultdict
+
+    user_l = str(username or '').strip().lower()
+    duplicate_groups = defaultdict(list)
+
+    for sk in skills_dicts:
+        if not isinstance(sk, dict):
+            continue
+        name = str(sk.get('name') or '').strip().lower()
+        owner = str(sk.get('owner') or '').strip().lower() or user_l or '_'
+        key = (owner, name)
+        duplicate_groups[key].append(sk)
+
+    groups_to_clean = {k: v for k, v in duplicate_groups.items() if len(v) > 1}
+    if not groups_to_clean:
+        return
+
+    for (owner, name), skills in groups_to_clean.items():
+        def get_updated_time(sk):
+            config = sk.get('config', {})
+            if isinstance(config, dict):
+                updated = config.get('updated_at') or config.get('updatedAt')
+                if updated:
+                    try:
+                        from datetime import datetime
+                        return datetime.fromisoformat(str(updated).replace('Z', '+00:00'))
+                    except Exception:
+                        pass
+            return None
+
+        sorted_skills = sorted(
+            skills,
+            key=lambda s: (get_updated_time(s) is not None, get_updated_time(s) or ''),
+            reverse=True
+        )
+        keeper = sorted_skills[0]
+        duplicates = sorted_skills[1:]
+
+        for dup in duplicates:
+            dup_id = dup.get('id')
+            dup_askid = dup.get('askid')
+            if not dup_id:
+                continue
+            _DELETED_SKILL_IDS.add(str(dup_id))
+            if dup_askid:
+                _DELETED_SKILL_IDS.add(str(dup_askid))
+            try:
+                skills_dicts.remove(dup)
+            except ValueError:
+                pass
+            # Queue cloud deletion asynchronously (don't block the API response)
+            import threading
+            def _delete_dup():
+                try:
+                    _sync_skill_delete_to_cloud({
+                        'id': dup_id,
+                        'askid': dup_askid,
+                        'owner': dup.get('owner'),
+                        'name': dup.get('name'),
+                        'path': dup.get('path'),
+                    })
+                except Exception:
+                    pass
+            threading.Thread(target=_delete_dup, daemon=True).start()
+
+
 # Guarded import of skill file sync (S3 upload/download)
 _SKILL_FILE_SYNC_AVAILABLE = False
 try:
@@ -204,8 +487,38 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             if c_askid:
                 all_local_identifiers.add(c_askid)
 
+        # ── Step 3.25: One row per (owner, name) for API / UI (dropdowns, global skill store). ──
+        skills_dicts[:] = _dedupe_skills_list_owner_name(skills_dicts, username)
+
+        # ── Step 3.4: Synchronously clean duplicates before returning to frontend ──
+        # Same as _cleanup_duplicate_skills but synchronous (no background thread).
+        # Keeps the skill with the most recent update time; queues cloud deletes asynchronously.
+        try:
+            _sync_cleanup_duplicate_skills(skills_dicts, username, request, params)
+        except Exception as sync_cleanup_err:
+            logger.warning(f"[skill_handler] Synchronous duplicate cleanup failed: {sync_cleanup_err}")
+
+        # ── Step 3.5: Cleanup duplicate skills (async, non-blocking, for cloud deletion) ──
+        # Detect and remove duplicate skills that have the same (owner, name)
+        # but different IDs. This can happen due to historical upload bugs.
+        try:
+            import threading
+            def _do_cleanup():
+                try:
+                    _cleanup_duplicate_skills(skills_dicts, username, request, params)
+                except Exception as cleanup_err:
+                    logger.warning(f"[skill_handler] Background duplicate cleanup failed: {cleanup_err}")
+
+            cleanup_thread = threading.Thread(target=_do_cleanup, daemon=True)
+            cleanup_thread.start()
+        except Exception as e:
+            logger.debug(f"[skill_handler] Could not start duplicate cleanup thread: {e}")
+
         logger.info(f"Returning {len(skills_dicts)} skills to frontend "
                      f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
+
+        # ── Detect duplicate names (should not happen if id dedup is correct) ──
+        _log_skill_dupes(skills_dicts, username)
 
         # Kick off background bulk upload of local skill files to S3
         if _SKILL_FILE_SYNC_AVAILABLE:
@@ -830,88 +1143,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             actual_skill_id = result.get('id', skill_id)
             logger.info(f"Skill saved successfully: {skill_data['name']} (ID: {actual_skill_id})")
 
-            # Step 2: Save skill history (before updating memory and syncing)
-            try:
-                import os, base64
-                from gui.ipc.w2p_handlers.skill_history_handler import _get_history_service
-
-                def _collect_skill_directory(dir_path: str) -> dict:
-                    """Recursively collect all skill directory files as a snapshot.
-
-                    Returns a dict of {relative_path: {content, is_binary, size}}.
-                    Skips __pycache__, .pytest_cache, .DS_Store, and .pyc files.
-                    """
-                    SNAPSHOT_EXCLUDE_DIRS = {'__pycache__', '.pytest_cache', '.git', '.vscode', 'node_modules'}
-                    SNAPSHOT_EXCLUDE_FILES = {'.DS_Store'}
-
-                    if not dir_path or not os.path.isdir(dir_path):
-                        return {}
-
-                    files_snapshot = {}
-                    for root, dirs, files in os.walk(dir_path):
-                        # Prune excluded directories in-place so os.walk skips them
-                        dirs[:] = [d for d in dirs if d not in SNAPSHOT_EXCLUDE_DIRS]
-
-                        for fname in files:
-                            if fname in SNAPSHOT_EXCLUDE_FILES:
-                                continue
-                            full_path = os.path.join(root, fname)
-                            rel_path = os.path.relpath(full_path, dir_path)
-                            try:
-                                file_size = os.path.getsize(full_path)
-                                is_binary = False
-                                content = None
-
-                                if fname.endswith(('.py', '.json', '.txt', '.md', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.html', '.css', '.js', '.ts')):
-                                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                        content = f.read()
-                                elif fname.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf')):
-                                    with open(full_path, 'rb') as f:
-                                        content = base64.b64encode(f.read()).decode('ascii')
-                                    is_binary = True
-                                else:
-                                    # Try text first, fall back to binary
-                                    try:
-                                        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                            content = f.read()
-                                    except Exception:
-                                        with open(full_path, 'rb') as f:
-                                            content = base64.b64encode(f.read()).decode('ascii')
-                                        is_binary = True
-
-                                files_snapshot[rel_path] = {
-                                    'content': content,
-                                    'is_binary': is_binary,
-                                    'size': file_size,
-                                }
-                            except Exception as e:
-                                logger.debug(f"[skill_handler] Could not read file {rel_path}: {e}")
-
-                    return files_snapshot
-
-                history_service = _get_history_service(request, params)
-                if history_service:
-                    skill_data_with_id = skill_data.copy()
-                    skill_data_with_id['id'] = actual_skill_id
-
-                    # Collect all files from skill directory for complete snapshot
-                    skill_path = skill_data.get('path', '')
-                    if skill_path:
-                        skill_dir = os.path.dirname(skill_path)
-                        files_snapshot = _collect_skill_directory(skill_dir)
-                        skill_data_with_id['skill_files'] = files_snapshot
-                        logger.info(f"[skill_handler] Collected {len(files_snapshot)} files for history snapshot")
-
-                    history_result = history_service.save_history(actual_skill_id, skill_data_with_id, save_type='manual')
-                    if history_result.get('success'):
-                        history_record = history_result.get('data', {})
-                        logger.info(f"[skill_handler] Skill history saved: {history_record.get('id')}, version: {history_record.get('version')}")
-                    else:
-                        logger.warning(f"[skill_handler] Failed to save skill history: {history_result.get('error')}")
-            except Exception as history_err:
-                logger.warning(f"[skill_handler] Error saving skill history (non-fatal): {history_err}")
-
-            # Step 3: Update memory after database update succeeds
+            # Step 2: Update memory after database update succeeds
             _update_skill_in_memory(actual_skill_id, skill_data, request, params)
             try:
                 ctx = get_handler_context(request, params)
@@ -920,7 +1152,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             except Exception:
                 pass
 
-            # Step 4: Clean up offline sync queue for this skill (remove pending add/update operations)
+            # Step 3: Clean up offline sync queue for this skill (remove pending add/update operations)
             try:
                 from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
                 sync_queue = get_offline_sync_queue()
@@ -933,12 +1165,18 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             except Exception as e:
                 logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
 
-            # Step 5: Sync to cloud after memory update succeeds (async, fire and forget)
+            # Step 4: Sync to cloud after memory update succeeds (async, fire and forget)
             skill_data_with_id = skill_data.copy()
             skill_data_with_id['id'] = actual_skill_id
-            
+
+            # Determine cloud operation: ADD for newly created skills, UPDATE for existing ones.
+            # add_skill returns `updated: True` when it performed an upsert (existing record updated).
+            # update_skill always returns without `updated`, treated as UPDATE.
+            cloud_op = Operation.ADD if result.get('updated') is False else Operation.UPDATE
+            logger.info(f"[skill_handler] Cloud sync op for '{skill_data['name']}': {cloud_op} (updated_flag={result.get('updated')})")
+
             # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
+            _trigger_cloud_sync(skill_data_with_id, cloud_op)
             
             # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
             # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
@@ -952,12 +1190,30 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             if knowledge_ids:
                 _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
 
-            # Step 6: Sync skill source files to S3 (async, fire and forget)
+            # Step 5: Sync skill source files to S3 (async, fire and forget)
             if _SKILL_FILE_SYNC_AVAILABLE:
                 try:
                     upload_skill_files_to_cloud(skill_data_with_id)
                 except Exception as fs_exc:
                     logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+
+            # Step 6: Save skill version history snapshot
+            try:
+                from gui.ipc.context_bridge import get_handler_context as _get_ctx
+                _ctx = _get_ctx(request, params)
+                _ec_db_mgr = _ctx.get_ec_db_mgr() if _ctx else None
+                if _ec_db_mgr and hasattr(_ec_db_mgr, 'skill_history_service'):
+                    _history_svc = _ec_db_mgr.skill_history_service
+                    _history_svc.save_history(
+                        skill_id=actual_skill_id,
+                        skill_data=skill_data_with_id,
+                        save_type='manual'
+                    )
+                    logger.info(f"[skill_handler] History snapshot saved for skill: {actual_skill_id}")
+                else:
+                    logger.warning(f"[skill_handler] skill_history_service not available, skipping history save")
+            except Exception as _hist_err:
+                logger.warning(f"[skill_handler] Failed to save skill history: {_hist_err}")
 
             # Create clean response
             clean_skill_data = _create_clean_skill_response(actual_skill_id, skill_data)
@@ -1324,13 +1580,11 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         cloud_cached = False
         cloud_error = None
         cloud_task_id = None
-        should_attempt_cloud_delete = bool(
-            db_deleted or (
-                resolved_skill_record
-                and str((resolved_skill_record.get('owner') or '')).strip().lower() == str(username).strip().lower()
-                and cloud_skill_id
-            )
-        )
+        # Only attempt cloud delete if the skill was actually found in local DB.
+        # If resolved_skill_record is None, the skill was never in the local DB,
+        # so there's nothing to delete in the cloud either. This prevents invalid
+        # DELETE requests from accumulating in the offline sync queue.
+        should_attempt_cloud_delete = bool(cloud_skill_id) and resolved_skill_record is not None
         if should_attempt_cloud_delete:
             try:
                 cloud_delete_data = {
@@ -1511,6 +1765,13 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         'rentable': skill_info.get('rentable', False),
         'ext': skill_info.get('ext', skill_info.get('extra_data', None)),
         'source': skill_info.get('source', 'ui'),
+        # Additional fields previously dropped during save
+        'skill_owner': skill_info.get('skill_owner') or skill_info.get('owner') or owner_value,
+        'cloud_id': skill_info.get('cloud_id') or None,
+        'status': skill_info.get('status') or 'active',
+        'run_mode': skill_info.get('run_mode') or skill_info.get('mode') or 'developing',
+        'mapping_rules': skill_info.get('mapping_rules') or skill_info.get('skill_mapping') or {},
+        'ui_info': skill_info.get('ui_info') or {},
     }
     
     # Store cloud execution settings in config dict (not separate columns)
@@ -1521,11 +1782,20 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         logger.warning(f"[skill_handler] config is not a dict (type: {type(config)}), resetting to empty dict")
         config = {}
     
+    # Persist run_mode and mapping_rules in config so they survive across sessions
+    run_mode = skill_data['run_mode']
+    mapping_rules = skill_data['mapping_rules']
+    config['run_mode'] = run_mode
+    if mapping_rules:
+        config['mapping_rules'] = mapping_rules
     config['run_in_cloud'] = skill_info.get('run_in_cloud', config.get('run_in_cloud', False))
     config['hybrid_cloud_mode'] = skill_info.get('hybrid_cloud_mode', config.get('hybrid_cloud_mode', False))
     config['local_helper_skill_id'] = skill_info.get('local_helper_skill_id', config.get('local_helper_skill_id', None))
     config['local_helper_machine'] = skill_info.get('local_helper_machine', config.get('local_helper_machine', None))
     skill_data['config'] = config
+    # Keep run_mode and mapping_rules at top level too for easier access
+    skill_data['run_mode'] = run_mode
+    skill_data['mapping_rules'] = mapping_rules
 
     # Only add ID if provided (for updates)
     if skill_id:
@@ -1772,11 +2042,55 @@ def is_code_skill(file_path: str) -> bool:
     return 'resource/my_skills' in str(file_path_obj) or 'resource\\my_skills' in str(file_path_obj)
 
 
+def _update_skill_askid_in_memory_and_db(local_id: str, cloud_askid: Any) -> None:
+    """Write the cloud-assigned askid back into local memory and DB for a skill.
+
+    This ensures the local record stays linked to its cloud counterpart so that
+    subsequent restarts don't re-fetch the same skill as a separate row.
+    """
+    try:
+        # Update in-memory list (mainwin.agent_skills)
+        ctx = get_handler_context(None, None)
+        if ctx:
+            agent_skills = ctx.get_agent_skills()
+            if agent_skills is not None:
+                for sk in agent_skills:
+                    if str(getattr(sk, 'id', '') or '').strip() == str(local_id).strip():
+                        try:
+                            setattr(sk, 'askid', cloud_askid)
+                            logger.debug(
+                                f"[skill_handler] Updated askid in memory for skill id={local_id}: askid={cloud_askid}"
+                            )
+                        except Exception:
+                            pass
+    except Exception as e:
+        logger.warning(f"[skill_handler] Failed to update askid in memory: {e}")
+
+    # Update in local SQLite DB
+    try:
+        from gui.ipc.context_bridge import get_handler_context as _get_ctx
+        from agent.db.services.db_skill_service import DBSkillService
+
+        _ctx = _get_ctx(None, None)
+        if _ctx and hasattr(_ctx, 'get_ec_db_mgr'):
+            db_mgr = _ctx.get_ec_db_mgr()
+            if db_mgr and hasattr(db_mgr, 'db_skill_service'):
+                svc: DBSkillService = db_mgr.db_skill_service
+                svc.update_skill_askid(local_id, cloud_askid)
+                logger.info(f"[skill_handler] Updated askid in DB for skill id={local_id}: askid={cloud_askid}")
+    except Exception as e:
+        logger.warning(f"[skill_handler] Failed to update askid in DB: {e}")
+
+
 def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> None:
     """Trigger cloud synchronization (async, non-blocking)
     
     Async background execution, doesn't block UI operations, ensures eventual consistency.
     If UPDATE fails with NOT_FOUND, automatically retries with ADD.
+    
+    Implements upload deduplication: before ADD, checks if a skill with the same
+    (owner, name) already exists in cloud. If found, switches to UPDATE to prevent
+    creating duplicate entries.
     
     Args:
         skill_data: Skill data to sync
@@ -1784,6 +2098,18 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     """
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType, Operation as Op
+
+    # Filter out fields that are not part of the cloud GraphQL schema
+    # (SkillCreateInput / SkillUpdateInput). These extra fields are produced
+    # by _prepare_skill_data for local DB persistence and must not be sent to
+    # the cloud, otherwise the mutation returns a validation error:
+    # "contains a field not in 'SkillUpdateInput': 'skill_owner' / 'status' / ..."
+    _NON_CLOUD_FIELDS = frozenset({
+        'skill_owner', 'status', 'run_mode', 'mapping_rules', 'ui_info',
+        # skill_id / cloud_id are handled separately via 'id' in the cloud schema
+        'skill_id', 'cloud_id',
+    })
+    cloud_data = {k: v for k, v in skill_data.items() if k not in _NON_CLOUD_FIELDS}
 
     def _op_name(value: Any) -> str:
         try:
@@ -1794,10 +2120,33 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
             return str(value or '').upper()
     
     def _log_result(result: Dict[str, Any]):
-        """Log sync result and retry UPDATE↔ADD on common cloud state mismatches"""
-        # Check per-item errors in the cloud response (transport may succeed but item may fail)
+        """Log sync result, retry on cloud state mismatches, and sync cloud askid back to local."""
         operation_name = _op_name(operation)
         cloud_resp = result.get('response')
+        local_id = cloud_data.get('id')
+
+        # Extract askid from successful ADD response and persist it locally.
+        # Without this, local DB/memory has no record of the cloud-assigned id,
+        # so on the next app restart the skill will be fetched from cloud as a
+        # separate row (different id, same name) and appear as a duplicate.
+        if result.get('synced') and operation_name == 'ADD' and local_id:
+            try:
+                cloud_id_from_resp = None
+                if isinstance(cloud_resp, list) and cloud_resp:
+                    first = cloud_resp[0]
+                    if isinstance(first, dict):
+                        cloud_id_from_resp = first.get('id') or first.get('askid')
+                elif isinstance(cloud_resp, dict):
+                    cloud_id_from_resp = cloud_resp.get('id') or cloud_resp.get('askid')
+
+                if cloud_id_from_resp and cloud_id_from_resp != local_id:
+                    logger.info(
+                        f"[skill_handler] Syncing cloud askid={cloud_id_from_resp} back to local skill id={local_id}"
+                    )
+                    _update_skill_askid_in_memory_and_db(local_id, cloud_id_from_resp)
+            except Exception as askid_sync_err:
+                logger.warning(f"[skill_handler] Failed to sync askid back to local: {askid_sync_err}")
+
         if isinstance(cloud_resp, list):
             for item in cloud_resp:
                 if not isinstance(item, dict):
@@ -1863,11 +2212,44 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
         except Exception:
             pass
 
+    # === Upload deduplication: check if skill with this id already exists in cloud ===
+    # Only do deduplication when we have a skill id (i.e. local DB already has this skill).
+    # By querying by id (globally unique), we avoid false positives from name collisions.
+    effective_operation = operation
+    if operation == Op.ADD and cloud_data.get('id'):
+        skill_id = cloud_data['id']
+        try:
+            from agent.cloud_api.cloud_api import send_query_skill_by_id_request_to_cloud
+            ctx = get_handler_context(None, None)
+            token = ctx.get_auth_token() if ctx else None
+            if token:
+                endpoint = ctx.getWanApiEndpoint() if hasattr(ctx, 'getWanApiEndpoint') else None
+                if endpoint:
+                    existing_cloud_skills = send_query_skill_by_id_request_to_cloud(
+                        token,
+                        skill_id=skill_id,
+                        endpoint=endpoint
+                    )
+                    if existing_cloud_skills and len(existing_cloud_skills) > 0:
+                        # Skill with this id already exists in cloud — switch to UPDATE
+                        existing = existing_cloud_skills[0]
+                        existing_id = existing.get('id') or existing.get('askid')
+                        logger.info(
+                            f"[skill_handler] Found existing cloud skill for deduplication: "
+                            f"id={skill_id}, existing_id={existing_id}, switching ADD -> UPDATE"
+                        )
+                        cloud_data['askid'] = existing_id
+                        effective_operation = Op.UPDATE
+                    else:
+                        logger.debug(f"[skill_handler] No duplicate cloud skill found for id '{skill_id}'")
+        except Exception as dedup_err:
+            logger.warning(f"[skill_handler] Upload deduplication check failed (continuing with original operation): {dedup_err}")
+
     # Use SyncManager's thread pool for async execution
     # Note: Use SKILL for Skill entity data (name, description, etc.)
     #       Use AGENT_SKILL for Agent-Skill relationship data (agid, skid, owner)
     manager = get_sync_manager()
-    manager.sync_to_cloud_async(DataType.SKILL, cloud_data, operation, callback=_log_result)
+    manager.sync_to_cloud_async(DataType.SKILL, cloud_data, effective_operation, callback=_log_result)
 
 
 def _sync_skill_delete_to_cloud(skill_data: Dict[str, Any]) -> Dict[str, Any]:
