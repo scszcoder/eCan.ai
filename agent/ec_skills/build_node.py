@@ -2,11 +2,17 @@ import re
 import os
 import json
 import time
+import threading
 import traceback
 import string
 import importlib.util
 import httpx
 from urllib.parse import urlparse, parse_qsl, urlunparse
+
+# Process-level guard to prevent duplicate messages from parallel pend_event_node executions.
+# Key: (skill_name, node_name, chat_id) → True once sent.
+_PEND_GLOBAL_SENT = {}
+_PEND_GLOBAL_LOCK = threading.Lock()
 from agent.mcp.local_client import mcp_call_tool
 # REMOVED: from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync  # Moved to lazy import to avoid circular dependency
 from agent.ec_skills.dev_defs import BreakpointManager
@@ -5407,6 +5413,74 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         if resolved_prompt != prompt:
             logger.info(f"[pend_event] Mustache resolved prompt: {resolved_prompt[:300]}...")
             info["prompt_to_human"] = resolved_prompt
+
+        # Send the question to the chat window so the user sees it before the skill pauses
+        _msg_to_send = resolved_prompt if (resolved_prompt and str(resolved_prompt).strip()) else "请输入您的回复..."
+        _chat_id = None
+        try:
+            attrs = (state.get("attributes") or {}) if isinstance(state, dict) else {}
+            _chat_id = attrs.get("chat_id") or None
+            if not _chat_id:
+                params = attrs.get("params", {})
+                if isinstance(params, dict):
+                    _chat_id = params.get("chatId")
+                    if not _chat_id:
+                        _chat_id = (params.get("metadata") or {}).get("params", {}).get("chatId")
+            if not _chat_id and isinstance(state.get("messages"), list) and len(state["messages"]) > 1:
+                _chat_id = state["messages"][1]
+        except Exception:
+            pass
+
+        if _chat_id and str(_msg_to_send).strip():
+            # Guard: prevent duplicate sends across parallel task executions.
+            # Use a process-level key (skill + node + chat_id) so the flag survives
+            # even when state["attributes"] is reinitialized by _node_state_baseline.
+            _pend_sent_key = f"_pend_sent_{node_name}"
+            _global_key = (skill_name, node_name, _chat_id)
+            _attrs_for_guard = state.get("attributes", {})
+            _prompt_already_sent = bool(str(_attrs_for_guard.get("prompt_to_human", "")).strip())
+            _flag_already_sent = _attrs_for_guard.get(_pend_sent_key, False)
+            with _PEND_GLOBAL_LOCK:
+                _global_already_sent = _PEND_GLOBAL_SENT.get(_global_key, False)
+            _already_sent = _global_already_sent or _prompt_already_sent or _flag_already_sent
+            if not _already_sent:
+                _sent = False
+                try:
+                    from app_context import AppContext
+                    _mw = AppContext.get_main_window()
+                    _bridge = getattr(_mw, "channel_bridge", None)
+                    if _bridge:
+                        _ch_result = _bridge.route_reply(state, _msg_to_send)
+                        if _ch_result is not None:
+                            _sent = True
+                            logger.info(f"[pend_event] Sent prompt via channel bridge, len={len(_msg_to_send)}")
+                except Exception as _ch_err:
+                    logger.debug(f"[pend_event] Channel bridge unavailable: {_ch_err}")
+
+                if not _sent:
+                    try:
+                        from agent.ec_tasks.message_sender import ChatMessageSender
+                        agent_id = state.get("messages", [""])[0] if isinstance(state.get("messages"), list) else ""
+                        agent_obj = None
+                        if agent_id:
+                            try:
+                                from agent.agent_service import get_agent_by_id
+                                agent_obj = get_agent_by_id(agent_id)
+                            except Exception:
+                                pass
+                        sender = ChatMessageSender(agent_obj)
+                        sender.send_text(_chat_id, _msg_to_send)
+                        logger.info(f"[pend_event] Sent prompt to GUI chat={_chat_id}, len={len(_msg_to_send)}")
+                    except Exception as _send_err:
+                        logger.info(f"[pend_event] Failed to send prompt: {_send_err}")
+
+                # Mark as sent in all three places.
+                with _PEND_GLOBAL_LOCK:
+                    _PEND_GLOBAL_SENT[_global_key] = True
+                if isinstance(state.get("attributes"), dict):
+                    state["attributes"][_pend_sent_key] = True
+            else:
+                logger.info(f"[pend_event] Guard BLOCKED send (global={_global_already_sent}, prompt={_prompt_already_sent}, flag={_flag_already_sent}), skipping")
 
         log_msg = f"[pend_event_node] Waiting for event: type={main_event}, browser_label={browser_event_label}, timer={timer_name}, node={node_name}"
         logger.debug(f"[DEBUG PEND] 1 log_msg ready, node={node_name}")

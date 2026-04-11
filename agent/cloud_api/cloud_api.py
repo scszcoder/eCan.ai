@@ -3340,6 +3340,84 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
     return jresponse
 
 
+def gen_query_skill_by_id_string(skill_id: str) -> str:
+    """Generate GraphQL query string for querying a specific skill by id.
+
+    Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
+    SkillQueryInput: { id: ID, name: String, description: String }
+
+    Args:
+        skill_id: Skill id to query (globally unique)
+
+    Returns:
+        GraphQL query string
+    """
+    filter_input = {"id": skill_id}
+    query_string = f'''query MyQueryAgentSkillById {{
+        queryAgentSkills(input: {json.dumps(filter_input)}) {{
+            id
+            askid
+            owner
+            name
+            description
+            version
+            level
+            config
+            diagram
+            tags
+            examples
+            inputModes
+            outputModes
+            apps
+            limitations
+            path
+            source
+            price
+            price_model
+            public
+            rentable
+        }}
+    }}'''
+    return query_string
+
+
+def send_query_skill_by_id_request_to_cloud(token: str, skill_id: str, endpoint: str = None) -> list:
+    """Query cloud for a specific skill by id.
+
+    Args:
+        token: Auth token
+        skill_id: Skill id (globally unique)
+        endpoint: Optional endpoint override (uses default if not provided)
+
+    Returns:
+        List of matching skills (usually 0 or 1), or empty list on error
+    """
+    import requests
+    from agent.cloud_api.cloud_api_service import get_appsync_endpoint, get_authenticated_session
+
+    if not endpoint:
+        endpoint = get_appsync_endpoint()
+
+    session = get_authenticated_session(token)
+    query_info = gen_query_skill_by_id_string(skill_id)
+
+    try:
+        jresp = appsync_http_request(query_info, session, token, endpoint)
+
+        if "errors" in jresp:
+            logger.warning(f"[send_query_skill_by_id] AppSync query error: {json.dumps(jresp.get('errors', []))}")
+            return []
+
+        skills_data = jresp.get("data", {}).get("queryAgentSkills")
+        if skills_data is None:
+            return []
+
+        return skills_data if isinstance(skills_data, list) else [skills_data]
+    except Exception as e:
+        logger.warning(f"[send_query_skill_by_id] Failed to query cloud for skill id '{skill_id}': {e}")
+        return []
+
+
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 @cloud_api(DataType.AGENT_TASK, Operation.ADD)

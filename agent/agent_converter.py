@@ -459,14 +459,26 @@ def convert_agent_dict_to_ec_agent(
         # DB-loaded stubs have no runnable; the compiled pool does.
         compiled_skills = getattr(main_window, 'agent_skills', None) or []
         compiled_tasks = getattr(main_window, 'agent_tasks', None) or []
-        
+
+        # Diagnostic: log compiled skill pool for agent conversion
+        compiled_skill_names = [(getattr(sk, 'name', '?'), getattr(sk, 'runnable', None) is not None) for sk in compiled_skills]
+        logger.info(f"[AgentConverter] agent='{agent_data.get('name')}' compiled_skills_pool ({len(compiled_skills)}): {compiled_skill_names}")
+
         skill_objects = _resolve_from_compiled_pool(
             skill_stubs, compiled_skills, 'skill', agent_data.get('name')
         )
         task_objects = _resolve_from_compiled_pool(
             task_stubs, compiled_tasks, 'task', agent_data.get('name')
         )
-        
+
+        # Diagnostic: log task skill info after resolution
+        for task_obj in task_objects:
+            task_skill_after_resolve = getattr(task_obj, 'skill', None)
+            task_skill_type = type(task_skill_after_resolve).__name__ if task_skill_after_resolve else 'None'
+            task_skill_name = getattr(task_skill_after_resolve, 'name', str(task_skill_after_resolve)) if task_skill_after_resolve else 'None'
+            task_skill_runnable = getattr(task_skill_after_resolve, 'runnable', None) is not None if task_skill_after_resolve else False
+            logger.info(f"[AgentConverter] Task '{getattr(task_obj, 'name', '?')}' skill after resolve: type={task_skill_type}, name={task_skill_name}, runnable={task_skill_runnable}")
+
         # For tasks that resolved from the compiled pool, attach the matching skill
         # and ensure chat tasks have the correct trigger
         for task_obj in task_objects:

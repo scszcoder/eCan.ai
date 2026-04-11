@@ -41,15 +41,59 @@ def _get_or_create_task(
         agent_skills = getattr(mainwin, "agent_skills", [])
         agent_tasks = getattr(mainwin, "agent_tasks", [])
 
-        # 1. Find Skill
+        # 1. Find Skill (with hot-reload from disk for local file skills)
         if not agent_skills:
             logger.error(f"[_get_or_create_task] agent_skills is empty or None! Cannot create task '{task_name}'.")
             return None
         
+        skill = None
+        matched_idx = -1
         if isinstance(skill_matcher, str):
-            skill = next((sk for sk in agent_skills if getattr(sk, "name", "") == skill_matcher), None)
+            for i, sk in enumerate(agent_skills):
+                if getattr(sk, "name", "") == skill_matcher:
+                    matched_idx = i
+                    break
         else:
-            skill = next((sk for sk in agent_skills if skill_matcher(sk)), None)
+            for i, sk in enumerate(agent_skills):
+                if skill_matcher(sk):
+                    matched_idx = i
+                    break
+
+        if matched_idx >= 0:
+            sk = agent_skills[matched_idx]
+            skill_path = getattr(sk, "path", None) or ""
+            if skill_path:
+                from pathlib import Path
+                p = Path(skill_path)
+                if p.exists() and p.is_file() and p.suffix.lower() == ".json":
+                    # Only hot-reload if the skill is currently attached to an active task
+                    _in_use = False
+                    try:
+                        from agent.ec_tasks.task_mcp_tools import _is_skill_in_use_by_active_task
+                        _in_use = _is_skill_in_use_by_active_task(sk, mainwin)
+                    except Exception:
+                        pass
+                    if not _in_use:
+                        logger.debug(f"[_get_or_create_task] Skill '{getattr(sk, 'name', '')}' not in active use, skipping reload")
+                        skill = sk
+                    else:
+                        logger.info(f"[_get_or_create_task] Reloading skill from file: {skill_path!r}")
+                        try:
+                            from agent.ec_skills.build_agent_skills import load_skill_from_folder
+                            _skill_root = p.parent.parent if p.parent.name == "diagram_dir" else p.parent
+                            reloaded_sk = load_skill_from_folder(_skill_root, mainwin=None)
+                            if reloaded_sk and getattr(reloaded_sk, "runnable", None) is not None:
+                                agent_skills[matched_idx] = reloaded_sk
+                                skill = reloaded_sk
+                                logger.info(
+                                    f"[_get_or_create_task] ✅ Reloaded skill '{getattr(reloaded_sk, 'name', '')!r}' "
+                                    f"with {len(getattr(reloaded_sk.runnable, 'nodes', []))} nodes"
+                                )
+                        except Exception as e:
+                            logger.warning(f"[_get_or_create_task] ⚠️ Reload failed: {e}, using cached")
+                            skill = sk
+            if skill is None:
+                skill = sk
 
         if skill is None:
             matcher_desc = skill_matcher if isinstance(skill_matcher, str) else "custom_matcher"
@@ -424,53 +468,46 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
         if not isinstance(metadata, dict):
             metadata = {}
         
-        # Get skill from task-skill relationship table
-        from gui.ipc.w2p_handlers.task_handler import _get_task_skill_info
-        skill_info = _get_task_skill_info(db_agent_task_dict.get('id'), request=None, params=None)
-        skill_name = skill_info['name'] if skill_info else ''
-        
-        # Resolve skill name to compiled EC_Skill object from mainwin.agent_skills
-        resolved_skill = None
+        # Resolve skill from in-memory pool (agent_skills) first; DB lookup only as fallback.
+        # build_agent_skills loads all DB skills into main_win.agent_skills during startup,
+        # so DB calls are only needed when a new skill was added after startup.
+        skill_name = ''
         compiled_skills = (getattr(main_win, 'agent_skills', None) or []) if main_win else []
-        if skill_name and compiled_skills:
-            for sk in compiled_skills:
-                sk_name = (getattr(sk, 'name', '') or '').lower().strip()
-                if sk_name == skill_name.lower().strip():
-                    resolved_skill = sk
-                    has_runnable = getattr(sk, 'runnable', None) is not None
-                    logger.info(f"[create_agent_tasks] ✅ Resolved skill '{skill_name}' to compiled object (runnable: {has_runnable})")
-                    break
-            if not resolved_skill:
-                logger.warning(f"[create_agent_tasks] ⚠️ Skill '{skill_name}' not found in compiled pool by exact name")
-                # For chat tasks, try any compiled skill with 'chat' as a whole word in its name
-                # Use word-boundary regex to avoid matching 'wechat_bot' etc.
-                task_name_check = db_agent_task_dict.get('name', '')
-                if 'chat' in task_name_check.lower():
-                    for sk in compiled_skills:
-                        sk_name = (getattr(sk, 'name', '') or '').lower()
-                        if re.search(r'(?<![a-z])chat', sk_name) and getattr(sk, 'runnable', None) is not None:
-                            resolved_skill = sk
-                            logger.info(f"[create_agent_tasks] ✅ Chat fallback: matched task '{task_name_check}' to skill '{getattr(sk, 'name', '')}' (has runnable)")
-                            break
-                if not resolved_skill:
-                    logger.warning(f"[create_agent_tasks] ⚠️ task will have skill as string '{skill_name}'")
-        
-        # Fallback: if no task-skill relationship in DB, try matching task name to a skill name
-        # Strip trailing digits from skill name for fuzzy matching (e.g. passive0 → passive)
-        if not resolved_skill and not skill_name and compiled_skills:
-            task_name = db_agent_task_dict.get('name', '')
-            task_name_lower = task_name.lower().strip().replace('_', '').replace('-', '').replace(' ', '')
-            for sk in compiled_skills:
-                sk_name_raw = (getattr(sk, 'name', '') or '').strip()
-                sk_name_normalized = sk_name_raw.lower().replace('_', '').replace('-', '').replace(' ', '')
-                sk_name_base = re.sub(r'\d+$', '', sk_name_normalized)  # strip trailing digits
-                if sk_name_base and sk_name_base in task_name_lower:
-                    resolved_skill = sk
-                    has_runnable = getattr(sk, 'runnable', None) is not None
-                    logger.info(f"[create_agent_tasks] ✅ Fallback: matched task '{task_name}' to skill '{sk_name_raw}' by name substring (runnable: {has_runnable})")
-                    skill_name = sk_name_raw
+
+        # Step 1: try skill_ids already attached to the task dict (from get_agent_tasks merge)
+        skill_ids = db_agent_task_dict.get('skill_ids', [])
+        if skill_ids and compiled_skills:
+            for sid in skill_ids:
+                resolved_skill = next(
+                    (sk for sk in compiled_skills if str(getattr(sk, 'id', '')) == str(sid)),
+                    None,
+                )
+                if resolved_skill and getattr(resolved_skill, 'runnable', None) is not None:
+                    skill_name = getattr(resolved_skill, 'name', '')
+                    logger.info(
+                        f"[create_agent_tasks] ✅ Resolved skill via skill_ids: "
+                        f"skill_id={sid}, name='{skill_name}'"
+                    )
                     break
 
+        # Step 2: if not found, resolve by name from compiled pool
+        if not skill_name:
+            resolved_skill = None
+            for sk in compiled_skills:
+                sk_name = (getattr(sk, 'name', '') or '').lower().strip()
+                task_name = (db_agent_task_dict.get('name', '') or '').lower().replace('_', '').replace('-', '').replace(' ', '')
+                if sk_name == task_name:
+                    resolved_skill = sk
+                    skill_name = getattr(sk, 'name', '')
+                    logger.info(f"[create_agent_tasks] ✅ Resolved skill by name: '{skill_name}'")
+                    break
+                if 'chat' in task_name and re.search(r'(?<![a-z])chat', sk_name):
+                    if getattr(sk, 'runnable', None) is not None:
+                        resolved_skill = sk
+                        skill_name = getattr(sk, 'name', '')
+                        logger.info(f"[create_agent_tasks] ✅ Fallback chat match: '{skill_name}'")
+                        break
+        
         task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")
         agent_task = ManagedTask(
             id=task_id,
@@ -483,7 +520,7 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
             sessionId='',
             skill=resolved_skill if resolved_skill else skill_name,  # Prefer compiled object
             schedule=schedule,
-            resumeFrom='',
+            resume_from='',
             state={},
             metadata=metadata,
             trigger=db_agent_task_dict.get('trigger', 'auto'),

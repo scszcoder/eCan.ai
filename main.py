@@ -831,6 +831,7 @@ try:
             )
             if _tracemalloc:
                 logger.info("[MemoryMonitor] tracemalloc enabled for leak detection")
+                logger.warning("[MemoryMonitor] ⚠️ ECAN_TRACEMALLOC=1 is set — this adds significant CPU/memory overhead. Consider running without this flag for normal operation.")
         except Exception as e:
             logger.warning(f"Failed to start memory monitor: {e}")
 
