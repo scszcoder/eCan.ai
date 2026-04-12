@@ -493,20 +493,43 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
         # Step 2: if not found, resolve by name from compiled pool
         if not skill_name:
             resolved_skill = None
+            task_name_raw = (db_agent_task_dict.get('name', '') or '').lower().strip()
+            task_name_norm = task_name_raw.replace('_', '').replace('-', '').replace(' ', '')
             for sk in compiled_skills:
                 sk_name = (getattr(sk, 'name', '') or '').lower().strip()
-                task_name = (db_agent_task_dict.get('name', '') or '').lower().replace('_', '').replace('-', '').replace(' ', '')
-                if sk_name == task_name:
+                sk_name_norm = sk_name.replace('_', '').replace('-', '').replace(' ', '')
+                if sk_name_norm == task_name_norm:
                     resolved_skill = sk
                     skill_name = getattr(sk, 'name', '')
                     logger.info(f"[create_agent_tasks] ✅ Resolved skill by name: '{skill_name}'")
                     break
-                if 'chat' in task_name and re.search(r'(?<![a-z])chat', sk_name):
+                if 'chat' in task_name_norm and re.search(r'(?<![a-z])chat', sk_name):
                     if getattr(sk, 'runnable', None) is not None:
                         resolved_skill = sk
                         skill_name = getattr(sk, 'name', '')
                         logger.info(f"[create_agent_tasks] ✅ Fallback chat match: '{skill_name}'")
                         break
+
+            # Step 2b: substring match — task name starts with skill name or vice versa
+            # e.g. task "飞鸽客户应答0" matches skill "飞鸽客户应答"
+            if not resolved_skill and task_name_raw:
+                best_match = None
+                best_len = 0
+                for sk in compiled_skills:
+                    sk_name = (getattr(sk, 'name', '') or '').lower().strip()
+                    if not sk_name or getattr(sk, 'runnable', None) is None:
+                        continue
+                    if task_name_raw.startswith(sk_name) or sk_name.startswith(task_name_raw):
+                        if len(sk_name) > best_len:
+                            best_match = sk
+                            best_len = len(sk_name)
+                if best_match:
+                    resolved_skill = best_match
+                    skill_name = getattr(best_match, 'name', '')
+                    logger.info(
+                        f"[create_agent_tasks] ✅ Resolved skill by substring: "
+                        f"task='{task_name_raw}' → skill='{skill_name}'"
+                    )
         
         task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")
         agent_task = ManagedTask(
@@ -518,7 +541,7 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
             owner=db_agent_task_dict.get('owner', ''),
             status=status,
             sessionId='',
-            skill=resolved_skill if resolved_skill else skill_name,  # Prefer compiled object
+            skill=resolved_skill if resolved_skill else (skill_name or None),  # Prefer compiled object; avoid empty string
             schedule=schedule,
             resume_from='',
             state={},
