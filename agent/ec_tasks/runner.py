@@ -1529,8 +1529,19 @@ class TaskRunner(Generic[Context]):
             if task.run_id in active_tasks:
                 future = active_tasks.get(task.run_id)
                 if future and not future.done():
-                    logger.info(f"[restart_task_execution] Task '{task.name}' already has active execution")
-                    return True
+                    # Check if the future has an exception (failed execution)
+                    try:
+                        if future.done() and future.exception() is not None:
+                            logger.info(f"[restart_task_execution] Task '{task.name}' has failed execution with exception, forcing restart")
+                            # Remove the old future and continue to restart
+                            del active_tasks[task.run_id]
+                        else:
+                            logger.info(f"[restart_task_execution] Task '{task.name}' already has active execution")
+                            return True
+                    except Exception:
+                        # Cannot determine future state, treat as active
+                        logger.info(f"[restart_task_execution] Task '{task.name}' already has active execution (state unknown)")
+                        return True
             
             # Reset task state
             task_state = getattr(task, "status", None)
@@ -1572,20 +1583,29 @@ class TaskRunner(Generic[Context]):
             is_terminal = task_status in ("completed", "failed", "canceled") if task_status else False
 
             active_tasks = getattr(self.agent, "active_tasks", {}) or {}
-            has_active_execution = (
-                task.run_id in active_tasks
-                and active_tasks[task.run_id] is not None
-                and not active_tasks[task.run_id].done()
-            )
+            has_active_execution = False
+            if task.run_id in active_tasks:
+                future = active_tasks.get(task.run_id)
+                if future is not None:
+                    if not future.done():
+                        has_active_execution = True
+                    else:
+                        # Check if the future has an exception (failed execution)
+                        try:
+                            if future.exception() is not None:
+                                logger.info(f"[ensure_task_execution_alive] Task '{task.name}' has failed future, will restart")
+                                # Remove the stale future entry
+                                del active_tasks[task.run_id]
+                                has_active_execution = False
+                        except Exception:
+                            # Cannot determine exception state, consider as not running
+                            has_active_execution = False
 
             if is_terminal or not has_active_execution:
                 logger.info(
                     f"[ensure_task_execution_alive] Task '{task.name}' is "
                     f"status={task_status}, active={has_active_execution}; restarting execution loop"
                 )
-                # Note: We no longer clear the queue here because:
-                # 1. If a new message was just queued, clearing would remove it
-                # 2. The restarted loop should process whatever is in the queue
                 self._restart_task_execution(task)
             else:
                 logger.debug(f"[ensure_task_execution_alive] Task '{task.name}' has active execution")
@@ -1613,8 +1633,20 @@ class TaskRunner(Generic[Context]):
                     active_tasks = getattr(self.agent, "active_tasks", {}) or {}
                     if existing.run_id in active_tasks:
                         future = active_tasks.get(existing.run_id)
-                        if future and not future.done():
-                            has_active_execution = True
+                        if future is not None:
+                            if not future.done():
+                                has_active_execution = True
+                            else:
+                                # Check if the future has an exception (failed execution)
+                                try:
+                                    if future.exception() is not None:
+                                        logger.info(f"[ensure_chatter_task] Task '{existing.name}' has failed future, will restart")
+                                        # Remove the stale future entry
+                                        del active_tasks[existing.run_id]
+                                        has_active_execution = False
+                                except Exception:
+                                    # Cannot determine exception state, consider as not running
+                                    has_active_execution = False
                 
                 if is_terminal or not has_active_execution:
                     logger.info(f"[ensure_chatter_task] Found completed task '{existing.name}' for session {session_id}, "
@@ -3762,6 +3794,19 @@ class TaskRunner(Generic[Context]):
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
                     logger.info(f"[COMPLETE] task_interrupted=True for '{task.name}' (step has __interrupt__)")
+                    # Still send the response back to GUI even when interrupted (e.g., pend_for_next_human_msg)
+                    if current_state and hasattr(current_state, 'values'):
+                        already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
+                        if already_sent:
+                            logger.debug("[COMPLETE] Skipping send_response_back (interrupted): chat node already sent response")
+                        else:
+                            try:
+                                from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                                chatId = current_state.values.get("messages", [None, None])[1]
+                                if chatId:
+                                    send_response_back(current_state.values)
+                            except Exception as srb_err:
+                                logger.error(f"[COMPLETE] send_response_back failed (interrupted): {srb_err}")
                 else:
                     logger.info(f"[COMPLETE] task_interrupted=False for '{task.name}' (step={step}, interrupt in step={isinstance(step, dict) and '__interrupt__' in step})")
                     # Send the LLM response back to the GUI/opposite agent
