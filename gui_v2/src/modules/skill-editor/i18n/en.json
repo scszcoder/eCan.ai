@@ -765,7 +765,9 @@
         "trim10": "Keep last 10 steps",
         "trim20": "Keep last 20 steps",
         "accumulate": "Accumulate all rounds"
-      }
+      },
+      "actionableField": "Actionable Field",
+      "actionableFieldPlaceholder": "e.g. pending_timer (per-item field whose non-empty value marks the item as actionable / needing work this round)"
     },
     "mcp": {
       "name": "MCP",

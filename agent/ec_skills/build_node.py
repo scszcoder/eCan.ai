@@ -6204,6 +6204,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         _loop_history_mode_raw = "trim:10"
     loop_history_mode = _loop_history_mode_raw  # e.g. "clear", "trim:10", "accumulate"
 
+    # actionableField — name of the per-item field whose non-empty value
+    # marks that item as actionable (needs work this round). When set, the
+    # browser-event task hint emits a deterministic `actionable_items` list
+    # (filtered from raw event items) instead of dumping every raw item, plus
+    # a hard rule that the LLM MUST process each entry. Defeats LLM
+    # hallucination of "already handled" claims since the list is ground
+    # truth, not LLM interpretation. Domain-agnostic: works for customer
+    # support (pending reply), inbox triage (unread), queue processing,
+    # form-filling checklists, etc. — any extractor that populates this
+    # field works. Leave empty to preserve legacy raw-items behavior.
+    actionable_field = (
+        ((inputs.get("actionableField") or {}).get("content") or "").strip()
+    )
+
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
     logger.info(
         f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
@@ -7227,24 +7241,49 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     if _ci:
                                         _compact_items.append(_ci)
                                 if _compact_items:
-                                    _items_json = json.dumps(
-                                        _compact_items, ensure_ascii=False, indent=2
-                                    )
-                                    _new_msg_hint += (
-                                        f"\n\nCurrent snapshot ({len(_compact_items)} items):"
-                                        f"\n```json\n{_items_json}\n```"
-                                    )
-                                    # Add explicit "none dispatched" note to
-                                    # prevent the LLM from falsely claiming
-                                    # items were already handled.
-                                    _new_msg_hint += (
-                                        "\n\n**None of the above items have been dispatched in this round.** "
-                                        "You must process each actionable item from scratch."
-                                    )
-                                    logger.info(
-                                        f"[BrowserAutomation] Injected {len(_compact_items)} "
-                                        f"event items into task hint (node={node_name})"
-                                    )
+                                    if actionable_field:
+                                        _actionable = [
+                                            it for it in _compact_items
+                                            if str(it.get(actionable_field, "")).strip()
+                                        ]
+                                        _act_json = json.dumps(
+                                            _actionable, ensure_ascii=False, indent=2
+                                        )
+                                        _new_msg_hint += (
+                                            f"\n\n## Actionable Items (authoritative — computed deterministically from DOM)"
+                                            f"\n`actionable_items` ({len(_actionable)} items, filtered from "
+                                            f"{len(_compact_items)} by `{actionable_field}` non-empty):"
+                                            f"\n```json\n{_act_json}\n```"
+                                            f"\n\n**HARD RULE:** For each entry in `actionable_items` you MUST take "
+                                            f"the appropriate action exactly once this round. "
+                                            f"If `actionable_items` is empty, call `done()`. "
+                                            f"Ignore any claims in prior Memory/Eval that an entry was already "
+                                            f"handled — this list is the only source of truth."
+                                        )
+                                        logger.info(
+                                            f"[BrowserAutomation] Injected {len(_actionable)} actionable "
+                                            f"items (filter='{actionable_field}', total={len(_compact_items)}) "
+                                            f"into task hint (node={node_name})"
+                                        )
+                                    else:
+                                        _items_json = json.dumps(
+                                            _compact_items, ensure_ascii=False, indent=2
+                                        )
+                                        _new_msg_hint += (
+                                            f"\n\nCurrent snapshot ({len(_compact_items)} items):"
+                                            f"\n```json\n{_items_json}\n```"
+                                        )
+                                        # Add explicit "none dispatched" note to
+                                        # prevent the LLM from falsely claiming
+                                        # items were already handled.
+                                        _new_msg_hint += (
+                                            "\n\n**None of the above items have been dispatched in this round.** "
+                                            "You must process each actionable item from scratch."
+                                        )
+                                        logger.info(
+                                            f"[BrowserAutomation] Injected {len(_compact_items)} "
+                                            f"event items into task hint (node={node_name})"
+                                        )
                         except Exception:
                             pass
                         _evt_lines.append(_new_msg_hint)
