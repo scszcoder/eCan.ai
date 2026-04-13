@@ -792,7 +792,9 @@
         "trim10": "保留最近10步",
         "trim20": "保留最近20步",
         "accumulate": "跨轮累积"
-      }
+      },
+      "actionableField": "可操作项字段",
+      "actionableFieldPlaceholder": "例如 pending_timer（该字段非空即视为本轮需要处理的可操作项）"
     }
   },
   "formComponents": {
