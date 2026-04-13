@@ -43,11 +43,9 @@ class Migration_312_to_313(BaseMigration):
                 )
             """)
 
-            with self.engine.connect() as conn:
-                result = conn.execute(dedup_sql)
-                conn.commit()
-                deleted_count = result.rowcount
-                logger.info(f"[Migration 3.1.2→3.1.3] Deleted {deleted_count} duplicate skill records")
+            result = session.execute(dedup_sql)
+            deleted_count = result.rowcount
+            logger.info(f"[Migration 3.1.2→3.1.3] Deleted {deleted_count} duplicate skill records")
 
             logger.info("[Migration 3.1.2→3.1.3] ✅ Upgrade completed successfully")
             return True
@@ -72,21 +70,20 @@ class Migration_312_to_313(BaseMigration):
         logger.info("[Migration 3.1.2→3.1.3] Checking postconditions...")
 
         # Check that no duplicate IDs exist
-        with self.engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT id, COUNT(*) as cnt
-                FROM agent_skills
-                WHERE id IS NOT NULL AND id != ''
-                GROUP BY id
-                HAVING cnt > 1
-            """))
-            duplicates = result.fetchall()
+        result = session.execute(text("""
+            SELECT id, COUNT(*) as cnt
+            FROM agent_skills
+            WHERE id IS NOT NULL AND id != ''
+            GROUP BY id
+            HAVING cnt > 1
+        """))
+        duplicates = result.fetchall()
 
-            if duplicates:
-                logger.error(f"[Migration 3.1.2→3.1.3] ❌ Postcondition failed - found {len(duplicates)} duplicate IDs")
-                for dup in duplicates:
-                    logger.error(f"  ID: {dup[0]}, Count: {dup[1]}")
-                return False
+        if duplicates:
+            logger.error(f"[Migration 3.1.2→3.1.3] ❌ Postcondition failed - found {len(duplicates)} duplicate IDs")
+            for dup in duplicates:
+                logger.error(f"  ID: {dup[0]}, Count: {dup[1]}")
+            return False
 
         logger.info("[Migration 3.1.2→3.1.3] ✅ Validation successful - no duplicate IDs")
         return True

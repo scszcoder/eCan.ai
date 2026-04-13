@@ -33,7 +33,9 @@ class Migration_309_to_310(BaseMigration):
         
         try:
             # Add timing columns and skill_name to token_usage table
+            # Missing table will be created by _repair_missing_tables in MigrationManager
             self._add_columns_to_table(
+                session,
                 table_name='token_usage',
                 columns={
                     'start_time': 'DATETIME',
@@ -44,7 +46,7 @@ class Migration_309_to_310(BaseMigration):
             )
             
             # Create indexes for better query performance
-            self._create_indexes()
+            self._create_indexes(session)
             
             logger.info("[Migration 3.0.9→3.1.0] ✅ Upgrade completed successfully")
             return True
@@ -62,12 +64,7 @@ class Migration_309_to_310(BaseMigration):
     def validate_preconditions(self, session):
         """Validate preconditions before migration"""
         logger.info("[Migration 3.0.9→3.1.0] Validating preconditions...")
-        
-        # Check that token_usage table exists
-        if not self.table_exists('token_usage'):
-            logger.error("[Migration] token_usage table does not exist")
-            return False
-        
+        # Table will be created if missing - no preconditions needed
         logger.info("[Migration 3.0.9→3.1.0] ✅ Preconditions validated")
         return True
     
@@ -76,69 +73,65 @@ class Migration_309_to_310(BaseMigration):
         logger.info("[Migration 3.0.9→3.1.0] Validating migration...")
         
         required_columns = ['start_time', 'end_time', 'duration_ms', 'skill_name']
-        if not self._validate_table_columns('token_usage', required_columns):
+        if not self._validate_table_columns(session, 'token_usage', required_columns):
             return False
         
         logger.info("[Migration 3.0.9→3.1.0] ✅ Validation successful")
         return True
     
-    def _add_columns_to_table(self, table_name: str, columns: dict):
-        """Add multiple columns to a table if they don't exist
+    def _add_columns_to_table(self, session, table_name: str, columns: dict):
+        """Add multiple columns to a table if they don't exist using session
         
         Args:
+            session: SQLAlchemy session
             table_name: Name of the table
             columns: Dict of column_name -> column_definition
         """
-        with self.engine.connect() as conn:
-            # Get existing columns
-            result = conn.execute(text(f"PRAGMA table_info({table_name})"))
-            existing_columns = [row[1] for row in result.fetchall()]
-            
-            # Add missing columns
-            for column_name, column_def in columns.items():
-                if column_name not in existing_columns:
-                    logger.info(f"[Migration] Adding column {column_name} to {table_name}...")
-                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"))
-                    conn.commit()
-                else:
-                    logger.info(f"[Migration] Column {column_name} already exists in {table_name}, skipping")
+        # Get existing columns
+        result = session.execute(text(f"PRAGMA table_info({table_name})"))
+        existing_columns = [row[1] for row in result.fetchall()]
+        
+        # Add missing columns
+        for column_name, column_def in columns.items():
+            if column_name not in existing_columns:
+                logger.info(f"[Migration] Adding column {column_name} to {table_name}...")
+                session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"))
+                session.commit()
+            else:
+                logger.info(f"[Migration] Column {column_name} already exists in {table_name}, skipping")
     
-    def _create_indexes(self):
+    def _create_indexes(self, session):
         """Create indexes for the new columns if they don't exist"""
         indexes = [
             ('idx_token_usage_skill', 'token_usage', 'skill_name'),
             ('idx_token_usage_start_time', 'token_usage', 'start_time'),
         ]
         
-        with self.engine.connect() as conn:
-            for index_name, table_name, column_name in indexes:
-                try:
-                    # SQLite doesn't have a built-in way to check if index exists,
-                    # so we try to create it and catch the error
-                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})"))
-                    conn.commit()
-                    logger.info(f"[Migration] Created index {index_name} on {table_name}({column_name})")
-                except Exception as e:
-                    # Index might already exist or table doesn't have the column yet
-                    logger.debug(f"[Migration] Index {index_name} creation skipped: {e}")
+        for index_name, table_name, column_name in indexes:
+            try:
+                session.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})"))
+                session.commit()
+                logger.info(f"[Migration] Created index {index_name} on {table_name}({column_name})")
+            except Exception as e:
+                logger.debug(f"[Migration] Index {index_name} creation skipped: {e}")
     
-    def _validate_table_columns(self, table_name: str, required_columns: list) -> bool:
+    def _validate_table_columns(self, session, table_name: str, required_columns: list) -> bool:
         """Validate that a table has all required columns
         
         Args:
+            session: SQLAlchemy session
             table_name: Name of the table
             required_columns: List of required column names
             
         Returns:
             bool: True if all columns exist
         """
-        with self.engine.connect() as conn:
-            result = conn.execute(text(f"PRAGMA table_info({table_name})"))
-            existing_columns = [row[1] for row in result.fetchall()]
-            
-            for column in required_columns:
-                if column not in existing_columns:
-                    logger.error(f"[Migration] Validation failed: Missing column {column} in {table_name}")
-                    return False
-            
-            return True
+        result = session.execute(text(f"PRAGMA table_info({table_name})"))
+        existing_columns = [row[1] for row in result.fetchall()]
+        
+        for column in required_columns:
+            if column not in existing_columns:
+                logger.error(f"[Migration] Validation failed: Missing column {column} in {table_name}")
+                return False
+        
+        return True
