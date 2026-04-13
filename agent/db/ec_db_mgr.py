@@ -96,13 +96,21 @@ class ECDBMgr:
                     # Fallback: create tables if migration fails
                     logger.info("[ECDBMgr] Creating database tables as fallback...")
                     create_all_tables(self.db_path)
-                
+
                 # Always ensure tables exist and version record is created
                 # Check if tables actually exist (migration might have been skipped)
                 if not self._tables_exist():
                     logger.info("[ECDBMgr] Tables not found, creating them now...")
                     create_all_tables(self.db_path)
-                
+
+                # Self-heal: create_all_tables only creates new tables — it cannot
+                # add missing columns to existing tables.  A previous failed
+                # migration may have left columns missing (e.g. cloud_id on
+                # agent_skills).  Always check and repair, not just when
+                # migration fails this time, since the damage may be from a
+                # prior run.
+                self._repair_missing_columns()
+
                 # Now ensure version record exists (after tables are confirmed to exist)
                 self._ensure_version_record()
             else:
@@ -195,6 +203,81 @@ class ECDBMgr:
         except Exception as e:
             logger.error(f"[ECDBMgr] Failed to ensure version record: {e}")
             return False
+
+    def _repair_missing_columns(self) -> None:
+        """Add any columns that the ORM models expect but the DB tables lack.
+
+        SQLAlchemy's metadata.create_all() creates missing *tables* but never
+        alters existing ones.  When a migration that adds a column (e.g.
+        ``ALTER TABLE agent_skills ADD COLUMN cloud_id``) fails due to a DB
+        lock or other transient error, the column is missing until the next
+        successful migration run — which may never happen if the DB version
+        record was already bumped by the fallback path.
+
+        This method compares the ORM metadata against the live schema and
+        issues ``ALTER TABLE … ADD COLUMN`` for every discrepancy it finds.
+        """
+        try:
+            from sqlalchemy import inspect as sa_inspect, text
+            from .models import Base as ModelsBase
+
+            inspector = sa_inspect(self.engine)
+            db_tables = set(inspector.get_table_names())
+            repaired = 0
+
+            for table in ModelsBase.metadata.sorted_tables:
+                if table.name not in db_tables:
+                    continue  # table doesn't exist yet — create_all_tables handles this
+
+                db_columns = {col["name"] for col in inspector.get_columns(table.name)}
+                orm_columns = {col.name for col in table.columns}
+                missing = orm_columns - db_columns
+
+                if not missing:
+                    continue
+
+                logger.warning(
+                    f"[ECDBMgr] Table '{table.name}' is missing columns: {sorted(missing)}"
+                )
+
+                with self.engine.connect() as conn:
+                    for col_name in sorted(missing):
+                        col_obj = table.c[col_name]
+                        # Build a portable type string for ALTER TABLE
+                        col_type = col_obj.type.compile(self.engine.dialect)
+                        nullable = "" if col_obj.nullable else " NOT NULL"
+                        default = ""
+                        if col_obj.default is not None:
+                            # Only handle simple scalar server_defaults
+                            sd = col_obj.server_default
+                            if sd is not None:
+                                default = f" DEFAULT {sd.arg}"
+                        try:
+                            alter_sql = (
+                                f"ALTER TABLE {table.name} "
+                                f"ADD COLUMN {col_name} {col_type}{nullable}{default}"
+                            )
+                            conn.execute(text(alter_sql))
+                            conn.commit()
+                            repaired += 1
+                            logger.info(
+                                f"[ECDBMgr] Repaired: added column "
+                                f"'{table.name}.{col_name}' ({col_type})"
+                            )
+                        except Exception as add_err:
+                            # Column might already exist (race) or be unsupported
+                            logger.warning(
+                                f"[ECDBMgr] Could not add column "
+                                f"'{table.name}.{col_name}': {add_err}"
+                            )
+
+            if repaired:
+                logger.info(f"[ECDBMgr] Schema repair complete: {repaired} column(s) added")
+            else:
+                logger.info("[ECDBMgr] Schema repair: no missing columns detected")
+
+        except Exception as e:
+            logger.warning(f"[ECDBMgr] Schema repair failed (non-fatal): {e}")
 
     def _run_migrations(self) -> bool:
         """

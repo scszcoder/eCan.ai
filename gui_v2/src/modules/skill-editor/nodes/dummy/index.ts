@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 
 import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
-import iconDummy from '../../assets/icon-basic.png';
+import iconDummy from '../../assets/icon-dummy.svg';
 import { formMeta } from './form-meta';
 import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 

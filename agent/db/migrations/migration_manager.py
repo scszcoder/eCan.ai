@@ -24,6 +24,7 @@ from .migration_config import (
 )
 from utils.logger_helper import logger_helper as logger
 
+
 class MigrationManager:
     """
     Manages database migrations with automatic discovery and execution.
@@ -216,7 +217,7 @@ class MigrationManager:
                 # Check if chats table has any data
                 if 'chats' in table_names:
                     try:
-                        result = session.execute("SELECT COUNT(*) FROM chats").scalar()
+                        result = session.execute(text("SELECT COUNT(*) FROM chats")).scalar()
                         if result > 0:
                             logger.debug(f"Found {result} records in chats table - not fresh")
                             return False
@@ -227,7 +228,7 @@ class MigrationManager:
                 # Check if messages table has any data
                 if 'messages' in table_names:
                     try:
-                        result = session.execute("SELECT COUNT(*) FROM messages").scalar()
+                        result = session.execute(text("SELECT COUNT(*) FROM messages")).scalar()
                         if result > 0:
                             logger.debug(f"Found {result} records in messages table - not fresh")
                             return False
@@ -587,6 +588,9 @@ class MigrationManager:
             logger.warning(f"Failed to create migration log: {e}")
         
         try:
+            # Auto-repair: Check and create any missing tables before migration
+            self._repair_missing_tables(session)
+            
             # Validate preconditions
             if not migration.validate_preconditions(session):
                 logger.error(f"Preconditions failed for migration {version}")
@@ -657,3 +661,50 @@ class MigrationManager:
             'needs_migration': current_version != latest_version,
             'migration_path': self.get_migration_path(current_version, latest_version) if current_version != latest_version else []
         }
+    
+    def _repair_missing_tables(self, session: Session) -> bool:
+        """
+        Check and create any missing tables before migration using ORM.
+        
+        This prevents migration failures due to missing prerequisite tables
+        (e.g., a table created by a migration but not by create_all_tables).
+        
+        Args:
+            session: Database session
+            
+        Returns:
+            bool: True if tables exist or were created
+        """
+        from sqlalchemy import inspect
+        
+        try:
+            inspector = inspect(self.engine)
+            existing_tables = set(inspector.get_table_names())
+            
+            # Import the ORM models to get table definitions
+            from ..models import Base as ModelsBase
+            
+            # Find tables defined in ORM but missing in database
+            orm_tables = {table.name for table in ModelsBase.metadata.sorted_tables}
+            missing_tables = orm_tables - existing_tables
+            
+            if not missing_tables:
+                logger.debug("[MigrationManager] All ORM tables exist in database")
+                return True
+            
+            logger.warning(f"[MigrationManager] Found {len(missing_tables)} missing table(s): {missing_tables}")
+            logger.info("[MigrationManager] Creating missing tables using ORM...")
+            
+            # Use create_all_tables which respects IF NOT EXISTS
+            try:
+                from ..core import create_all_tables
+                create_all_tables(self.engine)
+                logger.info("[MigrationManager] Missing tables created successfully")
+            except Exception as create_e:
+                logger.warning(f"[MigrationManager] Failed to create tables: {create_e}")
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"[MigrationManager] Failed to check/repair tables: {e}")
+            return False

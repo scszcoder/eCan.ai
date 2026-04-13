@@ -30,6 +30,7 @@ class MenuMessages:
             'view_logs': 'View Logs...',
             'view_lightrag_logs': 'View LightRAG Logs...',
             'request_log_analysis': 'Request Log Analysis...',
+            'sqlite_merge': 'SQLite Merge...',
             'test': 'Test',
             
             # About Dialog
@@ -175,6 +176,7 @@ class MenuMessages:
             'view_logs': '查看日志...',
             'view_lightrag_logs': '查看 LightRAG 日志...',
             'request_log_analysis': '请求日志分析...',
+            'sqlite_merge': 'SQLite 合并...',
             'test': '测试',
             
             # About Dialog
