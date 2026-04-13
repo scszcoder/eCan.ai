@@ -66,6 +66,10 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
             # Include association details through backref relationships
             if hasattr(self, 'agent_tasks_rel') and self.agent_tasks_rel:
                 d['agent_executions'] = [assoc.to_dict(deep=False) for assoc in self.agent_tasks_rel]
-            if hasattr(self, 'task_skills') and self.task_skills:
-                d['skills'] = [assoc.to_dict(deep=False) for assoc in self.task_skills]
+            # DBAgentTaskSkillRel backref is 'skill_rels' (not 'task_skills')
+            skill_rels = getattr(self, 'skill_rels', None) or getattr(self, 'task_skills', None)
+            if skill_rels:
+                # Return actual skill objects (not relationship objects) so they pass validation
+                d['skills'] = [assoc.skill.to_dict(deep=False) for assoc in skill_rels if assoc.skill]
+                d['skill_ids'] = [assoc.skill_id for assoc in skill_rels if hasattr(assoc, 'skill_id')]
         return d

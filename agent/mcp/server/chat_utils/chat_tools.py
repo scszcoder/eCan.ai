@@ -197,6 +197,20 @@ def _resolve_recipient_fallback(
                 if name == requested_name:
                     return agent
 
+        # If requested_id doesn't look like a real agent ID, try matching it as a name.
+        # The LLM sometimes passes the agent display name as the ID field.
+        if requested_id and not requested_id.startswith("agent_"):
+            _id_as_name = requested_id.lower()
+            for agent in candidates:
+                card = getattr(agent, "card", None)
+                name = str(getattr(card, "name", "") or "").strip().lower()
+                if name == _id_as_name:
+                    logger.info(
+                        f"[chat_tools] Resolved name-as-id fallback: "
+                        f"requested_id='{requested_id}' -> agent name='{name}'"
+                    )
+                    return agent
+
         # Legacy front-desk -> service-agent mapping. The service agent id is not stable
         # across sessions, but the front-desk workflow still carries the historical id.
         if requested_id == "agent_b31f281332104b93":

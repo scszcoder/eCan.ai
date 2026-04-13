@@ -868,6 +868,21 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Actionable Field */}
+        <FormItem name="actionableField" label={t('nodes.browserAutomation.actionableField')} type="string" vertical>
+          <Field<string> name="inputsValues.actionableField.content">
+            {({ field }) => (
+              <input
+                type="text"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder={t('nodes.browserAutomation.actionableFieldPlaceholder')}
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+              />
+            )}
+          </Field>
+        </FormItem>
+
         {/* Event Monitors Section (collapsible) */}
         <div
           style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
@@ -1410,6 +1425,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'domFocusSelector',
               'domLimit',
               'loopHistoryMode',
+              'actionableField',
               'eventMonitors',
             ];
             

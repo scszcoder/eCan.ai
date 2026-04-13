@@ -120,15 +120,68 @@ def _extract_browser_event_patch(msg: Any) -> Dict[str, Any]:
 
 
 def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_state: Dict[str, Any]) -> Dict[str, Any]:
-    """Fallback injection for chat-message style resumes when mapping leaves state.input empty."""
+    """Fallback injection for chat-message style resumes when mapping leaves state.input empty.
+
+    Also injects prompt_refs.events with the chat_message event envelope so that
+    downstream browser_automation nodes know the triggering event type.  Without
+    this, an initial-run triggered by a chat_message would fall back to the last
+    stored browser_event and run Phase 1 (dispatch) instead of Phase 2 (reply).
+    """
     try:
         existing_input = ""
         if isinstance(node_state, dict):
             raw_existing = node_state.get("input")
             if isinstance(raw_existing, str):
                 existing_input = raw_existing.strip()
+
+        # --- Always inject prompt_refs.events for chat_message events ---
+        # Even if state.input is already populated, browser_automation needs the
+        # event envelope in prompt_refs.events to choose Phase 2 over Phase 1.
+        _event_envelope_patch: Dict[str, Any] = {}
+        _is_chat_message = False
+        if isinstance(event, dict) and event.get("event_type") == "chat_message":
+            _is_chat_message = True
+        elif isinstance(msg, dict) and msg.get("method") == "chat_message":
+            _is_chat_message = True
+        elif isinstance(msg, dict) and _safe_get(msg, "params.metadata.mtype") == "send_chat":
+            _is_chat_message = True
+
+        if _is_chat_message:
+            # Build a compact event envelope matching the shape pend_event_node produces
+            compact_event: Dict[str, Any] = {"event_type": "chat_message"}
+            if isinstance(event, dict):
+                for k in ("source", "tag", "node", "timestamp", "id", "sessionId",
+                          "chatId", "senderId", "senderName", "receiverId",
+                          "transport", "senderType"):
+                    v = event.get(k) or (event.get("context", {}) or {}).get(k)
+                    if v is not None:
+                        compact_event[k] = v
+                # Include human_text from event.data
+                if isinstance(event.get("data"), dict):
+                    ht = event["data"].get("human_text")
+                    if isinstance(ht, str) and ht:
+                        compact_event["human_text"] = ht
+            # Also extract from msg metadata
+            if isinstance(msg, dict):
+                meta_params = _safe_get(msg, "params.metadata.params") or _safe_get(msg, "params.metadata") or {}
+                if isinstance(meta_params, dict):
+                    for k in ("chatId", "senderId", "senderName", "receiverId",
+                              "transport", "senderType"):
+                        if k not in compact_event and k in meta_params:
+                            compact_event[k] = meta_params[k]
+
+            _event_envelope_patch = {
+                "prompt_refs": {
+                    "events": json.dumps(compact_event, ensure_ascii=False, default=str),
+                },
+            }
+            logger.info(
+                f"[prep_skills_run] Injecting prompt_refs.events for chat_message "
+                f"(sender={compact_event.get('senderId', '?')}, chat={compact_event.get('chatId', '?')})"
+            )
+
         if existing_input:
-            return {}
+            return _event_envelope_patch
 
         candidates = []
 
@@ -161,16 +214,20 @@ def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_stat
             # Only inject plausible assignment/customer-chat payload text.
             if payload:
                 logger.info(f"[prep_skills_run] Injecting fallback state.input from {source} (len={len(payload)})")
-                return {
+                patch = {
                     "input": payload,
                     "attributes": {
                         "current_invocation_input": payload,
                         "current_invocation_input_source": source,
                     },
                 }
+                # Merge event envelope patch if present
+                if _event_envelope_patch:
+                    patch = _deep_merge(patch, _event_envelope_patch)
+                return patch
 
         logger.debug("[prep_skills_run] No fallback chat-message input payload found")
-        return {}
+        return _event_envelope_patch
     except Exception as e:
         logger.debug("[prep_skills_run] chat-message input fallback failed: " + str(e))
         return {}

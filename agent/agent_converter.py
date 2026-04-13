@@ -511,6 +511,7 @@ def convert_agent_dict_to_ec_agent(
                     skill_name_on_task = (getattr(task_skill, 'name', '') or '').lower().strip()
                 
                 matched_skill = None
+                task_name_lower = (getattr(task_obj, 'name', '') or '').lower().strip()
                 for pool_name, pool in search_pools:
                     if matched_skill:
                         break
@@ -524,7 +525,27 @@ def convert_agent_dict_to_ec_agent(
                         )
                         if matched_skill:
                             logger.info(f"[AgentConverter] Matched skill by name from {pool_name}")
-                    
+
+                    # Fallback: match by task name containing skill name (or vice versa)
+                    # e.g. task "飞鸽客户应答0" matches skill "飞鸽客户应答"
+                    if not matched_skill and task_name_lower:
+                        best_match = None
+                        best_len = 0
+                        for sk in pool:
+                            sk_name = (getattr(sk, 'name', '') or '').lower().strip()
+                            if not sk_name or getattr(sk, 'runnable', None) is None:
+                                continue
+                            if task_name_lower.startswith(sk_name) or sk_name.startswith(task_name_lower):
+                                if len(sk_name) > best_len:
+                                    best_match = sk
+                                    best_len = len(sk_name)
+                        if best_match:
+                            matched_skill = best_match
+                            logger.info(
+                                f"[AgentConverter] Matched skill by name substring from {pool_name}: "
+                                f"task='{task_name_lower}' → skill='{getattr(best_match, 'name', '?')}'"
+                            )
+
                     # For chat tasks, fall back to any skill with 'chat' in name
                     if not matched_skill and is_chat_task:
                         matched_skill = next(

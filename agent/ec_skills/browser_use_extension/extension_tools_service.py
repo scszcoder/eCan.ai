@@ -1501,6 +1501,16 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
             f"[bu_send_chat] Normalized recipient_agent_name-looking-like-id into recipient_agent_id: "
             f"{normalized_recipient_id}"
         )
+    # Reverse: if recipient_agent_id does NOT look like an actual ID (no "agent_" prefix),
+    # the LLM likely passed the agent name as the ID.  Move it to recipient_agent_name
+    # so send_chat's name-based lookup can find the agent.
+    if normalized_recipient_id and not normalized_recipient_id.startswith("agent_") and not normalized_recipient_name:
+        normalized_recipient_name = normalized_recipient_id
+        normalized_recipient_id = ""
+        logger.info(
+            f"[bu_send_chat] Normalized recipient_agent_id-looking-like-name into recipient_agent_name: "
+            f"{normalized_recipient_name}"
+        )
     if normalized_recipient_id:
         config["recipient_agent_id"] = normalized_recipient_id
     if normalized_recipient_name:

@@ -69,7 +69,7 @@ pillow==12.1.1
 pdf2image==1.17.0
 imutils==0.5.4
 pytesseract==0.3.13
-rapidocr-onnxruntime==1.3.3  # Lightweight OCR engine (~20MB, replaces ~200MB paddleocr)
+rapidocr-onnxruntime==1.3.25  # Lightweight OCR engine (~20MB, replaces ~200MB paddleocr)
 
 # ============================================================================
 # WEB SCRAPING & AUTOMATION

@@ -661,6 +661,12 @@ class MenuManager:
             help_menu.addAction(request_log_action)
             logger.debug("Added 'Request Log Analysis' menu item")
 
+            # SQLite Merge
+            sqlite_merge_action = QAction(_get_menu_messages().get('sqlite_merge'), self.main_window)
+            sqlite_merge_action.triggered.connect(self.show_sqlite_merge_dialog)
+            help_menu.addAction(sqlite_merge_action)
+            logger.debug("Added 'SQLite Merge' menu item")
+
             logger.info("Help menu setup completed successfully")
         except Exception as e:
             logger.error(f"Error setting up help menu: {e}")
@@ -1547,6 +1553,17 @@ class MenuManager:
             dlg.exec()
         except Exception as e:
             logger.error(f"Failed to show request log analysis dialog: {e}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self.main_window, "Error", f"Failed to open dialog:\n{str(e)}")
+
+    def show_sqlite_merge_dialog(self):
+        """Show the SQLite Merge dialog."""
+        try:
+            from gui.dialogs.sqlite_merge_dialog import SQLiteMergeDialog
+            dlg = SQLiteMergeDialog(self.main_window)
+            dlg.exec()
+        except Exception as e:
+            logger.error(f"Failed to show SQLite merge dialog: {e}")
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self.main_window, "Error", f"Failed to open dialog:\n{str(e)}")
 
