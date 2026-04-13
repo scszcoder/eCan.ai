@@ -7250,15 +7250,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             _actionable, ensure_ascii=False, indent=2
                                         )
                                         _new_msg_hint += (
-                                            f"\n\n## Actionable Items (authoritative — computed deterministically from DOM)"
-                                            f"\n`actionable_items` ({len(_actionable)} items, filtered from "
-                                            f"{len(_compact_items)} by `{actionable_field}` non-empty):"
+                                            f"\n\n### `actionable_items` (authoritative — computed deterministically from DOM)"
+                                            f"\n{len(_actionable)} item(s), filtered from "
+                                            f"{len(_compact_items)} by `{actionable_field}` non-empty:"
                                             f"\n```json\n{_act_json}\n```"
-                                            f"\n\n**HARD RULE:** For each entry in `actionable_items` you MUST take "
+                                            f"\n\n**HARD RULE:** For each entry in `actionable_items` above you MUST take "
                                             f"the appropriate action exactly once this round. "
                                             f"If `actionable_items` is empty, call `done()`. "
                                             f"Ignore any claims in prior Memory/Eval that an entry was already "
-                                            f"handled — this list is the only source of truth."
+                                            f"handled — this list is the only source of truth. "
+                                            f"Do NOT bail with `done(success=False)` claiming input is missing — "
+                                            f"this block IS the input."
                                         )
                                         logger.info(
                                             f"[BrowserAutomation] Injected {len(_actionable)} actionable "
