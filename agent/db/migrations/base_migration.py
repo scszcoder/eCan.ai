@@ -180,3 +180,85 @@ class BaseMigration(ABC):
         except Exception as e:
             logger.error(f"Failed to execute SQL: {sql}, Error: {e}")
             return False
+    
+    def execute_with_engine(self, sql: str, params: Optional[Dict] = None) -> bool:
+        """
+        Execute raw SQL using engine.connect() - use only when session is not available.
+        
+        Warning: Prefer using session.execute_sql() instead to avoid database locks.
+        
+        Args:
+            sql: SQL statement to execute
+            params: Optional parameters for the SQL statement
+            
+        Returns:
+            bool: True if execution successful, False otherwise
+        """
+        try:
+            from sqlalchemy import text
+            with self.engine.connect() as conn:
+                if params:
+                    conn.execute(text(sql), params)
+                else:
+                    conn.execute(text(sql))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to execute SQL with engine: {sql}, Error: {e}")
+            return False
+    
+    def ensure_table_exists(self, session: Session, table_name: str, create_sql: str) -> bool:
+        """
+        Ensure a table exists, creating it if necessary.
+        
+        Args:
+            session: SQLAlchemy session
+            table_name: Name of the table to check/create
+            create_sql: CREATE TABLE SQL statement
+            
+        Returns:
+            bool: True if table exists or was created successfully
+        """
+        if self.table_exists(table_name):
+            logger.debug(f"Table '{table_name}' already exists, skipping creation")
+            return True
+        
+        try:
+            from sqlalchemy import text
+            logger.info(f"Creating missing table '{table_name}'...")
+            session.execute(text(create_sql))
+            session.commit()
+            logger.info(f"Table '{table_name}' created successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create table '{table_name}': {e}")
+            return False
+    
+    def ensure_column_exists(self, session: Session, table_name: str, column_name: str, column_def: str) -> bool:
+        """
+        Ensure a column exists in a table, adding it if necessary.
+        
+        Args:
+            session: SQLAlchemy session
+            table_name: Name of the table
+            column_name: Name of the column to check/add
+            column_def: Column definition (e.g., "VARCHAR(64)")
+            
+        Returns:
+            bool: True if column exists or was added successfully
+        """
+        if self.column_exists(table_name, column_name):
+            logger.debug(f"Column '{table_name}.{column_name}' already exists, skipping")
+            return True
+        
+        try:
+            from sqlalchemy import text
+            alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
+            logger.info(f"Adding missing column '{table_name}.{column_name}'...")
+            session.execute(text(alter_sql))
+            session.commit()
+            logger.info(f"Column '{table_name}.{column_name}' added successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add column '{table_name}.{column_name}': {e}")
+            return False

@@ -63,10 +63,10 @@ class Migration_310_to_311(BaseMigration):
                     ext JSON
                 )
             """
-            self._create_table('skill_history', create_table_sql)
+            self._create_table(session, 'skill_history', create_table_sql)
 
             # Create indexes for common queries
-            self._create_indexes()
+            self._create_indexes(session)
 
             logger.info("[Migration 3.1.0→3.1.1] ✅ Upgrade completed successfully")
             return True
@@ -108,30 +108,38 @@ class Migration_310_to_311(BaseMigration):
         expected_indexes = ['idx_skill_history_skill_id', 'idx_skill_history_skill_name',
                           'idx_skill_history_owner', 'idx_skill_history_created_at']
         for idx in expected_indexes:
-            if not self._index_exists(idx):
+            if not self._index_exists(session, idx):
                 logger.warning(f"[Migration 3.1.0→3.1.1] ⚠️ Index {idx} was not created")
 
         logger.info("[Migration 3.1.0→3.1.1] ✅ Validation successful")
         return True
 
-    def _create_table(self, table_name: str, create_sql: str):
-        """Create a table if it doesn't exist
+    def _create_table(self, session, table_name: str, create_sql: str):
+        """Create a table if it doesn't exist using session
 
         Args:
+            session: SQLAlchemy session
             table_name: Name of the table to create
             create_sql: CREATE TABLE SQL statement
         """
-        with self.engine.connect() as conn:
-            if not self.table_exists(table_name):
-                logger.info(f"[Migration] Creating table {table_name}...")
-                conn.execute(text(create_sql))
-                conn.commit()
-                logger.info(f"[Migration] Table {table_name} created successfully")
-            else:
-                logger.info(f"[Migration] Table {table_name} already exists, skipping")
+        if self.table_exists(table_name):
+            logger.info(f"[Migration] Table {table_name} already exists, skipping")
+            return True
+        
+        from sqlalchemy import text
+        try:
+            logger.info(f"[Migration] Creating table {table_name}...")
+            session.execute(text(create_sql))
+            session.commit()
+            logger.info(f"[Migration] Table {table_name} created successfully")
+            return True
+        except Exception as e:
+            logger.error(f"[Migration] Failed to create table {table_name}: {e}")
+            raise
 
-    def _create_indexes(self):
-        """Create indexes for skill_history table"""
+    def _create_indexes(self, session):
+        """Create indexes for skill_history table using session"""
+        from sqlalchemy import text
         indexes = [
             ('idx_skill_history_skill_id', 'skill_history', 'skill_id'),
             ('idx_skill_history_skill_name', 'skill_history', 'skill_name'),
@@ -140,42 +148,42 @@ class Migration_310_to_311(BaseMigration):
             ('idx_skill_history_version_number', 'skill_history', 'skill_id, version_number'),
         ]
 
-        with self.engine.connect() as conn:
-            for index_name, table_name, columns in indexes:
-                try:
-                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({columns})"))
-                    conn.commit()
-                    logger.info(f"[Migration] Created index {index_name} on {table_name}({columns})")
-                except Exception as e:
-                    logger.debug(f"[Migration] Index {index_name} creation: {e}")
+        for index_name, table_name, columns in indexes:
+            try:
+                # Use CREATE INDEX IF NOT EXISTS for safety
+                session.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({columns})"))
+                session.commit()
+                logger.info(f"[Migration] Created index {index_name} on {table_name}({columns})")
+            except Exception as e:
+                logger.debug(f"[Migration] Index {index_name} creation skipped: {e}")
 
-    def _index_exists(self, index_name: str) -> bool:
-        """Check if an index exists
+    def _index_exists(self, session, index_name: str) -> bool:
+        """Check if an index exists using session
 
         Args:
+            session: SQLAlchemy session
             index_name: Name of the index to check
 
         Returns:
             bool: True if index exists
         """
         try:
-            with self.engine.connect() as conn:
-                result = conn.execute(text(f"PRAGMA index_info({index_name})"))
-                return len(result.fetchall()) > 0
+            result = session.execute(text(f"PRAGMA index_info({index_name})"))
+            return len(result.fetchall()) > 0
         except Exception:
             return False
 
-    def _validate_table_columns(self, table_name: str, required_columns: list) -> bool:
-        """Validate that a table has all required columns
+    def _validate_table_columns(self, session, table_name: str, required_columns: list) -> bool:
+        """Validate that a table has all required columns using session
 
         Args:
+            session: SQLAlchemy session
             table_name: Name of the table
             required_columns: List of required column names
 
         Returns:
             bool: True if all columns exist
         """
-        with self.engine.connect() as conn:
-            result = conn.execute(text(f"PRAGMA table_info({table_name})"))
-            existing_columns = [row[1] for row in result.fetchall()]
-            return all(col in existing_columns for col in required_columns)
+        result = session.execute(text(f"PRAGMA table_info({table_name})"))
+        existing_columns = [row[1] for row in result.fetchall()]
+        return all(col in existing_columns for col in required_columns)
