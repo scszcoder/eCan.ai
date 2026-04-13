@@ -185,6 +185,12 @@ class ChatLambdaProxy(BaseChatModel):
             response.raise_for_status()
 
             data = response.json()
+            # Log error responses for diagnostics
+            if 'error' in data and 'choices' not in data:
+                logger.error(
+                    f"[ChatLambdaProxy] Error response from {url}: "
+                    f"status={response.status_code}, body={response.text[:500]}"
+                )
 
             # The Lambda returns OpenAI-compatible format:
             # { choices: [{ message: { content: "..." } }], usage: {...} }
@@ -220,6 +226,15 @@ class ChatLambdaProxy(BaseChatModel):
     @staticmethod
     def _extract_completion(data: dict) -> str:
         """Extract completion text from OpenAI-compatible or simplified response."""
+        # Check for error response first
+        if 'error' in data and 'choices' not in data and 'completion' not in data:
+            error_detail = data['error']
+            if isinstance(error_detail, dict):
+                error_msg = error_detail.get('message', str(error_detail))
+            else:
+                error_msg = str(error_detail)
+            logger.error(f"[ChatLambdaProxy] Lambda proxy returned error: {error_msg}")
+            raise ValueError(f"Lambda proxy error: {error_msg}")
         # OpenAI format
         choices = data.get('choices')
         if choices and isinstance(choices, list) and len(choices) > 0:

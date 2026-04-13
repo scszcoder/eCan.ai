@@ -4505,14 +4505,50 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if isinstance(meta, dict):
                     if isinstance(meta.get('task_result'), dict):
                         return meta.get('task_result')
+                    # Check for tool-specific result keys (e.g. send_chat_result)
+                    for mk, mv in meta.items():
+                        if mk.endswith('_result') and isinstance(mv, dict) and 'success' in mv:
+                            return mv
+                    # Check if meta itself has 'success' (flat meta payload)
+                    if 'success' in meta:
+                        return meta
             except Exception:
                 pass
             try:
                 if hasattr(result, 'content') and isinstance(result.content, list):
                     for c in result.content:
                         c_meta = getattr(c, 'meta', None)
-                        if isinstance(c_meta, dict) and isinstance(c_meta.get('task_result'), dict):
-                            return c_meta.get('task_result')
+                        if isinstance(c_meta, dict):
+                            if isinstance(c_meta.get('task_result'), dict):
+                                return c_meta.get('task_result')
+                            # Check for tool-specific result keys
+                            for mk, mv in c_meta.items():
+                                if mk.endswith('_result') and isinstance(mv, dict) and 'success' in mv:
+                                    return mv
+                            # Flat meta with success
+                            if 'success' in c_meta:
+                                return c_meta
+            except Exception:
+                pass
+            # Last resort: parse the text content for JSON with success field
+            try:
+                if hasattr(result, 'content') and isinstance(result.content, list):
+                    for c in result.content:
+                        txt = getattr(c, 'text', None)
+                        if isinstance(txt, str) and '"success"' in txt:
+                            import json as _json
+                            parsed = _json.loads(txt)
+                            if isinstance(parsed, dict) and 'success' in parsed:
+                                return parsed
+            except Exception:
+                pass
+            # Also check isError flag on the result itself — if isError is explicitly
+            # False and we found no payload, synthesize a success indicator so callers
+            # don't wrongly treat the tool as failed.
+            try:
+                is_error = getattr(result, 'isError', None)
+                if is_error is False:
+                    return {"success": True, "_inferred_from_isError": True}
             except Exception:
                 pass
             return {}
@@ -4552,6 +4588,13 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 elif tool_name == 'os_screen_capture' and success:
                     work_result['screen_capture_done'] = True
                     llm_obj['all_done'] = False
+                elif tool_name == 'send_chat' and success:
+                    work_result['chat_sent'] = True
+                    work_result['last_action_succeeded'] = True
+                    # Extract recipient info if available
+                    recipient = payload.get('recipient_name') or payload.get('recipient') or ''
+                    if recipient:
+                        work_result['chat_sent_to'] = recipient
                 logger.info(
                     f"[MCP Result Propagation] tool={tool_name} success={success} "
                     f"work_result={work_result}"
@@ -8472,7 +8515,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         lambda_endpoint=proxy_cfg['endpoint'],
                         auth_token=proxy_cfg['auth_token'],
                     )
-                    logger.info(f"[BrowserAutomation] Using Lambda proxy (local): {_proxy_provider}/{_proxy_model}")
+                    _masked_token = (proxy_cfg['auth_token'][:20] + '...') if len(proxy_cfg.get('auth_token', '')) > 20 else proxy_cfg.get('auth_token', '(empty)')
+                    logger.info(
+                        f"[BrowserAutomation] Using Lambda proxy (local): {_proxy_provider}/{_proxy_model}, "
+                        f"endpoint={proxy_cfg['endpoint']}, user={proxy_cfg['user_id']}, token={_masked_token}"
+                    )
 
             if llm is None and node_llm_provider and node_model_name:
                 # Node editor has specific provider/model selected - use those (no fallback)
