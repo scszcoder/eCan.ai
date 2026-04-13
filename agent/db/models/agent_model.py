@@ -97,7 +97,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
             if hasattr(self, 'skill_rels') and self.skill_rels:
                 d['skills'] = [assoc.skill.to_dict(deep=False) for assoc in self.skill_rels if assoc.skill]
             if hasattr(self, 'task_rels') and self.task_rels:
-                d['tasks'] = [assoc.task.to_dict(deep=False) for assoc in self.task_rels if assoc.task]
+                d['tasks'] = [assoc.task.to_dict(deep=True) for assoc in self.task_rels if assoc.task]
         
         return d
 
