@@ -12,7 +12,7 @@ import {
 import i18n from 'i18next';
 
 import { FlowNodeRegistry } from '../../typings';
-import iconBasic from '../../assets/icon-basic.png';
+import iconBasic from '../../assets/icon-group.svg';
 
 let index = 0;
 export const GroupNodeRegistry: FlowNodeRegistry = {
