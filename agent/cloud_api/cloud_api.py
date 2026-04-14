@@ -1379,9 +1379,23 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
         # Check for authentication errors
         if "errors" in jresp:
             for error in jresp["errors"]:
-                if error.get("errorType") == "UnauthorizedException":
-                    logger_helper.error(f"AppSync authentication failed: {error.get('message', 'Unknown error')}")
+                error_msg = error.get("message", "")
+                error_type = error.get("errorType", "")
+
+                if error_type == "UnauthorizedException":
+                    logger_helper.error(f"AppSync authentication failed: {error_msg}")
                     logger_helper.error(f"Token format: {token[:50]}...")
+
+                # Log detailed error info for type mismatch errors
+                if "type mismatch" in error_msg.lower() or "expected type" in error_msg.lower():
+                    logger_helper.error(f"[AppSync] ❌ GraphQL Type Mismatch Error detected!")
+                    logger_helper.error(f"[AppSync] Error message: {error_msg}")
+                    logger_helper.error(f"[AppSync] Error path: {error.get('path', 'N/A')}")
+                    logger_helper.error(f"[AppSync] Error locations: {error.get('locations', 'N/A')}")
+                    logger_helper.error(f"[AppSync] This usually indicates backend schema mismatch.")
+                    logger_helper.error(f"[AppSync] The GraphQL server expects a different input type than what was sent.")
+                    # Log the query string for debugging (truncated to avoid log spam)
+                    logger_helper.error(f"[AppSync] Query causing error (truncated): {query_string[:500]}...")
 
         return jresp
 

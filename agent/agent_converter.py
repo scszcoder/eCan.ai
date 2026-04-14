@@ -153,11 +153,26 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
         # Create required status object
         status = TaskStatus(state=TaskState.submitted)
         
+        # Extract skill info from task_dict (set during deep=True to_dict)
+        # task_dict['skills'] contains list of skill dicts with 'name' and 'id' fields
+        task_skill = None
+        skills_list = task_dict.get('skills', [])
+        if skills_list and len(skills_list) > 0:
+            # Take the first skill (primary skill)
+            skill_dict = skills_list[0]
+            if isinstance(skill_dict, dict) and 'name' in skill_dict:
+                # Create a minimal skill object with name and id for later resolution
+                task_skill = type('SkillStub', (), {
+                    'name': skill_dict.get('name', ''),
+                    'id': skill_dict.get('id', ''),
+                    'runnable': None
+                })()
+        
         # Pass all fields to ManagedTask, let Pydantic validators handle conversion
         # Invalid values will be normalized by field_validator
         task_id = task_dict.get('id', str(uuid.uuid4()))
         schedule = _parse_schedule_from_dict(task_dict.get('schedule'))
-        return ManagedTask(
+        task_obj = ManagedTask(
             id=task_id,
             context_id=task_id,  # Required by a2a-sdk Task
             name=task_dict.get('name', 'Unnamed Task'),
@@ -169,6 +184,12 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             agent_id=task_dict.get('agent_id') or '',
             schedule=schedule,
         )
+        
+        # Set skill if found in task_dict
+        if task_skill:
+            task_obj.skill = task_skill
+        
+        return task_obj
     except Exception as e:
         logger.error(f"[AgentConverter] Failed to convert task dict to object: {e}")
         # Return a minimal task object with required fields
@@ -320,6 +341,103 @@ def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
     return resolved
 
 
+def _find_matching_skill_for_task(task_obj, skill_objects, compiled_skills):
+    """
+    Find and attach a matching executable skill to a task.
+    
+    Returns (matched_skill, old_skill_name) or (None, None) if no match found.
+    """
+    task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
+    
+    task_skill = getattr(task_obj, 'skill', None)
+    has_correct_skill = task_skill is not None and getattr(task_skill, 'runnable', None) is not None
+    
+    if has_correct_skill:
+        return None, None
+    
+    # Build search pools: agent's own skills first, then global compiled pool
+    search_pools = []
+    if skill_objects:
+        search_pools.append(('agent_skills', skill_objects))
+    if compiled_skills:
+        search_pools.append(('global_pool', compiled_skills))
+    
+    if not search_pools:
+        return None, None
+    
+    matched_skill = None
+    skill_name_on_task = ''
+    if isinstance(task_skill, str):
+        skill_name_on_task = task_skill.lower().strip()
+    elif task_skill and hasattr(task_skill, 'name'):
+        skill_name_on_task = (getattr(task_skill, 'name', '') or '').lower().strip()
+    
+    task_name_stripped = task_name_lower.strip()
+    for pool_name, pool in search_pools:
+        if matched_skill:
+            break
+        
+        # 1. Exact skill name match (require runnable)
+        if skill_name_on_task:
+            matched_skill = next(
+                (sk for sk in pool
+                 if (getattr(sk, 'name', '') or '').lower().strip() == skill_name_on_task
+                 and getattr(sk, 'runnable', None) is not None),
+                None,
+            )
+        
+        # 2. Substring match: task name contains skill name or vice versa
+        if not matched_skill and task_name_stripped:
+            best_match = None
+            best_len = 0
+            for sk in pool:
+                sk_name = (getattr(sk, 'name', '') or '').lower().strip()
+                if not sk_name or getattr(sk, 'runnable', None) is None:
+                    continue
+                # Match if task starts with skill or skill starts with task (prefix match)
+                if task_name_stripped.startswith(sk_name) or sk_name.startswith(task_name_stripped):
+                    if len(sk_name) > best_len:
+                        best_match = sk
+                        best_len = len(sk_name)
+            matched_skill = best_match
+    
+    old_skill_name = getattr(task_skill, 'name', 'None') if task_skill else 'None'
+    return matched_skill, old_skill_name
+
+
+def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
+    """Attach executable skills to tasks and ensure chat tasks have message trigger."""
+    for task_obj in task_objects:
+        matched_skill, old_skill_name = _find_matching_skill_for_task(
+            task_obj, skill_objects, compiled_skills
+        )
+        
+        if matched_skill:
+            task_obj.skill = matched_skill
+            logger.info(
+                f"[AgentConverter] Attached skill to task '{task_obj.name}': "
+                f"'{old_skill_name}' → '{getattr(matched_skill, 'name', '?')}'"
+            )
+        else:
+            task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
+            is_chat_task = 'chat' in task_name_lower
+            task_skill = getattr(task_obj, 'skill', None)
+            skill_name_on_task = getattr(task_skill, 'name', '') if task_skill else ''
+            logger.warning(
+                f"[AgentConverter] No compiled skill found for task '{task_obj.name}' "
+                f"(skill_name='{skill_name_on_task}', is_chat={is_chat_task})"
+            )
+        
+        # Ensure chat tasks have 'message' trigger
+        task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
+        if 'chat' in task_name_lower:
+            triggers = getattr(task_obj, 'trigger', []) or []
+            if 'message' not in triggers:
+                triggers = list(triggers) + ['message']
+                task_obj.trigger = triggers
+                logger.info(f"[AgentConverter] Added 'message' trigger to chat task '{task_obj.name}' → {triggers}")
+
+
 def convert_agent_dict_to_ec_agent(
     agent_data: Dict[str, Any],
     main_window: 'MainWindow'
@@ -460,10 +578,6 @@ def convert_agent_dict_to_ec_agent(
         compiled_skills = getattr(main_window, 'agent_skills', None) or []
         compiled_tasks = getattr(main_window, 'agent_tasks', None) or []
 
-        # Diagnostic: log compiled skill pool for agent conversion
-        compiled_skill_names = [(getattr(sk, 'name', '?'), getattr(sk, 'runnable', None) is not None) for sk in compiled_skills]
-        logger.info(f"[AgentConverter] agent='{agent_data.get('name')}' compiled_skills_pool ({len(compiled_skills)}): {compiled_skill_names}")
-
         skill_objects = _resolve_from_compiled_pool(
             skill_stubs, compiled_skills, 'skill', agent_data.get('name')
         )
@@ -471,108 +585,8 @@ def convert_agent_dict_to_ec_agent(
             task_stubs, compiled_tasks, 'task', agent_data.get('name')
         )
 
-        # Diagnostic: log task skill info after resolution
-        for task_obj in task_objects:
-            task_skill_after_resolve = getattr(task_obj, 'skill', None)
-            task_skill_type = type(task_skill_after_resolve).__name__ if task_skill_after_resolve else 'None'
-            task_skill_name = getattr(task_skill_after_resolve, 'name', str(task_skill_after_resolve)) if task_skill_after_resolve else 'None'
-            task_skill_runnable = getattr(task_skill_after_resolve, 'runnable', None) is not None if task_skill_after_resolve else False
-            logger.info(f"[AgentConverter] Task '{getattr(task_obj, 'name', '?')}' skill after resolve: type={task_skill_type}, name={task_skill_name}, runnable={task_skill_runnable}")
-
-        # For tasks that resolved from the compiled pool, attach the matching skill
-        # and ensure chat tasks have the correct trigger
-        for task_obj in task_objects:
-            task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
-            is_chat_task = 'chat' in task_name_lower
-            
-            # Resolve skill for any task that has no compiled skill object
-            task_skill = getattr(task_obj, 'skill', None)
-            has_compiled_skill = task_skill is not None and getattr(task_skill, 'runnable', None) is not None
-            
-            # Build search pools: agent's own skills first, then global compiled pool
-            search_pools = []
-            if skill_objects:
-                search_pools.append(('agent_skills', skill_objects))
-            if compiled_skills:
-                search_pools.append(('global_pool', compiled_skills))
-            
-            if not has_compiled_skill and search_pools:
-                logger.info(
-                    f"[AgentConverter] Task '{task_obj.name}' needs skill re-attachment "
-                    f"(current skill: {type(task_skill).__name__ if task_skill else 'None'}, "
-                    f"runnable: {getattr(task_skill, 'runnable', 'N/A') is not None if task_skill else False}, "
-                    f"agent_skill_objects={len(skill_objects)}, global_compiled={len(compiled_skills)})"
-                )
-                # Try to match by skill name on the task (string or object with name)
-                skill_name_on_task = ''
-                if isinstance(task_skill, str):
-                    skill_name_on_task = task_skill.lower().strip()
-                elif task_skill and hasattr(task_skill, 'name'):
-                    skill_name_on_task = (getattr(task_skill, 'name', '') or '').lower().strip()
-                
-                matched_skill = None
-                task_name_lower = (getattr(task_obj, 'name', '') or '').lower().strip()
-                for pool_name, pool in search_pools:
-                    if matched_skill:
-                        break
-                    # Match by exact skill name (require runnable)
-                    if skill_name_on_task:
-                        matched_skill = next(
-                            (sk for sk in pool
-                             if (getattr(sk, 'name', '') or '').lower().strip() == skill_name_on_task
-                             and getattr(sk, 'runnable', None) is not None),
-                            None,
-                        )
-                        if matched_skill:
-                            logger.info(f"[AgentConverter] Matched skill by name from {pool_name}")
-
-                    # Fallback: match by task name containing skill name (or vice versa)
-                    # e.g. task "飞鸽客户应答0" matches skill "飞鸽客户应答"
-                    if not matched_skill and task_name_lower:
-                        best_match = None
-                        best_len = 0
-                        for sk in pool:
-                            sk_name = (getattr(sk, 'name', '') or '').lower().strip()
-                            if not sk_name or getattr(sk, 'runnable', None) is None:
-                                continue
-                            if task_name_lower.startswith(sk_name) or sk_name.startswith(task_name_lower):
-                                if len(sk_name) > best_len:
-                                    best_match = sk
-                                    best_len = len(sk_name)
-                        if best_match:
-                            matched_skill = best_match
-                            logger.info(
-                                f"[AgentConverter] Matched skill by name substring from {pool_name}: "
-                                f"task='{task_name_lower}' → skill='{getattr(best_match, 'name', '?')}'"
-                            )
-
-                    # For chat tasks, fall back to any skill with 'chat' in name
-                    if not matched_skill and is_chat_task:
-                        matched_skill = next(
-                            (sk for sk in pool
-                             if 'chat' in (getattr(sk, 'name', '') or '').lower()
-                             and getattr(sk, 'runnable', None) is not None),
-                            None,
-                        )
-                        if matched_skill:
-                            logger.info(f"[AgentConverter] Matched chat skill from {pool_name} by 'chat' keyword")
-                
-                if matched_skill:
-                    task_obj.skill = matched_skill
-                    logger.info(f"[AgentConverter] Attached skill '{matched_skill.name}' to task '{task_obj.name}'")
-                else:
-                    logger.warning(
-                        f"[AgentConverter] No compiled skill found for task '{task_obj.name}' "
-                        f"(skill_name='{skill_name_on_task}', is_chat={is_chat_task})"
-                    )
-            
-            # Ensure chat tasks have 'message' trigger so the execution loop polls the queue
-            if is_chat_task:
-                triggers = getattr(task_obj, 'trigger', []) or []
-                if 'message' not in triggers:
-                    triggers = list(triggers) + ['message']
-                    task_obj.trigger = triggers
-                    logger.info(f"[AgentConverter] Added 'message' trigger to chat task '{task_obj.name}' → {triggers}")
+        # Skill attachment and trigger adjustment for tasks
+        _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills)
         
         # Update EC_Agent with resolved objects
         ec_agent.skills = skill_objects

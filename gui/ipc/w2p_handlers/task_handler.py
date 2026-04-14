@@ -703,10 +703,12 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
         if task_obj is None:
             from agent.ec_agents.create_agent_tasks import _convert_db_agent_task_to_object
+            # Get main_win from context for skill resolution (DesktopContextProvider has main_window property)
+            main_win = getattr(ctx, 'main_window', None) if ctx else None
             task_service = _get_agent_task_service(request, params)
             db_result = task_service.query_tasks(id=task_id) if task_service else {}
             if db_result.get('success') and db_result.get('data'):
-                task_obj = _convert_db_agent_task_to_object(db_result.get('data')[0])
+                task_obj = _convert_db_agent_task_to_object(db_result.get('data')[0], main_win=main_win)
                 if task_obj and agents:
                     agents[0].tasks.append(task_obj)
 
