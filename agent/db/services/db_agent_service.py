@@ -670,8 +670,13 @@ class DBAgentService(BaseService):
                     query = query.options(joinedload(DBAgent.skill_rels).joinedload(DBAgentSkillRel.skill))
                 if include_tasks:
                     # Use nested joinedload to load task_rels AND the actual task objects
+                    from sqlalchemy.orm import selectinload
                     from ..models.association_models import DBAgentTaskRel
-                    query = query.options(joinedload(DBAgent.task_rels).joinedload(DBAgentTaskRel.task))
+                    query = query.options(
+                        joinedload(DBAgent.task_rels)
+                        .joinedload(DBAgentTaskRel.task)
+                        .selectinload("skill_rels")
+                    )
                 # Always eager load avatar_resource to avoid N+1 queries
                 query = query.options(joinedload(DBAgent.avatar_resource))
 
