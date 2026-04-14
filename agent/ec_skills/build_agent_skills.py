@@ -500,18 +500,35 @@ async def build_agent_skills(mainwin, skill_path=""):
         # Step 4: Convert database skills to skill objects
         logger.info("[build_agent_skills] Step 4: Converting DB skills to objects...")
         logger.info(f"[build_agent_skills] DB skills to convert: {len(final_db_skills)}")
-        
+
+        # Pre-scan local skills to detect name conflicts with code skills
+        # Code skills in resource/my_skills should take precedence over DB entries
+        local_code_skill_names = set()
+        try:
+            local_code_skill_names = set(scan_resource_skills() or [])
+            logger.info(f"[build_agent_skills] Local code skill names found: {local_code_skill_names}")
+        except Exception:
+            logger.debug("[build_agent_skills] Could not scan local code skills")
+
         memory_skills = []
+        skipped_code_skill_conflicts = 0
         for i, db_skill in enumerate(final_db_skills):
             try:
                 db_skill_name = db_skill.get('name', 'unknown')
                 db_skill_source = db_skill.get('source', 'ui')
-                
+
                 # Validate: code skills should not be in database
                 if db_skill_source == 'code':
                     logger.error(f"[build_agent_skills] ❌ Invalid: code skill '{db_skill_name}' found in database")
                     continue
-                
+
+                # Skip DB entries that have the same name as a local code skill.
+                # Code skills are loaded from disk and are more authoritative.
+                if db_skill_name in local_code_skill_names:
+                    logger.info(f"[build_agent_skills] ⏭️ Skipping DB skill '{db_skill_name}' - same name exists in local code skills")
+                    skipped_code_skill_conflicts += 1
+                    continue
+
                 logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill_name}")
                 skill_obj = _convert_db_skill_to_object(db_skill)
                 if skill_obj:
@@ -523,7 +540,7 @@ async def build_agent_skills(mainwin, skill_path=""):
                 logger.error(f"[build_agent_skills] ❌ Failed to convert skill {db_skill.get('name', 'unknown')}: {e}")
                 logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
 
-        logger.info(f"[build_agent_skills] ✅ Converted {len(memory_skills)} DB skills to objects")
+        logger.info(f"[build_agent_skills] ✅ Converted {len(memory_skills)} DB skills to objects (skipped {skipped_code_skill_conflicts} due to local code skill conflicts)")
 
         # Step 5: Build local code-based skills (built-in + resource/my_skills examples)
         # Pass DB skill names so appdata scan skips skills already loaded from DB

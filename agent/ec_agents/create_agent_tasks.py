@@ -1,4 +1,3 @@
-import re
 import traceback
 import typing
 import uuid
@@ -468,70 +467,49 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
         if not isinstance(metadata, dict):
             metadata = {}
         
-        # Resolve skill from in-memory pool (agent_skills) first; DB lookup only as fallback.
-        # build_agent_skills loads all DB skills into main_win.agent_skills during startup,
-        # so DB calls are only needed when a new skill was added after startup.
-        skill_name = ''
-        compiled_skills = (getattr(main_win, 'agent_skills', None) or []) if main_win else []
-
-        # Step 1: try skill_ids already attached to the task dict (from get_agent_tasks merge)
-        skill_ids = db_agent_task_dict.get('skill_ids', [])
-        if skill_ids and compiled_skills:
-            for sid in skill_ids:
-                resolved_skill = next(
-                    (sk for sk in compiled_skills if str(getattr(sk, 'id', '')) == str(sid)),
-                    None,
-                )
-                if resolved_skill and getattr(resolved_skill, 'runnable', None) is not None:
-                    skill_name = getattr(resolved_skill, 'name', '')
-                    logger.info(
-                        f"[create_agent_tasks] ✅ Resolved skill via skill_ids: "
-                        f"skill_id={sid}, name='{skill_name}'"
-                    )
-                    break
-
-        # Step 2: if not found, resolve by name from compiled pool
-        if not skill_name:
-            resolved_skill = None
-            task_name_raw = (db_agent_task_dict.get('name', '') or '').lower().strip()
-            task_name_norm = task_name_raw.replace('_', '').replace('-', '').replace(' ', '')
-            for sk in compiled_skills:
-                sk_name = (getattr(sk, 'name', '') or '').lower().strip()
-                sk_name_norm = sk_name.replace('_', '').replace('-', '').replace(' ', '')
-                if sk_name_norm == task_name_norm:
-                    resolved_skill = sk
-                    skill_name = getattr(sk, 'name', '')
-                    logger.info(f"[create_agent_tasks] ✅ Resolved skill by name: '{skill_name}'")
-                    break
-                if 'chat' in task_name_norm and re.search(r'(?<![a-z])chat', sk_name):
-                    if getattr(sk, 'runnable', None) is not None:
-                        resolved_skill = sk
-                        skill_name = getattr(sk, 'name', '')
-                        logger.info(f"[create_agent_tasks] ✅ Fallback chat match: '{skill_name}'")
-                        break
-
-            # Step 2b: substring match — task name starts with skill name or vice versa
-            # e.g. task "飞鸽客户应答0" matches skill "飞鸽客户应答"
-            if not resolved_skill and task_name_raw:
-                best_match = None
-                best_len = 0
-                for sk in compiled_skills:
-                    sk_name = (getattr(sk, 'name', '') or '').lower().strip()
-                    if not sk_name or getattr(sk, 'runnable', None) is None:
-                        continue
-                    if task_name_raw.startswith(sk_name) or sk_name.startswith(task_name_raw):
-                        if len(sk_name) > best_len:
-                            best_match = sk
-                            best_len = len(sk_name)
-                if best_match:
-                    resolved_skill = best_match
-                    skill_name = getattr(best_match, 'name', '')
-                    logger.info(
-                        f"[create_agent_tasks] ✅ Resolved skill by substring: "
-                        f"task='{task_name_raw}' → skill='{skill_name}'"
-                    )
-        
         task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")
+        
+        # ===== Skill Resolution =====
+        # Resolve skill from task-skill relationship table
+        task_skill = None
+        try:
+            # First check if skill is already attached (e.g., from agent_converter)
+            if main_win:
+                # Check mainwin.agent_skills for the skill
+                mainwin_skills = getattr(main_win, 'agent_skills', []) or []
+                # Also check agent.tasks for pre-attached skills
+                agent_tasks = getattr(main_win, 'agent_tasks', []) or []
+                
+                # Get skill_id from task-skill rels
+                ec_db_mgr = getattr(main_win, 'ec_db_mgr', None)
+                if ec_db_mgr:
+                    task_service = getattr(ec_db_mgr, 'task_service', None)
+                    if task_service:
+                        skill_rels_result = task_service.get_task_skills(task_id, role=None)
+                        if skill_rels_result.get('success') and skill_rels_result.get('data'):
+                            skill_rels = skill_rels_result['data']
+                            if skill_rels and len(skill_rels) > 0:
+                                skill_rel = skill_rels[0]
+                                related_skill_id = skill_rel.get('skill_id')
+                                if related_skill_id:
+                                    logger.info(f"[create_agent_tasks] Found skill_id={related_skill_id} for task={task_id}")
+                                    # Find skill in mainwin.agent_skills
+                                    for sk in mainwin_skills:
+                                        if str(getattr(sk, 'id', '')) == str(related_skill_id):
+                                            task_skill = sk
+                                            logger.info(f"[create_agent_tasks] Resolved skill '{getattr(sk, 'name', '')}' for task '{db_agent_task_dict.get('name', 'unknown')}'")
+                                            break
+                                    # Also search in agent.tasks (in case skill was attached there)
+                                    if not task_skill:
+                                        for at in agent_tasks:
+                                            at_sk = getattr(at, 'skill', None)
+                                            if at_sk and str(getattr(at_sk, 'id', '')) == str(related_skill_id):
+                                                task_skill = at_sk
+                                                logger.info(f"[create_agent_tasks] Found skill '{getattr(at_sk, 'name', '')}' from agent.tasks for task={task_id}")
+                                                break
+        except Exception as skill_err:
+            logger.warning(f"[create_agent_tasks] Failed to resolve skill for task {task_id}: {skill_err}")
+        
         agent_task = ManagedTask(
             id=task_id,
             context_id=task_id,  # Required by a2a-sdk Task
@@ -541,13 +519,13 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
             owner=db_agent_task_dict.get('owner', ''),
             status=status,
             sessionId='',
-            skill=resolved_skill if resolved_skill else (skill_name or None),  # Prefer compiled object; avoid empty string
             schedule=schedule,
             resume_from='',
             state={},
             metadata=metadata,
             trigger=db_agent_task_dict.get('trigger', 'auto'),
-            priority=priority_value
+            priority=priority_value,
+            skill=task_skill  # Attach resolved skill
         )
 
         # Note: task_type, objectives, progress, result, error_message are not fields in ManagedTask
@@ -577,6 +555,7 @@ async def _load_agent_tasks_from_database_async(main_win):
             return []
 
         agent_task_service = main_win.ec_db_mgr.task_service
+        
         # Use main_win.user (original username like 249511118@qq.com) not log_user (sanitized like 249511118_qq_com)
         username = getattr(main_win, 'user', 'default_user')
         logger.info(f"[create_agent_tasks] Loading agent tasks for user: {username}")
@@ -593,6 +572,7 @@ async def _load_agent_tasks_from_database_async(main_win):
         logger.info(f"[create_agent_tasks] Found {len(db_agent_tasks_data)} total agent tasks in database")
 
         # Convert to ManagedTask objects and filter by owner
+        # Skill resolution will be handled by agent_converter after this
         db_agent_tasks = []
         filtered_count = 0
         for agent_task_dict in db_agent_tasks_data:
@@ -603,12 +583,10 @@ async def _load_agent_tasks_from_database_async(main_win):
                 agent_task_obj = _convert_db_agent_task_to_object(agent_task_dict, main_win)
                 if agent_task_obj:
                     db_agent_tasks.append(agent_task_obj)
-                    logger.info(f"[create_agent_tasks] ✅ Loaded task: {task_name} (owner: {task_owner})")
                 else:
                     logger.warning(f"[create_agent_tasks] ⚠️ Failed to convert task: {task_name}")
             else:
                 filtered_count += 1
-                logger.debug(f"[create_agent_tasks] ⏭️ Skipped task (owner mismatch): {task_name} (owner: {task_owner} != {username})")
 
         logger.info(f"[create_agent_tasks] Loaded {len(db_agent_tasks)} agent tasks for user {username}")
         logger.info(f"[create_agent_tasks] Filtered out {filtered_count} tasks (owner mismatch)")
@@ -728,18 +706,12 @@ async def build_agent_tasks(main_win):
         # Step 3: Check cloud data, if available overwrite local database
         final_db_agent_tasks = []
         if cloud_agent_tasks and len(cloud_agent_tasks) > 0:
-            logger.info(f"[build_agent_tasks] Step 3: Cloud data available, using cloud agent tasks...")
-
             # Cloud data overwrites local database (background async execution, non-blocking)
             asyncio.create_task(_update_database_with_cloud_agent_tasks(cloud_agent_tasks, main_win))
-            logger.info(f"[build_agent_tasks] 🔄 Database update started in background (non-blocking)")
-
             # Use cloud data as final database agent tasks
             final_db_agent_tasks = cloud_agent_tasks
-            logger.info(f"[build_agent_tasks] ✅ Using {len(cloud_agent_tasks)} cloud agent tasks")
         else:
             # No cloud data, use local database data
-            logger.info(f"[build_agent_tasks] Step 3: No cloud data, using database agent tasks...")
             final_db_agent_tasks = db_agent_tasks
 
         # Step 4: Build local code agent tasks
@@ -775,19 +747,10 @@ async def build_agent_tasks(main_win):
         all_agent_tasks = list(task_dict.values())
 
         # Step 6: Update mainwindow.agent_tasks memory
-        logger.info("[build_agent_tasks] Step 6: Updating mainwindow.agent_tasks...")
         main_win.agent_tasks = all_agent_tasks
 
         # Log final results
-        agent_task_names = [t.name for t in all_agent_tasks] if all_agent_tasks else []
-        logger.info(f"[build_agent_tasks] 🎉 Complete! Total: {len(all_agent_tasks)} agent tasks")
-        logger.info(f"[build_agent_tasks] - DB/Cloud agent tasks: {len(final_db_agent_tasks)}")
-        logger.info(f"[build_agent_tasks] - Local code agent tasks: {len(local_agent_tasks or [])}")
-        logger.info(f"[build_agent_tasks] - Agent task names: {agent_task_names}")
-
-        # TODO: Step 7 will be added after agents are built
-        # Merge agent.tasks from built agents into mainwin.agent_tasks
-        # This step will be deprecated in the future
+        logger.info(f"[build_agent_tasks] Complete! Total: {len(all_agent_tasks)} agent tasks")
 
         return all_agent_tasks
 

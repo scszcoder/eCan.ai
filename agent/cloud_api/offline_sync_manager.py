@@ -219,6 +219,113 @@ class OfflineSyncManager:
         # Submit to thread pool for execution
         self._executor.submit(_sync_task)
     
+    # Dependency order for sync: entities must be synced before their relationships
+    # Level 0: Core entities (must exist first)
+    # Level 1: First-level relationships (depend on Level 0)
+    # Level 2: Second-level relationships (depend on Level 1)
+    SYNC_DEPENDENCY_ORDER = {
+        # Level 0: Core entities
+        DataType.AGENT: 0,
+        DataType.SKILL: 0,
+        DataType.TASK: 0,
+        DataType.TOOL: 0,
+        DataType.KNOWLEDGE: 0,
+        DataType.AGENT_ORG: 0,
+        # Level 1: First-level relationships (depend on Level 0 entities)
+        DataType.AGENT_SKILL: 1,  # depends on AGENT
+        DataType.AGENT_TASK: 1,   # depends on AGENT
+        DataType.AGENT_TOOL: 1,  # depends on AGENT
+        # Level 2: Second-level relationships (depend on Level 1)
+        DataType.SKILL_TOOL: 2,
+        DataType.SKILL_KNOWLEDGE: 2,
+        DataType.TASK_SKILL: 2,
+    }
+
+    def _sort_tasks_by_dependency(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Sort tasks by dependency order to avoid foreign key constraint errors.
+
+        Entities must be synced before their relationships. For example:
+        - agent_skill_add depends on agent_add (agent must exist first)
+        - agent_task_add depends on agent_add (agent must exist first)
+
+        Args:
+            tasks: List of task dictionaries with 'data_type' and 'operation' keys
+
+        Returns:
+            Sorted list of tasks
+        """
+        def get_sort_key(task: Dict[str, Any]) -> tuple:
+            data_type = task.get('data_type')
+            operation = task.get('operation', '')
+
+            # Get base priority
+            if isinstance(data_type, str):
+                try:
+                    data_type = DataType(data_type)
+                except ValueError:
+                    pass
+
+            if isinstance(data_type, DataType):
+                priority = self.SYNC_DEPENDENCY_ORDER.get(data_type, 99)
+            else:
+                priority = 99
+
+            # ADD operations have higher priority within the same level
+            # (sync parent records before child records of the same level)
+            is_add = operation == Operation.ADD.value
+            operation_priority = 0 if is_add else 1
+
+            return (priority, operation_priority)
+
+        return sorted(tasks, key=get_sort_key)
+
+    def _check_foreign_key_error(self, errors: List[Any], data_type: DataType) -> Optional[Dict[str, Any]]:
+        """
+        Check if error is a foreign key constraint error and extract dependency info.
+
+        Args:
+            errors: List of error messages
+            data_type: Current data type being synced
+
+        Returns:
+            Dict with 'dependency_type' and 'dependency_operation' if it's a FK error,
+            None otherwise
+        """
+        error_str = ' '.join(str(e) for e in errors).lower()
+
+        if 'foreign key constraint fails' not in error_str:
+            return None
+
+        # Parse foreign key constraint error to determine which parent is missing
+        # Example: CONSTRAINT `fk_asr_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
+        if data_type == DataType.AGENT_SKILL:
+            return {
+                'dependency_type': DataType.AGENT,
+                'dependency_operation': Operation.ADD,
+                'message': 'Agent not found in cloud, retry after agent sync'
+            }
+        elif data_type == DataType.AGENT_TASK:
+            return {
+                'dependency_type': DataType.AGENT,
+                'dependency_operation': Operation.ADD,
+                'message': 'Agent not found in cloud, retry after agent sync'
+            }
+        elif data_type == DataType.AGENT_TOOL:
+            return {
+                'dependency_type': DataType.AGENT,
+                'dependency_operation': Operation.ADD,
+                'message': 'Agent not found in cloud, retry after agent sync'
+            }
+        elif data_type == DataType.SKILL_TOOL:
+            return {
+                'dependency_type': DataType.SKILL,
+                'dependency_operation': Operation.ADD,
+                'message': 'Skill not found in cloud, retry after skill sync'
+            }
+
+        return None
+
     def sync_pending_queue(self, max_tasks: int = None, timeout_per_task: float = 10.0, include_failed: bool = True) -> Dict[str, Any]:
         """
         Sync pending tasks in queue
@@ -253,7 +360,12 @@ class OfflineSyncManager:
                 'synced': 0,
                 'failed': 0
             }
-        
+
+        # Sort tasks by dependency order to avoid foreign key constraint errors
+        # Entities (AGENT, SKILL, TASK, etc.) must be synced before relationships
+        pending_tasks = self._sort_tasks_by_dependency(pending_tasks)
+        logger.info(f"[OfflineSyncManager] Tasks sorted by dependency order: {[t['data_type'] for t in pending_tasks]}")
+
         # Limit number of tasks (avoid processing too many tasks at startup)
         if max_tasks and len(pending_tasks) > max_tasks:
             logger.info(f"[OfflineSyncManager] Limiting sync to {max_tasks} tasks (total: {len(pending_tasks)})")
@@ -337,6 +449,47 @@ class OfflineSyncManager:
                             self.sync_queue.mark_failed(task_id, add_error_str or error_str or 'ADD fallback failed')
                             failed_count += 1
                             logger.warning(f"[OfflineSyncManager] ⚠️ Queue task ADD fallback also failed: {task_id}")
+                    elif 'foreign key constraint' in error_str.lower():
+                        # Foreign key constraint error - parent record doesn't exist in cloud
+                        # This should be handled by dependency sorting, but if it still occurs,
+                        # it means the dependency sync failed or the parent record is missing.
+                        fk_info = self._check_foreign_key_error(errors, data_type)
+                        if fk_info:
+                            logger.warning(f"[OfflineSyncManager] ⚠️ FK constraint error for {task_id}: {fk_info['message']}")
+                            # Mark as failed but keep it retryable - the parent should be synced first
+                            # In a properly sorted queue, this shouldn't happen, but handle it gracefully
+                            self.sync_queue.mark_failed(
+                                task_id,
+                                f"FK constraint: {fk_info['message']}",
+                                max_retries=3,  # Allow retries after parent syncs
+                                non_retryable=False,
+                            )
+                            failed_count += 1
+                        else:
+                            self.sync_queue.mark_failed(task_id, error_str or 'Foreign key constraint error')
+                            failed_count += 1
+                    elif 'type mismatch' in error_str.lower() and 'expected type list' in error_str.lower():
+                        # GraphQL type mismatch error - server expects LIST but received different type
+                        # This is a server-side schema issue, mark as non-retryable
+                        logger.error(f"[OfflineSyncManager] ❌ GraphQL type mismatch for {task_id}: {error_str}")
+                        logger.error(f"[OfflineSyncManager] This indicates a backend schema mismatch. Task will be marked as non-retryable.")
+                        self.sync_queue.mark_failed(
+                            task_id,
+                            f"GraphQL schema error: {error_str}",
+                            max_retries=1,
+                            non_retryable=True,
+                        )
+                        failed_count += 1
+                    elif 'only available to paid subscribers' in error_str.lower():
+                        # Cloud service requires paid subscription
+                        logger.warning(f"[OfflineSyncManager] ⚠️ Paid subscription required for {task_id}")
+                        self.sync_queue.mark_failed(
+                            task_id,
+                            'Cloud service requires paid subscription',
+                            max_retries=1,
+                            non_retryable=True,
+                        )
+                        failed_count += 1
                     else:
                         # Sync failed, mark as failed
                         self.sync_queue.mark_failed(task_id, error_str or 'Unknown error')
