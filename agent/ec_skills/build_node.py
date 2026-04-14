@@ -1723,6 +1723,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         user_prompt_template = resolved_user_prompt
     # Normalize provider names dynamically from llm_manager
     # This automatically syncs with gui/config/llm_providers.json
+    # NOTE: _get_llm_manager_singleton must be defined BEFORE _get_provider_mapping
+    # since _get_provider_mapping() calls it. These are nested functions but Python
+    # resolves names at call time, not definition time.
+    _LLM_MANAGER_CACHE: dict = {}  # Module-level cache for LLM manager singleton
+
+    def _get_llm_manager_singleton():
+        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
+        if "singleton" in _LLM_MANAGER_CACHE:
+            return _LLM_MANAGER_CACHE["singleton"]
+        try:
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            mgr = get_llm_manager()
+            _LLM_MANAGER_CACHE["singleton"] = mgr
+            return mgr
+        except Exception as e:
+            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
+            return None
+
     def _get_provider_mapping() -> dict:
         """
         Dynamically build provider mapping from llm_manager.
@@ -1838,19 +1856,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # ── Per-provider-info cache: LLM manager lookups are slow (JSON parsing, regex) ──
     _PROVIDER_INFO_CACHE: dict[str, dict] = {}
     _PROVIDER_SPEC_CACHE: dict[str, dict] = {}
-
-    def _get_llm_manager_singleton():
-        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
-        if "singleton" in _LLM_MANAGER_CACHE:
-            return _LLM_MANAGER_CACHE["singleton"]
-        try:
-            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-            mgr = get_llm_manager()
-            _LLM_MANAGER_CACHE["singleton"] = mgr
-            return mgr
-        except Exception as e:
-            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
-            return None
 
     def _get_runtime_provider_info(provider_name: str) -> dict:
         provider_name_l = (provider_name or "").lower()
@@ -6485,8 +6490,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         """
         try:
             # Always update the task text so the agent knows what to do this round.
+            # Must update BOTH agent.task (cosmetic) AND agent.message_manager.task —
+            # the LLM reads message_manager.task via AgentMessagePrompt(task=self.task)
+            # on every step. Without this, a cached/reused agent keeps feeding the LLM
+            # the very first round's task forever, so runtime injections (triggering
+            # event, actionable_items, protocol override) from later rounds never reach it.
             if hasattr(agent, 'task'):
                 agent.task = task
+            _mm_for_task = getattr(agent, 'message_manager', None)
+            if _mm_for_task is not None and hasattr(_mm_for_task, 'task'):
+                _mm_for_task.task = task
 
             # Restore full AgentOutput if a previous run clobbered it.
             # browser-use sets AgentOutput = DoneAgentOutput (done-only) when
@@ -7147,6 +7160,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # When this browser_automation node was resumed by pend_event after
             # an event (browser_event, chat_message, etc.), expose the event
             # metadata so the LLM knows WHY this invocation was triggered.
+            _override_block = ""  # prepended to task when actionable_items is non-empty
             try:
                 _event_json = ""
                 _evt = None
@@ -7267,6 +7281,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             f"items (filter='{actionable_field}', total={len(_compact_items)}) "
                                             f"into task hint (node={node_name})"
                                         )
+                                        # Prepend override so these rules win
+                                        # over any "don't re-dispatch / 重复分发 /
+                                        # pending_dispatches" heuristics in the
+                                        # user's system prompt. Needed because
+                                        # gpt-class LLMs will otherwise call
+                                        # done() citing hallucinated prior
+                                        # dispatches even after message_manager
+                                        # was wiped.
+                                        if _actionable:
+                                            _ids = [
+                                                (it.get("identity_key")
+                                                 or it.get("name")
+                                                 or it.get("customer_name")
+                                                 or "?")
+                                                for it in _actionable
+                                            ]
+                                            _ids_display = ", ".join(
+                                                f"`{_i}`" for _i in _ids
+                                            )
+                                            _override_block = (
+                                                "## ⚠ PROTOCOL OVERRIDE — READ BEFORE ANY SYSTEM PROMPT BELOW\n\n"
+                                                f"`actionable_items` for this round contains {len(_actionable)} entry/entries: {_ids_display}. "
+                                                "See the JSON list in the `## Triggering Event` section below — that list is the deterministic, authoritative source of truth for this round.\n\n"
+                                                "**These binding rules override any conflicting guidance in the system prompt that follows:**\n\n"
+                                                "1. The DOM monitor has ALREADY filtered out handled items. Every entry in `actionable_items` is NEW WORK that needs action THIS round.\n"
+                                                "2. Ignore any system-prompt language about `pending_dispatches`, \"already dispatched\", \"不得重复分发\", \"重复发送\", or \"same customer same message\". Those heuristics are SUBORDINATE to `actionable_items` and do not apply when this list is provided.\n"
+                                                "3. You have NO prior-round memory. `message_manager` was wiped before this invocation. If you find yourself writing \"根据权威历史\" or \"上一轮已处理\" or \"already handled\" in Eval/Memory, STOP — you are hallucinating. There is no such history.\n"
+                                                "4. Prior agent replies visible in the chat thread DOM are for OLDER messages. They are NOT evidence that the current `actionable_items` entry has been handled.\n"
+                                                "5. For each entry in `actionable_items`: you MUST invoke the appropriate dispatch / send tool (as defined in the system prompt for this node's path) before calling `done()`.\n"
+                                                "6. Calling `done(success=True)` while `actionable_items` is non-empty and no dispatch tool was called this round is a PROTOCOL VIOLATION. Do not do it regardless of what seems \"safe\".\n"
+                                                "7. If `actionable_items` is empty, call `done(success=True)` immediately — no work to do.\n\n"
+                                                "---\n\n"
+                                            )
                                     else:
                                         _items_json = json.dumps(
                                             _compact_items, ensure_ascii=False, indent=2
@@ -7331,6 +7378,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
             except Exception as _evt_inject_err:
                 logger.info(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
+
+            # Prepend the override block so it appears BEFORE the user's system
+            # prompt. The LLM processes the task top-to-bottom; putting these
+            # rules first ensures they take precedence over any conflicting
+            # anti-duplicate heuristics in the system prompt.
+            if _override_block:
+                task = _override_block + task
+                logger.info(
+                    f"[BrowserAutomation] Prepended actionable_items protocol override "
+                    f"(node={node_name}, override_len={len(_override_block)})"
+                )
 
             # HOT-PATH flag — the actual hot-path runs after browser session
             # setup (post-setup HOT-PATH near agent.run) where the CDP
