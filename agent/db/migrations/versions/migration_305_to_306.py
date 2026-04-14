@@ -5,7 +5,6 @@ Add missing columns to association tables
 
 from sqlalchemy import text
 from ..base_migration import BaseMigration
-import logging
 
 from utils.logger_helper import logger_helper as logger
 
@@ -35,6 +34,7 @@ class Migration_305_to_306(BaseMigration):
         try:
             # Add columns to agent_org_rels
             self._add_columns_to_table(
+                session,
                 table_name='agent_org_rels',
                 columns={
                     'join_date': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
@@ -44,6 +44,7 @@ class Migration_305_to_306(BaseMigration):
             
             # Add columns to agent_skill_rels
             self._add_columns_to_table(
+                session,
                 table_name='agent_skill_rels',
                 columns={
                     'usage_count': 'INTEGER DEFAULT 0',
@@ -73,11 +74,11 @@ class Migration_305_to_306(BaseMigration):
         
         try:
             # Validate agent_org_rels columns
-            if not self._validate_table_columns('agent_org_rels', ['join_date', 'leave_date']):
+            if not self._validate_table_columns(session, 'agent_org_rels', ['join_date', 'leave_date']):
                 return False
             
             # Validate agent_skill_rels columns
-            if not self._validate_table_columns('agent_skill_rels', ['usage_count', 'success_rate', 'last_used', 'is_favorite', 'priority']):
+            if not self._validate_table_columns(session, 'agent_skill_rels', ['usage_count', 'success_rate', 'last_used', 'is_favorite', 'priority']):
                 return False
             
             logger.info("[Migration 3.0.5→3.0.6] ✅ Validation successful")
@@ -87,46 +88,44 @@ class Migration_305_to_306(BaseMigration):
             logger.error(f"[Migration 3.0.5→3.0.6] ❌ Validation failed: {e}", exc_info=True)
             return False
     
-    # Helper methods
-    def _add_columns_to_table(self, table_name: str, columns: dict):
-        """Add multiple columns to a table if they don't exist
+    def _add_columns_to_table(self, session, table_name: str, columns: dict):
+        """Add multiple columns to a table if they don't exist using session
         
         Args:
+            session: SQLAlchemy session
             table_name: Name of the table
             columns: Dict of column_name -> column_definition
         """
-        with self.engine.connect() as conn:
-            # Get existing columns
-            result = conn.execute(text(f"PRAGMA table_info({table_name})"))
-            existing_columns = [row[1] for row in result.fetchall()]
-            
-            # Add missing columns
-            for column_name, column_def in columns.items():
-                if column_name not in existing_columns:
-                    logger.info(f"[Migration] Adding column {column_name} to {table_name}...")
-                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"))
-                    conn.commit()
-                else:
-                    logger.info(f"[Migration] Column {column_name} already exists in {table_name}, skipping")
+        # Get existing columns
+        result = session.execute(text(f"PRAGMA table_info({table_name})"))
+        existing_columns = [row[1] for row in result.fetchall()]
+        
+        # Add missing columns
+        for column_name, column_def in columns.items():
+            if column_name not in existing_columns:
+                logger.info(f"[Migration] Adding column {column_name} to {table_name}...")
+                session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"))
+                session.commit()
+            else:
+                logger.info(f"[Migration] Column {column_name} already exists in {table_name}, skipping")
     
-    def _validate_table_columns(self, table_name: str, required_columns: list) -> bool:
-        """Validate that a table has all required columns
+    def _validate_table_columns(self, session, table_name: str, required_columns: list) -> bool:
+        """Validate that a table has all required columns using session
         
         Args:
+            session: SQLAlchemy session
             table_name: Name of the table
             required_columns: List of required column names
             
         Returns:
             bool: True if all columns exist
         """
-        with self.engine.connect() as conn:
-            result = conn.execute(text(f"PRAGMA table_info({table_name})"))
-            existing_columns = [row[1] for row in result.fetchall()]
-            
-            for column in required_columns:
-                if column not in existing_columns:
-                    logger.error(f"[Migration] Validation failed: Missing column {column} in {table_name}")
-                    return False
-            
-            return True
-
+        result = session.execute(text(f"PRAGMA table_info({table_name})"))
+        existing_columns = [row[1] for row in result.fetchall()]
+        
+        for column in required_columns:
+            if column not in existing_columns:
+                logger.error(f"[Migration] Validation failed: Missing column {column} in {table_name}")
+                return False
+        
+        return True

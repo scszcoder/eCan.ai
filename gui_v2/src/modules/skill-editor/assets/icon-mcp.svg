@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+  <circle cx="20" cy="20" r="6" fill="#8B5CF6" />
+  <path d="M20 10L21.5 14.5H26L22.5 17.5L24 22L20 19L16 22L17.5 17.5L14 14.5H18.5L20 10Z" fill="#8B5CF6" />
+  <path fill-rule="evenodd" clip-rule="evenodd"
+    d="M20 4C17.24 4 15 6.24 15 9C15 10.5 15.8 11.83 17 12.65L17 15H15L14 19L17 20H20L21 18H23L24 19L27 18V16H24.5L23.5 14.5C24.5 13.5 25 12.1 25 10.5C25 7.46 22.54 5 19.5 5L20 4ZM19.5 6C22 6 24 8 24 10.5C24 13 22 15 19.5 15C17 15 15 13 15 10.5C15 8 17 6 19.5 6Z"
+    fill="#7C3AED" />
+  <circle cx="8" cy="20" r="3" fill="#8B5CF6" />
+  <circle cx="32" cy="20" r="3" fill="#8B5CF6" />
+  <circle cx="20" cy="32" r="3" fill="#8B5CF6" />
+  <path d="M11 20H29" stroke="#A78BFA" stroke-width="1.5" stroke-dasharray="2 2" />
+  <path d="M20 29V24" stroke="#A78BFA" stroke-width="1.5" stroke-dasharray="2 2" />
+</svg>

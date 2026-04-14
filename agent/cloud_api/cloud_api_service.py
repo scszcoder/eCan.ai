@@ -36,12 +36,18 @@ class CloudAPIService:
         )
 
     def _is_idempotent_error(self, operation: str, error: Any) -> bool:
-        """Only treat known duplicate insert errors as idempotent success."""
-        return (
-            operation == Operation.ADD.value
-            and self.data_type == DataType.TASK_SKILL
-            and self._is_duplicate_entry_error(error)
-        )
+        """Treat known idempotent errors as success based on operation type."""
+        err = str(error or "")
+
+        # DELETE on non-existent resource is idempotent: the desired end state is achieved
+        if operation == Operation.DELETE.value and 'NOT_FOUND' in err:
+            return True
+
+        # Duplicate insert errors on TASK_SKILL.add are idempotent
+        if operation == Operation.ADD.value and self.data_type == DataType.TASK_SKILL:
+            return self._is_duplicate_entry_error(error)
+
+        return False
     
     def __init__(self, data_type: Union[DataType, str]):
         """

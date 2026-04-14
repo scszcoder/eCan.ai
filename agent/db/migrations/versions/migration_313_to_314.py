@@ -41,10 +41,9 @@ class Migration_313_to_314(BaseMigration):
             add_column_sql = """
                 ALTER TABLE agent_skills ADD COLUMN cloud_id VARCHAR(64)
             """
-            with self.engine.connect() as conn:
-                conn.execute(text(add_column_sql))
-                conn.commit()
-                logger.info("[Migration 3.1.3→3.1.4] Added cloud_id column to agent_skills")
+            session.execute(text(add_column_sql))
+            session.commit()
+            logger.info("[Migration 3.1.3→3.1.4] Added cloud_id column to agent_skills")
 
             logger.info("[Migration 3.1.3→3.1.4] ✅ Upgrade completed successfully")
             return True

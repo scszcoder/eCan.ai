@@ -39,10 +39,9 @@ class Migration_311_to_312(BaseMigration):
             add_column_sql = """
                 ALTER TABLE skill_history ADD COLUMN skill_files JSON
             """
-            with self.engine.connect() as conn:
-                conn.execute(text(add_column_sql))
-                conn.commit()
-                logger.info("[Migration 3.1.1→3.1.2] Added skill_files column to skill_history")
+            session.execute(text(add_column_sql))
+            session.commit()
+            logger.info("[Migration 3.1.1→3.1.2] Added skill_files column to skill_history")
 
             logger.info("[Migration 3.1.1→3.1.2] ✅ Upgrade completed successfully")
             return True
