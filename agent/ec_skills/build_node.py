@@ -1723,6 +1723,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         user_prompt_template = resolved_user_prompt
     # Normalize provider names dynamically from llm_manager
     # This automatically syncs with gui/config/llm_providers.json
+    # NOTE: _get_llm_manager_singleton must be defined BEFORE _get_provider_mapping
+    # since _get_provider_mapping() calls it. These are nested functions but Python
+    # resolves names at call time, not definition time.
+    _LLM_MANAGER_CACHE: dict = {}  # Module-level cache for LLM manager singleton
+
+    def _get_llm_manager_singleton():
+        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
+        if "singleton" in _LLM_MANAGER_CACHE:
+            return _LLM_MANAGER_CACHE["singleton"]
+        try:
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            mgr = get_llm_manager()
+            _LLM_MANAGER_CACHE["singleton"] = mgr
+            return mgr
+        except Exception as e:
+            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
+            return None
+
     def _get_provider_mapping() -> dict:
         """
         Dynamically build provider mapping from llm_manager.
@@ -1838,19 +1856,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # ── Per-provider-info cache: LLM manager lookups are slow (JSON parsing, regex) ──
     _PROVIDER_INFO_CACHE: dict[str, dict] = {}
     _PROVIDER_SPEC_CACHE: dict[str, dict] = {}
-
-    def _get_llm_manager_singleton():
-        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
-        if "singleton" in _LLM_MANAGER_CACHE:
-            return _LLM_MANAGER_CACHE["singleton"]
-        try:
-            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-            mgr = get_llm_manager()
-            _LLM_MANAGER_CACHE["singleton"] = mgr
-            return mgr
-        except Exception as e:
-            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
-            return None
 
     def _get_runtime_provider_info(provider_name: str) -> dict:
         provider_name_l = (provider_name or "").lower()
