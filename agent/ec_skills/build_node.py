@@ -6485,8 +6485,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         """
         try:
             # Always update the task text so the agent knows what to do this round.
+            # Must update BOTH agent.task (cosmetic) AND agent.message_manager.task —
+            # the LLM reads message_manager.task via AgentMessagePrompt(task=self.task)
+            # on every step. Without this, a cached/reused agent keeps feeding the LLM
+            # the very first round's task forever, so runtime injections (triggering
+            # event, actionable_items, protocol override) from later rounds never reach it.
             if hasattr(agent, 'task'):
                 agent.task = task
+            _mm_for_task = getattr(agent, 'message_manager', None)
+            if _mm_for_task is not None and hasattr(_mm_for_task, 'task'):
+                _mm_for_task.task = task
 
             # Restore full AgentOutput if a previous run clobbered it.
             # browser-use sets AgentOutput = DoneAgentOutput (done-only) when
