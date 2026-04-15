@@ -1807,6 +1807,10 @@ def _trigger_cloud_sync(task_data: Dict[str, Any], operation: 'Operation') -> No
             logger.info(f"[task_handler] ✅ Task synced to cloud: {operation} - {task_data.get('name')}")
         elif result.get('cached'):
             logger.info(f"[task_handler] 💾 Task cached for later sync: {operation} - {task_data.get('name')}")
+        elif result.get('success'):
+            logger.warning(
+                f"[task_handler] ⚠️ Task saved locally but cloud sync was skipped/stopped: {error_msg or result}"
+            )
         else:
             logger.error(f"[task_handler] ❌ Failed to sync task: {error_msg or result}")
     
@@ -1854,6 +1858,10 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
                 logger.info(f"[task_handler] ✅ Skill relation synced: {skill_id}")
             elif result.get('cached'):
                 logger.info(f"[task_handler] 💾 Skill relation cached: {skill_id}")
+            elif result.get('success'):
+                logger.warning(
+                    f"[task_handler] ⚠️ Skill relation saved locally but cloud sync was skipped/stopped: {error_msg or result}"
+                )
             else:
                 logger.error(f"[task_handler] ❌ Failed to sync skill relation: {error_msg or result}")
         

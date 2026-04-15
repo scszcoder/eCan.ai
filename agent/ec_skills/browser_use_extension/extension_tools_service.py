@@ -60,8 +60,31 @@ _current_runtime_context: Dict[str, Any] = {}
 # value is the timestamp of the last send.  Entries older than the window are
 # lazily pruned on each check.
 import time as _time
-_SEND_CHAT_DEDUP_WINDOW_S = 60  # seconds
+_SEND_CHAT_DEDUP_WINDOW_S = 60  # seconds, keyed on (recipient, customer)
 _send_chat_dedup_cache: Dict[str, float] = {}  # key → timestamp
+
+# Per-customer dispatch cache (ANY recipient). Used by front-desk
+# actionable_items filter so a customer with an in-flight dispatch is not
+# re-queued by the DOM monitor just because its pending_timer hasn't cleared
+# yet (pending_timer only clears after the reply reaches the customer).
+_SEND_CHAT_CUSTOMER_WINDOW_S = 90  # seconds
+_send_chat_customer_last: Dict[str, float] = {}  # customer_id → timestamp
+
+
+def customer_recently_dispatched(customer_id: str, window_s: float = None) -> float:
+    """Return seconds-since-last-dispatch for this customer if within window,
+    else 0.0. Used by front-desk actionable_items filter (Fix A)."""
+    if not customer_id:
+        return 0.0
+    window = window_s if window_s is not None else _SEND_CHAT_CUSTOMER_WINDOW_S
+    now = _time.time()
+    last = _send_chat_customer_last.get(str(customer_id).strip())
+    if last is None:
+        return 0.0
+    age = now - last
+    if age < window:
+        return age
+    return 0.0
 
 
 
@@ -1501,16 +1524,40 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
             f"[bu_send_chat] Normalized recipient_agent_name-looking-like-id into recipient_agent_id: "
             f"{normalized_recipient_id}"
         )
-    # Reverse: if recipient_agent_id does NOT look like an actual ID (no "agent_" prefix),
-    # the LLM likely passed the agent name as the ID.  Move it to recipient_agent_name
-    # so send_chat's name-based lookup can find the agent.
-    if normalized_recipient_id and not normalized_recipient_id.startswith("agent_") and not normalized_recipient_name:
-        normalized_recipient_name = normalized_recipient_id
-        normalized_recipient_id = ""
-        logger.info(
-            f"[bu_send_chat] Normalized recipient_agent_id-looking-like-name into recipient_agent_name: "
-            f"{normalized_recipient_name}"
-        )
+    # If recipient_agent_id does NOT look like a real UUID (no "agent_" prefix),
+    # the LLM passed a name (or example/template string) as the ID. Resolve it
+    # to the real UUID so DEDUP keys are consistent (Fix C). If the name cannot
+    # be resolved, reject — sending with a dangling name bypasses per-UUID
+    # DEDUP and lets the LLM create duplicate customer replies by rotating
+    # through name variants.
+    if normalized_recipient_id and not normalized_recipient_id.startswith("agent_"):
+        from agent.mcp.server.chat_utils.chat_tools import _get_agent_by_name as _hp_get_agent_by_name
+        _resolved = _hp_get_agent_by_name(normalized_recipient_id)
+        _resolved_id = ""
+        if _resolved is not None:
+            _resolved_card = getattr(_resolved, "card", None)
+            _resolved_id = getattr(_resolved_card, "id", "") if _resolved_card else ""
+        if _resolved_id:
+            logger.info(
+                f"[bu_send_chat] Resolved recipient name '{normalized_recipient_id}' "
+                f"to agent_id '{_resolved_id}' (Fix C)"
+            )
+            if not normalized_recipient_name:
+                normalized_recipient_name = normalized_recipient_id
+            normalized_recipient_id = _resolved_id
+        else:
+            logger.warning(
+                f"[bu_send_chat] Rejecting dispatch: recipient_agent_id='{normalized_recipient_id}' "
+                f"is not a UUID and no agent with that name was found (Fix C)."
+            )
+            return ActionResult(
+                error=(
+                    f"recipient_agent_id '{normalized_recipient_id}' is not a real agent UUID "
+                    f"(expected prefix 'agent_'). Call bu_select_agents(filter_task_name=\"客户应答\") "
+                    f"first to get real agent UUIDs. Do NOT pass agent names, example strings "
+                    f"like 'agent_id_1', or unresolved templates like '{{{{...}}}}' as recipient_agent_id."
+                )
+            )
     if normalized_recipient_id:
         config["recipient_agent_id"] = normalized_recipient_id
     if normalized_recipient_name:
@@ -1635,6 +1682,22 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
                     )
                 )
             _send_chat_dedup_cache[_dedup_key] = now
+        # Track per-customer (any recipient) for Fix A: front-desk
+        # actionable_items filter uses this to skip customers with an
+        # in-flight dispatch so the DOM's still-stuck pending_timer doesn't
+        # loop the LLM into a re-dispatch.
+        if _dedup_customer:
+            try:
+                _cust_now = _time.time()
+                _expired_cust = [
+                    k for k, t in _send_chat_customer_last.items()
+                    if _cust_now - t > _SEND_CHAT_CUSTOMER_WINDOW_S
+                ]
+                for k in _expired_cust:
+                    _send_chat_customer_last.pop(k, None)
+                _send_chat_customer_last[_dedup_customer] = _cust_now
+            except Exception:
+                pass
     except Exception as _dedup_err:
         logger.debug(f"[bu_send_chat] Dedup check failed (non-fatal): {_dedup_err}")
 
