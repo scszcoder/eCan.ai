@@ -7256,10 +7256,44 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                         _compact_items.append(_ci)
                                 if _compact_items:
                                     if actionable_field:
-                                        _actionable = [
+                                        _actionable_raw = [
                                             it for it in _compact_items
                                             if str(it.get(actionable_field, "")).strip()
                                         ]
+                                        # Fix A: filter out customers with an in-flight
+                                        # dispatch (any recipient) so the DOM's still-stuck
+                                        # pending_timer doesn't loop the LLM into
+                                        # re-dispatching while Phase-2 reply is pending.
+                                        _actionable = []
+                                        _filtered_inflight = []
+                                        try:
+                                            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                                                customer_recently_dispatched as _cust_recent,
+                                            )
+                                        except Exception:
+                                            _cust_recent = lambda _c: 0.0  # noqa: E731
+                                        for _it in _actionable_raw:
+                                            _cust_id = str(
+                                                _it.get("customer_id")
+                                                or _it.get("customer_name")
+                                                or _it.get("name")
+                                                or ""
+                                            ).strip()
+                                            _age = _cust_recent(_cust_id) if _cust_id else 0.0
+                                            if _age > 0.0:
+                                                _filtered_inflight.append((_cust_id, _age))
+                                            else:
+                                                _actionable.append(_it)
+                                        if _filtered_inflight:
+                                            logger.info(
+                                                f"[BrowserAutomation] Fix A: filtered {len(_filtered_inflight)} "
+                                                f"actionable entry/entries with in-flight dispatch "
+                                                f"(kept {len(_actionable)} of {len(_actionable_raw)}): "
+                                                + ", ".join(
+                                                    f"{c}({a:.0f}s ago)" for c, a in _filtered_inflight
+                                                )
+                                                + f" node={node_name}"
+                                            )
                                         _act_json = json.dumps(
                                             _actionable, ensure_ascii=False, indent=2
                                         )
