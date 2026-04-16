@@ -4592,6 +4592,98 @@ def send_stop_soap_to_cloud(session, soap_id: str, token: str, endpoint: str) ->
         return jresp.get("data", {}).get("stopSoap", False)
 
 
+# ============================================================================
+# WebSocket Subscription Helpers (auto-reconnect with fresh tokens)
+# ============================================================================
+
+def _get_fresh_auth_token(fallback_token: str) -> str:
+    """Get a fresh Cognito auth token from AppContext, falling back to the provided token."""
+    try:
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if main_window and hasattr(main_window, 'get_auth_token'):
+            token = main_window.get_auth_token()
+            if token:
+                return token
+    except Exception:
+        pass
+    return fallback_token
+
+
+def _resolve_appsync_ws_url(ws_url: Optional[str], label: str) -> str:
+    """Resolve and normalize an AppSync WebSocket URL to the realtime endpoint."""
+    if not ws_url:
+        ws_url = os.getenv("ECAN_WS_URL", "")
+    if not ws_url:
+        raise ValueError(f"[{label}] WebSocket URL not provided and ECAN_WS_URL is not set")
+    if ws_url.startswith("https://") and "appsync-api" in ws_url:
+        prefix = "https://"
+        rest = ws_url[len(prefix):]
+        rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
+        ws_url = "wss://" + rest
+        logger.info(f"[{label}] Converted to realtime endpoint: {ws_url}")
+    return ws_url
+
+
+def _build_appsync_signed_url(ws_url: str, token: str) -> tuple:
+    """Build AppSync signed WebSocket URL. Returns (signed_url, api_host)."""
+    parsed = urlparse(ws_url)
+    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
+    header_obj = {"host": api_host, "Authorization": token}
+    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
+    payload_b64 = base64.b64encode(json.dumps({}).encode("utf-8")).decode("utf-8")
+    query = dict(parse_qsl(parsed.query))
+    query.update({"header": header_b64, "payload": payload_b64})
+    signed_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path,
+                              parsed.params, urlencode(query), parsed.fragment))
+    return signed_url, api_host
+
+
+def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
+                                build_ws_fn, max_retries: int = 50,
+                                base_backoff: int = 10):
+    """Run an AppSync WebSocket subscription with auto-reconnect and fresh tokens.
+
+    Intended as a threading.Thread target. On disconnect, fetches a fresh auth
+    token via AppContext and reconnects with exponential backoff.
+
+    Args:
+        label: Log prefix (e.g. "CloudLLMTask")
+        ws_url: Resolved AppSync realtime WebSocket URL (wss://...)
+        initial_token: Initial auth token (used as fallback if fresh token unavailable)
+        build_ws_fn: Callable(token, api_host, signed_url) -> WebSocketApp
+            Called on each reconnect to build a new WebSocketApp with fresh closures.
+        max_retries: Maximum consecutive reconnect attempts (resets on successful connection)
+        base_backoff: Base backoff seconds between retries
+    """
+    import ssl
+    import time
+
+    retry_count = 0
+
+    while retry_count < max_retries:
+        # Get fresh token on reconnect attempts; use initial token for first connection
+        token = _get_fresh_auth_token(initial_token) if retry_count > 0 else initial_token
+        signed_url, api_host = _build_appsync_signed_url(ws_url, token)
+
+        try:
+            ws = build_ws_fn(token, api_host, signed_url)
+            logger.info(f"[{label}] WebSocket connecting (attempt {retry_count + 1})")
+            ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+            logger.warning(f"[{label}] WebSocket run_forever exited, will reconnect")
+        except Exception as e:
+            logger.error(f"[{label}] WebSocket error during run: {e}")
+
+        retry_count += 1
+        if retry_count < max_retries:
+            backoff = min(base_backoff * (2 ** min(retry_count - 1, 4)), 120)
+            logger.info(f"[{label}] Reconnecting with fresh token in {backoff}s "
+                        f"(attempt {retry_count + 1}/{max_retries})")
+            time.sleep(backoff)
+
+    logger.error(f"[{label}] Max retries ({max_retries}) reached, subscription stopped")
+
+
 # related to websocket sub/push to get long running task results
 def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     from agent.agent_service import get_agent_by_id
@@ -4603,167 +4695,106 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
         ws_url: Optional AppSync GraphQL endpoint; if https, auto-converted to realtime wss.
     """
 
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-        except Exception:
-            data = {"raw": message}
-        # Determine message type for protocol handling
-        msg_type = data.get("type")
-        if msg_type in ("ka", "keepalive"):
-            # Keep-alive from server; no action required
-            return
-        logger.debug("[CloudLLMTask] Received WebSocket message type=%s", msg_type)
-        logger.trace("[CloudLLMTask] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+    resolved_ws_url = _resolve_appsync_ws_url(ws_url, "CloudLLMTask")
 
-        if msg_type == "connection_ack":
-            # After ack, start the subscription (AppSync format: data + extensions.authorization)
+    def build_ws(token, api_host, signed_url):
+        """Build a WebSocketApp with fresh token baked into closures."""
+
+        def on_message(ws, message):
             try:
-                # Match updated schema: requires acctSiteID variable
-                subscription = (
-                    """
-                    subscription OnComplete($acctSiteID: String!) {
-                      onLongLLMTaskComplete(acctSiteID: $acctSiteID) {
-                        id
-                        acctSiteID
-                        agentID
-                        workType
-                        taskID
-                        status
-                        results
-                        timestamp
-                      }
+                data = json.loads(message)
+            except Exception:
+                data = {"raw": message}
+            msg_type = data.get("type")
+            if msg_type in ("ka", "keepalive"):
+                return
+            logger.debug("[CloudLLMTask] Received WebSocket message type=%s", msg_type)
+            logger.trace("[CloudLLMTask] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+
+            if msg_type == "connection_ack":
+                try:
+                    subscription = (
+                        """
+                        subscription OnComplete($acctSiteID: String!) {
+                          onLongLLMTaskComplete(acctSiteID: $acctSiteID) {
+                            id
+                            acctSiteID
+                            agentID
+                            workType
+                            taskID
+                            status
+                            results
+                            timestamp
+                          }
+                        }
+                        """
+                    )
+                    data_obj = {
+                        "query": subscription,
+                        "operationName": "OnComplete",
+                        "variables": {"acctSiteID": acctSiteID},
                     }
-                    """
-                )
-                data_obj = {
-                    "query": subscription,
-                    "operationName": "OnComplete",
-                    "variables": {"acctSiteID": acctSiteID},
-                }
-                start_payload = {
-                    "id": "LongLLM1",
-                    "type": "start",
-                    "payload": {
-                        "data": json.dumps(data_obj),
-                        "extensions": {
-                            "authorization": {
-                                "host": api_host,
-                                "Authorization": id_token,
-                            }
+                    start_payload = {
+                        "id": "LongLLM1",
+                        "type": "start",
+                        "payload": {
+                            "data": json.dumps(data_obj),
+                            "extensions": {
+                                "authorization": {
+                                    "host": api_host,
+                                    "Authorization": token,
+                                }
+                            },
                         },
-                    },
-                }
-                logger.info("[CloudLLMTask] connection_ack received, sending start subscription", start_payload)
-                ws.send(json.dumps(start_payload))
+                    }
+                    logger.info("[CloudLLMTask] connection_ack received, sending start subscription", start_payload)
+                    ws.send(json.dumps(start_payload))
+                except Exception as e:
+                    logger.error(f"[CloudLLMTask] Failed to send start payload: {e}")
+
+            elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "LongLLM1":
+                payload_data = data.get("payload", {}).get("data", {})
+                result_obj = None
+                if isinstance(payload_data, dict):
+                    result_obj = payload_data.get("onLongLLMTaskComplete")
+                    logger.debug(f"Received long LLM Task subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
+                    if try_resolve_long_llm_task_waiter(result_obj):
+                        return
+                    agent_id = result_obj["agentID"]
+                    work_type = result_obj["workType"]
+                    handler_agent = get_agent_by_id(agent_id)
+                    converted_result = convert_cloud_result_to_task_send_params(result_obj, work_type)
+                    event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result, source="cloud_websocket")
+
+        def on_error(ws, error):
+            logger.error(f"[CloudLLMTask] WebSocket error: {error}")
+
+        def on_close(ws, status_code, msg):
+            logger.warning(f"[CloudLLMTask] WebSocket closed: code={status_code}, msg={msg}")
+
+        def on_open(ws):
+            logger_helper.debug("CloudLLMTask web socket opened.......")
+            try:
+                logger_helper.debug("CloudLLMTask sending connection_init ...")
+                ws.send(json.dumps({"type": "connection_init", "payload": {}}))
             except Exception as e:
-                logger.error(f"[CloudLLMTask] Failed to send start payload: {e}")
+                logger.error(f"[CloudLLMTask] Failed to send connection_init: {e}")
 
-        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "LongLLM1":
-            # Extract structured object result per schema
-            payload_data = data.get("payload", {}).get("data", {})
-            result_obj = None
-            if isinstance(payload_data, dict):
-                result_obj = payload_data.get("onLongLLMTaskComplete")
-                logger.debug(f"Received long LLM Task subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
-                # First: if any local code is awaiting this taskID, resolve it.
-                if try_resolve_long_llm_task_waiter(result_obj):
-                    return
+        return websocket.WebSocketApp(
+            signed_url, header=[], on_message=on_message, on_error=on_error,
+            on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+        )
 
-                # Fallback: resume workflow pending queue.
-                # which msg queue should this be put into? (agent should maintain some kind of cloud_task_id to agent_task_queue LUT)
-                agent_id = result_obj["agentID"]
-                work_type = result_obj["workType"]
-                handler_agent = get_agent_by_id(agent_id)
-                # Convert cloud result to TaskSendParams format for _build_resume_payload()
-                converted_result = convert_cloud_result_to_task_send_params(result_obj, work_type)
-                # event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result)
-                event_response = handler_agent.runner.sync_task_wait_in_line(work_type, converted_result, source="cloud_websocket")
+    # Build initial ws for the return value (backward compat)
+    initial_signed_url, initial_api_host = _build_appsync_signed_url(resolved_ws_url, id_token)
+    ws = build_ws(id_token, initial_api_host, initial_signed_url)
 
-    def on_error(ws, error):
-        logger.error(f"[CloudLLMTask] WebSocket error: {error}")
-
-    def on_close(ws, status_code, msg):
-        logger.warning(f"[CloudLLMTask] WebSocket closed: code={status_code}, msg={msg}")
-
-    def on_open(ws):
-        logger_helper.debug("CloudLLMTask web socket opened.......")
-        init_payload = {
-            "type": "connection_init",
-            "payload": {}
-        }
-        try:
-            logger_helper.debug("CloudLLMTask sending connection_init ...")
-            ws.send(json.dumps(init_payload))
-        except Exception as e:
-            logger.error(f"[CloudLLMTask] Failed to send connection_init: {e}")
-
-    # Resolve WS URL and ensure it's the AppSync realtime endpoint
-    if not ws_url:
-        ws_url = os.getenv("ECAN_WS_URL", "")
-    if not ws_url:
-        logger_helper.warning(
-            "Warning: WebSocket URL not provided and ECAN_WS_URL is not set. Cloud LLM subscription will be disabled.")
-        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
-
-    if ws_url.startswith("https://") and "appsync-api" in ws_url:
-        try:
-            prefix = "https://"
-            rest = ws_url[len(prefix):]
-            rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
-            ws_url = "wss://" + rest
-            logger_helper.info(f"Converted to realtime endpoint: {ws_url}")
-        except Exception:
-            pass
-
-    parsed = urlparse(ws_url)
-    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
-    header_obj = {
-        "host": api_host,
-        "Authorization": id_token,
-    }
-    payload_obj = {}
-    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
-    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
-
-    query = dict(parse_qsl(parsed.query))
-    query.update({
-        "header": header_b64,
-        "payload": payload_b64,
-    })
-    signed_url = urlunparse((
-        parsed.scheme,
-        parsed.netloc,
-        parsed.path,
-        parsed.params,
-        urlencode(query),
-        parsed.fragment,
-    ))
-
-    logger.debug("[CloudAPI] ws_url ok")
-    headers = []
-
-    logger.debug("[CloudAPI] token seems to be ok")
-
-    ws = websocket.WebSocketApp(
-        signed_url,
-        header=headers,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close,
-        on_open=on_open,
-        subprotocols=["graphql-ws"],
+    logger.info("[CloudLLMTask] Launching web socket thread with auto-reconnect")
+    t = threading.Thread(
+        target=_appsync_ws_reconnect_loop,
+        args=("CloudLLMTask", resolved_ws_url, id_token, build_ws),
+        daemon=True,
     )
-
-    logger.info("[CloudLLMTask] Launching web socket thread")
-    # Configure SSL options to handle certificate verification issues
-    import ssl
-    ssl_context = ssl.create_default_context()
-    # For development/testing, you might want to disable certificate verification
-    # ssl_context.check_hostname = False
-    # ssl_context.verify_mode = ssl.CERT_NONE
-
-    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     logger.info("[CloudLLMTask] Web socket thread launched")
     return ws, t
@@ -4773,7 +4804,7 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
 # Account Notification Subscription (WebSocket)
 # ============================================================================
 
-def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[str] = None, 
+def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[str] = None,
                                      on_notification_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to account notifications over WebSocket.
 
@@ -4784,151 +4815,100 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
         on_notification_callback: Optional callback function(notification_data) to handle received notifications.
     """
 
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-        except Exception:
-            data = {"raw": message}
-        msg_type = data.get("type")
-        if msg_type in ("ka", "keepalive"):
-            # Keep-alive from server; no action required
-            return
-        logger.debug("[AccountNotification] Received WebSocket message type=%s", msg_type)
-        logger.trace("[AccountNotification] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+    resolved_ws_url = _resolve_appsync_ws_url(ws_url, "AccountNotification")
 
-        if msg_type == "connection_ack":
-            # After ack, start the subscription
+    def build_ws(token, api_host, signed_url):
+        def on_message(ws, message):
             try:
-                subscription = (
-                    """
-                    subscription OnAccountNotification($owner: String!) {
-                      onAccountNotification(owner: $owner) {
-                        id
-                        ntype
-                        title
-                        message
-                        payload
-                        cta_url
-                        created_at
-                      }
+                data = json.loads(message)
+            except Exception:
+                data = {"raw": message}
+            msg_type = data.get("type")
+            if msg_type in ("ka", "keepalive"):
+                return
+            logger.debug("[AccountNotification] Received WebSocket message type=%s", msg_type)
+            logger.trace("[AccountNotification] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+
+            if msg_type == "connection_ack":
+                try:
+                    subscription = (
+                        """
+                        subscription OnAccountNotification($owner: String!) {
+                          onAccountNotification(owner: $owner) {
+                            id
+                            ntype
+                            title
+                            message
+                            payload
+                            cta_url
+                            created_at
+                          }
+                        }
+                        """
+                    )
+                    data_obj = {
+                        "query": subscription,
+                        "operationName": "OnAccountNotification",
+                        "variables": {"owner": owner},
                     }
-                    """
-                )
-                data_obj = {
-                    "query": subscription,
-                    "operationName": "OnAccountNotification",
-                    "variables": {"owner": owner},
-                }
-                start_payload = {
-                    "id": "AccountNotification1",
-                    "type": "start",
-                    "payload": {
-                        "data": json.dumps(data_obj),
-                        "extensions": {
-                            "authorization": {
-                                "host": api_host,
-                                "Authorization": id_token,
-                            }
+                    start_payload = {
+                        "id": "AccountNotification1",
+                        "type": "start",
+                        "payload": {
+                            "data": json.dumps(data_obj),
+                            "extensions": {
+                                "authorization": {
+                                    "host": api_host,
+                                    "Authorization": token,
+                                }
+                            },
                         },
-                    },
-                }
-                logger.info("[AccountNotification] connection_ack received, sending start subscription")
-                ws.send(json.dumps(start_payload))
+                    }
+                    logger.info("[AccountNotification] connection_ack received, sending start subscription")
+                    ws.send(json.dumps(start_payload))
+                except Exception as e:
+                    logger.error(f"[AccountNotification] Failed to send start payload: {e}")
+
+            elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AccountNotification1":
+                payload_data = data.get("payload", {}).get("data", {})
+                notification = None
+                if isinstance(payload_data, dict):
+                    notification = payload_data.get("onAccountNotification")
+                    logger.info(f"[AccountNotification] Received notification: {json.dumps(notification, indent=2, ensure_ascii=False)}")
+                    if on_notification_callback and notification:
+                        try:
+                            on_notification_callback(notification)
+                        except Exception as cb_err:
+                            logger.error(f"[AccountNotification] Callback error: {cb_err}")
+
+        def on_error(ws, error):
+            logger.error(f"[AccountNotification] WebSocket error: {error}")
+
+        def on_close(ws, status_code, msg):
+            logger.warning(f"[AccountNotification] WebSocket closed: code={status_code}, msg={msg}")
+
+        def on_open(ws):
+            logger_helper.debug("[AccountNotification] WebSocket opened")
+            try:
+                logger_helper.debug("[AccountNotification] Sending connection_init...")
+                ws.send(json.dumps({"type": "connection_init", "payload": {}}))
             except Exception as e:
-                logger.error(f"[AccountNotification] Failed to send start payload: {e}")
+                logger.error(f"[AccountNotification] Failed to send connection_init: {e}")
 
-        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AccountNotification1":
-            # Extract notification data
-            payload_data = data.get("payload", {}).get("data", {})
-            notification = None
-            if isinstance(payload_data, dict):
-                notification = payload_data.get("onAccountNotification")
-                logger.info(f"[AccountNotification] Received notification: {json.dumps(notification, indent=2, ensure_ascii=False)}")
-                
-                # Call the callback if provided
-                if on_notification_callback and notification:
-                    try:
-                        on_notification_callback(notification)
-                    except Exception as cb_err:
-                        logger.error(f"[AccountNotification] Callback error: {cb_err}")
+        return websocket.WebSocketApp(
+            signed_url, header=[], on_message=on_message, on_error=on_error,
+            on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+        )
 
-    def on_error(ws, error):
-        logger.error(f"[AccountNotification] WebSocket error: {error}")
+    initial_signed_url, initial_api_host = _build_appsync_signed_url(resolved_ws_url, id_token)
+    ws = build_ws(id_token, initial_api_host, initial_signed_url)
 
-    def on_close(ws, status_code, msg):
-        logger.warning(f"[AccountNotification] WebSocket closed: code={status_code}, msg={msg}")
-
-    def on_open(ws):
-        logger_helper.debug("[AccountNotification] WebSocket opened")
-        init_payload = {
-            "type": "connection_init",
-            "payload": {}
-        }
-        try:
-            logger_helper.debug("[AccountNotification] Sending connection_init...")
-            ws.send(json.dumps(init_payload))
-        except Exception as e:
-            logger.error(f"[AccountNotification] Failed to send connection_init: {e}")
-
-    # Resolve WS URL and ensure it's the AppSync realtime endpoint
-    if not ws_url:
-        ws_url = os.getenv("ECAN_WS_URL", "")
-    if not ws_url:
-        logger_helper.warning(
-            "[AccountNotification] WebSocket URL not provided and ECAN_WS_URL is not set. Subscription disabled.")
-        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
-
-    if ws_url.startswith("https://") and "appsync-api" in ws_url:
-        try:
-            prefix = "https://"
-            rest = ws_url[len(prefix):]
-            rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
-            ws_url = "wss://" + rest
-            logger_helper.info(f"[AccountNotification] Converted to realtime endpoint: {ws_url}")
-        except Exception:
-            pass
-
-    parsed = urlparse(ws_url)
-    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
-    header_obj = {
-        "host": api_host,
-        "Authorization": id_token,
-    }
-    payload_obj = {}
-    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
-    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
-
-    query = dict(parse_qsl(parsed.query))
-    query.update({
-        "header": header_b64,
-        "payload": payload_b64,
-    })
-    signed_url = urlunparse((
-        parsed.scheme,
-        parsed.netloc,
-        parsed.path,
-        parsed.params,
-        urlencode(query),
-        parsed.fragment,
-    ))
-
-    logger.debug("[AccountNotification] ws_url ok")
-    headers = []
-
-    ws = websocket.WebSocketApp(
-        signed_url,
-        header=headers,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close,
-        on_open=on_open,
-        subprotocols=["graphql-ws"],
+    logger.info("[AccountNotification] Launching WebSocket thread with auto-reconnect")
+    t = threading.Thread(
+        target=_appsync_ws_reconnect_loop,
+        args=("AccountNotification", resolved_ws_url, id_token, build_ws),
+        daemon=True,
     )
-
-    logger.info("[AccountNotification] Launching WebSocket thread")
-    import ssl
-
-    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     logger.info("[AccountNotification] WebSocket thread launched")
     return ws, t
@@ -5018,9 +4998,9 @@ def handle_account_notification(notification: dict):
 def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
                                   on_scene_callback=None, agent_id_filter: str = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to agent scene events over WebSocket.
-    
+
     GraphQL: onAgentSceneEvent(acctSiteID: String!): Scene
-    
+
     Parameters:
         acct_site_id: Account site ID for the subscription filter.
         id_token: Cognito/AppSync ID token (Authorization header).
@@ -5029,146 +5009,126 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
         agent_id_filter: Optional agent ID to filter events client-side (not sent to AppSync).
     """
 
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-        except Exception:
-            data = {"raw": message}
-        msg_type = data.get("type")
-        if msg_type in ("ka", "keepalive"):
-            return
-        logger.debug(f"[AgentSceneEvent] Message type: {msg_type}")
-        logger.trace(f"[AgentSceneEvent] full data: {json.dumps(data, ensure_ascii=False)[:2000]}")
+    resolved_ws_url = _resolve_appsync_ws_url(ws_url, "AgentSceneEvent")
 
-        if msg_type == "connection_ack":
+    def build_ws(token, api_host, signed_url):
+        def on_message(ws, message):
             try:
-                subscription = """
-                    subscription OnAgentSceneEvent($acctSiteID: String!) {
-                      onAgentSceneEvent(acctSiteID: $acctSiteID) {
-                        id
-                        scene_id
-                        acctSiteID
-                        agent_ids
-                        label
-                        description
-                        clip
-                        duration_ms
-                        status
-                        priority
-                        n_repeat
-                        actions
-                        dialogs
-                        captions
-                        trigger_events
-                        images
-                        video
-                        thumbnails
-                        timestamp
-                      }
+                data = json.loads(message)
+            except Exception:
+                data = {"raw": message}
+            msg_type = data.get("type")
+            if msg_type in ("ka", "keepalive"):
+                return
+            logger.debug(f"[AgentSceneEvent] Message type: {msg_type}")
+            logger.trace(f"[AgentSceneEvent] full data: {json.dumps(data, ensure_ascii=False)[:2000]}")
+
+            if msg_type == "connection_ack":
+                try:
+                    subscription = """
+                        subscription OnAgentSceneEvent($acctSiteID: String!) {
+                          onAgentSceneEvent(acctSiteID: $acctSiteID) {
+                            id
+                            scene_id
+                            acctSiteID
+                            agent_ids
+                            label
+                            description
+                            clip
+                            duration_ms
+                            status
+                            priority
+                            n_repeat
+                            actions
+                            dialogs
+                            captions
+                            trigger_events
+                            images
+                            video
+                            thumbnails
+                            timestamp
+                          }
+                        }
+                    """
+                    data_obj = {
+                        "query": subscription,
+                        "operationName": "OnAgentSceneEvent",
+                        "variables": {"acctSiteID": acct_site_id},
                     }
-                """
-                data_obj = {
-                    "query": subscription,
-                    "operationName": "OnAgentSceneEvent",
-                    "variables": {"acctSiteID": acct_site_id},
-                }
-                start_payload = {
-                    "id": "AgentSceneEvent1",
-                    "type": "start",
-                    "payload": {
-                        "data": json.dumps(data_obj),
-                        "extensions": {
-                            "authorization": {
-                                "host": api_host,
-                                "Authorization": id_token,
-                            }
+                    start_payload = {
+                        "id": "AgentSceneEvent1",
+                        "type": "start",
+                        "payload": {
+                            "data": json.dumps(data_obj),
+                            "extensions": {
+                                "authorization": {
+                                    "host": api_host,
+                                    "Authorization": token,
+                                }
+                            },
                         },
-                    },
-                }
-                logger.debug(f"[AgentSceneEvent] connection_ack received, sending start subscription with acctSiteID='{acct_site_id}'")
-                ws.send(json.dumps(start_payload))
+                    }
+                    logger.debug(f"[AgentSceneEvent] connection_ack received, sending start subscription with acctSiteID='{acct_site_id}'")
+                    ws.send(json.dumps(start_payload))
+                except Exception as e:
+                    logger.error(f"[AgentSceneEvent] Failed to send start payload: {e}")
+
+            elif msg_type == "start_ack":
+                logger.debug(f"[AgentSceneEvent] Subscription started successfully (start_ack received)")
+                return
+            elif msg_type == "error":
+                logger.error(f"[AgentSceneEvent] Subscription error: {json.dumps(data, indent=2)}")
+                return
+            elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AgentSceneEvent1":
+                payload_data = data.get("payload", {}).get("data", {})
+                scene = None
+                if isinstance(payload_data, dict):
+                    scene = payload_data.get("onAgentSceneEvent")
+                    logger.debug(
+                        "[AgentSceneEvent] Received scene event: id=%s scene_id=%s status=%s",
+                        scene.get("id") if scene else None,
+                        scene.get("scene_id") if scene else None,
+                        scene.get("status") if scene else None,
+                    )
+                    logger.trace("[AgentSceneEvent] scene detail: %s", json.dumps(scene, ensure_ascii=False)[:2000] if scene else "")
+                    if agent_id_filter and scene:
+                        scene_agent_ids = scene.get("agent_ids", [])
+                        if agent_id_filter not in scene_agent_ids:
+                            logger.debug(f"[AgentSceneEvent] Skipping scene - agent_id_filter '{agent_id_filter}' not in {scene_agent_ids}")
+                            return
+                    if on_scene_callback and scene:
+                        try:
+                            on_scene_callback(scene)
+                        except Exception as cb_err:
+                            logger.error(f"[AgentSceneEvent] Callback error: {cb_err}")
+
+        def on_error(ws, error):
+            logger.error(f"[AgentSceneEvent] WebSocket error: {error}")
+
+        def on_close(ws, status_code, msg):
+            logger.warning(f"[AgentSceneEvent] WebSocket closed: code={status_code}, msg={msg}")
+
+        def on_open(ws):
+            logger.debug("[AgentSceneEvent] WebSocket opened")
+            try:
+                ws.send(json.dumps({"type": "connection_init", "payload": {}}))
             except Exception as e:
-                logger.error(f"[AgentSceneEvent] Failed to send start payload: {e}")
+                logger.error(f"[AgentSceneEvent] Failed to send connection_init: {e}")
 
-        elif msg_type == "start_ack":
-            logger.debug(f"[AgentSceneEvent] Subscription started successfully (start_ack received)")
-            return
-        elif msg_type == "error":
-            logger.error(f"[AgentSceneEvent] Subscription error: {json.dumps(data, indent=2)}")
-            return
-        elif msg_type in ("ka", "keepalive"):
-            return
-        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AgentSceneEvent1":
-            payload_data = data.get("payload", {}).get("data", {})
-            scene = None
-            if isinstance(payload_data, dict):
-                scene = payload_data.get("onAgentSceneEvent")
-                logger.debug(
-                    "[AgentSceneEvent] Received scene event: id=%s scene_id=%s status=%s",
-                    scene.get("id") if scene else None,
-                    scene.get("scene_id") if scene else None,
-                    scene.get("status") if scene else None,
-                )
-                logger.trace("[AgentSceneEvent] scene detail: %s", json.dumps(scene, ensure_ascii=False)[:2000] if scene else "")
-                
-                # Client-side filtering by agent_id if specified
-                if agent_id_filter and scene:
-                    scene_agent_ids = scene.get("agent_ids", [])
-                    if agent_id_filter not in scene_agent_ids:
-                        logger.debug(f"[AgentSceneEvent] Skipping scene - agent_id_filter '{agent_id_filter}' not in {scene_agent_ids}")
-                        return
-                
-                if on_scene_callback and scene:
-                    try:
-                        on_scene_callback(scene)
-                    except Exception as cb_err:
-                        logger.error(f"[AgentSceneEvent] Callback error: {cb_err}")
+        return websocket.WebSocketApp(
+            signed_url, header=[], on_message=on_message, on_error=on_error,
+            on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+        )
 
-    def on_error(ws, error):
-        logger.error(f"[AgentSceneEvent] WebSocket error: {error}")
+    initial_signed_url, initial_api_host = _build_appsync_signed_url(resolved_ws_url, id_token)
+    ws = build_ws(id_token, initial_api_host, initial_signed_url)
 
-    def on_close(ws, status_code, msg):
-        logger.warning(f"[AgentSceneEvent] WebSocket closed: code={status_code}, msg={msg}")
-
-    def on_open(ws):
-        logger.debug("[AgentSceneEvent] WebSocket opened")
-        init_payload = {"type": "connection_init", "payload": {}}
-        try:
-            ws.send(json.dumps(init_payload))
-        except Exception as e:
-            logger.error(f"[AgentSceneEvent] Failed to send connection_init: {e}")
-
-    # Resolve WS URL
-    if not ws_url:
-        ws_url = os.getenv("ECAN_WS_URL", "")
-    if not ws_url:
-        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
-
-    if ws_url.startswith("https://") and "appsync-api" in ws_url:
-        prefix = "https://"
-        rest = ws_url[len(prefix):]
-        rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
-        ws_url = "wss://" + rest
-
-    parsed = urlparse(ws_url)
-    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
-    header_obj = {"host": api_host, "Authorization": id_token}
-    payload_obj = {}
-    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
-    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
-
-    query = dict(parse_qsl(parsed.query))
-    query.update({"header": header_b64, "payload": payload_b64})
-    signed_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(query), parsed.fragment))
-
-    ws = websocket.WebSocketApp(
-        signed_url, header=[], on_message=on_message, on_error=on_error,
-        on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+    logger.info("[AgentSceneEvent] Launching WebSocket thread with auto-reconnect")
+    t = threading.Thread(
+        target=_appsync_ws_reconnect_loop,
+        args=("AgentSceneEvent", resolved_ws_url, id_token, build_ws),
+        daemon=True,
     )
-
-    logger.info("[AgentSceneEvent] Launching WebSocket thread")
-    import ssl
-    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     logger.info("[AgentSceneEvent] WebSocket thread launched")
     return ws, t
@@ -5183,119 +5143,104 @@ def handle_agent_scene_event(scene: dict):
 def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
                               on_puzzle_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to puzzle results over WebSocket.
-    
+
     GraphQL: onPuzzleResultReceived: PuzzleResult
-    
+
     Parameters:
         id_token: Cognito/AppSync ID token (Authorization header).
         ws_url: Optional AppSync GraphQL endpoint.
         on_puzzle_callback: Optional callback function(puzzle_result) to handle received puzzle results.
     """
 
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-        except Exception:
-            data = {"raw": message}
-        msg_type = data.get("type")
-        if msg_type in ("ka", "keepalive"):
-            return
-        logger.debug("[PuzzleResult] Received WebSocket message type=%s", msg_type)
-        logger.trace("[PuzzleResult] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+    resolved_ws_url = _resolve_appsync_ws_url(ws_url, "PuzzleResult")
 
-        if msg_type == "connection_ack":
+    def build_ws(token, api_host, signed_url):
+        def on_message(ws, message):
             try:
-                subscription = """
-                    subscription OnPuzzleResultReceived {
-                      onPuzzleResultReceived {
-                        id
-                        request_id
-                        solver_id
-                        solution
-                        timestamp
-                      }
+                data = json.loads(message)
+            except Exception:
+                data = {"raw": message}
+            msg_type = data.get("type")
+            if msg_type in ("ka", "keepalive"):
+                return
+            logger.debug("[PuzzleResult] Received WebSocket message type=%s", msg_type)
+            logger.trace("[PuzzleResult] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+
+            if msg_type == "connection_ack":
+                try:
+                    subscription = """
+                        subscription OnPuzzleResultReceived {
+                          onPuzzleResultReceived {
+                            id
+                            request_id
+                            solver_id
+                            solution
+                            timestamp
+                          }
+                        }
+                    """
+                    data_obj = {
+                        "query": subscription,
+                        "operationName": "OnPuzzleResultReceived",
+                        "variables": {},
                     }
-                """
-                data_obj = {
-                    "query": subscription,
-                    "operationName": "OnPuzzleResultReceived",
-                    "variables": {},
-                }
-                start_payload = {
-                    "id": "PuzzleResult1",
-                    "type": "start",
-                    "payload": {
-                        "data": json.dumps(data_obj),
-                        "extensions": {
-                            "authorization": {
-                                "host": api_host,
-                                "Authorization": id_token,
-                            }
+                    start_payload = {
+                        "id": "PuzzleResult1",
+                        "type": "start",
+                        "payload": {
+                            "data": json.dumps(data_obj),
+                            "extensions": {
+                                "authorization": {
+                                    "host": api_host,
+                                    "Authorization": token,
+                                }
+                            },
                         },
-                    },
-                }
-                logger.info("[PuzzleResult] connection_ack received, sending start subscription")
-                ws.send(json.dumps(start_payload))
+                    }
+                    logger.info("[PuzzleResult] connection_ack received, sending start subscription")
+                    ws.send(json.dumps(start_payload))
+                except Exception as e:
+                    logger.error(f"[PuzzleResult] Failed to send start payload: {e}")
+
+            elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "PuzzleResult1":
+                payload_data = data.get("payload", {}).get("data", {})
+                puzzle_result = None
+                if isinstance(payload_data, dict):
+                    puzzle_result = payload_data.get("onPuzzleResultReceived")
+                    logger.info(f"[PuzzleResult] Received puzzle result: {json.dumps(puzzle_result, indent=2, ensure_ascii=False)}")
+                    if on_puzzle_callback and puzzle_result:
+                        try:
+                            on_puzzle_callback(puzzle_result)
+                        except Exception as cb_err:
+                            logger.error(f"[PuzzleResult] Callback error: {cb_err}")
+
+        def on_error(ws, error):
+            logger.error(f"[PuzzleResult] WebSocket error: {error}")
+
+        def on_close(ws, status_code, msg):
+            logger.warning(f"[PuzzleResult] WebSocket closed: code={status_code}, msg={msg}")
+
+        def on_open(ws):
+            logger.debug("[PuzzleResult] WebSocket opened")
+            try:
+                ws.send(json.dumps({"type": "connection_init", "payload": {}}))
             except Exception as e:
-                logger.error(f"[PuzzleResult] Failed to send start payload: {e}")
+                logger.error(f"[PuzzleResult] Failed to send connection_init: {e}")
 
-        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "PuzzleResult1":
-            payload_data = data.get("payload", {}).get("data", {})
-            puzzle_result = None
-            if isinstance(payload_data, dict):
-                puzzle_result = payload_data.get("onPuzzleResultReceived")
-                logger.info(f"[PuzzleResult] Received puzzle result: {json.dumps(puzzle_result, indent=2, ensure_ascii=False)}")
-                
-                if on_puzzle_callback and puzzle_result:
-                    try:
-                        on_puzzle_callback(puzzle_result)
-                    except Exception as cb_err:
-                        logger.error(f"[PuzzleResult] Callback error: {cb_err}")
+        return websocket.WebSocketApp(
+            signed_url, header=[], on_message=on_message, on_error=on_error,
+            on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+        )
 
-    def on_error(ws, error):
-        logger.error(f"[PuzzleResult] WebSocket error: {error}")
+    initial_signed_url, initial_api_host = _build_appsync_signed_url(resolved_ws_url, id_token)
+    ws = build_ws(id_token, initial_api_host, initial_signed_url)
 
-    def on_close(ws, status_code, msg):
-        logger.warning(f"[PuzzleResult] WebSocket closed: code={status_code}, msg={msg}")
-
-    def on_open(ws):
-        logger.debug("[PuzzleResult] WebSocket opened")
-        init_payload = {"type": "connection_init", "payload": {}}
-        try:
-            ws.send(json.dumps(init_payload))
-        except Exception as e:
-            logger.error(f"[PuzzleResult] Failed to send connection_init: {e}")
-
-    if not ws_url:
-        ws_url = os.getenv("ECAN_WS_URL", "")
-    if not ws_url:
-        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
-
-    if ws_url.startswith("https://") and "appsync-api" in ws_url:
-        prefix = "https://"
-        rest = ws_url[len(prefix):]
-        rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
-        ws_url = "wss://" + rest
-
-    parsed = urlparse(ws_url)
-    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
-    header_obj = {"host": api_host, "Authorization": id_token}
-    payload_obj = {}
-    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
-    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
-
-    query = dict(parse_qsl(parsed.query))
-    query.update({"header": header_b64, "payload": payload_b64})
-    signed_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(query), parsed.fragment))
-
-    ws = websocket.WebSocketApp(
-        signed_url, header=[], on_message=on_message, on_error=on_error,
-        on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+    logger.info("[PuzzleResult] Launching WebSocket thread with auto-reconnect")
+    t = threading.Thread(
+        target=_appsync_ws_reconnect_loop,
+        args=("PuzzleResult", resolved_ws_url, id_token, build_ws),
+        daemon=True,
     )
-
-    logger.info("[PuzzleResult] Launching WebSocket thread")
-    import ssl
-    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     logger.info("[PuzzleResult] WebSocket thread launched")
     return ws, t
@@ -5310,9 +5255,9 @@ def handle_puzzle_result(puzzle_result: dict):
 def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
                               on_scene_complete_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to scene completion events over WebSocket.
-    
+
     GraphQL: onSceneComplete(acctSiteID: String!): SceneResult
-    
+
     Parameters:
         acct_site_id: Account site ID for the subscription filter.
         id_token: Cognito/AppSync ID token (Authorization header).
@@ -5320,121 +5265,106 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
         on_scene_complete_callback: Optional callback function(scene_result) to handle scene completion.
     """
 
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-        except Exception:
-            data = {"raw": message}
-        msg_type = data.get("type")
-        if msg_type in ("ka", "keepalive"):
-            return
-        logger.debug("[SceneComplete] Received WebSocket message type=%s", msg_type)
-        logger.trace("[SceneComplete] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+    resolved_ws_url = _resolve_appsync_ws_url(ws_url, "SceneComplete")
 
-        if msg_type == "connection_ack":
+    def build_ws(token, api_host, signed_url):
+        def on_message(ws, message):
             try:
-                subscription = """
-                    subscription OnSceneComplete($acctSiteID: String!) {
-                      onSceneComplete(acctSiteID: $acctSiteID) {
-                        id
-                        request_id
-                        scene_id
-                        acctSiteID
-                        agent_ids
-                        description
-                        status
-                        duration_ms
-                        video
-                        thumbnail
-                        emotion
-                        mind_state
-                        actions
-                        dialogs
-                        error
-                        timestamp
-                      }
+                data = json.loads(message)
+            except Exception:
+                data = {"raw": message}
+            msg_type = data.get("type")
+            if msg_type in ("ka", "keepalive"):
+                return
+            logger.debug("[SceneComplete] Received WebSocket message type=%s", msg_type)
+            logger.trace("[SceneComplete] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+
+            if msg_type == "connection_ack":
+                try:
+                    subscription = """
+                        subscription OnSceneComplete($acctSiteID: String!) {
+                          onSceneComplete(acctSiteID: $acctSiteID) {
+                            id
+                            request_id
+                            scene_id
+                            acctSiteID
+                            agent_ids
+                            description
+                            status
+                            duration_ms
+                            video
+                            thumbnail
+                            emotion
+                            mind_state
+                            actions
+                            dialogs
+                            error
+                            timestamp
+                          }
+                        }
+                    """
+                    data_obj = {
+                        "query": subscription,
+                        "operationName": "OnSceneComplete",
+                        "variables": {"acctSiteID": acct_site_id},
                     }
-                """
-                data_obj = {
-                    "query": subscription,
-                    "operationName": "OnSceneComplete",
-                    "variables": {"acctSiteID": acct_site_id},
-                }
-                start_payload = {
-                    "id": "SceneComplete1",
-                    "type": "start",
-                    "payload": {
-                        "data": json.dumps(data_obj),
-                        "extensions": {
-                            "authorization": {
-                                "host": api_host,
-                                "Authorization": id_token,
-                            }
+                    start_payload = {
+                        "id": "SceneComplete1",
+                        "type": "start",
+                        "payload": {
+                            "data": json.dumps(data_obj),
+                            "extensions": {
+                                "authorization": {
+                                    "host": api_host,
+                                    "Authorization": token,
+                                }
+                            },
                         },
-                    },
-                }
-                logger.info("[SceneComplete] connection_ack received, sending start subscription")
-                ws.send(json.dumps(start_payload))
+                    }
+                    logger.info("[SceneComplete] connection_ack received, sending start subscription")
+                    ws.send(json.dumps(start_payload))
+                except Exception as e:
+                    logger.error(f"[SceneComplete] Failed to send start payload: {e}")
+
+            elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "SceneComplete1":
+                payload_data = data.get("payload", {}).get("data", {})
+                scene_result = None
+                if isinstance(payload_data, dict):
+                    scene_result = payload_data.get("onSceneComplete")
+                    logger.info(f"[SceneComplete] Received scene result: {json.dumps(scene_result, indent=2, ensure_ascii=False)}")
+                    if on_scene_complete_callback and scene_result:
+                        try:
+                            on_scene_complete_callback(scene_result)
+                        except Exception as cb_err:
+                            logger.error(f"[SceneComplete] Callback error: {cb_err}")
+
+        def on_error(ws, error):
+            logger.error(f"[SceneComplete] WebSocket error: {error}")
+
+        def on_close(ws, status_code, msg):
+            logger.warning(f"[SceneComplete] WebSocket closed: code={status_code}, msg={msg}")
+
+        def on_open(ws):
+            logger.debug("[SceneComplete] WebSocket opened")
+            try:
+                ws.send(json.dumps({"type": "connection_init", "payload": {}}))
             except Exception as e:
-                logger.error(f"[SceneComplete] Failed to send start payload: {e}")
+                logger.error(f"[SceneComplete] Failed to send connection_init: {e}")
 
-        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "SceneComplete1":
-            payload_data = data.get("payload", {}).get("data", {})
-            scene_result = None
-            if isinstance(payload_data, dict):
-                scene_result = payload_data.get("onSceneComplete")
-                logger.info(f"[SceneComplete] Received scene result: {json.dumps(scene_result, indent=2, ensure_ascii=False)}")
-                
-                if on_scene_complete_callback and scene_result:
-                    try:
-                        on_scene_complete_callback(scene_result)
-                    except Exception as cb_err:
-                        logger.error(f"[SceneComplete] Callback error: {cb_err}")
+        return websocket.WebSocketApp(
+            signed_url, header=[], on_message=on_message, on_error=on_error,
+            on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+        )
 
-    def on_error(ws, error):
-        logger.error(f"[SceneComplete] WebSocket error: {error}")
+    initial_signed_url, initial_api_host = _build_appsync_signed_url(resolved_ws_url, id_token)
+    ws = build_ws(id_token, initial_api_host, initial_signed_url)
 
-    def on_close(ws, status_code, msg):
-        logger.warning(f"[SceneComplete] WebSocket closed: code={status_code}, msg={msg}")
-
-    def on_open(ws):
-        logger.debug("[SceneComplete] WebSocket opened")
-        init_payload = {"type": "connection_init", "payload": {}}
-        try:
-            ws.send(json.dumps(init_payload))
-        except Exception as e:
-            logger.error(f"[SceneComplete] Failed to send connection_init: {e}")
-
-    if not ws_url:
-        ws_url = os.getenv("ECAN_WS_URL", "")
-    if not ws_url:
-        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
-
-    if ws_url.startswith("https://") and "appsync-api" in ws_url:
-        prefix = "https://"
-        rest = ws_url[len(prefix):]
-        rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
-        ws_url = "wss://" + rest
-
-    parsed = urlparse(ws_url)
-    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
-    header_obj = {"host": api_host, "Authorization": id_token}
-    payload_obj = {}
-    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
-    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
-
-    query = dict(parse_qsl(parsed.query))
-    query.update({"header": header_b64, "payload": payload_b64})
-    signed_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(query), parsed.fragment))
-
-    ws = websocket.WebSocketApp(
-        signed_url, header=[], on_message=on_message, on_error=on_error,
-        on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+    logger.info("[SceneComplete] Launching WebSocket thread with auto-reconnect")
+    t = threading.Thread(
+        target=_appsync_ws_reconnect_loop,
+        args=("SceneComplete", resolved_ws_url, id_token, build_ws),
+        daemon=True,
     )
-
-    logger.info("[SceneComplete] Launching WebSocket thread")
-    import ssl
-    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     logger.info("[SceneComplete] WebSocket thread launched")
     return ws, t
@@ -5670,9 +5600,9 @@ def handle_scene_complete(scene_result: dict, download_dir: str = "generated_med
 def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
                              on_story_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to story updates over WebSocket.
-    
+
     GraphQL: onStoryUpdate(acctSiteID: String!): Story
-    
+
     Parameters:
         acct_site_id: Account site ID for the subscription filter.
         id_token: Cognito/AppSync ID token (Authorization header).
@@ -5680,120 +5610,105 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
         on_story_callback: Optional callback function(story_data) to handle story updates.
     """
 
-    def on_message(ws, message):
-        try:
-            data = json.loads(message)
-        except Exception:
-            data = {"raw": message}
-        msg_type = data.get("type")
-        if msg_type in ("ka", "keepalive"):
-            return
-        logger.debug("[StoryUpdate] Received WebSocket message type=%s", msg_type)
-        logger.trace("[StoryUpdate] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+    resolved_ws_url = _resolve_appsync_ws_url(ws_url, "StoryUpdate")
 
-        if msg_type == "connection_ack":
+    def build_ws(token, api_host, signed_url):
+        def on_message(ws, message):
             try:
-                subscription = """
-                    subscription OnStoryUpdate($acctSiteID: String!) {
-                      onStoryUpdate(acctSiteID: $acctSiteID) {
-                        id
-                        acctSiteID
-                        title
-                        description
-                        agent_ids
-                        status
-                        current_scene_index
-                        scenes {
-                          id
-                          scene_id
-                          label
-                          status
-                        }
-                        created_at
-                        updated_at
-                      }
-                    }
-                """
-                data_obj = {
-                    "query": subscription,
-                    "operationName": "OnStoryUpdate",
-                    "variables": {"acctSiteID": acct_site_id},
-                }
-                start_payload = {
-                    "id": "StoryUpdate1",
-                    "type": "start",
-                    "payload": {
-                        "data": json.dumps(data_obj),
-                        "extensions": {
-                            "authorization": {
-                                "host": api_host,
-                                "Authorization": id_token,
+                data = json.loads(message)
+            except Exception:
+                data = {"raw": message}
+            msg_type = data.get("type")
+            if msg_type in ("ka", "keepalive"):
+                return
+            logger.debug("[StoryUpdate] Received WebSocket message type=%s", msg_type)
+            logger.trace("[StoryUpdate] Subscription update: %s", json.dumps(data, ensure_ascii=False)[:2000])
+
+            if msg_type == "connection_ack":
+                try:
+                    subscription = """
+                        subscription OnStoryUpdate($acctSiteID: String!) {
+                          onStoryUpdate(acctSiteID: $acctSiteID) {
+                            id
+                            acctSiteID
+                            title
+                            description
+                            agent_ids
+                            status
+                            current_scene_index
+                            scenes {
+                              id
+                              scene_id
+                              label
+                              status
                             }
+                            created_at
+                            updated_at
+                          }
+                        }
+                    """
+                    data_obj = {
+                        "query": subscription,
+                        "operationName": "OnStoryUpdate",
+                        "variables": {"acctSiteID": acct_site_id},
+                    }
+                    start_payload = {
+                        "id": "StoryUpdate1",
+                        "type": "start",
+                        "payload": {
+                            "data": json.dumps(data_obj),
+                            "extensions": {
+                                "authorization": {
+                                    "host": api_host,
+                                    "Authorization": token,
+                                }
+                            },
                         },
-                    },
-                }
-                logger.info("[StoryUpdate] connection_ack received, sending start subscription")
-                ws.send(json.dumps(start_payload))
+                    }
+                    logger.info("[StoryUpdate] connection_ack received, sending start subscription")
+                    ws.send(json.dumps(start_payload))
+                except Exception as e:
+                    logger.error(f"[StoryUpdate] Failed to send start payload: {e}")
+
+            elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "StoryUpdate1":
+                payload_data = data.get("payload", {}).get("data", {})
+                story = None
+                if isinstance(payload_data, dict):
+                    story = payload_data.get("onStoryUpdate")
+                    logger.info(f"[StoryUpdate] Received story update: {json.dumps(story, indent=2, ensure_ascii=False)}")
+                    if on_story_callback and story:
+                        try:
+                            on_story_callback(story)
+                        except Exception as cb_err:
+                            logger.error(f"[StoryUpdate] Callback error: {cb_err}")
+
+        def on_error(ws, error):
+            logger.error(f"[StoryUpdate] WebSocket error: {error}")
+
+        def on_close(ws, status_code, msg):
+            logger.warning(f"[StoryUpdate] WebSocket closed: code={status_code}, msg={msg}")
+
+        def on_open(ws):
+            logger.debug("[StoryUpdate] WebSocket opened")
+            try:
+                ws.send(json.dumps({"type": "connection_init", "payload": {}}))
             except Exception as e:
-                logger.error(f"[StoryUpdate] Failed to send start payload: {e}")
+                logger.error(f"[StoryUpdate] Failed to send connection_init: {e}")
 
-        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "StoryUpdate1":
-            payload_data = data.get("payload", {}).get("data", {})
-            story = None
-            if isinstance(payload_data, dict):
-                story = payload_data.get("onStoryUpdate")
-                logger.info(f"[StoryUpdate] Received story update: {json.dumps(story, indent=2, ensure_ascii=False)}")
-                
-                if on_story_callback and story:
-                    try:
-                        on_story_callback(story)
-                    except Exception as cb_err:
-                        logger.error(f"[StoryUpdate] Callback error: {cb_err}")
+        return websocket.WebSocketApp(
+            signed_url, header=[], on_message=on_message, on_error=on_error,
+            on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+        )
 
-    def on_error(ws, error):
-        logger.error(f"[StoryUpdate] WebSocket error: {error}")
+    initial_signed_url, initial_api_host = _build_appsync_signed_url(resolved_ws_url, id_token)
+    ws = build_ws(id_token, initial_api_host, initial_signed_url)
 
-    def on_close(ws, status_code, msg):
-        logger.warning(f"[StoryUpdate] WebSocket closed: code={status_code}, msg={msg}")
-
-    def on_open(ws):
-        logger.debug("[StoryUpdate] WebSocket opened")
-        init_payload = {"type": "connection_init", "payload": {}}
-        try:
-            ws.send(json.dumps(init_payload))
-        except Exception as e:
-            logger.error(f"[StoryUpdate] Failed to send connection_init: {e}")
-
-    if not ws_url:
-        ws_url = os.getenv("ECAN_WS_URL", "")
-    if not ws_url:
-        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
-
-    if ws_url.startswith("https://") and "appsync-api" in ws_url:
-        prefix = "https://"
-        rest = ws_url[len(prefix):]
-        rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
-        ws_url = "wss://" + rest
-
-    parsed = urlparse(ws_url)
-    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
-    header_obj = {"host": api_host, "Authorization": id_token}
-    payload_obj = {}
-    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
-    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
-
-    query = dict(parse_qsl(parsed.query))
-    query.update({"header": header_b64, "payload": payload_b64})
-    signed_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(query), parsed.fragment))
-
-    ws = websocket.WebSocketApp(
-        signed_url, header=[], on_message=on_message, on_error=on_error,
-        on_close=on_close, on_open=on_open, subprotocols=["graphql-ws"],
+    logger.info("[StoryUpdate] Launching WebSocket thread with auto-reconnect")
+    t = threading.Thread(
+        target=_appsync_ws_reconnect_loop,
+        args=("StoryUpdate", resolved_ws_url, id_token, build_ws),
+        daemon=True,
     )
-
-    logger.info("[StoryUpdate] Launching WebSocket thread")
-    import ssl
-    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
     t.start()
     logger.info("[StoryUpdate] WebSocket thread launched")
     return ws, t

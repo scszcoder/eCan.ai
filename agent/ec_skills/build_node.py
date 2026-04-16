@@ -9546,7 +9546,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             #
             # Placed here (after browser session setup) so the CDP connection
             # is live and the feige tools can execute JS on the page.
-            if not _hot_path_done:
+            if not _hot_path_done and _evt_type != "browser_event":
                 try:
                     _hp2_response_text = ""
                     _hp2_customer_name = ""

@@ -239,14 +239,21 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
     """
     WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
     WS_API_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com'
-    id_token = auth_token
     ka_timeout_sec = 300
     retry_count = 0
     base_backoff = 5
-    
+
     # Use loop instead of recursion to prevent stack overflow
     while retry_count < max_retries:
         try:
+            # Re-fetch token on every reconnect attempt so we never use a stale token
+            # after hours of uptime. Falls back to the original token if mainwin is unavailable.
+            id_token = auth_token
+            if mainwin and hasattr(mainwin, 'get_auth_token'):
+                fresh_token = mainwin.get_auth_token()
+                if fresh_token:
+                    id_token = fresh_token
+
             api_headers = {
                 'content-type': 'application/json',
                 'host': WS_API_HOST,
