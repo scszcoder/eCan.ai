@@ -585,25 +585,7 @@ For chat portals:
 
 ## 14. Files of Interest
 
-- runtime monitor engine:
-  - [event_monitor.py](/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/browser_use_extension/event_monitor.py)
-- session capability:
-  - [event_monitor_capability.py](/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/browser_use_extension/event_monitor_capability.py)
-- extension tools:
-  - [extension_tools_service.py](/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/browser_use_extension/extension_tools_service.py)
-  - [extension_tools_views.py](/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/browser_use_extension/extension_tools_views.py)
-- browser node runtime:
-  - [build_node.py](/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/build_node.py)
-- browser node editor UI:
-  - [form-meta.tsx](/Users/songc/PycharmProjects/eCan.ai/gui_v2/src/modules/skill-editor/nodes/browser-automation/form-meta.tsx)
-- browser slot management:
-  - [browser_manager.py](/Users/songc/PycharmProjects/eCan.ai/gui/manager/browser_manager.py)
-- general settings (slot config):
-  - [general_settings.py](/Users/songc/PycharmProjects/eCan.ai/gui/config/general_settings.py)
-- inter-agent chat tools:
-  - [chat_tools.py](/Users/songc/PycharmProjects/eCan.ai/agent/mcp/server/chat_utils/chat_tools.py)
-- token tracking:
-  - [token_tracker.py](/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/token_tracker.py)
+See [Section 23](#23-files-of-interest-updated) for the updated and expanded file list.
 
 ---
 
@@ -981,3 +963,249 @@ The Account page (accessible via double-click on the LED token display in the to
 1. **Bar chart**: Stacked input/output tokens over time. Period selector: 24h, 3d, 1w, 1m, 12m, 36m. CSV download.
 2. **Pie charts**: Double-click any bar to see per-model and per-skill breakdown. Shows total LLM invocation count.
 3. **Usage alarms**: Daily and monthly progress bars with configurable thresholds. Green below limit, red above.
+
+---
+
+## 21. Hot Path (LLM Bypass)
+
+Added 2026-04. The hot path is a latency optimization that skips the LLM entirely for structured, predictable event responses. It cuts Phase-2 latency from ~15s (LLM think + multi-step) to ~2s (direct tool calls).
+
+Two implementations exist. Both run after browser session setup (CDP connection is live) but before the browser-use agent is invoked.
+
+### 21.1 Built-in chat message reply bypass
+
+Location: `build_node.py` (post-setup HOT-PATH block, ~line 9540).
+
+Trigger conditions (all must be true):
+
+- the incoming event is **not** a `browser_event` (i.e. it is a task invocation with a payload)
+- the payload contains both `response_text` and `customer_name` (or `customer_id`)
+- the extension tools registry has both a `*_open_session` and a `*_send_message` tool registered
+
+When triggered:
+
+1. calls `*_open_session(customer_name=...)` to navigate to the customer's chat
+2. waits 0.5s
+3. calls `*_send_message(text=response_text)` to type and send the reply
+4. clears `state.input` and payload attributes to prevent duplicate sends
+5. returns immediately with `state.result.llm_result = {"hot_path": true, "action": "<open>+<send>", "customer": "..."}`
+
+If either tool call fails, the hot path aborts silently and falls back to the normal LLM path.
+
+### 21.2 Configurable action templates
+
+Location: `build_node.py` (~line 7435).
+
+This variant lets users define custom trigger/action rules in the node editor. It runs **before** the built-in variant.
+
+#### Configuration
+
+Stored in `data.inputsValues.hotPathActions.content` as JSON:
+
+```json
+[
+  {
+    "trigger": {
+      "event_type": "chat_message",
+      "has_fields": ["response_text", "customer_name"]
+    },
+    "actions": [
+      {"tool": "feige_open_session", "args": {"customer_name": "{{customer_name}}"}},
+      {"tool": "feige_send_message", "args": {"text": "{{response_text}}"}}
+    ]
+  }
+]
+```
+
+#### Trigger matching
+
+- `trigger.event_type`: must match the current event's `event_type` (from `state.prompt_refs.events`)
+- `trigger.has_fields`: all listed fields must be present in the parsed `state.input` payload
+
+Only the first matching rule is attempted.
+
+#### Action execution
+
+For each action in the `actions` array:
+
+1. resolve `{{field}}` placeholders from the payload
+2. look up the tool in the extension tools registry
+3. call with `browser_session` if the tool's signature expects it
+4. wait 0.3s between actions
+5. if any action fails, abort the sequence
+
+On success, returns with `state.result.llm_result = {"hot_path": true, "hot_path_type": "configurable"}`.
+
+#### GUI status
+
+There is currently no GUI editor for `hotPathActions`. It must be set manually in the skill JSON. A future node editor form is planned.
+
+### 21.3 Execution order
+
+```
+1. Configurable hot path (hotPathActions)  — if config exists and trigger matches → return
+2. Built-in chat reply hot path            — if response_text + customer_name → return
+3. Normal LLM invocation                   — full browser-use agent run
+```
+
+The `_hot_path_done` flag ensures only one variant runs per invocation.
+
+---
+
+## 22. GUI Node Editor Field Reference
+
+The browser automation node editor (`gui_v2/src/modules/skill-editor/nodes/browser-automation/form-meta.tsx`) exposes the following configuration fields. All values are stored under `data.inputsValues.<fieldName>.content`.
+
+### 22.1 General settings
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `browserType` | select | Browser type (chromium, firefox, webkit) |
+| `browserDriver` | select | Driver mode (native, playwright) |
+| `cdpPort` | string | Explicit Chrome DevTools port (default 9228) |
+| `cdpPortAuto` | boolean | Auto-assign port from slot pool (overrides cdpPort) |
+| `runEnvironment` | select | Execution environment: full_local, passive_local, hybrid_cloud, full_cloud |
+| `profile` | select | Chrome profile to use (fetched from backend) |
+| `shopName` | select | Shop/store name for file organization |
+| `customShopName` | string | Custom shop name (when shopName = "custom") |
+
+### 22.2 LLM settings
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `modelProvider` / `provider` | select | LLM provider (openai, anthropic, etc.) |
+| `modelName` / `model` | select | Model name |
+| `useThinking` | boolean | Enable extended thinking (for reasoning models like Qwen) |
+| `useVision` | boolean | Enable vision/screenshot input to the LLM |
+
+### 22.3 Privacy and safety
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `privacyStrategy` | select | Privacy mode: none, mask_pii, anonymize |
+| `enableJudge` | boolean | Enable secondary LLM judge for action verification |
+
+### 22.4 Performance settings
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `flashMode` | boolean | Enable flash mode for minimal-latency responses |
+| `maxSteps` | number | Max browser-use steps per invocation (1-100) |
+| `maxActionsPerStep` | number | Max actions per browser-use step (1-20) |
+| `nodeTimeoutSeconds` | number | Hard timeout for the node (minimum 300s) |
+| `domFocusSelector` | string | CSS selector to focus DOM extraction (hide non-matching elements) |
+| `domLimit` | number | Hard cap on DOM character length (1000-50000) |
+| `loopHistoryMode` | select | History handling across pend_event loop iterations |
+| `actionableField` | string | Per-item field name marking actionable items |
+
+### 22.5 Loop History Mode
+
+Controls how the browser-use agent's history is handled when reused across pend_event loop iterations.
+
+| Value | Behavior |
+|-------|----------|
+| `clear` (default) | Wipe history on each iteration. Best for stateless flows (e.g. front-desk dispatch). |
+| `trim:5` / `trim:10` / `trim:20` | Keep last N history items (rolling window). Useful when some recent context helps. |
+| `accumulate` | Keep all history. Only for short-lived loops where cross-round memory is intentional. |
+
+### 22.6 Actionable Field
+
+When set, the browser-event task hint emits a deterministic `actionable_items` list filtered from raw event items instead of dumping every item. The LLM receives a hard rule that it MUST process each listed entry.
+
+This defeats LLM hallucination of "already handled" claims since the list is ground truth. Domain-agnostic: works for customer support (pending reply), inbox triage (unread), queue processing, form-filling checklists — any extractor that populates this field.
+
+Leave empty to preserve legacy raw-items behavior.
+
+### 22.7 Event Monitors section (collapsible)
+
+The event monitors section is collapsible (click to expand). It contains:
+
+#### `eventMonitorDonePolicy`
+
+Select dropdown: `keep` or `stop`. Controls whether monitors stay alive when the browser node calls `done()`.
+
+#### Monitor list
+
+Each monitor item has:
+
+**Common fields:**
+
+| Field | Description |
+|-------|-------------|
+| `label` | Semantic event label (must match `pend_event.browserEventLabel`) |
+| `sourceType` | Monitor type: http_polling, websocket, sse, dom_mutation, cdp_raw |
+| `urlPatterns` | URL substring/regex patterns (comma-separated) |
+| `enabled` | Toggle switch |
+
+**HTTP polling fields:** `methods`, `contentFilters`, `minBodyLength`
+
+**WebSocket fields:** `frameDirection` (incoming/outgoing/both), `contentFilters`
+
+**SSE fields:** `sseEventTypes`, `contentFilters`
+
+**DOM mutation fields:**
+
+| Field | Description |
+|-------|-------------|
+| `domSelector` | Legacy root selector |
+| `domCheckIntervalMs` | Polling interval (default 250ms, min 50ms) |
+| `domChildList` | Watch child list changes |
+| `domSubtree` | Watch subtree changes |
+| `domAttributes` | Watch attribute changes |
+
+**DOM extractor fields (advanced, inline in form):**
+
+These fields replace the raw `cdpFilterExpr` JSON editor for common cases. The form auto-rebuilds `cdpFilterExpr` from these values.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `domPageUrlPatterns` | string (comma-sep) | Page URL patterns the extractor matches |
+| `domExtractorRoots` | string (comma-sep) | Root CSS selectors to search under |
+| `domItemSelector` | string | Repeated item CSS selector |
+| `domKeyFields` | string (comma-sep) | Composite identity fields (e.g. "session, time_text, preview") |
+| `domEmitOn` | select | Change mode: added, changed, reordered, top_changed, added_or_reordered |
+| `domTopN` | number | Top-N items for top_changed mode (default 10) |
+| `domEmptyTextPatterns` | string (comma-sep) | Text markers indicating empty state |
+| `domSessionSource` | select | Session field source: attr, text, closest_text |
+| `domSessionSelector` | string | CSS selector for session field |
+| `domSessionAttr` | string | Attribute name for session field |
+| `domSessionRegex` | string | Regex to extract session value |
+| `domSessionGroup` | number | Regex capture group |
+| `domChatUrlSource` | select | Chat URL field source: attr, text |
+| `domChatUrlSelector` | string | CSS selector for chat URL |
+| `domChatUrlAttr` | string | Attribute for chat URL (default "href") |
+| `domNameSource` | select | Name field source: text, closest_text, attr |
+| `domNameSelector` | string | CSS selector for name field |
+| `domNameClosest` | string | Closest ancestor selector for name |
+| `domNameRegex` | string | Regex to extract name |
+| `domNameGroup` | number | Regex capture group |
+| `domNameSplitBefore` | string | Split text before this delimiter |
+
+---
+
+## 23. Files of Interest (Updated)
+
+- runtime monitor engine:
+  - [event_monitor.py](agent/ec_skills/browser_use_extension/event_monitor.py)
+- monitor data models:
+  - [monitor_models.py](agent/ec_skills/browser_use_extension/monitor_models.py)
+- session capability:
+  - [event_monitor_capability.py](agent/ec_skills/browser_use_extension/event_monitor_capability.py)
+- extension tools:
+  - [extension_tools_service.py](agent/ec_skills/browser_use_extension/extension_tools_service.py)
+  - [extension_tools_views.py](agent/ec_skills/browser_use_extension/extension_tools_views.py)
+- browser node runtime (hot path + all settings):
+  - [build_node.py](agent/ec_skills/build_node.py)
+- browser node editor UI:
+  - [form-meta.tsx](gui_v2/src/modules/skill-editor/nodes/browser-automation/form-meta.tsx)
+  - [index.ts](gui_v2/src/modules/skill-editor/nodes/browser-automation/index.ts)
+- browser slot management:
+  - [browser_manager.py](gui/manager/browser_manager.py)
+- general settings (slot config):
+  - [general_settings.py](gui/config/general_settings.py)
+- event routing:
+  - [runner.py](agent/ec_tasks/runner.py)
+- inter-agent chat tools:
+  - [chat_tools.py](agent/mcp/server/chat_utils/chat_tools.py)
+- token tracking:
+  - [token_tracker.py](agent/ec_skills/token_tracker.py)
