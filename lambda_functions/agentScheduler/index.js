@@ -4589,7 +4589,7 @@ async function processEvent(event, context, callback, test_stub) {
   const status = accountRecord['states'] || "inactive";
   const quota = Number(accountRecord['quota'] || 0);
   const last_actions = accountRecord['last_actions'] || [];
-  const subscriptionRaw = (accountRecord['sub'] || "").toString();
+  const subscriptionRaw = (accountRecord['subs'] || "").toString();
   const subscriptionList = subscriptionRaw
     .split(",")
     .map((entry) => entry.trim())
