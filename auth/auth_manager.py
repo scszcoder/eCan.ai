@@ -1253,19 +1253,46 @@ class AuthManager:
             logger.error(f"AuthManager: Failed to restore session: {e}")
             return False
 
-    def start_refresh_task(self):
-        """Starts the background token refresh task."""
-        if self.refresh_task is None or self.refresh_task.done():
-            if not self.tokens or not self.tokens.get('RefreshToken'):
-                logger.warning("AuthManager: No refresh token available")
-                return
+    _REFRESH_LOOP_START_MAX_RETRIES = 5
+    _REFRESH_LOOP_START_RETRY_DELAY = 3  # seconds
 
-            try:
-                loop = asyncio.get_running_loop()
-                self.refresh_task = loop.create_task(self._token_refresh_loop())
-                logger.info("AuthManager: Token refresh task started")
-            except RuntimeError:
-                logger.debug("AuthManager: No event loop available for refresh task")
+    def start_refresh_task(self):
+        """Starts the background token refresh task.
+
+        If no asyncio event loop is running yet (common during early startup),
+        retries up to _REFRESH_LOOP_START_MAX_RETRIES times using a background
+        threading.Timer so the refresh loop is never silently skipped.
+        """
+        self._start_refresh_task_attempt(attempt=0)
+
+    def _start_refresh_task_attempt(self, attempt: int):
+        if self.refresh_task is not None and not self.refresh_task.done():
+            return  # already running
+
+        if not self.tokens or not self.tokens.get('RefreshToken'):
+            logger.warning("AuthManager: No refresh token available, cannot start refresh loop")
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            self.refresh_task = loop.create_task(self._token_refresh_loop())
+            logger.info("AuthManager: Token refresh task started")
+        except RuntimeError:
+            if attempt < self._REFRESH_LOOP_START_MAX_RETRIES:
+                delay = self._REFRESH_LOOP_START_RETRY_DELAY * (attempt + 1)
+                logger.info(
+                    f"AuthManager: No event loop yet, retrying refresh task start "
+                    f"in {delay}s (attempt {attempt + 1}/{self._REFRESH_LOOP_START_MAX_RETRIES})"
+                )
+                import threading
+                t = threading.Timer(delay, self._start_refresh_task_attempt, args=[attempt + 1])
+                t.daemon = True
+                t.start()
+            else:
+                logger.error(
+                    "AuthManager: Failed to start refresh task after "
+                    f"{self._REFRESH_LOOP_START_MAX_RETRIES} attempts — no event loop available"
+                )
                 self.refresh_task = None
 
     def stop_refresh_task(self):
@@ -1275,13 +1302,31 @@ class AuthManager:
             self.refresh_task.cancel()
         self.refresh_task = None
 
+    # Errors that mean the refresh token itself is invalid and retrying won't help.
+    _FATAL_REFRESH_ERRORS = {'NotAuthorizedException', 'InvalidParameterException', 'UserNotFoundException'}
+
     async def _token_refresh_loop(self):
-        """Periodically refreshes the authentication tokens."""
+        """Periodically refreshes the authentication tokens.
+
+        Designed to run for the entire lifetime of the app.  Transient failures
+        (network errors, throttling) are retried with exponential backoff.
+        Only truly fatal errors (token revoked, user deleted) break the loop.
+        """
+        consecutive_failures = 0
+        normal_interval = 2700  # 45 minutes — well within the 60-min access token lifetime
+
         while True:
             try:
-                # Wait for 45 minutes (2700 seconds) before refreshing.
-                # Access tokens typically expire in 60 minutes.
-                await asyncio.sleep(2700)
+                # On success we wait the full interval; on failure we back off
+                if consecutive_failures == 0:
+                    await asyncio.sleep(normal_interval)
+                else:
+                    backoff = min(60 * (2 ** (consecutive_failures - 1)), 1800)  # cap at 30 min
+                    logger.info(
+                        f"AuthManager: Refresh retry backoff {backoff}s "
+                        f"(consecutive failures: {consecutive_failures})"
+                    )
+                    await asyncio.sleep(backoff)
 
                 if not self.signed_in or not self.tokens:
                     logger.info("AuthManager: User not signed in, stopping refresh loop.")
@@ -1296,20 +1341,35 @@ class AuthManager:
                 result = self.cognito_service.refresh_tokens(refresh_token)
 
                 if result['success']:
-                    # Update the tokens with the new ones.
                     self.tokens.update(result['data'])
+                    consecutive_failures = 0
                     logger.info("AuthManager: Tokens refreshed successfully.")
                 else:
-                    logger.error(f"AuthManager: Failed to refresh tokens: {result['error']}. User may need to log in again.")
-                    # If refresh fails (e.g., token revoked), stop the loop.
-                    self.signed_in = False
-                    break
+                    error_code = result.get('error', '')
+                    consecutive_failures += 1
+                    logger.error(
+                        f"AuthManager: Token refresh failed ({error_code}), "
+                        f"consecutive failures: {consecutive_failures}"
+                    )
+
+                    # Fatal: the refresh token itself is revoked/invalid — stop the loop
+                    if error_code in self._FATAL_REFRESH_ERRORS:
+                        logger.error(
+                            f"AuthManager: Fatal refresh error ({error_code}). "
+                            "User must re-login."
+                        )
+                        self.signed_in = False
+                        break
+
+                    # Transient: keep retrying (the backoff at the top of the loop handles delay)
 
             except asyncio.CancelledError:
                 logger.info("AuthManager: Token refresh task was cancelled (normal during logout).")
                 break
             except Exception as e:
-                logger.error(f"AuthManager: An error occurred in the token refresh loop: {e}")
-                # Wait a bit before retrying to avoid spamming on persistent errors.
-                await asyncio.sleep(60)
+                consecutive_failures += 1
+                logger.error(
+                    f"AuthManager: Unexpected error in token refresh loop: {e} "
+                    f"(consecutive failures: {consecutive_failures})"
+                )
 
