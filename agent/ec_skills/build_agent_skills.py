@@ -332,6 +332,26 @@ def create_skill_from_resource(
                 sk.id = _generate_stable_id(sk.name, sk.source)
             except Exception:
                 pass
+        else:
+            # For UI skills loaded from appdata, preserve the DB id so that
+            # agent_task_skill_rels (and other FK references) survive restarts.
+            try:
+                _mw = mainwin
+                if _mw is None:
+                    from utils.path_manager import PathManager as _PM
+                    _mw = _PM.get_main_window()
+                _db_mgr = getattr(_mw, 'ec_db_mgr', None) if _mw else None
+                _sk_svc = getattr(_db_mgr, 'skill_service', None) if _db_mgr else None
+                if _sk_svc:
+                    _hits = _sk_svc.search_skills(name=sk.name)
+                    _exact = [h for h in (_hits or []) if h.get('name') == sk.name]
+                    _match = _exact[0] if _exact else (_hits[0] if _hits else None)
+                    if _match:
+                        _db_id = _match.get('id', '')
+                        if _db_id:
+                            sk.id = _db_id
+            except Exception:
+                pass
 
         logger.info(f"[create_skill_from_resource] ✅ Created skill '{sk.name}' from {skill_folder.name}")
         return sk
