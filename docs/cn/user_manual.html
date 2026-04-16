@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>eCan.ai 用户手册 v0.7</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg2: #161b27;
+      --bg3: #1e2535;
+      --border: #2a3348;
+      --accent: #4f8ef7;
+      --accent2: #7c3aed;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --code-bg: #1a2236;
+      --tag-bg: #1e3a5f;
+      --warn: #f59e0b;
+      --success: #10b981;
+      --sidebar-w: 260px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.8;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── 侧边栏 ─────────────────────────────────────────────── */
+    #sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: var(--sidebar-w);
+      height: 100vh;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+    }
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .sidebar-logo {
+      padding: 20px 20px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sidebar-logo span { font-size: 0.75rem; color: var(--text3); }
+    nav { padding: 12px 0 24px; flex: 1; }
+    nav a {
+      display: block;
+      padding: 6px 20px;
+      font-size: 0.83rem;
+      color: var(--text2);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    nav a:hover, nav a.active {
+      color: var(--accent);
+      background: rgba(79, 142, 247, 0.07);
+      border-left-color: var(--accent);
+    }
+    nav .section-head {
+      padding: 14px 20px 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text3);
+    }
+    .lang-switch {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--text3);
+    }
+    .lang-switch a { color: var(--accent); text-decoration: none; }
+    .lang-switch a:hover { text-decoration: underline; }
+
+    /* ── 主内容 ────────────────────────────────────────────── */
+    main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      max-width: 900px;
+      padding: 48px 56px;
+    }
+
+    /* ── 顶部 Hero ─────────────────────────────────────────── */
+    .hero {
+      background: linear-gradient(135deg, var(--bg3) 0%, #1a1e30 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 44px;
+      margin-bottom: 48px;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(79,142,247,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(79,142,247,0.3);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    .hero h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p { color: var(--text2); font-size: 1.05rem; max-width: 600px; }
+    .hero-meta {
+      margin-top: 20px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .hero-meta span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--text3);
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block; }
+
+    /* ── 排版 ──────────────────────────────────────────────── */
+    section { margin-bottom: 56px; }
+    h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 24px;
+    }
+    h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 28px 0 12px;
+      scroll-margin-top: 24px;
+    }
+    h4 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text2);
+      margin: 18px 0 8px;
+    }
+    p { color: var(--text2); margin-bottom: 14px; }
+    ul, ol { color: var(--text2); padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+    strong { color: var(--text); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── 卡片 ─────────────────────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--accent); }
+    .card-icon { font-size: 1.6rem; margin-bottom: 10px; }
+    .card h4 { color: var(--text); margin: 0 0 6px; font-size: 0.92rem; }
+    .card p { margin: 0; font-size: 0.82rem; line-height: 1.5; }
+
+    /* ── 代码 ─────────────────────────────────────────────── */
+    code {
+      background: var(--code-bg);
+      color: #93c5fd;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+      font-size: 0.85em;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      overflow-x: auto;
+      margin: 16px 0;
+      font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+      font-size: 0.84rem;
+      line-height: 1.6;
+      color: #cbd5e1;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+
+    /* ── 表格 ─────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th {
+      background: var(--bg3);
+      color: var(--text);
+      font-weight: 600;
+      padding: 10px 14px;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+    td {
+      padding: 9px 14px;
+      border: 1px solid var(--border);
+      color: var(--text2);
+      vertical-align: top;
+    }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+
+    /* ── 提示框 ───────────────────────────────────────────── */
+    .callout {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin: 18px 0;
+      font-size: 0.88rem;
+      border-left: 3px solid;
+      color: var(--text2);
+    }
+    .callout.info { background: rgba(79,142,247,0.08); border-color: var(--accent); }
+    .callout.warn { background: rgba(245,158,11,0.08); border-color: var(--warn); }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .callout.info strong { color: var(--accent); }
+    .callout.warn strong { color: var(--warn); }
+
+    /* ── 步骤 ─────────────────────────────────────────────── */
+    .steps { margin: 16px 0; }
+    .step { display: flex; gap: 16px; margin-bottom: 20px; }
+    .step-num {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 2px;
+    }
+    .step-body h4 { margin-top: 0; color: var(--text); }
+
+    /* ── 平台网格 ─────────────────────────────────────────── */
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .platform-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+      font-size: 0.82rem;
+    }
+    .platform-card .picon { font-size: 1.8rem; margin-bottom: 6px; }
+    .platform-card strong { display: block; color: var(--text); margin-bottom: 2px; }
+    .platform-card span { color: var(--text3); font-size: 0.75rem; }
+
+    /* ── 节点列表 ─────────────────────────────────────────── */
+    .node-list { margin: 16px 0; }
+    .node-item {
+      display: flex;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .node-item:last-child { border-bottom: none; }
+    .node-tag {
+      flex-shrink: 0;
+      background: var(--tag-bg);
+      color: var(--accent);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      height: fit-content;
+    }
+    .node-body strong { color: var(--text); font-size: 0.88rem; display: block; margin-bottom: 3px; }
+    .node-body p { margin: 0; font-size: 0.82rem; }
+
+    /* ── 文档链接 ─────────────────────────────────────────── */
+    .doc-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--accent);
+      text-decoration: none;
+      margin: 4px 4px 4px 0;
+      transition: border-color 0.15s;
+    }
+    .doc-link:hover { border-color: var(--accent); text-decoration: none; }
+    .doc-link::before { content: "📄"; font-size: 0.9rem; }
+
+    /* ── 快捷键 ───────────────────────────────────────────── */
+    .shortcut-list {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px 20px;
+      margin: 12px 0;
+      font-size: 0.85rem;
+    }
+    .shortcut-list kbd {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .shortcut-list span { color: var(--text2); align-self: center; }
+
+    /* ── 移动端 ───────────────────────────────────────────── */
+    #menu-toggle { display: none; }
+    @media (max-width: 768px) {
+      #sidebar { transform: translateX(-100%); transition: transform 0.25s; }
+      #sidebar.open { transform: translateX(0); }
+      main { margin-left: 0; padding: 24px 20px; }
+      #menu-toggle {
+        display: flex;
+        position: fixed;
+        top: 14px; right: 16px;
+        z-index: 200;
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 1rem;
+      }
+    }
+
+    /* ── 页脚 ─────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 0 0;
+      margin-top: 40px;
+      color: var(--text3);
+      font-size: 0.78rem;
+    }
+    footer a { color: var(--text3); }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<button id="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+
+<!-- ══ 侧边栏 ════════════════════════════════════════════════════ -->
+<aside id="sidebar">
+  <div class="sidebar-logo">
+    <h2>eCan.ai</h2>
+    <span>用户手册 · v0.7</span>
+  </div>
+  <nav>
+    <div class="section-head">快速入门</div>
+    <a href="#intro">什么是 eCan.ai？</a>
+    <a href="#concepts">核心概念</a>
+    <a href="#install">安装</a>
+    <a href="#quickstart">快速开始</a>
+
+    <div class="section-head">功能</div>
+    <a href="#agents">智能体与任务</a>
+    <a href="#skill-editor">技能编辑器</a>
+    <a href="#nodes">节点参考</a>
+    <a href="#browser">浏览器自动化</a>
+    <a href="#ocr">OCR 服务</a>
+    <a href="#mcp">MCP 工具</a>
+    <a href="#channels">多渠道集成</a>
+    <a href="#avatar">头像系统</a>
+
+    <div class="section-head">运维</div>
+    <a href="#cli">CLI 命令行</a>
+    <a href="#deployment">服务器部署</a>
+    <a href="#proxy">代理管理</a>
+    <a href="#settings">设置与环境变量</a>
+
+    <div class="section-head">参考</div>
+    <a href="#shortcuts">键盘快捷键</a>
+    <a href="#faq">常见问题</a>
+    <a href="#docs-index">全部文档</a>
+  </nav>
+  <div class="lang-switch">🌐 语言：<strong>中文</strong> · <a href="../user_manual.html">English</a></div>
+</aside>
+
+<!-- ══ 主内容 ═══════════════════════════════════════════════════ -->
+<main>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">v0.7.0 · 2026年4月</div>
+    <h1>eCan.ai 用户手册</h1>
+    <p>AI 原生、隐私优先的跨平台电商智能体平台 — 在 Windows、macOS、Linux 和 Web 上用 AI 智能体运营您的电商业务。</p>
+    <div class="hero-meta">
+      <span><span class="dot"></span> 跨平台</span>
+      <span><span class="dot"></span> 多渠道</span>
+      <span><span class="dot"></span> 可视化工作流编辑器</span>
+      <span><span class="dot"></span> 隐私优先</span>
+    </div>
+  </div>
+
+  <!-- ── 简介 ────────────────────────────────────────────────── -->
+  <section id="intro">
+    <h2>什么是 eCan.ai？</h2>
+    <p>eCan.ai（电商智能体网络，E-Commerce Agent Network）是一个 AI 原生平台，让电商卖家能够用 AI 智能体自动化业务的每个环节——从商品采购到销售、从营销调研到广告投放、从法律咨询到客户服务——最大程度减少人工干预。</p>
+    <p>智能体运行在<strong>载体</strong>（host computer，即主机）上，通过局域网或广域网相互连接。一台电脑充当指挥节点，其他电脑作为承载智能体的载体节点。参谋设备（PC、手机或平板）可通过互联网远程监控和指挥整个智能体网络。</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-icon">🤖</div>
+        <h4>网络化智能体</h4>
+        <p>在多台机器上部署智能体，每个智能体通过 LangGraph 工作流独立执行任务。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎨</div>
+        <h4>可视化技能编辑器</h4>
+        <p>拖拽式流程图画布，构建 LangGraph 工作流，无需编写繁杂样板代码。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌐</div>
+        <h4>多渠道集成</h4>
+        <p>支持 Telegram、Slack、Discord、WhatsApp、钉钉、Messenger、X 及内置网页聊天。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔒</div>
+        <h4>隐私优先</h4>
+        <p>支持本地部署大模型（Ollama、Qwen），您的数据无需离开您的基础设施。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🖥️</div>
+        <h4>浏览器自动化</h4>
+        <p>集成 Playwright、Selenium、Browser-use 和 Crawl4ai，轻松处理任何网站、验证码及指纹浏览器。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👁️</div>
+        <h4>视觉识别 / OCR</h4>
+        <p>eCanOCR 融合 Tesseract + PaddleOCR，实现精准的屏幕文字识别和 CV 引导的自动化操作。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 核心概念 ───────────────────────────────────────────── -->
+  <section id="concepts">
+    <h2>核心概念</h2>
+
+    <h3>智能体（Agent）</h3>
+    <p><strong>智能体</strong>是 eCan.ai 中的核心执行者。每个智能体有名称、头像及一组可执行的任务。智能体运行在载体（主机）上，通过渠道与人类或其他智能体进行通信。</p>
+
+    <h3>任务（Task）与技能（Skill）</h3>
+    <p><strong>任务</strong>是分配给智能体的具体工作（例如"每天监控商品价格"）。每个任务都需要一个<strong>技能</strong>——一个基于 LangGraph 的工作流，描述<em>如何</em>完成这项工作。技能可以在技能编辑器中可视化构建，也可以直接用 Python 编写。</p>
+    <p>任务可以由人工命令触发、按一次性计划执行，或按周期性计划执行（例如每天 08:00）。</p>
+
+    <h3>载体（Vehicle）</h3>
+    <p><strong>载体</strong>是承载一个或多个智能体的任何计算机（桌面电脑、服务器、虚拟机）。载体加入 eCan.ai 网络后，从指挥节点接收任务分配。</p>
+
+    <h3>技能（Skill）</h3>
+    <p>技能存储在 <code>$SKILL_ROOT/my_skills/</code> 目录下。图形化表示存放在 <code>diagram_dir</code> 子目录；直接编写的 LangGraph 技能存放在 <code>code_dir</code>。两者可以共存，并可相互转换。</p>
+  </section>
+
+  <!-- ── 安装 ────────────────────────────────────────────────── -->
+  <section id="install">
+    <h2>安装</h2>
+
+    <h3>桌面客户端（Windows / macOS）</h3>
+    <p>从 <a href="https://www.ecan.ai/download">ecan.ai/download</a> 下载最新安装包。安装程序内置了 Python、所有依赖项及 Chromium 浏览器，无需单独安装 Python。</p>
+    <p>安装完成后，从应用程序目录或开始菜单启动 <strong>eCan.ai</strong>。首次启动时会提示创建账户或登录。</p>
+
+    <h3>无界面服务器模式（Linux / Ubuntu）</h3>
+    <p>对于无 GUI 的服务器部署，eCan.ai 以 <strong>Web 模式</strong>运行——一个通过 WebSocket/REST 接口交互的后端服务器。</p>
+
+    <div class="callout info">
+      <strong>系统要求</strong>
+      Ubuntu 20.04 LTS 或更新版本 · Python 3.10+（推荐 3.12+）· 4 GB RAM（推荐 8 GB）· 20 GB 磁盘空间
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>安装系统依赖</h4>
+          <pre><code>sudo apt-get update
+sudo apt-get install -y python3 python3-venv python3-pip \
+    libpq-dev gcc libffi-dev tesseract-ocr poppler-utils git</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>克隆仓库并运行部署脚本</h4>
+          <pre><code>git clone &lt;仓库地址&gt; eCan.ai &amp;&amp; cd eCan.ai
+chmod +x scripts/deploy-ubuntu.sh
+./scripts/deploy-ubuntu.sh setup</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>配置 API 密钥</h4>
+          <pre><code># 编辑 .env.web，填入您的大模型提供商密钥：
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+DASHSCOPE_API_KEY=...   # 通义千问 / 阿里云</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>启动服务器</h4>
+          <pre><code>./scripts/deploy-ubuntu.sh start
+# 验证：curl http://localhost:8765/health</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <a class="doc-link" href="../DEPLOYMENT_UBUNTU.md" target="_blank">DEPLOYMENT_UBUNTU.md — Ubuntu 完整部署指南</a>
+    <a class="doc-link" href="../WEB_DEPLOYMENT.md" target="_blank">WEB_DEPLOYMENT.md — Web/Docker 部署架构</a>
+  </section>
+
+  <!-- ── 快速开始 ───────────────────────────────────────────── -->
+  <section id="quickstart">
+    <h2>快速开始</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>创建智能体</h4>
+          <p>在侧边栏点击 <strong>智能体 → 新建智能体</strong>，为其命名，并可选择上传头像图片或视频。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>构建或加载技能</h4>
+          <p>打开 <strong>技能 → 技能编辑器</strong>，将节点拖拽到画布并连接，然后点击<strong>保存</strong>。也可以加载内置的示例技能。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>创建任务</h4>
+          <p>进入 <strong>任务 → 新建任务</strong>，选择智能体、选择技能、设置触发方式（手动、计划或事件触发），然后保存。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>运行并对话</h4>
+          <p>点击任务卡片上的<strong>运行</strong>，智能体开始执行技能。在内置网页聊天面板中与智能体对话（或通过任意已连接的渠道）。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 智能体与任务 ───────────────────────────────────────── -->
+  <section id="agents">
+    <h2>智能体与任务</h2>
+
+    <h3>管理智能体</h3>
+    <p>每个智能体有名称、描述、头像及默认任务分配。您可以创建多个智能体，并将其分配到网络中的不同载体（机器）上。</p>
+
+    <h3>任务触发方式</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>触发类型</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><strong>手动</strong></td><td>点击"运行"后立即执行</td></tr>
+          <tr><td><strong>一次性计划</strong></td><td>在指定日期和时间运行一次</td></tr>
+          <tr><td><strong>周期性计划</strong></td><td>类 Cron 的周期执行（如每天 08:00）</td></tr>
+          <tr><td><strong>事件触发</strong></td><td>由传入消息、Webhook 或系统事件触发</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>多智能体 · 多任务</h3>
+    <p>多个智能体可以同时运行，每个智能体在独立线程中并行处理不同任务。智能体之间通过 <strong>A2A 协议</strong>（Agent-to-Agent）进行通信——这是一个正在成为业界标准的开放式智能体间通信协议。</p>
+  </section>
+
+  <!-- ── 技能编辑器 ─────────────────────────────────────────── -->
+  <section id="skill-editor">
+    <h2>技能编辑器</h2>
+    <p>技能编辑器是构建 LangGraph 工作流的可视化 IDE。它使用流程图画布，您可以在其中放置并连接节点来描述智能体的行为逻辑。</p>
+
+    <a class="doc-link" href="../../gui_v2/src/modules/skill-editor/doc/skill_editor_help.md" target="_blank">skill_editor_help.md — 技能编辑器完整指南</a>
+    <a class="doc-link" href="../mapping-dsl.md" target="_blank">mapping-dsl.md — 数据映射 DSL 参考</a>
+    <a class="doc-link" href="../prompt-variable-resolution.md" target="_blank">prompt-variable-resolution.md — Prompt 变量系统</a>
+
+    <h3>画布基础操作</h3>
+
+    <h4>添加节点</h4>
+    <p>在画布空白处<strong>右键</strong>（或点击工具栏中的节点图标）打开节点选择菜单。选择节点类型后，点击画布上的目标位置放置节点。双击节点可打开其配置面板。</p>
+
+    <h4>连接节点</h4>
+    <p>从节点的<strong>输出端口</strong>拖拽到另一节点的<strong>输入端口</strong>，即可绘制一条边。将边的端点拖到空白处可删除该边；拖到其他输入端口可重新路由。</p>
+
+    <h4>画布导航</h4>
+    <ul>
+      <li><strong>平移：</strong>按住鼠标中键拖动，或在小地图中拖动视口。</li>
+      <li><strong>缩放：</strong><kbd>Ctrl</kbd> + 鼠标滚轮。</li>
+      <li><strong>多选：</strong>按住 <kbd>Shift</kbd>，拖拽选择矩形框住多个节点。</li>
+    </ul>
+
+    <h3>多页签工作流</h3>
+    <p>复杂的工作流可以拆分到多个<strong>页签</strong>（Sheet，即画布）上。使用右上角的页签菜单（图层图标）来添加、删除或重命名页签。</p>
+
+    <div class="callout info">
+      <strong>重要命名约定</strong>
+      包含工作流入口 <em>Start</em> 节点的页签必须命名为 <strong>main</strong>。其他页签通过 <code>sheet-call</code> 节点调用。
+    </div>
+
+    <h4>跨页签引用</h4>
+    <p>调用另一个页签的逻辑：</p>
+    <ol>
+      <li>在被调用页签上添加 <code>sheet-inputs</code> 节点（声明输入名称）和 <code>sheet-outputs</code> 节点（声明输出名称）。</li>
+      <li>在调用方页签上插入 <code>sheet-call</code> 节点，从下拉框中选择目标页签。</li>
+      <li>在侧边栏中将每个输入/输出映射到常量或本地节点端口。</li>
+    </ol>
+    <p>多页签工作流会保存为一个 <code>-bundle.json</code> 伴生文件。</p>
+
+    <h3>数据流转 — 映射 DSL</h3>
+    <p>节点之间通过共享的<em>节点状态</em>对象交换数据。由于每个工作流的状态结构各不相同，eCan.ai 使用基于 JSON 的<strong>映射 DSL</strong>来描述数据在节点间以及外部事件与节点状态之间的流转方式。</p>
+    <p>当工作流中断后需要恢复时（例如等待人工输入或定时器到期），相同的 DSL 也用于处理恢复载荷（resume payload）。</p>
+    <a class="doc-link" href="../mapping-dsl.md" target="_blank">mapping-dsl.md — 映射 DSL 完整参考</a>
+
+    <h3>保存与加载</h3>
+    <ul>
+      <li>在编辑器中创建的技能保存在 <code>$SKILL_ROOT/my_skills/diagram_dir/</code> 下。</li>
+      <li>手写的 LangGraph 技能存放在 <code>code_dir/</code> 下。</li>
+      <li>数据映射 JSON 文件与这两个目录并列存放。</li>
+      <li>如需将 Python 编写的 LangGraph 技能可视化，调用 <code>langgraph2flowgram()</code> 生成流程图文件后即可在编辑器中查看和调试。</li>
+    </ul>
+
+    <h3>运行与调试</h3>
+    <p>调试技能时，它作为特殊的<em>开发任务</em>在测试智能体下运行。如果您的工作流涉及聊天，测试消息需以 <code>dev&gt;</code> 前缀开头，以路由到测试智能体。</p>
+
+    <h4>断点</h4>
+    <p>打开节点右上角菜单，切换断点开关。执行到断点时，流程在该节点<em>执行前</em>暂停。您可以检查和修改节点状态，然后继续运行。</p>
+
+    <h4>受控执行</h4>
+    <p>使用工具栏控制按钮：<strong>暂停 · 单步 · 继续 · 停止</strong>。当前正在执行的节点会显示运行动画。</p>
+
+    <h3>测试运行</h3>
+    <p>点击<strong>测试运行</strong>，在隔离环境中执行工作流。在输入面板中提供 JSON 输入；在输出面板中查看每个节点的输出及最终 End 节点的结果。</p>
+
+    <h3>版本控制</h3>
+    <ul>
+      <li><strong>eCan.ai 云端（付费）：</strong>在 eCan.ai 的 Git 仓库中对技能进行版本管理，并可选择将技能商业化。</li>
+      <li><strong>本地 Git：</strong>技能文件是纯 JSON 格式，直接在技能目录下 <code>git init</code> 即可。</li>
+    </ul>
+  </section>
+
+  <!-- ── 节点参考 ───────────────────────────────────────────── -->
+  <section id="nodes">
+    <h2>节点参考</h2>
+    <div class="node-list">
+      <div class="node-item">
+        <div class="node-tag">Start / End</div>
+        <div class="node-body">
+          <strong>开始 / 结束节点</strong>
+          <p>Start 节点输出初始状态值；End 节点收集并展示工作流的最终输出结果。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Code</div>
+        <div class="node-body">
+          <strong>代码节点</strong>
+          <p>内置 Monaco 编辑器，支持 Python、JavaScript 和 TypeScript。可切换语言、重置为模板代码或从磁盘加载文件。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">LLM</div>
+        <div class="node-body">
+          <strong>大模型节点</strong>
+          <p>调用语言模型。从下拉框选择提供商和模型。约定：始终要求 LLM 返回结构化 JSON：<code>{"message": "...", "meta_data": {...}}</code>——这会让节点间数据传递更加便捷。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">HTTP</div>
+        <div class="node-body">
+          <strong>HTTP 节点</strong>
+          <p>配置出站 HTTP 请求（方法、URL、请求头、参数、请求体、超时、API 密钥）。响应存储在节点状态的 <code>http_response</code> 字段中。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Condition</div>
+        <div class="node-body">
+          <strong>条件节点</strong>
+          <p>根据对节点状态求值的谓词，将执行流路由到不同分支。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Loop</div>
+        <div class="node-body">
+          <strong>循环节点</strong>
+          <p>遍历节点状态中的数组，对每个元素执行嵌套的逻辑块。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Group</div>
+        <div class="node-body">
+          <strong>分组节点</strong>
+          <p>将相关节点进行视觉分组，提升工作流可读性。不影响执行逻辑。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">MCP Tool Call</div>
+        <div class="node-body">
+          <strong>MCP 工具调用节点</strong>
+          <p>调用 MCP（模型上下文协议）工具。输入需存放在节点状态的 <code>tool_input</code> 字段中。原始结果（<code>TextContent</code>、<code>ImageContent</code> 或 <code>AudioContent</code>）存储在 <code>tool_result</code> 字段中。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Pend For Event</div>
+        <div class="node-body">
+          <strong>等待事件节点</strong>
+          <p>暂停工作流，直到特定事件到达（人工消息、定时器到期、Webhook、SSE 推送等）。<code>i_tag</code> 将中断点与正确的恢复位置绑定。典型用途：人机协作、异步 API 回调、发布/订阅事件。</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Sheet Call</div>
+        <div class="node-body">
+          <strong>页签调用节点</strong>
+          <p>调用同一项目中另一个页签上定义的工作流，传入映射的输入并接收映射的输出。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 浏览器自动化 ───────────────────────────────────────── -->
+  <section id="browser">
+    <h2>浏览器自动化</h2>
+    <p>eCan.ai 集成了多个先进的网页自动化库，能够处理从常规爬取到在反爬电商网站上执行复杂多步骤操作的各类场景。</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>库</th><th>最适合场景</th><th>集成方式</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Browser-use</strong></td><td>基于自然语言指令的 AI 驱动浏览</td><td>可作为 LangGraph 节点调用</td></tr>
+          <tr><td><strong>Crawl4ai</strong></td><td>快速、AI 就绪的网页抓取</td><td>可作为 LangGraph 节点调用</td></tr>
+          <tr><td><strong>Playwright</strong></td><td>现代无头浏览器自动化</td><td>浏览器内 MCP 工具（点击、输入、滚动、等待、脚本）</td></tr>
+          <tr><td><strong>Selenium / ChromeDriver</strong></td><td>指纹浏览器（AdsPower 等）</td><td>Selenium MCP 工具（点击、输入、滚动、键盘）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>计算机视觉引导操作</h3>
+    <p>当浏览器内自动化不够用时（弹窗、验证码、非标准 UI），eCan.ai 的 <strong>eCanOCR</strong> 服务提供屏幕理解和 CV 引导的鼠标/键盘操作——让您完全掌控任何桌面窗口或浏览器。</p>
+
+    <a class="doc-link" href="../eCanMCP.md" target="_blank">eCanMCP.md — MCP 工具完整参考</a>
+    <a class="doc-link" href="../BROWSER_EVENT_MONITOR.md" target="_blank">BROWSER_EVENT_MONITOR.md — 浏览器事件监控</a>
+  </section>
+
+  <!-- ── OCR ──────────────────────────────────────────────────── -->
+  <section id="ocr">
+    <h2>OCR 服务（eCanOCR）</h2>
+    <p>eCanOCR 是一个将屏幕图像转换为结构化文本的 API 服务。它融合了 <strong>Tesseract</strong> 的速度与改进版 <strong>PaddleOCR</strong> 引擎的高精度，自动将原始 OCR 输出重组为层级化的段落、行和词语。</p>
+
+    <h3>核心能力</h3>
+    <ul>
+      <li>图像转文本，含段落和行分割</li>
+      <li>图标识别（需配置图标模板）</li>
+      <li>基于锚点的内容提取——在页面上定义关键地标，精确定位动态内容</li>
+      <li>表格、日历和边界框区域提取</li>
+    </ul>
+
+    <h3>内容技能文件（.csk）</h3>
+    <p><strong>.csk 文件</strong>使用 JSON 指令集描述预期的页面内容。它定义<em>锚点</em>（独特的文本或图标地标）和<em>信息区域</em>（相对于锚点的感兴趣区域）。这使得智能体能够可靠地从重复出现的页面布局中提取结构化数据。</p>
+
+    <a class="doc-link" href="../eCanOCR.md" target="_blank">eCanOCR.md — OCR 服务参考</a>
+  </section>
+
+  <!-- ── MCP 工具 ───────────────────────────────────────────── -->
+  <section id="mcp">
+    <h2>MCP 工具</h2>
+    <p>eCan.ai 提供一套可流式传输的 HTTP MCP 工具，任何集成了 LLM 的工作流均可调用。这些工具分为五个类别：</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-icon">🖱️</div>
+        <h4>鼠标与键盘</h4>
+        <p>单击、双击、右键、拖放、滚动、文字输入、按键。支持按锚点名称或文本进行 CV 引导定位。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👁️</div>
+        <h4>屏幕视觉</h4>
+        <p>屏幕截图、通过 eCanOCR 提取结构化文本、按名称和类型搜索特定元素。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📁</div>
+        <h4>文件与目录</h4>
+        <p>操作系统级文件和目录操作——读取、写入、列出、移动、删除。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌐</div>
+        <h4>浏览器操作</h4>
+        <p>Playwright 和 Selenium 浏览器内工具：点击、输入、滚动、执行脚本、等待元素、键盘组合键。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔌</div>
+        <h4>API 请求</h4>
+        <p>可配置方法、请求头和请求体的通用 HTTP 请求——从工作流中调用任意外部 API。</p>
+      </div>
+    </div>
+
+    <a class="doc-link" href="../eCanMCP.md" target="_blank">eCanMCP.md — MCP 工具语法完整参考</a>
+    <a class="doc-link" href="../MULTI_TOOL_CALLS.md" target="_blank">MULTI_TOOL_CALLS.md — 串行与并行多工具调用</a>
+  </section>
+
+  <!-- ── 多渠道集成 ─────────────────────────────────────────── -->
+  <section id="channels">
+    <h2>多渠道集成</h2>
+    <p>渠道系统让 eCan.ai 智能体能够接收并回复来自外部消息平台的消息。每个渠道适配器将入站消息规范化为统一格式，路由到智能体处理管道，再将回复发送回原始平台。</p>
+
+    <div class="platform-grid">
+      <div class="platform-card"><div class="picon">💬</div><strong>网页聊天</strong><span>内置（始终激活）</span></div>
+      <div class="platform-card"><div class="picon">✈️</div><strong>Telegram</strong><span>长轮询，无需 Webhook</span></div>
+      <div class="platform-card"><div class="picon">💼</div><strong>Slack</strong><span>Socket 模式（WebSocket）</span></div>
+      <div class="platform-card"><div class="picon">🎮</div><strong>Discord</strong><span>Gateway Bot（WebSocket）</span></div>
+      <div class="platform-card"><div class="picon">📱</div><strong>WhatsApp</strong><span>Cloud API + Webhook*</span></div>
+      <div class="platform-card"><div class="picon">📎</div><strong>钉钉</strong><span>Stream 模式（WebSocket）</span></div>
+      <div class="platform-card"><div class="picon">👤</div><strong>Facebook Messenger</strong><span>Graph API + Webhook*</span></div>
+      <div class="platform-card"><div class="picon">🐦</div><strong>X（Twitter）</strong><span>账号活动 API + Webhook*</span></div>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text3);">* 需要可公开访问的端点（例如通过 ngrok 或反向代理）。</p>
+
+    <h3>快速配置</h3>
+    <p>所有渠道配置位于 <code>agent/agent_files/channels.json</code>。启用渠道、填入凭证，重启 eCan.ai 后渠道管理器会自动启动。</p>
+
+    <pre><code>{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "您的机器人令牌",
+      "allowed_chat_ids": [],
+      "default_agent_id": ""
+    }
+  }
+}</code></pre>
+
+    <p>将 <code>default_agent_id</code> 设置为指定智能体 ID，可将该渠道的消息路由给特定智能体；留空则路由给第一个可用智能体。</p>
+
+    <h3>Telegram 配置步骤</h3>
+    <ol>
+      <li>在 Telegram 上与 <a href="https://t.me/BotFather" target="_blank">@BotFather</a> 对话 → 发送 <code>/newbot</code> → 复制机器人令牌。</li>
+      <li>将令牌填入 <code>channels.json</code> 的 <code>"telegram"</code> 部分。</li>
+      <li>重启 eCan.ai — 机器人立即上线。</li>
+    </ol>
+
+    <h3>Slack 配置步骤</h3>
+    <ol>
+      <li>在 <a href="https://api.slack.com/apps" target="_blank">api.slack.com/apps</a> 创建 Slack 应用。</li>
+      <li>启用 Socket 模式，订阅 <code>message.*</code> 事件。</li>
+      <li>将 <code>bot_token</code> 和 <code>app_token</code> 填入 <code>channels.json</code>。</li>
+      <li>在频道中邀请机器人：<code>/invite @您的机器人名称</code>。</li>
+    </ol>
+
+    <h3>WhatsApp / Messenger / X（Twitter）</h3>
+    <p>这些渠道需要<strong>公开可访问的 Webhook 端点</strong>。开发阶段可使用 ngrok：</p>
+    <pre><code>ngrok http 8443   # WhatsApp
+ngrok http 8444   # Messenger
+ngrok http 8445   # X（Twitter）</code></pre>
+    <p>在各平台的开发者控制台中注册 ngrok URL 为 Webhook 地址，然后在 <code>channels.json</code> 中填入对应凭证。</p>
+
+    <h3>钉钉配置步骤</h3>
+    <ol>
+      <li>在<a href="https://open-dev.dingtalk.com" target="_blank">钉钉开放平台</a>创建机器人应用。</li>
+      <li>启用 Stream 模式，记录 AppKey（client_id）和 AppSecret（client_secret）。</li>
+      <li>将凭证填入 <code>channels.json</code> 的 <code>"dingtalk"</code> 部分。</li>
+      <li>在群聊中 @ 提及机器人，或通过单聊直接与其对话（单聊无需 @）。</li>
+    </ol>
+
+    <a class="doc-link" href="../channels.md" target="_blank">channels.md — 渠道完整配置与故障排查</a>
+  </section>
+
+  <!-- ── 头像系统 ───────────────────────────────────────────── -->
+  <section id="avatar">
+    <h2>头像系统</h2>
+    <p>每个智能体可以设置静态图片头像或动态视频头像。头像文件存储在本地，并在后台自动同步到 AWS S3。</p>
+
+    <h3>支持格式</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>类型</th><th>格式</th><th>展示方式</th></tr></thead>
+        <tbody>
+          <tr><td>图片</td><td>PNG、JPG、GIF、WebP</td><td>静态图片</td></tr>
+          <tr><td>视频</td><td>WebM、MP4、MOV、AVI</td><td>循环播放、静音、自动播放</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>S3 云端同步</h3>
+    <p>上传后，文件先保存到本地，然后在后台线程中上传到 AWS S3，不阻塞界面操作。S3 URL 存入数据库，在智能体数据同步到云端时使用。</p>
+
+    <div class="callout info">
+      <strong>可选：安装 ffmpeg</strong>
+      如果安装了 ffmpeg，视频上传时会自动提取首帧作为封面图。未安装 ffmpeg 时，视频仍可正常使用，只是不会显示封面图。
+    </div>
+
+    <a class="doc-link" href="../AVATAR_GUIDE.md" target="_blank">AVATAR_GUIDE.md — 头像系统参考</a>
+    <a class="doc-link" href="../S3_SETUP.md" target="_blank">S3_SETUP.md — S3 配置指南</a>
+  </section>
+
+  <!-- ── CLI ──────────────────────────────────────────────────── -->
+  <section id="cli">
+    <h2>CLI 命令行参考</h2>
+    <p>eCan.ai CLI 在无界面模式下提供对服务器和所有资源的完整控制，无需 GUI。</p>
+
+    <pre><code>python ecan_cli.py --help          # 全局帮助
+python ecan_cli.py version         # 显示版本
+python ecan_cli.py status          # 系统状态</code></pre>
+
+    <h3>身份验证</h3>
+    <pre><code>python ecan_cli.py auth login -u 用户名 -p 密码
+python ecan_cli.py auth status
+python ecan_cli.py auth logout</code></pre>
+
+    <h3>资源命令</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>资源</th><th>子命令</th></tr></thead>
+        <tbody>
+          <tr><td><strong>agents（智能体）</strong></td><td>list · get · add · update · remove · run · stop · monitor</td></tr>
+          <tr><td><strong>tasks（任务）</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>skills（技能）</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>vehicles（载体）</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>knowledge（知识库）</strong></td><td>list · get</td></tr>
+          <tr><td><strong>prompts（提示词）</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>tools（工具）</strong></td><td>list · get</td></tr>
+          <tr><td><strong>settings（设置）</strong></td><td>show · set · reset</td></tr>
+          <tr><td><strong>server（服务器）</strong></td><td>start · stop · restart · status · logs</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>服务器管理</h3>
+    <pre><code>python ecan_cli.py server start                        # 后台启动
+python ecan_cli.py server start --host 0.0.0.0 --port 8080
+python ecan_cli.py server start --foreground           # 前台运行（调试用）
+python ecan_cli.py server logs --follow                # 跟踪日志
+python ecan_cli.py server stop</code></pre>
+
+    <h3>输出格式</h3>
+    <p>大多数列表命令支持 <code>--output table</code>（默认）和 <code>--output json</code>（用于脚本化处理）：</p>
+    <pre><code>python ecan_cli.py agents list --output json | jq '.agents[0].name'</code></pre>
+
+    <a class="doc-link" href="../CLI_GUIDE.md" target="_blank">CLI_GUIDE.md — CLI 完整参考</a>
+  </section>
+
+  <!-- ── 服务器部署 ─────────────────────────────────────────── -->
+  <section id="deployment">
+    <h2>服务器部署</h2>
+
+    <h3>环境变量</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>变量</th><th>默认值</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>ECAN_MODE</code></td><td><code>web</code></td><td>无界面模式下必须设为 <code>web</code></td></tr>
+          <tr><td><code>ECAN_WS_HOST</code></td><td><code>0.0.0.0</code></td><td>WebSocket 绑定地址</td></tr>
+          <tr><td><code>ECAN_WS_PORT</code></td><td><code>8765</code></td><td>WebSocket 端口</td></tr>
+          <tr><td><code>ECAN_LOG_LEVEL</code></td><td><code>INFO</code></td><td>DEBUG / INFO / WARNING / ERROR</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Docker 部署</h3>
+    <pre><code>docker-compose -f docker-compose.web.yml up -d
+docker-compose -f docker-compose.web.yml logs -f</code></pre>
+
+    <h3>Nginx 反向代理（生产环境）</h3>
+    <pre><code>server {
+    listen 80;
+    server_name your-domain.com;
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+}</code></pre>
+
+    <h3>Systemd 服务（生产环境）</h3>
+    <pre><code>[Unit]
+Description=eCan.ai Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/eCan.ai
+EnvironmentFile=/opt/eCan.ai/.env.web
+ExecStart=/opt/eCan.ai/venv/bin/python -m uvicorn web_server:app \
+          --host 127.0.0.1 --port 8765
+Restart=always
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+    <h3>Web 模式限制</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>功能</th><th>桌面模式</th><th>Web / 无界面模式</th></tr></thead>
+        <tbody>
+          <tr><td>文件对话框</td><td>✅</td><td>❌（使用文件路径代替）</td></tr>
+          <tr><td>屏幕截图</td><td>✅</td><td>❌</td></tr>
+          <tr><td>桌面自动化</td><td>✅</td><td>❌</td></tr>
+          <tr><td>原生通知</td><td>✅</td><td>❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <a class="doc-link" href="../DEPLOYMENT_UBUNTU.md" target="_blank">DEPLOYMENT_UBUNTU.md — Ubuntu 部署指南</a>
+    <a class="doc-link" href="../WEB_DEPLOYMENT.md" target="_blank">WEB_DEPLOYMENT.md — Web/Docker 部署架构</a>
+  </section>
+
+  <!-- ── 代理管理 ───────────────────────────────────────────── -->
+  <section id="proxy">
+    <h2>代理管理</h2>
+    <p>eCan.ai 内置代理管理系统，支持通过 HTTP/SOCKS 代理路由浏览器自动化流量——这对于需要 IP 轮换或地理位置访问的电商工作流至关重要。</p>
+    <p>代理可以按智能体或按任务进行配置，自动应用于 Playwright、Selenium 及 HTTP 请求节点。</p>
+    <a class="doc-link" href="../PROXY_MANAGEMENT_SYSTEM.md" target="_blank">PROXY_MANAGEMENT_SYSTEM.md — 代理管理完整参考</a>
+  </section>
+
+  <!-- ── 设置 ──────────────────────────────────────────────── -->
+  <section id="settings">
+    <h2>设置与 API 密钥</h2>
+
+    <h3>大模型提供商</h3>
+    <p>为您希望使用的大模型提供商添加 API 密钥。密钥存储在 <code>.env</code>（桌面模式）或 <code>.env.web</code>（服务器模式）中。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>提供商</th><th>环境变量</th></tr></thead>
+        <tbody>
+          <tr><td>OpenAI（GPT-4o、o1 等）</td><td><code>OPENAI_API_KEY</code></td></tr>
+          <tr><td>Anthropic（Claude）</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+          <tr><td>Google（Gemini）</td><td><code>GOOGLE_API_KEY</code></td></tr>
+          <tr><td>阿里云（通义千问 / DashScope）</td><td><code>DASHSCOPE_API_KEY</code></td></tr>
+          <tr><td>本地（Ollama）</td><td>无需密钥——在设置中配置 Base URL 即可</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>应用内设置</h3>
+    <p>从侧边栏打开<strong>设置</strong>，可配置大模型默认选项、浏览器自动化选项、内存限制、更新偏好等。更改无需重启即可生效。</p>
+  </section>
+
+  <!-- ── 快捷键 ─────────────────────────────────────────────── -->
+  <section id="shortcuts">
+    <h2>键盘快捷键</h2>
+    <h3>技能编辑器</h3>
+    <div class="shortcut-list">
+      <kbd>Ctrl/Cmd + Z</kbd><span>撤销</span>
+      <kbd>Ctrl/Cmd + Y</kbd><span>重做</span>
+      <kbd>Ctrl/Cmd + S</kbd><span>保存工作流</span>
+      <kbd>Ctrl + 滚轮</kbd><span>缩放画布</span>
+      <kbd>鼠标中键</kbd><span>平移画布</span>
+      <kbd>Shift + 拖拽</kbd><span>多选节点</span>
+      <kbd>双击节点</kbd><span>打开节点编辑器</span>
+      <kbd>右键单击画布</kbd><span>添加节点菜单</span>
+    </div>
+
+    <h3>通用快捷键</h3>
+    <div class="shortcut-list">
+      <kbd>Ctrl/Cmd + ,</kbd><span>打开设置</span>
+      <kbd>Ctrl/Cmd + K</kbd><span>命令面板</span>
+      <kbd>Escape</kbd><span>关闭弹窗 / 取消操作</span>
+    </div>
+  </section>
+
+  <!-- ── 常见问题 ───────────────────────────────────────────── -->
+  <section id="faq">
+    <h2>常见问题与故障排查</h2>
+
+    <h3>技能编辑器无法加载</h3>
+    <p>刷新页面，并确保 eCan.ai 后端服务器正在运行。在桌面模式下，检查系统托盘图标——如果显示错误，请重启应用。</p>
+
+    <h3>智能体在渠道上无响应</h3>
+    <ol>
+      <li>确认 <code>channels.json</code> 中已设置 <code>"enabled": true</code>。</li>
+      <li>确保至少有一个智能体有正在运行的任务，且该任务的技能包含聊天节点或<em>等待事件</em>节点。</li>
+      <li>查看应用日志中的 <code>[ChannelBridge]</code> 条目，查找"No agent available"或"dispatch_inbound error"等错误信息。</li>
+      <li>对于 Webhook 类渠道（WhatsApp、Messenger、X）：确认 Webhook URL 可公开访问，且验证令牌与配置一致。</li>
+    </ol>
+
+    <h3>服务器无法启动</h3>
+    <pre><code># 检查端口是否被占用
+netstat -an | grep 8765
+# 或使用不同端口
+./scripts/deploy-ubuntu.sh start -- --port 8080
+# 查看日志
+./scripts/deploy-ubuntu.sh logs</code></pre>
+
+    <h3>LLM 调用失败</h3>
+    <ul>
+      <li>确认 <code>.env</code> / <code>.env.web</code> 中的 API 密钥已正确设置且有效。</li>
+      <li>检查提供商的 Token 配额是否充足。</li>
+      <li>对于本地 Ollama：确认模型已下载（<code>ollama pull &lt;模型名&gt;</code>），且设置中的 Base URL 正确。</li>
+    </ul>
+
+    <h3>浏览器自动化报错</h3>
+    <ul>
+      <li>运行 <code>playwright install chromium --with-deps</code>，确保内置浏览器存在。</li>
+      <li>对于 Selenium 工具：确认 ChromeDriver 版本与已安装的 Chrome/Chromium 版本匹配。</li>
+      <li>在无界面服务器上：屏幕截图和桌面自动化工具不可用——请改用 Playwright 或 Crawl4ai。</li>
+    </ul>
+
+    <h3>如何在代码节点中切换语言？</h3>
+    <p>使用代码节点编辑器面板中 Monaco 编辑器上方的语言下拉框。支持 Python、JavaScript 和 TypeScript。</p>
+  </section>
+
+  <!-- ── 全部文档 ───────────────────────────────────────────── -->
+  <section id="docs-index">
+    <h2>全部文档</h2>
+    <p>各子系统的详细参考文档：</p>
+
+    <h3>用户指南</h3>
+    <a class="doc-link" href="../../gui_v2/src/modules/skill-editor/doc/skill_editor_help.md">技能编辑器帮助</a>
+    <a class="doc-link" href="../channels.md">多渠道集成</a>
+    <a class="doc-link" href="../CLI_GUIDE.md">CLI 命令行参考</a>
+    <a class="doc-link" href="../AVATAR_GUIDE.md">头像系统</a>
+    <a class="doc-link" href="../eCanMCP.md">MCP 工具</a>
+    <a class="doc-link" href="../eCanOCR.md">OCR 服务</a>
+    <a class="doc-link" href="../mapping-dsl.md">映射 DSL</a>
+    <a class="doc-link" href="../prompt-variable-resolution.md">Prompt 变量</a>
+    <a class="doc-link" href="../MULTI_TOOL_CALLS.md">多工具调用</a>
+
+    <h3>部署与运维</h3>
+    <a class="doc-link" href="../DEPLOYMENT_UBUNTU.md">Ubuntu 部署</a>
+    <a class="doc-link" href="../WEB_DEPLOYMENT.md">Web / Docker 部署</a>
+    <a class="doc-link" href="../S3_SETUP.md">S3 头像存储</a>
+    <a class="doc-link" href="../PROXY_MANAGEMENT_SYSTEM.md">代理管理</a>
+    <a class="doc-link" href="../MEMORY_MONITOR.md">内存监控</a>
+    <a class="doc-link" href="../TOKEN_TRACKING_IMPLEMENTATION.md">Token 使用追踪</a>
+    <a class="doc-link" href="../BROWSER_EVENT_MONITOR.md">浏览器事件监控</a>
+
+    <h3>架构与内部设计</h3>
+    <a class="doc-link" href="../ipc-design.md">IPC 架构</a>
+    <a class="doc-link" href="../EVENT_DRIVEN_CHAT_ARCHITECTURE.md">事件驱动聊天</a>
+    <a class="doc-link" href="../build-architecture.md">构建系统</a>
+    <a class="doc-link" href="../OTA_PATH_STRUCTURE.md">OTA 更新路径</a>
+    <a class="doc-link" href="../RELEASE_GUIDE.md">发布指南</a>
+    <a class="doc-link" href="../RELEASE_ENVIRONMENT_CHANNEL_GUIDE.md">发布环境配置</a>
+    <a class="doc-link" href="../frontend-store-architecture-analysis.md">前端 Store 架构</a>
+    <a class="doc-link" href="../PYTHON_314_ASYNCIO_COMPATIBILITY.md">Python 3.14 异步兼容</a>
+  </section>
+
+  <footer>
+    <p>eCan.ai v0.7.0 · <a href="https://www.ecan.ai">www.ecan.ai</a> · 更新于 2026年4月 · <a href="../user_manual.html">English Version</a></p>
+  </footer>
+
+</main>
+
+<script>
+  const links = document.querySelectorAll('nav a');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+
+  document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
