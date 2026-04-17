@@ -643,6 +643,8 @@
       "modelProvider": "Model Provider",
       "model": "Model",
       "cdpPort": "CDP Port",
+      "headless": "Headless Mode",
+      "headlessDesc": "Run browser without visible window (no GUI)",
       "enableJudge": "Enable Judge",
       "enableJudgeDesc": "LLM result validation",
       "useThinking": "Use Thinking",

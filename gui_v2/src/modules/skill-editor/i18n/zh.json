@@ -670,6 +670,8 @@
       "modelProvider": "模型提供商",
       "model": "模型",
       "cdpPort": "CDP 端口",
+      "headless": "无头模式",
+      "headlessDesc": "无窗口运行浏览器（无 GUI）",
       "enableJudge": "启用判断",
       "enableJudgeDesc": "LLM 结果验证",
       "useThinking": "使用思考模式",

@@ -6084,6 +6084,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     if str(_cdp_port_auto_val).lower() in ("true", "1", "yes", "on"):
         cdp_port_setting = "auto"
     
+    # Extract headless mode setting from node editor
+    node_headless = False
+    try:
+        headless_val = (inputs.get("headless") or {}).get("content")
+        node_headless = str(headless_val).lower() in ('true', '1', 'yes', 'on') if headless_val is not None else False
+    except Exception:
+        node_headless = False
+
     # Extract new browser automation options from node editor
     run_environment_setting = ((inputs.get("runEnvironment") or {}).get("content") or "full_local").lower().strip()
     privacy_strategy_setting = ((inputs.get("privacyStrategy") or {}).get("content") or "none").lower().strip()
@@ -6246,7 +6254,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     date_str = datetime.now().strftime("%Y%m%d")
     downloads_path = str(appdata_path / "daily_work" / f"D{date_str}" / shop_name) if shop_name else None
     
-    logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
+    logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}, headless={node_headless}")
     logger.debug(f"[BrowserAutomation] run_environment={run_environment_setting}, privacy_strategy={privacy_strategy_setting}, enable_judge={enable_judge_setting}")
     logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
@@ -8854,6 +8862,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 enable_default_extensions=not disable_extensions,
                 user_data_dir=_bp_user_data_dir,
                 keep_alive=keep_browser_alive or None,
+                headless=node_headless if node_headless else None,
             )
             
             if browser_type_setting == 'new chromium':
