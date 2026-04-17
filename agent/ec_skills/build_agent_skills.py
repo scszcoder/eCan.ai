@@ -1020,6 +1020,10 @@ def _convert_db_skill_to_object(db_skill):
         # The database is treated as metadata storage only (id, name, path, config).
         # ─────────────────────────────────────────────────────────────────────────
         skill_path = (skill_obj.path or "").strip()
+        skill_id = skill_obj.id
+        
+        # Try the DB path first
+        loaded_from_file = False
         if skill_path:
             core_path = Path(skill_path)
             if core_path.exists() and core_path.is_file():
@@ -1027,26 +1031,53 @@ def _convert_db_skill_to_object(db_skill):
                 _skill_root = core_path.parent.parent if core_path.parent.name == "diagram_dir" else core_path.parent
                 local_sk = load_skill_from_folder(_skill_root, mainwin=None)
                 if local_sk and hasattr(local_sk, 'name') and local_sk.runnable:
-                    # Preserve the canonical DB id. load_skill_from_folder creates a fresh
-                    # EC_Skill() with a random UUID; without this line every startup puts a
-                    # random UUID in memory, so save_agent_skill never finds the DB record
-                    # and inserts a duplicate row instead of updating the existing one.
-                    local_sk.id = skill_obj.id
-                    logger.info(
-                        f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
-                        f"(always prefer file over DB)"
+                    # Verify the loaded skill has the correct ID or name to avoid loading wrong file
+                    # This handles cases where a skill file was renamed but DB still has old path
+                    local_sk_id = getattr(local_sk, 'id', '') or ''
+                    local_sk_name = getattr(local_sk, 'name', '') or ''
+                    expected_name = skill_obj.name or ''
+                    
+                    # Check if this is the correct skill (by ID or by name)
+                    id_match = (local_sk_id == skill_id) if skill_id else False
+                    name_match = (local_sk_name.lower().strip() == expected_name.lower().strip()) if expected_name else False
+                    
+                    if id_match or name_match:
+                        # Preserve the canonical DB id
+                        local_sk.id = skill_obj.id
+                        logger.info(
+                            f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
+                            f"(id_match={id_match}, name_match={name_match})"
+                        )
+                        loaded_from_file = True
+                        return local_sk
+                    else:
+                        # File exists but contains wrong skill — this is an ERROR, not a fallback scenario.
+                        # The file path in DB is incorrect or the file was replaced/corrupted.
+                        # Do NOT silently fallback to DB — report the error.
+                        logger.error(
+                            f"[build_agent_skills] ❌ Local file at '{skill_path}' contains wrong skill: "
+                            f"expected '{expected_name}' (id={skill_id}), "
+                            f"got '{local_sk_name}' (id={local_sk_id})"
+                        )
+                        # Fallback to DB only when file genuinely does not exist
+                        skill_path = None  # Clear path so we skip file-based loading entirely
+                else:
+                    logger.warning(
+                        f"[build_agent_skills] ⚠️ Local file exists for '{skill_obj.name}' "
+                        f"but load failed or has no runnable"
                     )
-                    return local_sk
-                logger.warning(
-                    f"[build_agent_skills] ⚠️ Local file exists for '{skill_obj.name}' "
-                    f"but load failed"
-                )
             else:
                 logger.debug(f"[build_agent_skills] No local file at {skill_path}")
+        
         # ── End local-file-first ──────────────────────────────────────────────
 
-        # If we reach here, file loading failed - use DB content as last resort
-        logger.warning(f"[build_agent_skills] ⚠️ Falling back to DB content for '{skill_obj.name}' (file not found or load failed)")
+        # Only fallback to DB when file genuinely doesn't exist (skill_path is empty/None).
+        # If file exists but is wrong, we already logged the error above.
+        if not skill_path:
+            logger.error(f"[build_agent_skills] ❌ Failed to load skill '{skill_obj.name}' (id={skill_id}): "
+                         f"local file not found. Cannot fallback to DB — skill_path is empty.")
+            # Still return skill_obj so the caller has something to work with
+            # but it won't have a runnable workflow
 
         # Load mapping rules from data_mapping.json
         mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)
