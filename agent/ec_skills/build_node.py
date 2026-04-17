@@ -8864,7 +8864,65 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 keep_alive=keep_browser_alive or None,
                 headless=node_headless if node_headless else None,
             )
-            
+
+            # ── Fingerprint / stealth browser ──
+            # If the selected browser profile has enableStealth=true, apply
+            # fingerprint fields (user_agent, viewport, locale, anti-detect
+            # args) to the BrowserProfile object.  The stealth JS injection
+            # happens later, after the CDP session connects.
+            _fp_profile: dict | None = None
+            try:
+                _bp_settings = profile_settings if profile_settings else {}
+                if _bp_settings.get("enableStealth"):
+                    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import (
+                        apply_profile_to_browser_profile,
+                        load_profile,
+                        get_random_profile,
+                        generate_random_profile,
+                    )
+                    # Build an fp profile dict from the profile settings fields
+                    _fp_profile = {
+                        "id": _bp_settings.get("id", "stealth"),
+                        "userAgent": _bp_settings.get("user_agent") or "",
+                        "viewport": (
+                            {"width": _bp_settings["viewport_width"], "height": _bp_settings["viewport_height"]}
+                            if _bp_settings.get("viewport_width") and _bp_settings.get("viewport_height")
+                            else None
+                        ),
+                        "deviceScaleFactor": _bp_settings.get("deviceScaleFactor"),
+                        "timezone": _bp_settings.get("timezone") or "",
+                        "locale": _bp_settings.get("locale") or "",
+                        "platform": _bp_settings.get("platform") or "",
+                        "languages": _bp_settings.get("languages") or [],
+                        "canvasNoiseSeed": _bp_settings.get("canvasNoiseSeed") or "",
+                        "webgl": {
+                            "vendor": _bp_settings.get("webglVendor") or "",
+                            "renderer": _bp_settings.get("webglRenderer") or "",
+                        },
+                        "hardwareConcurrency": _bp_settings.get("hardwareConcurrency"),
+                        "deviceMemory": _bp_settings.get("deviceMemory"),
+                        "webrtcPolicy": _bp_settings.get("webrtcPolicy") or "block",
+                        "proxy": _bp_settings.get("fingerprintProxy"),
+                    }
+                    # If key fields are empty, user wants a random/auto profile
+                    if not _fp_profile["userAgent"] and not _fp_profile["canvasNoiseSeed"]:
+                        # Use deterministic seed from agent+node for stable profile
+                        _fp_seed = f"{calling_agent_id or 'default'}:{node_name}"
+                        _fp_profile = get_random_profile(seed=_fp_seed)
+                        logger.info(
+                            f"[BrowserAutomation] Stealth: auto-generated fingerprint profile "
+                            f"(seed={_fp_seed}, id={_fp_profile.get('id')})"
+                        )
+                    else:
+                        logger.info(
+                            f"[BrowserAutomation] Stealth: using configured fingerprint profile "
+                            f"(id={_fp_profile.get('id')}, ua_len={len(_fp_profile.get('userAgent', ''))})"
+                        )
+                    apply_profile_to_browser_profile(browser_profile, _fp_profile)
+            except Exception as _fp_err:
+                logger.warning(f"[BrowserAutomation] Stealth profile setup failed (non-fatal): {_fp_err}")
+                _fp_profile = None
+
             if browser_type_setting == 'new chromium':
                 logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
             else:
@@ -9089,6 +9147,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         agent._ecan_full_AgentOutput = agent.AgentOutput
                     _cached_bu_agents[_bu_scope_key] = agent
                     logger.info(f"[BrowserAutomation] Created new browser-use agent and cached (scope={_bu_scope_key})")
+
+                    # Stealth JS injection for new-chromium mode.
+                    # Pre-start the session so CDP is connected, inject stealth JS,
+                    # then agent.run() will call start() again (idempotent, safe no-op).
+                    if _fp_profile and hasattr(agent, "browser_session") and agent.browser_session:
+                        try:
+                            await agent.browser_session.start()
+                            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import inject_stealth
+                            _stealth_ok = await inject_stealth(agent.browser_session, _fp_profile)
+                            if _stealth_ok:
+                                logger.info(
+                                    f"[BrowserAutomation] Stealth JS injected into new-chromium session "
+                                    f"(profile={_fp_profile.get('id', '?')})"
+                                )
+                        except Exception as _stealth_err:
+                            logger.warning(f"[BrowserAutomation] Stealth JS injection failed (non-fatal): {_stealth_err}")
+
                 _agent_ref["agent"] = agent
 
             else:
@@ -9132,6 +9207,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         await _start_task
                     if keep_browser_alive:
                         _patch_browser_session_lifecycle_debug(browser_session, source="post_start")
+
+                    # Stealth JS injection for existing-browser/CDP mode.
+                    # CDP is connected after session.start(), so we can inject now.
+                    if _fp_profile:
+                        try:
+                            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import inject_stealth
+                            _stealth_ok = await inject_stealth(browser_session, _fp_profile)
+                            if _stealth_ok:
+                                logger.info(
+                                    f"[BrowserAutomation] Stealth JS injected into existing-browser session "
+                                    f"(profile={_fp_profile.get('id', '?')})"
+                                )
+                        except Exception as _stealth_err:
+                            logger.warning(f"[BrowserAutomation] Stealth JS injection failed (non-fatal): {_stealth_err}")
 
                     # Focus/session preflight for CDP mode:
                     # If agent_focus_target_id is missing/invalid (common after target detach),

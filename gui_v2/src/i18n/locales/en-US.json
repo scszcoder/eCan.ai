@@ -1337,6 +1337,7 @@
           "session_extensions": "Session & Extensions",
           "security_rendering": "Security & Rendering",
           "user_agent_args": "User Agent & Arguments",
+          "fingerprint_stealth": "Fingerprint / Stealth",
           "fields": {
             "name": "Profile Name",
             "profile_directory": "Profile Directory",
@@ -1392,7 +1393,22 @@
             "deterministic_rendering": "Deterministic Rendering",
             "user_agent": "User Agent",
             "browser_args": "Browser Arguments",
-            "browser_args_tooltip": "One argument per line (e.g., --disable-gpu)"
+            "browser_args_tooltip": "One argument per line (e.g., --disable-gpu)",
+            "enableStealth": "Enable Stealth",
+            "enableStealthTooltip": "Enable fingerprint spoofing and anti-detection. Leave fields empty for auto-generated values.",
+            "platform": "Platform",
+            "webrtcPolicy": "WebRTC Policy",
+            "timezone": "Timezone",
+            "locale": "Locale",
+            "canvasNoiseSeed": "Canvas Noise Seed",
+            "canvasNoiseSeedTooltip": "Seed for deterministic canvas noise injection. Leave empty for auto-generated.",
+            "webglVendor": "WebGL Vendor",
+            "webglRenderer": "WebGL Renderer",
+            "hardwareConcurrency": "CPU Cores",
+            "deviceMemory": "Device Memory (GB)",
+            "deviceScaleFactor": "Device Scale Factor",
+            "languages": "Languages",
+            "languagesTooltip": "Browser language preferences (e.g. en-US, en)"
           }
         }
       }
