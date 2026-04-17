@@ -156,11 +156,10 @@ class DevRunner:
         except Exception:
             pass
         
-        if hasattr(task, "status"):
-            try:
-                task.status.state = TaskState.working
-            except Exception:
-                pass
+        # Note: Do NOT set task.status.state = TaskState.working here!
+        # The guard in _submit_task_execution checks for working state to prevent
+        # duplicate execution. Setting it before submission causes the guard to
+        # block the task from running at all.
         
         if not hasattr(task, "queue") or task.queue is None:
             try:

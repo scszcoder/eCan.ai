@@ -1550,6 +1550,11 @@ def handle_query_agent_skill_rels(request: IPCRequest, params: Optional[list[Any
         
         # Query relationships from database
         from agent.db.models.association_models import DBAgentSkillRel
+        from sqlalchemy.orm import make_transient
+        
+        # Must convert to dict INSIDE the with block to avoid detached instance errors
+        result = []
+        total_count = 0
         with ec_db_mgr.get_session() as db_session:
             query = db_session.query(DBAgentSkillRel)
             if agent_id:
@@ -1559,16 +1564,24 @@ def handle_query_agent_skill_rels(request: IPCRequest, params: Optional[list[Any
             total_count = query.count()
             rels = query.offset(offset).limit(limit).all()
         
-        # Convert to dict
-        result = []
-        for rel in rels:
-            result.append({
-                'id': rel.id,
-                'agent_id': rel.agent_id,
-                'skill_id': rel.skill_id,
-                'created_at': rel.created_at.isoformat() if hasattr(rel, 'created_at') and rel.created_at else None,
-                'updated_at': rel.updated_at.isoformat() if hasattr(rel, 'updated_at') and rel.updated_at else None
-            })
+            # Convert to dict inside the with block to ensure session is still open
+            for rel in rels:
+                # Make a detached copy using make_transient to avoid session issues
+                rel_copy = rel.__class__(rel.id, rel.agent_id, rel.skill_id)
+                if hasattr(rel, 'created_at'):
+                    rel_copy.created_at = rel.created_at
+                if hasattr(rel, 'updated_at'):
+                    rel_copy.updated_at = rel.updated_at
+                if hasattr(rel, 'status'):
+                    rel_copy.status = rel.status
+                make_transient(rel_copy)
+                result.append({
+                    'id': rel_copy.id,
+                    'agent_id': rel_copy.agent_id,
+                    'skill_id': rel_copy.skill_id,
+                    'created_at': rel_copy.created_at.isoformat() if hasattr(rel_copy, 'created_at') and rel_copy.created_at else None,
+                    'updated_at': rel_copy.updated_at.isoformat() if hasattr(rel_copy, 'updated_at') and rel_copy.updated_at else None
+                })
         
         logger.info(f"[agent_handler] Retrieved {len(result)} agent-skill relationships (total: {total_count})")
         
