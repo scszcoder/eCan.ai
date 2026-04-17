@@ -577,6 +577,20 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Headless Mode checkbox */}
+        <FormItem name="headless" label={getCommonFieldLabel('headless', t)} type="boolean" vertical>
+          <Field<boolean> name="inputsValues.headless.content">
+            {({ field }) => (
+              <Checkbox
+                checked={!!field.value}
+                onChange={(e) => field.onChange((e.target as HTMLInputElement).checked)}
+              >
+                {t('nodes.browserAutomation.headlessDesc')}
+              </Checkbox>
+            )}
+          </Field>
+        </FormItem>
+
         {/* Run Environment selector */}
         <FormItem name="runEnvironment" label={getCommonFieldLabel('runEnvironment', t)} type="string" vertical>
           <Field<string> name="inputsValues.runEnvironment.content">
