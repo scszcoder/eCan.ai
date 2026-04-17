@@ -1328,6 +1328,7 @@
           "session_extensions": "会话与扩展",
           "security_rendering": "安全与渲染",
           "user_agent_args": "用户代理与参数",
+          "fingerprint_stealth": "指纹 / 隐身",
           "fields": {
             "name": "配置文件名称",
             "profile_directory": "配置文件目录",
@@ -1383,7 +1384,22 @@
             "deterministic_rendering": "确定性渲染",
             "user_agent": "用户代理",
             "browser_args": "浏览器参数",
-            "browser_args_tooltip": "每行一个参数（如：--disable-gpu）"
+            "browser_args_tooltip": "每行一个参数（如：--disable-gpu）",
+            "enableStealth": "启用隐身",
+            "enableStealthTooltip": "启用指纹伪装和反检测。留空字段将自动生成。",
+            "platform": "平台",
+            "webrtcPolicy": "WebRTC 策略",
+            "timezone": "时区",
+            "locale": "语言区域",
+            "canvasNoiseSeed": "Canvas 噪声种子",
+            "canvasNoiseSeedTooltip": "用于确定性Canvas噪声注入的种子。留空自动生成。",
+            "webglVendor": "WebGL 供应商",
+            "webglRenderer": "WebGL 渲染器",
+            "hardwareConcurrency": "CPU 核心数",
+            "deviceMemory": "设备内存 (GB)",
+            "deviceScaleFactor": "设备缩放因子",
+            "languages": "语言",
+            "languagesTooltip": "浏览器语言偏好（如 zh-CN, zh, en）"
           }
         }
       }

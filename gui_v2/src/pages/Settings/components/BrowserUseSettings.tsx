@@ -176,6 +176,25 @@ export interface BrowserProfile {
   // Recording
   record_video_dir: string;
   record_video_framerate: number;
+  // Fingerprint / Stealth
+  enableStealth: boolean;
+  timezone: string;
+  locale: string;
+  platform: string;
+  languages: string[];
+  canvasNoiseSeed: string;
+  webglVendor: string;
+  webglRenderer: string;
+  hardwareConcurrency: number;
+  deviceMemory: number;
+  deviceScaleFactor: number;
+  webrtcPolicy: string;
+  fingerprintProxy: {
+    server: string;
+    username: string;
+    password: string;
+    bypass: string;
+  } | null;
 }
 
 export interface BrowserUseSettingsData {
@@ -268,6 +287,20 @@ const createDefaultProfile = (id: string, name: string, isDefault: boolean = fal
   // Recording
   record_video_dir: '',
   record_video_framerate: 30,
+  // Fingerprint / Stealth
+  enableStealth: false,
+  timezone: '',
+  locale: '',
+  platform: '',
+  languages: [],
+  canvasNoiseSeed: '',
+  webglVendor: '',
+  webglRenderer: '',
+  hardwareConcurrency: 0,
+  deviceMemory: 0,
+  deviceScaleFactor: 0,
+  webrtcPolicy: 'block',
+  fingerprintProxy: null,
 });
 
 interface BrowserUseSettingsProps {
@@ -1042,6 +1075,89 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
             <Form.Item name="args" label="Browser Arguments" tooltip="One argument per line (e.g., --disable-gpu)">
               <Input.TextArea rows={3} placeholder="--disable-gpu&#10;--no-sandbox" />
             </Form.Item>
+
+            {/* Fingerprint / Stealth */}
+            <Divider orientation="left" style={{ margin: '8px 0' }}>{tb('profiles.fingerprint_stealth')}</Divider>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="enableStealth" label={tb('profiles.fields.enableStealth')} valuePropName="checked"
+                  tooltip={tb('profiles.fields.enableStealthTooltip')}>
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="platform" label={tb('profiles.fields.platform')}>
+                  <Select allowClear placeholder="Auto">
+                    <Select.Option value="Win32">Win32</Select.Option>
+                    <Select.Option value="MacIntel">MacIntel</Select.Option>
+                    <Select.Option value="Linux x86_64">Linux x86_64</Select.Option>
+                    <Select.Option value="Linux armv8l">Linux armv8l (Android)</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="webrtcPolicy" label={tb('profiles.fields.webrtcPolicy')}>
+                  <Select placeholder="block">
+                    <Select.Option value="block">Block</Select.Option>
+                    <Select.Option value="default">Default</Select.Option>
+                    <Select.Option value="disable_non_proxied_udp">Disable Non-Proxied UDP</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="timezone" label={tb('profiles.fields.timezone')}>
+                  <Input placeholder="America/New_York" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="locale" label={tb('profiles.fields.locale')}>
+                  <Input placeholder="en-US" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="canvasNoiseSeed" label={tb('profiles.fields.canvasNoiseSeed')}
+                  tooltip={tb('profiles.fields.canvasNoiseSeedTooltip')}>
+                  <Input placeholder="Auto-generated if empty" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="webglVendor" label={tb('profiles.fields.webglVendor')}>
+                  <Input placeholder="Intel Inc." />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="webglRenderer" label={tb('profiles.fields.webglRenderer')}>
+                  <Input placeholder="Intel(R) UHD Graphics 630" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Form.Item name="hardwareConcurrency" label={tb('profiles.fields.hardwareConcurrency')}>
+                  <InputNumber min={0} max={128} placeholder="0=auto" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="deviceMemory" label={tb('profiles.fields.deviceMemory')}>
+                  <InputNumber min={0} max={512} placeholder="0=auto" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="deviceScaleFactor" label={tb('profiles.fields.deviceScaleFactor')}>
+                  <InputNumber min={0} max={4} step={0.25} placeholder="0=auto" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="languages" label={tb('profiles.fields.languages')}
+                  tooltip={tb('profiles.fields.languagesTooltip')}>
+                  <Select mode="tags" placeholder="en-US, en" />
+                </Form.Item>
+              </Col>
+            </Row>
           </Form>
         </Modal>
       </SettingsContainer>
