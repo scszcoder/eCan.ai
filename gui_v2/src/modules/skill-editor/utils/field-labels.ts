@@ -32,6 +32,7 @@ export function getCommonFieldLabel(key: string, t: TFunction): string {
     'browser': t('nodes.browserAutomation.browser'),
     'browserDriver': t('nodes.browserAutomation.browserDriver'),
     'cdpPort': t('nodes.browserAutomation.cdpPort'),
+    'headless': t('nodes.browserAutomation.headless'),
     'runEnvironment': t('nodes.browserAutomation.runEnvironment'),
     'privacyStrategy': t('nodes.browserAutomation.privacyStrategy'),
     'enableJudge': t('nodes.browserAutomation.enableJudge'),

@@ -176,6 +176,47 @@ export interface BrowserProfile {
   // Recording
   record_video_dir: string;
   record_video_framerate: number;
+  // Fingerprint / Stealth
+  enableStealth: boolean;
+  timezone: string;
+  locale: string;
+  platform: string;
+  languages: string[];
+  canvasNoiseSeed: string;
+  webglVendor: string;
+  webglRenderer: string;
+  hardwareConcurrency: number;
+  deviceMemory: number;
+  deviceScaleFactor: number;
+  webrtcPolicy: string;
+  fingerprintProxy: {
+    server: string;
+    username: string;
+    password: string;
+    bypass: string;
+  } | null;
+  // Geolocation
+  geoLocationMode: string;  // 'based_on_ip' | 'custom' | 'block' | ''
+  geolocation: { latitude: number; longitude: number; accuracy: number } | null;
+  // Display language
+  displayLanguage: string;
+  // Do Not Track
+  doNotTrack: string;  // '1' | '0' | ''
+  // Hardware noise toggles
+  noiseWebGLImage: boolean;
+  noiseClientRects: boolean;
+  noiseSpeechVoices: boolean;
+  noiseMediaDevices: boolean;
+  // Font protection
+  fontProtection: boolean;
+  customFonts: string[];
+  // Port scan protection
+  portScanProtection: boolean;
+  portScanAllowedPorts: string;  // comma-separated port numbers
+  // WebGPU
+  webgpuMode: string;  // 'based_on_webgl' | 'real' | 'disabled'
+  // Hardware acceleration
+  hardwareAcceleration: string;  // 'default' | 'on' | 'off'
 }
 
 export interface BrowserUseSettingsData {
@@ -268,6 +309,41 @@ const createDefaultProfile = (id: string, name: string, isDefault: boolean = fal
   // Recording
   record_video_dir: '',
   record_video_framerate: 30,
+  // Fingerprint / Stealth
+  enableStealth: false,
+  timezone: '',
+  locale: '',
+  platform: '',
+  languages: [],
+  canvasNoiseSeed: '',
+  webglVendor: '',
+  webglRenderer: '',
+  hardwareConcurrency: 0,
+  deviceMemory: 0,
+  deviceScaleFactor: 0,
+  webrtcPolicy: 'block',
+  fingerprintProxy: null,
+  // Geolocation
+  geoLocationMode: '',
+  geolocation: null,
+  // Display & tracking
+  displayLanguage: '',
+  doNotTrack: '',
+  // Hardware noise toggles
+  noiseWebGLImage: true,
+  noiseClientRects: true,
+  noiseSpeechVoices: true,
+  noiseMediaDevices: true,
+  // Font protection
+  fontProtection: true,
+  customFonts: [],
+  // Port scan protection
+  portScanProtection: true,
+  portScanAllowedPorts: '80,443',
+  // WebGPU
+  webgpuMode: 'based_on_webgl',
+  // Hardware acceleration
+  hardwareAcceleration: 'default',
 });
 
 interface BrowserUseSettingsProps {
@@ -1042,6 +1118,197 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
             <Form.Item name="args" label="Browser Arguments" tooltip="One argument per line (e.g., --disable-gpu)">
               <Input.TextArea rows={3} placeholder="--disable-gpu&#10;--no-sandbox" />
             </Form.Item>
+
+            {/* Fingerprint / Stealth */}
+            <Divider orientation="left" style={{ margin: '8px 0' }}>{tb('profiles.fingerprint_stealth')}</Divider>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="enableStealth" label={tb('profiles.fields.enableStealth')} valuePropName="checked"
+                  tooltip={tb('profiles.fields.enableStealthTooltip')}>
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="platform" label={tb('profiles.fields.platform')}>
+                  <Select allowClear placeholder="Auto">
+                    <Select.Option value="Win32">Win32</Select.Option>
+                    <Select.Option value="MacIntel">MacIntel</Select.Option>
+                    <Select.Option value="Linux x86_64">Linux x86_64</Select.Option>
+                    <Select.Option value="Linux armv8l">Linux armv8l (Android)</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="webrtcPolicy" label={tb('profiles.fields.webrtcPolicy')}>
+                  <Select placeholder="block">
+                    <Select.Option value="block">Block</Select.Option>
+                    <Select.Option value="default">Default</Select.Option>
+                    <Select.Option value="disable_non_proxied_udp">Disable Non-Proxied UDP</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="timezone" label={tb('profiles.fields.timezone')}>
+                  <Input placeholder="America/New_York" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="locale" label={tb('profiles.fields.locale')}>
+                  <Input placeholder="en-US" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="canvasNoiseSeed" label={tb('profiles.fields.canvasNoiseSeed')}
+                  tooltip={tb('profiles.fields.canvasNoiseSeedTooltip')}>
+                  <Input placeholder="Auto-generated if empty" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="webglVendor" label={tb('profiles.fields.webglVendor')}>
+                  <Input placeholder="Intel Inc." />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="webglRenderer" label={tb('profiles.fields.webglRenderer')}>
+                  <Input placeholder="Intel(R) UHD Graphics 630" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Form.Item name="hardwareConcurrency" label={tb('profiles.fields.hardwareConcurrency')}>
+                  <InputNumber min={0} max={128} placeholder="0=auto" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="deviceMemory" label={tb('profiles.fields.deviceMemory')}>
+                  <InputNumber min={0} max={512} placeholder="0=auto" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="deviceScaleFactor" label={tb('profiles.fields.deviceScaleFactor')}>
+                  <InputNumber min={0} max={4} step={0.25} placeholder="0=auto" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="languages" label={tb('profiles.fields.languages')}
+                  tooltip={tb('profiles.fields.languagesTooltip')}>
+                  <Select mode="tags" placeholder="en-US, en" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="displayLanguage" label={tb('profiles.fields.displayLanguage')}
+                  tooltip={tb('profiles.fields.displayLanguageTooltip')}>
+                  <Input placeholder="en-US" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="doNotTrack" label={tb('profiles.fields.doNotTrack')}>
+                  <Select allowClear placeholder="Browser Default">
+                    <Select.Option value="">Default</Select.Option>
+                    <Select.Option value="1">On</Select.Option>
+                    <Select.Option value="0">Off</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="hardwareAcceleration" label={tb('profiles.fields.hardwareAcceleration')}>
+                  <Select placeholder="Default">
+                    <Select.Option value="default">Default</Select.Option>
+                    <Select.Option value="on">On</Select.Option>
+                    <Select.Option value="off">Off</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* Geolocation */}
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="geoLocationMode" label={tb('profiles.fields.geoLocationMode')}>
+                  <Select allowClear placeholder="Default">
+                    <Select.Option value="">Default</Select.Option>
+                    <Select.Option value="based_on_ip">Based on IP</Select.Option>
+                    <Select.Option value="custom">Custom</Select.Option>
+                    <Select.Option value="block">Block</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item name={['geolocation', 'latitude']} label={tb('profiles.fields.geoLatitude')}>
+                  <InputNumber step={0.0001} placeholder="40.7128" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item name={['geolocation', 'longitude']} label={tb('profiles.fields.geoLongitude')}>
+                  <InputNumber step={0.0001} placeholder="-74.0060" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="webgpuMode" label={tb('profiles.fields.webgpuMode')}>
+                  <Select placeholder="Based on WebGL">
+                    <Select.Option value="based_on_webgl">Based on WebGL</Select.Option>
+                    <Select.Option value="real">Real</Select.Option>
+                    <Select.Option value="disabled">Disabled</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* Hardware Noise Toggles */}
+            <Divider orientation="left" style={{ margin: '8px 0', fontSize: '13px' }}>{tb('profiles.hardware_noise')}</Divider>
+            <Row gutter={16}>
+              <Col span={4}>
+                <Form.Item name="noiseWebGLImage" label={tb('profiles.fields.noiseWebGLImage')} valuePropName="checked">
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="noiseClientRects" label={tb('profiles.fields.noiseClientRects')} valuePropName="checked">
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="noiseSpeechVoices" label={tb('profiles.fields.noiseSpeechVoices')} valuePropName="checked">
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="noiseMediaDevices" label={tb('profiles.fields.noiseMediaDevices')} valuePropName="checked">
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="fontProtection" label={tb('profiles.fields.fontProtection')} valuePropName="checked">
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <Form.Item name="portScanProtection" label={tb('profiles.fields.portScanProtection')} valuePropName="checked">
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="customFonts" label={tb('profiles.fields.customFonts')}
+                  tooltip={tb('profiles.fields.customFontsTooltip')}>
+                  <Select mode="tags" placeholder="Arial, Helvetica, Times New Roman" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="portScanAllowedPorts" label={tb('profiles.fields.portScanAllowedPorts')}
+                  tooltip={tb('profiles.fields.portScanAllowedPortsTooltip')}>
+                  <Input placeholder="80,443" />
+                </Form.Item>
+              </Col>
+            </Row>
           </Form>
         </Modal>
       </SettingsContainer>

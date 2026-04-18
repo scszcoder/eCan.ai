@@ -2472,42 +2472,65 @@ class MainWindow:
 
 
     async def _get_mcp_tools_async(self):
-        """Enhanced cached MCP tools retrieval with memory caching"""
-        
+        """Enhanced cached MCP tools retrieval with retry and exponential backoff"""
+
         # Memory cache strategy
         memory_cache_timeout = 300  # 5 minutes
         if hasattr(self, '_mcp_tools_cache'):
             cache_data, cache_time = self._mcp_tools_cache
             cache_age = time.time() - cache_time
             if cache_age < memory_cache_timeout:
-                logger.info(f"[MainWindow] âš¡ Using memory cached MCP tools ({len(cache_data)} tools, age: {cache_age:.1f}s)")
+                logger.info(f"[MainWindow] Using memory cached MCP tools ({len(cache_data)} tools, age: {cache_age:.1f}s)")
                 return cache_data
             else:
                 logger.debug(f"[MainWindow] Memory cache expired (age: {cache_age:.1f}s > {memory_cache_timeout}s)")
-        
-        logger.info("[MainWindow] ðŸ“‹ Getting MCP tools with timeout protection...")
-        
-        try:
-            # Try to get MCP tools directly with timeout protection
-            result = await asyncio.wait_for(self._get_mcp_tools_direct(), timeout=2.0)
-            
-            if result and len(result) > 0:
-                # Update memory cache
-                current_time = time.time()
-                self._mcp_tools_cache = (result, current_time)
-                
-                logger.info(f"[MainWindow] âœ… Got {len(result)} MCP tools")
-                return result
-            else:
-                logger.warning("[MainWindow] âš ï¸ No MCP tools returned, using empty list")
-                return []
-            
-        except asyncio.TimeoutError:
-            logger.warning("[MainWindow] âš ï¸ MCP tools request timed out (2s), using empty list")
-            return []
-        except Exception as e:
-            logger.warning(f"[MainWindow] âš ï¸ MCP tools failed: {e}, using empty list")
-            return []
+
+        logger.info("[MainWindow] Getting MCP tools with timeout protection...")
+
+        # Retry configuration
+        max_retries = 3
+        base_timeout = 3.0  # Increased from 2.0 seconds
+        max_timeout = 10.0  # Cap for adaptive timeout
+
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # Adaptive timeout - increase with each retry
+                current_timeout = min(base_timeout * (2 ** attempt), max_timeout)
+
+                if attempt > 0:
+                    # Exponential backoff between retries
+                    backoff_time = base_timeout * (2 ** (attempt - 1))
+                    logger.info(f"[MainWindow] MCP tools retry {attempt}/{max_retries-1}, waiting {backoff_time:.1f}s before retry...")
+                    await asyncio.sleep(backoff_time)
+
+                logger.info(f"[MainWindow] MCP tools attempt {attempt+1}/{max_retries} with timeout={current_timeout:.1f}s")
+
+                # Try to get MCP tools directly with timeout protection
+                result = await asyncio.wait_for(self._get_mcp_tools_direct(), timeout=current_timeout)
+
+                if result and len(result) > 0:
+                    # Update memory cache
+                    current_time = time.time()
+                    self._mcp_tools_cache = (result, current_time)
+
+                    logger.info(f"[MainWindow] Got {len(result)} MCP tools (attempt {attempt+1})")
+                    return result
+                else:
+                    logger.warning(f"[MainWindow] No MCP tools returned on attempt {attempt+1}")
+                    last_error = "No tools returned"
+
+            except asyncio.TimeoutError:
+                logger.warning(f"[MainWindow] MCP tools request timed out ({current_timeout:.1f}s) on attempt {attempt+1}")
+                last_error = f"Timeout after {current_timeout:.1f}s"
+            except Exception as e:
+                logger.warning(f"[MainWindow] MCP tools failed on attempt {attempt+1}: {e}")
+                last_error = str(e)
+
+        # All retries exhausted - log warning but don't crash
+        logger.warning(f"[MainWindow] All {max_retries} MCP tools attempts failed. Last error: {last_error}. Using empty list.")
+        return []
 
     async def _build_agent_skills_async(self):
         """Optimized parallel agent skills building"""
