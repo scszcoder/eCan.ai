@@ -19,6 +19,7 @@ export const RouteFileLoader = () => {
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
+  const setIsSkillLoading = useSkillInfoStore((state) => state.setIsSkillLoading);
   const setToolsets = useSkillInfoStore((state) => state.setToolsets);
   const setSkillsets = useSkillInfoStore((state) => state.setSkillsets);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
@@ -112,8 +113,13 @@ export const RouteFileLoader = () => {
         lastLocationKey.current = locationKey;
       } catch (error) {
         console.error('[RouteFileLoader] Error loading file:', error);
+      } finally {
+        setIsSkillLoading(false);
       }
     };
+
+    // Mark skill as loading so Run button is blocked until canvas is updated
+    setIsSkillLoading(true);
 
     // Small delay to ensure editor is fully initialized
     const timeoutId = setTimeout(loadFile, 200);
@@ -126,6 +132,7 @@ export const RouteFileLoader = () => {
     location.key,
     workflowDocument,
     setSkillInfo,
+    setIsSkillLoading,
     setBreakpoints,
     setCurrentFilePath,
     setHasUnsavedChanges,

@@ -39,6 +39,7 @@ export const Open = ({ disabled }: OpenProps) => {
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
+  const setIsSkillLoading = useSkillInfoStore((state) => state.setIsSkillLoading);
   const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
   const setDataMappingPath = useSkillInfoStore((state) => state.setDataMappingPath);
   const setRunInCloud = useSkillInfoStore((state) => state.setRunInCloud);
@@ -90,6 +91,9 @@ export const Open = ({ disabled }: OpenProps) => {
       const data = result.skillInfo;
       // skillName is already normalized by skill-loader.ts
       console.log('[SKILL_IO][FRONTEND][SKILL_NAME]', data.skillName);
+
+      // Mark skill as loading so the Run button is blocked until canvas is fully updated
+      setIsSkillLoading(true);
 
       // CRITICAL: Defer bundle loading and document operations to next event loop tick.
       // This prevents React state updates from happening during the current render cycle,
@@ -192,6 +196,8 @@ export const Open = ({ disabled }: OpenProps) => {
           setCurrentFilePath(filePath);
           setHasUnsavedChanges(false);
         }
+        // Loading complete — canvas and stores are now in sync
+        setIsSkillLoading(false);
       }, 0); // End of setTimeout - delay to allow React to settle
     } else {
       console.error('[Open] Failed to load file:', result.error);
@@ -208,6 +214,7 @@ export const Open = ({ disabled }: OpenProps) => {
     setPreviewMode,
     setSkillInfo,
     setFlipped,
+    setIsSkillLoading,
     workflowDocument,
     setDataMappingJson,
     setDataMappingPath,

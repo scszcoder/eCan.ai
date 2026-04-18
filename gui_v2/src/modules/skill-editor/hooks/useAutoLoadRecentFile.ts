@@ -46,6 +46,8 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const getMostRecentFile = useRecentFilesStore((state) => state.getMostRecentFile);
   
+  const setIsSkillLoading = useSkillInfoStore((state) => state.setIsSkillLoading);
+
   const hasAutoLoaded = useRef(false);
   const [isAutoLoading, setIsAutoLoading] = useState(true);
 
@@ -94,6 +96,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
     setIsAutoLoading(true);
 
     const autoLoadRecentFile = async () => {
+      setIsSkillLoading(true);
       try {
         PageRefreshManager.consumeSkillEditorReload();
         
@@ -287,6 +290,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
       } finally {
         hasAutoLoaded.current = true;
         setIsAutoLoading(false);
+        setIsSkillLoading(false);
         onAutoLoadComplete?.();
       }
     };
@@ -337,6 +341,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
     workflowDocument,
     startupDelayMs,
     setSkillInfo,
+    setIsSkillLoading,
     setBreakpoints,
     setCurrentFilePath,
     setHasUnsavedChanges,
