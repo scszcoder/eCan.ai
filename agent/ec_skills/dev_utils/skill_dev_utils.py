@@ -356,6 +356,21 @@ def _collect_candidate_tasks(mainwin):
     return candidates
 
 
+
+
+def _cleanup_browser_session_cache():
+    """
+    Cleanup cached browser sessions after task cancellation.
+    Delegates to build_node.cleanup_stale_browser_sessions() to avoid
+    hard-coding module paths and to share the same thread-safe implementation.
+    """
+    try:
+        from agent.ec_skills.build_node import cleanup_stale_browser_sessions
+        cleanup_stale_browser_sessions()
+    except Exception as e:
+        logger.debug(f"[cancel_run_dev_skill] Browser cleanup skipped: {e}")
+
+
 def _stop_task_obj(task: Any, reason: str = "ipc_cancel_run_skill") -> bool:
     try:
         if hasattr(task, "stop") and callable(task.stop):
@@ -405,6 +420,12 @@ def cancel_run_dev_skill(mainwin, cancel_payload: Optional[Dict[str, Any]] = Non
                 if _stop_task_obj(task_obj):
                     stopped = True
 
+
+                # Cleanup browser session cache after task cancellation
+                try:
+                    _cleanup_browser_session_cache()
+                except Exception as _cleanup_err:
+                    logger.debug(f"[cancel_run_dev_skill] Browser cleanup skipped: {_cleanup_err}")
             if stopped:
                 return {
                     "success": True,
