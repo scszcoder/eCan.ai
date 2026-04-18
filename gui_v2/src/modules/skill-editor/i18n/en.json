@@ -338,6 +338,7 @@
     "cancel": "Cancel",
     "cannotRun": "Cannot run test",
     "missingInfo": "User or skill info is missing.",
+    "skillStillLoading": "A skill is still loading. Please wait until it finishes.",
     "validationFailed": "Validation Failed",
     "backendRunFailed": "Backend Run Failed",
     "unknownError": "An unknown error occurred.",

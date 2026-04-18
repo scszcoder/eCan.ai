@@ -326,6 +326,7 @@
     "cancel": "取消",
     "cannotRun": "无法运行测试",
     "missingInfo": "用户或技能信息缺失。",
+    "skillStillLoading": "技能正在加载中，请等待加载完成后再运行。",
     "validationFailed": "验证失败",
     "backendRunFailed": "后端运行失败",
     "unknownError": "发生未知错误。",

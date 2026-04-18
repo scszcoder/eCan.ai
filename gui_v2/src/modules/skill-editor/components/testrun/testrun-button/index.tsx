@@ -33,6 +33,7 @@ export function TestRunButton(props: { disabled: boolean }) {
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
+  const isSkillLoading = useSkillInfoStore((state) => state.isSkillLoading);
   const runInCloud = useSkillInfoStore((state) => state.runInCloud);
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
@@ -57,6 +58,10 @@ export function TestRunButton(props: { disabled: boolean }) {
    */
   const onTestRun = useCallback(async () => {
     if (isLaunching) return;
+    if (isSkillLoading) {
+      Notification.warning({ title: t('testrun.cannotRun'), content: t('testrun.skillStillLoading'), duration: 3 });
+      return;
+    }
     setIsLaunching(true);
     const allNodes = clientContext.document.getAllNodes();
     const allForms = allNodes.map((node) => getNodeForm(node));
@@ -210,7 +215,7 @@ export function TestRunButton(props: { disabled: boolean }) {
     } finally {
       setIsLaunching(false);
     }
-  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine, isLaunching]);
+  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine, isLaunching, isSkillLoading]);
 
   /**
    * Listen single node validate
@@ -233,7 +238,7 @@ export function TestRunButton(props: { disabled: boolean }) {
   const button =
     errorCount === 0 ? (
       <Button
-        disabled={props.disabled || isLaunching}
+        disabled={props.disabled || isLaunching || isSkillLoading}
         onClick={onTestRun}
         icon={<IconPlay size="small" />}
         className={styles.testrunSuccessButton}

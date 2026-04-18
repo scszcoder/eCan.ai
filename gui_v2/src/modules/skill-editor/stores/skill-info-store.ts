@@ -54,6 +54,9 @@ interface SkillInfoStoreState {
   // Local helper machine hostname for hybrid cloud mode
   localHelperMachine: string | null;
   setLocalHelperMachine: (machine: string | null) => void;
+  // Loading guard — true while a skill file is being loaded onto the canvas
+  isSkillLoading: boolean;
+  setIsSkillLoading: (loading: boolean) => void;
 }
 
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
@@ -94,4 +97,7 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   // Local helper machine hostname - default is null
   localHelperMachine: null,
   setLocalHelperMachine: (machine) => set({ localHelperMachine: machine }),
+  // Loading guard - true while a skill is being loaded
+  isSkillLoading: false,
+  setIsSkillLoading: (loading) => set({ isSkillLoading: loading }),
 }));
