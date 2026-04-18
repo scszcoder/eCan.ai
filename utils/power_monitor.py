@@ -179,17 +179,17 @@ class _PowerEventFilter(QObject):
     """Lightweight QObject event filter that intercepts QEvent.Sleep / QEvent.Resume."""
 
     def __init__(self, monitor: "PowerMonitor"):
-        from PySide6.QtCore import QObject, QEvent
+        from PySide6.QtCore import QObject as _QObject, QEvent as _QEvent
         super().__init__()
         self._monitor = monitor
+        self._QEvent = _QEvent
 
     def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
         etype = event.type()
         # QEvent.Type.Sleep = 168, QEvent.Type.Resume = 169 (Qt 6)
         # 使用 hasattr 安全检查，避免 macOS 上不存在这些类型
-        if hasattr(QEvent.Type, 'Sleep') and etype == QEvent.Type.Sleep:
+        if hasattr(self._QEvent.Type, 'Sleep') and etype == self._QEvent.Type.Sleep:
             self._monitor._handle_sleep()
-        elif hasattr(QEvent.Type, 'Resume') and etype == QEvent.Type.Resume:
+        elif hasattr(self._QEvent.Type, 'Resume') and etype == self._QEvent.Type.Resume:
             self._monitor._handle_wake()
         return False  # never consume the event
