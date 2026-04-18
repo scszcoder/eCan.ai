@@ -8892,6 +8892,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         "deviceScaleFactor": _bp_settings.get("deviceScaleFactor"),
                         "timezone": _bp_settings.get("timezone") or "",
                         "locale": _bp_settings.get("locale") or "",
+                        "displayLanguage": _bp_settings.get("displayLanguage") or "",
                         "platform": _bp_settings.get("platform") or "",
                         "languages": _bp_settings.get("languages") or [],
                         "canvasNoiseSeed": _bp_settings.get("canvasNoiseSeed") or "",
@@ -8902,6 +8903,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         "hardwareConcurrency": _bp_settings.get("hardwareConcurrency"),
                         "deviceMemory": _bp_settings.get("deviceMemory"),
                         "webrtcPolicy": _bp_settings.get("webrtcPolicy") or "block",
+                        "doNotTrack": _bp_settings.get("doNotTrack") or "",
+                        # Hardware noise toggles
+                        "noiseWebGLImage": _bp_settings.get("noiseWebGLImage", True),
+                        "noiseClientRects": _bp_settings.get("noiseClientRects", True),
+                        "noiseSpeechVoices": _bp_settings.get("noiseSpeechVoices", True),
+                        "noiseMediaDevices": _bp_settings.get("noiseMediaDevices", True),
+                        "fontProtection": _bp_settings.get("fontProtection", True),
+                        "customFonts": _bp_settings.get("customFonts") or [],
+                        "portScanProtection": _bp_settings.get("portScanProtection", True),
+                        "portScanAllowedPorts": _bp_settings.get("portScanAllowedPorts") or "80,443",
+                        # WebGPU & geolocation
+                        "webgpuMode": _bp_settings.get("webgpuMode") or "based_on_webgl",
+                        "geoLocationMode": _bp_settings.get("geoLocationMode") or "",
+                        "geolocation": _bp_settings.get("geolocation"),
+                        "hardwareAcceleration": _bp_settings.get("hardwareAcceleration") or "default",
                         "proxy": _bp_settings.get("fingerprintProxy"),
                     }
                     # If key fields are empty, user wants a random/auto profile

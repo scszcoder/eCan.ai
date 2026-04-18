@@ -1329,6 +1329,7 @@
           "security_rendering": "安全与渲染",
           "user_agent_args": "用户代理与参数",
           "fingerprint_stealth": "指纹 / 隐身",
+          "hardware_noise": "硬件噪声",
           "fields": {
             "name": "配置文件名称",
             "profile_directory": "配置文件目录",
@@ -1399,7 +1400,25 @@
             "deviceMemory": "设备内存 (GB)",
             "deviceScaleFactor": "设备缩放因子",
             "languages": "语言",
-            "languagesTooltip": "浏览器语言偏好（如 zh-CN, zh, en）"
+            "languagesTooltip": "浏览器语言偏好（如 zh-CN, zh, en）",
+            "displayLanguage": "显示语言",
+            "displayLanguageTooltip": "navigator.language 主要值（如 zh-CN）",
+            "doNotTrack": "禁止跟踪",
+            "hardwareAcceleration": "硬件加速",
+            "geoLocationMode": "地理位置",
+            "geoLatitude": "纬度",
+            "geoLongitude": "经度",
+            "webgpuMode": "WebGPU",
+            "noiseWebGLImage": "WebGL 图像",
+            "noiseClientRects": "ClientRects",
+            "noiseSpeechVoices": "语音合成",
+            "noiseMediaDevices": "媒体设备",
+            "fontProtection": "字体",
+            "portScanProtection": "端口扫描",
+            "customFonts": "自定义字体",
+            "customFontsTooltip": "要暴露的字体系列。留空使用默认字体列表。",
+            "portScanAllowedPorts": "允许的端口",
+            "portScanAllowedPortsTooltip": "以逗号分隔的允许通过端口扫描保护的端口号"
           }
         }
       }

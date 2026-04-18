@@ -1338,6 +1338,7 @@
           "security_rendering": "Security & Rendering",
           "user_agent_args": "User Agent & Arguments",
           "fingerprint_stealth": "Fingerprint / Stealth",
+          "hardware_noise": "Hardware Noise",
           "fields": {
             "name": "Profile Name",
             "profile_directory": "Profile Directory",
@@ -1408,7 +1409,25 @@
             "deviceMemory": "Device Memory (GB)",
             "deviceScaleFactor": "Device Scale Factor",
             "languages": "Languages",
-            "languagesTooltip": "Browser language preferences (e.g. en-US, en)"
+            "languagesTooltip": "Browser language preferences (e.g. en-US, en)",
+            "displayLanguage": "Display Language",
+            "displayLanguageTooltip": "Primary navigator.language value (e.g. en-US)",
+            "doNotTrack": "Do Not Track",
+            "hardwareAcceleration": "Hardware Acceleration",
+            "geoLocationMode": "Geolocation",
+            "geoLatitude": "Latitude",
+            "geoLongitude": "Longitude",
+            "webgpuMode": "WebGPU",
+            "noiseWebGLImage": "WebGL Image",
+            "noiseClientRects": "ClientRects",
+            "noiseSpeechVoices": "SpeechVoices",
+            "noiseMediaDevices": "Media Devices",
+            "fontProtection": "Fonts",
+            "portScanProtection": "Port Scan",
+            "customFonts": "Custom Fonts",
+            "customFontsTooltip": "Font families to expose. Leave empty for default font list.",
+            "portScanAllowedPorts": "Allowed Ports",
+            "portScanAllowedPortsTooltip": "Comma-separated port numbers allowed through port scan protection"
           }
         }
       }
