@@ -7423,9 +7423,48 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 "7. **Do NOT rotate to a different recipient agent to bypass DEDUP.** DEDUP is a correct signal that work for this customer is already in flight with the originally-assigned respondent. Rotating to another agent (客服小王, 客服小张, etc.) to \"satisfy must-dispatch\" creates duplicate customer replies and is FORBIDDEN.\n"
                                                 "8. Calling `done(success=True)` while `actionable_items` is non-empty and neither a real dispatch NOR a DEDUP/already-sent response has occurred this round is a PROTOCOL VIOLATION.\n"
                                                 "9. If `actionable_items` is empty, call `done(success=True)` immediately — no work to do.\n"
-                                                "10. **Never use placeholder or template strings as real tool arguments.** If you do not have a concrete agent UUID in hand this round (message history was wiped, so prior-round `bu_select_agents` results are gone unless persisted in skill memory), call `bu_select_agents(filter_task_name=\"客户应答\")` FIRST to get real IDs. Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `{{last.bu_select_agents[0]}}`, `{{...}}`, or any other example/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
-                                                "---\n\n"
+                                                "10. **Never use placeholder or template strings as real tool arguments.** "
+                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `{{last.bu_select_agents[0]}}`, `{{...}}`, or any other example/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
                                             )
+                                            # ── Inject pre-resolved agent list ──
+                                            # Look up service/responder agents and
+                                            # inject them directly so the LLM skips
+                                            # the bu_select_agents tool call (~8-10s).
+                                            try:
+                                                from agent.mcp.server.chat_utils.chat_tools import list_chat_agents as _list_agents_fn
+                                                _caller_id = str(calling_agent_id or "").strip()
+                                                if _caller_id and mainwin:
+                                                    _agents_result = _list_agents_fn(mainwin, {"exclude_self": _caller_id})
+                                                    _all_agents = _agents_result.get("agents", [])
+                                                    if _all_agents:
+                                                        _agent_lines = []
+                                                        for _ag in _all_agents:
+                                                            _tasks_str = ", ".join(_ag.get("tasks", [])) or "none"
+                                                            _agent_lines.append(
+                                                                f"- {_ag['name']} (ID: {_ag['id']}, tasks: {_tasks_str})"
+                                                            )
+                                                        _override_block += (
+                                                            "### Pre-resolved `agent_list` (skip `bu_select_agents`)\n\n"
+                                                            "The following agents are available for dispatch. "
+                                                            "Use these IDs directly — do NOT call `bu_select_agents`, it is unnecessary.\n\n"
+                                                            + "\n".join(_agent_lines)
+                                                            + "\n\n---\n\n"
+                                                        )
+                                                        # Also mark discovery so
+                                                        # send_chat dispatch gate passes
+                                                        from agent.mcp.server.chat_utils.chat_tools import _mark_discovery
+                                                        _mark_discovery(_caller_id, _all_agents)
+                                                        logger.info(
+                                                            f"[BrowserAutomation] Injected pre-resolved agent_list "
+                                                            f"({len(_all_agents)} agents) into override block, "
+                                                            f"node={node_name}"
+                                                        )
+                                            except Exception as _agent_inject_err:
+                                                logger.debug(
+                                                    f"[BrowserAutomation] Failed to inject agent_list "
+                                                    f"(non-fatal): {_agent_inject_err}"
+                                                )
+                                            _override_block += "---\n\n"
                                     else:
                                         _items_json = json.dumps(
                                             _compact_items, ensure_ascii=False, indent=2
