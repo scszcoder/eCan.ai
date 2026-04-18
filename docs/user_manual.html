@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>eCan.ai User Manual v0.7</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg2: #161b27;
+      --bg3: #1e2535;
+      --border: #2a3348;
+      --accent: #4f8ef7;
+      --accent2: #7c3aed;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --code-bg: #1a2236;
+      --tag-bg: #1e3a5f;
+      --warn: #f59e0b;
+      --success: #10b981;
+      --sidebar-w: 260px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────── */
+    #sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: var(--sidebar-w);
+      height: 100vh;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+    }
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .sidebar-logo {
+      padding: 20px 20px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sidebar-logo span { font-size: 0.75rem; color: var(--text3); }
+    nav { padding: 12px 0 24px; flex: 1; }
+    nav a {
+      display: block;
+      padding: 6px 20px;
+      font-size: 0.83rem;
+      color: var(--text2);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    nav a:hover, nav a.active {
+      color: var(--accent);
+      background: rgba(79, 142, 247, 0.07);
+      border-left-color: var(--accent);
+    }
+    nav .section-head {
+      padding: 14px 20px 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text3);
+    }
+    .lang-switch {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--text3);
+    }
+    .lang-switch a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .lang-switch a:hover { text-decoration: underline; }
+
+    /* ── Main ─────────────────────────────────────────────────── */
+    main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      max-width: 900px;
+      padding: 48px 56px;
+    }
+
+    /* ── Hero ─────────────────────────────────────────────────── */
+    .hero {
+      background: linear-gradient(135deg, var(--bg3) 0%, #1a1e30 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 44px;
+      margin-bottom: 48px;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(79,142,247,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(79,142,247,0.3);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    .hero h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p { color: var(--text2); font-size: 1.05rem; max-width: 600px; }
+    .hero-meta {
+      margin-top: 20px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .hero-meta span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--text3);
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block; }
+
+    /* ── Typography ───────────────────────────────────────────── */
+    section { margin-bottom: 56px; }
+    h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 24px;
+    }
+    h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 28px 0 12px;
+      scroll-margin-top: 24px;
+    }
+    h4 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text2);
+      margin: 18px 0 8px;
+    }
+    p { color: var(--text2); margin-bottom: 14px; }
+    ul, ol { color: var(--text2); padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+    strong { color: var(--text); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Cards ────────────────────────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--accent); }
+    .card-icon { font-size: 1.6rem; margin-bottom: 10px; }
+    .card h4 { color: var(--text); margin: 0 0 6px; font-size: 0.92rem; }
+    .card p { margin: 0; font-size: 0.82rem; line-height: 1.5; }
+
+    /* ── Code ─────────────────────────────────────────────────── */
+    code {
+      background: var(--code-bg);
+      color: #93c5fd;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+      font-size: 0.85em;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      overflow-x: auto;
+      margin: 16px 0;
+      font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+      font-size: 0.84rem;
+      line-height: 1.6;
+      color: #cbd5e1;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+
+    /* ── Table ────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th {
+      background: var(--bg3);
+      color: var(--text);
+      font-weight: 600;
+      padding: 10px 14px;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+    td {
+      padding: 9px 14px;
+      border: 1px solid var(--border);
+      color: var(--text2);
+      vertical-align: top;
+    }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+
+    /* ── Callouts ─────────────────────────────────────────────── */
+    .callout {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin: 18px 0;
+      font-size: 0.88rem;
+      border-left: 3px solid;
+      color: var(--text2);
+    }
+    .callout.info { background: rgba(79,142,247,0.08); border-color: var(--accent); }
+    .callout.warn { background: rgba(245,158,11,0.08); border-color: var(--warn); }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .callout.info strong { color: var(--accent); }
+    .callout.warn strong { color: var(--warn); }
+
+    /* ── Tags / Badges ────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge.new { background: rgba(16,185,129,0.15); color: var(--success); }
+    .badge.beta { background: rgba(245,158,11,0.15); color: var(--warn); }
+
+    /* ── Steps ────────────────────────────────────────────────── */
+    .steps { counter-reset: step; margin: 16px 0; }
+    .step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 2px;
+    }
+    .step-body h4 { margin-top: 0; color: var(--text); }
+
+    /* ── Platforms grid ───────────────────────────────────────── */
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .platform-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+      font-size: 0.82rem;
+    }
+    .platform-card .picon { font-size: 1.8rem; margin-bottom: 6px; }
+    .platform-card strong { display: block; color: var(--text); margin-bottom: 2px; }
+    .platform-card span { color: var(--text3); font-size: 0.75rem; }
+
+    /* ── Node ref table ───────────────────────────────────────── */
+    .node-list { margin: 16px 0; }
+    .node-item {
+      display: flex;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .node-item:last-child { border-bottom: none; }
+    .node-tag {
+      flex-shrink: 0;
+      background: var(--tag-bg);
+      color: var(--accent);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      height: fit-content;
+    }
+    .node-body strong { color: var(--text); font-size: 0.88rem; display: block; margin-bottom: 3px; }
+    .node-body p { margin: 0; font-size: 0.82rem; }
+
+    /* ── Doc link ─────────────────────────────────────────────── */
+    .doc-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--accent);
+      text-decoration: none;
+      margin: 4px 4px 4px 0;
+      transition: border-color 0.15s;
+    }
+    .doc-link:hover { border-color: var(--accent); text-decoration: none; }
+    .doc-link::before { content: "📄"; font-size: 0.9rem; }
+
+    /* ── Shortcut list ────────────────────────────────────────── */
+    .shortcut-list {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px 20px;
+      margin: 12px 0;
+      font-size: 0.85rem;
+    }
+    .shortcut-list kbd {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .shortcut-list span { color: var(--text2); align-self: center; }
+
+    /* ── Mobile ───────────────────────────────────────────────── */
+    #menu-toggle { display: none; }
+    @media (max-width: 768px) {
+      #sidebar { transform: translateX(-100%); transition: transform 0.25s; }
+      #sidebar.open { transform: translateX(0); }
+      main { margin-left: 0; padding: 24px 20px; }
+      #menu-toggle {
+        display: flex;
+        position: fixed;
+        top: 14px; right: 16px;
+        z-index: 200;
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 1rem;
+      }
+    }
+
+    /* ── Footer ───────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 0 0;
+      margin-top: 40px;
+      color: var(--text3);
+      font-size: 0.78rem;
+    }
+    footer a { color: var(--text3); }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<button id="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+
+<!-- ══ SIDEBAR ══════════════════════════════════════════════════════ -->
+<aside id="sidebar">
+  <div class="sidebar-logo">
+    <h2>eCan.ai</h2>
+    <span>User Manual · v0.7</span>
+  </div>
+  <nav>
+    <div class="section-head">Getting Started</div>
+    <a href="#intro">What is eCan.ai?</a>
+    <a href="#concepts">Core Concepts</a>
+    <a href="#install">Installation</a>
+    <a href="#quickstart">Quick Start</a>
+
+    <div class="section-head">Features</div>
+    <a href="#agents">Agents &amp; Tasks</a>
+    <a href="#skill-editor">Skill Editor</a>
+    <a href="#nodes">Node Reference</a>
+    <a href="#browser">Browser Automation</a>
+    <a href="#ocr">OCR Service</a>
+    <a href="#mcp">MCP Tools</a>
+    <a href="#channels">Channel Integrations</a>
+    <a href="#avatar">Avatar System</a>
+
+    <div class="section-head">Operations</div>
+    <a href="#cli">CLI Reference</a>
+    <a href="#deployment">Server Deployment</a>
+    <a href="#proxy">Proxy Management</a>
+    <a href="#settings">Settings &amp; Env Vars</a>
+
+    <div class="section-head">Reference</div>
+    <a href="#shortcuts">Keyboard Shortcuts</a>
+    <a href="#faq">FAQ</a>
+    <a href="#docs-index">All Documents</a>
+  </nav>
+  <div class="lang-switch">🌐 Language: <strong>English</strong> · <a href="cn/user_manual.html">中文</a></div>
+</aside>
+
+<!-- ══ MAIN ═════════════════════════════════════════════════════════ -->
+<main>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge">v0.7.0 · April 2026</div>
+    <h1>eCan.ai User Manual</h1>
+    <p>AI-native, privacy-first e-commerce agent platform — run your business with networked AI agents on Windows, macOS, Linux, and the web.</p>
+    <div class="hero-meta">
+      <span><span class="dot"></span> Cross-platform</span>
+      <span><span class="dot"></span> Multi-channel</span>
+      <span><span class="dot"></span> Visual Workflow Editor</span>
+      <span><span class="dot"></span> Privacy-first</span>
+    </div>
+  </div>
+
+  <!-- ── INTRO ──────────────────────────────────────────────────── -->
+  <section id="intro">
+    <h2>What is eCan.ai?</h2>
+    <p>eCan.ai (E-Commerce Agent Network) is an AI-native platform that empowers e-commerce sellers to automate every aspect of their business using intelligent agents — from product sourcing and procurement to customer service, marketing research, and advertising — all with minimal human intervention.</p>
+    <p>Agents run on <strong>vehicles</strong> (host computers) connected across a LAN or WAN. One computer acts as the commander; others serve as vehicle nodes. A staff-officer device (PC, phone, or tablet) can monitor and command the whole fleet remotely over the internet.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-icon">🤖</div>
+        <h4>Networked Agents</h4>
+        <p>Deploy agents across multiple machines. Each agent runs tasks independently via LangGraph workflows.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎨</div>
+        <h4>Visual Skill Editor</h4>
+        <p>Drag-and-drop flowgram canvas to build LangGraph workflows — no boilerplate code required.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌐</div>
+        <h4>Multi-Channel</h4>
+        <p>Connect agents to Telegram, Slack, Discord, WhatsApp, DingTalk, Messenger, X, and built-in web chat.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔒</div>
+        <h4>Privacy-First</h4>
+        <p>Run on-premise with local LLMs (Ollama, Qwen) — your data never has to leave your infrastructure.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🖥️</div>
+        <h4>Browser Automation</h4>
+        <p>Playwright, Selenium, Browser-use, and Crawl4ai — handle any website, CAPTCHA, or fingerprint browser.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👁️</div>
+        <h4>Vision / OCR</h4>
+        <p>eCanOCR combines Tesseract + PaddleOCR for accurate screen reading and CV-guided automation.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CONCEPTS ───────────────────────────────────────────────── -->
+  <section id="concepts">
+    <h2>Core Concepts</h2>
+
+    <h3>Agents</h3>
+    <p>An <strong>Agent</strong> is the primary actor in eCan.ai. Each agent has an identity, an avatar, and a set of tasks it can perform. Agents run on vehicles (host computers) and communicate with humans or other agents through channels.</p>
+
+    <h3>Tasks &amp; Skills</h3>
+    <p>A <strong>Task</strong> is a job assigned to an agent (e.g., "monitor product prices daily"). Every task requires a <strong>Skill</strong> — a LangGraph-based workflow that describes <em>how</em> the task is carried out. Skills are authored visually in the Skill Editor or coded directly in Python.</p>
+    <p>Tasks can be triggered by a human command, on a one-time schedule, or on a recurring schedule (e.g., every day at 08:00).</p>
+
+    <h3>Vehicles</h3>
+    <p>A <strong>Vehicle</strong> is any computer (desktop, server, VM) that hosts one or more agents. Vehicles join the eCan.ai network and receive task assignments from the commander node.</p>
+
+    <h3>Skills</h3>
+    <p>Skills are stored under <code>$SKILL_ROOT/my_skills/</code>. The graphical representation lives in the <code>diagram_dir</code> sub-directory; hand-coded LangGraph skills live in <code>code_dir</code>. Both can co-exist and be translated between each other.</p>
+  </section>
+
+  <!-- ── INSTALL ────────────────────────────────────────────────── -->
+  <section id="install">
+    <h2>Installation</h2>
+
+    <h3>Desktop App (Windows / macOS)</h3>
+    <p>Download the latest installer from <a href="https://www.ecan.ai/download">ecan.ai/download</a>. The installer bundles Python, all dependencies, and a Chromium browser. No separate Python installation is required.</p>
+    <p>After installation, launch <strong>eCan.ai</strong> from your Applications folder or Start Menu. On first launch you will be prompted to create an account or log in.</p>
+
+    <h3>Headless Web Server (Linux / Ubuntu)</h3>
+    <p>For server deployments without a GUI, eCan.ai runs in <strong>Web Mode</strong> — a WebSocket/REST server you interact with via a browser or the CLI.</p>
+
+    <div class="callout info">
+      <strong>System Requirements</strong>
+      Ubuntu 20.04 LTS or newer · Python 3.10+ (3.12+ recommended) · 4 GB RAM minimum (8 GB recommended) · 20 GB disk
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Install system packages</h4>
+          <pre><code>sudo apt-get update
+sudo apt-get install -y python3 python3-venv python3-pip \
+    libpq-dev gcc libffi-dev tesseract-ocr poppler-utils git</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Clone and run the deploy script</h4>
+          <pre><code>git clone &lt;repo-url&gt; eCan.ai &amp;&amp; cd eCan.ai
+chmod +x scripts/deploy-ubuntu.sh
+./scripts/deploy-ubuntu.sh setup</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Add API keys</h4>
+          <pre><code># Edit .env.web and fill in your LLM provider keys:
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+DASHSCOPE_API_KEY=...   # Qwen / Alibaba</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Start the server</h4>
+          <pre><code>./scripts/deploy-ubuntu.sh start
+# Verify: curl http://localhost:8765/health</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <a class="doc-link" href="DEPLOYMENT_UBUNTU.md" target="_blank">DEPLOYMENT_UBUNTU.md — Full Ubuntu deployment guide</a>
+    <a class="doc-link" href="WEB_DEPLOYMENT.md" target="_blank">WEB_DEPLOYMENT.md — Web/Docker deployment architecture</a>
+  </section>
+
+  <!-- ── QUICKSTART ─────────────────────────────────────────────── -->
+  <section id="quickstart">
+    <h2>Quick Start</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Create an agent</h4>
+          <p>In the sidebar, click <strong>Agents → New Agent</strong>. Give it a name and optionally upload an avatar image or video.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Build or load a skill</h4>
+          <p>Open <strong>Skills → Skill Editor</strong>. Drag nodes onto the canvas, connect them, and click <strong>Save</strong>. Alternatively, load one of the built-in example skills.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Create a task</h4>
+          <p>Go to <strong>Tasks → New Task</strong>. Select the agent, choose the skill, set a trigger (manual, schedule, or on-event), and save.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Run and chat</h4>
+          <p>Press <strong>Run</strong> on the task card. The agent starts the skill. Chat with the agent in the built-in web chat panel (or via any connected channel).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── AGENTS & TASKS ─────────────────────────────────────────── -->
+  <section id="agents">
+    <h2>Agents &amp; Tasks</h2>
+
+    <h3>Managing Agents</h3>
+    <p>Each agent has a name, description, avatar, and a set of default task assignments. You can create multiple agents and assign them to different vehicles (machines) in your network.</p>
+
+    <h3>Task Triggers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Trigger Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Manual</strong></td><td>Run immediately when you click <em>Run</em></td></tr>
+          <tr><td><strong>Schedule (one-time)</strong></td><td>Run at a specific date and time</td></tr>
+          <tr><td><strong>Schedule (recurring)</strong></td><td>Cron-like recurring execution (e.g., daily 08:00)</td></tr>
+          <tr><td><strong>On Event</strong></td><td>Triggered by an incoming message, webhook, or system event</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Multi-Agent &amp; Multi-Task</h3>
+    <p>Multiple agents can run simultaneously, each handling different tasks in parallel threads. Agents communicate with each other using the <strong>A2A protocol</strong> (Agent-to-Agent), an emerging open standard for inter-agent messaging.</p>
+  </section>
+
+  <!-- ── SKILL EDITOR ───────────────────────────────────────────── -->
+  <section id="skill-editor">
+    <h2>Skill Editor</h2>
+    <p>The Skill Editor is a visual IDE for building LangGraph workflows. It uses a flowgram canvas where you place and connect nodes to describe agent behavior.</p>
+
+    <a class="doc-link" href="../gui_v2/src/modules/skill-editor/doc/skill_editor_help.md" target="_blank">skill_editor_help.md — Full Skill Editor guide</a>
+    <a class="doc-link" href="mapping-dsl.md" target="_blank">mapping-dsl.md — Data mapping reference</a>
+    <a class="doc-link" href="prompt-variable-resolution.md" target="_blank">prompt-variable-resolution.md — Prompt variable system</a>
+
+    <h3>Canvas Basics</h3>
+
+    <h4>Adding Nodes</h4>
+    <p>Right-click anywhere on the canvas (or click the node icon in the toolbar) to open the node selection menu. Click a node type, then click on the canvas to place it. Each node has a configuration panel — double-click the node to open it.</p>
+
+    <h4>Connecting Nodes</h4>
+    <p>Click and drag from a node's <strong>output port</strong> to another node's <strong>input port</strong> to draw an edge. To remove an edge, drag its endpoint to a blank canvas area. To re-route, drag the endpoint to a different input port.</p>
+
+    <h4>Navigation</h4>
+    <ul>
+      <li><strong>Pan:</strong> Hold the mouse-wheel button and drag, or use the minimap.</li>
+      <li><strong>Zoom:</strong> <kbd>Ctrl</kbd> + scroll wheel.</li>
+      <li><strong>Multi-select:</strong> Hold <kbd>Shift</kbd> and drag a selection rectangle.</li>
+    </ul>
+
+    <h3>Multi-Sheet Workflows</h3>
+    <p>Large workflows can be split across multiple <strong>sheets</strong> (canvases). Use the sheet menu (layers icon, upper right) to add, remove, or rename sheets.</p>
+
+    <div class="callout info">
+      <strong>Important naming convention</strong>
+      The sheet containing the workflow's entry-point <em>Start</em> node must be named <strong>main</strong>. Other sheets are called via <code>sheet-call</code> nodes.
+    </div>
+
+    <h4>Cross-Sheet References</h4>
+    <p>To call another sheet's logic:</p>
+    <ol>
+      <li>On the callee sheet, add a <code>sheet-inputs</code> node (declares input names) and a <code>sheet-outputs</code> node (declares output names).</li>
+      <li>On the caller sheet, insert a <code>sheet-call</code> node and select the target sheet from the dropdown.</li>
+      <li>Map each input/output to constants or local node ports in the sidebar.</li>
+    </ol>
+    <p>Multi-sheet bundles are saved as a <code>-bundle.json</code> companion file alongside the main flow JSON.</p>
+
+    <h3>Data Movements — Mapping DSL</h3>
+    <p>Nodes exchange data through a shared <em>node state</em> object. Because each workflow has a unique state shape, eCan.ai uses a simple <strong>Mapping DSL</strong> (JSON-based) to describe how data moves between nodes and between external events and node state.</p>
+    <p>The same DSL handles <em>resume payloads</em> when a workflow is interrupted and later resumed (e.g., when human input arrives or a timer fires).</p>
+    <a class="doc-link" href="mapping-dsl.md" target="_blank">mapping-dsl.md — Mapping DSL reference</a>
+
+    <h3>Saving &amp; Loading</h3>
+    <ul>
+      <li>Skills created in the editor are stored under <code>$SKILL_ROOT/my_skills/diagram_dir/</code>.</li>
+      <li>Hand-coded LangGraph skills live in <code>code_dir/</code>.</li>
+      <li>Data-mapping JSON files are stored at the same level as these directories.</li>
+      <li>To view a Python-coded LangGraph skill graphically, call <code>langgraph2flowgram()</code> to generate the flowgram files.</li>
+    </ul>
+
+    <h3>Run &amp; Debug</h3>
+    <p>When debugging a skill, it runs as a special <em>development task</em> under a tester agent. If your workflow involves chat, prefix your test messages with <code>dev&gt;</code> to route them to the tester agent.</p>
+
+    <h4>Breakpoints</h4>
+    <p>Open the node's upper-right menu to toggle a breakpoint. When execution hits a breakpoint, it pauses <em>before</em> running that node. You can then inspect and modify the node state before resuming.</p>
+
+    <h4>Controlled Execution</h4>
+    <p>Use the toolbar controls: <strong>Pause · Step · Resume · Stop</strong>. A running animation highlights the currently executing node.</p>
+
+    <h3>Test Run</h3>
+    <p>Click <strong>Test Run</strong> to execute the workflow in isolation. Provide input JSON in the Inputs panel; inspect outputs from each node and the final End node in the Outputs panel.</p>
+
+    <h3>Version Control</h3>
+    <ul>
+      <li><strong>eCan.ai Cloud (paid):</strong> Version-control skills on eCan.ai's Git service and optionally commercialize them.</li>
+      <li><strong>Local Git:</strong> Skill files are plain JSON — just <code>git init</code> your skill directory.</li>
+    </ul>
+  </section>
+
+  <!-- ── NODES ──────────────────────────────────────────────────── -->
+  <section id="nodes">
+    <h2>Node Reference</h2>
+    <div class="node-list">
+      <div class="node-item">
+        <div class="node-tag">Start / End</div>
+        <div class="node-body">
+          <strong>Start &amp; End</strong>
+          <p>Start emits the initial state values; End collects and displays the final workflow outputs.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Code</div>
+        <div class="node-body">
+          <strong>Code Node</strong>
+          <p>Inline code editor (Monaco) supporting Python, JavaScript, and TypeScript. Use the language selector to switch; "Reset to template" restores a starter snippet; "Load File" imports from disk.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">LLM</div>
+        <div class="node-body">
+          <strong>LLM Node</strong>
+          <p>Calls a language model. Choose the provider and model from dropdowns. By convention, always instruct the LLM to return structured JSON: <code>{"message": "...", "meta_data": {...}}</code> — this makes inter-node data passing much easier.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">HTTP</div>
+        <div class="node-body">
+          <strong>HTTP Node</strong>
+          <p>Configures an outbound HTTP request (method, URL, headers, params, body, timeout, API key). The response is stored in the node state's <code>http_response</code> field.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Condition</div>
+        <div class="node-body">
+          <strong>Condition Node</strong>
+          <p>Routes execution to different branches based on predicates evaluated against the node state.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Loop</div>
+        <div class="node-body">
+          <strong>Loop Node</strong>
+          <p>Iterates over an array in the node state, running the nested block for each element.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Group</div>
+        <div class="node-body">
+          <strong>Group Node</strong>
+          <p>Visually groups related nodes for clarity. Does not affect execution.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">MCP Tool Call</div>
+        <div class="node-body">
+          <strong>MCP Tool Call Node</strong>
+          <p>Invokes an MCP (Model-Context-Protocol) tool. Input must be in the node state's <code>tool_input</code> field. The raw result (<code>TextContent</code>, <code>ImageContent</code>, or <code>AudioContent</code>) is stored in <code>tool_result</code>.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Pend For Event</div>
+        <div class="node-body">
+          <strong>Pend For Event Node</strong>
+          <p>Suspends the workflow until a specific event arrives (human message, timer expiry, webhook, SSE push, etc.). An <code>i_tag</code> links the interrupt to the correct resumption point. Use cases: human-in-the-loop, async API callbacks, pub/sub events.</p>
+        </div>
+      </div>
+      <div class="node-item">
+        <div class="node-tag">Sheet Call</div>
+        <div class="node-body">
+          <strong>Sheet Call Node</strong>
+          <p>Invokes the workflow defined on another sheet within the same project, passing mapped inputs and receiving mapped outputs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── BROWSER AUTOMATION ─────────────────────────────────────── -->
+  <section id="browser">
+    <h2>Browser Automation</h2>
+    <p>eCan.ai integrates multiple state-of-the-art web automation libraries, making it suitable for everything from routine scraping to complex multi-step workflows on anti-bot e-commerce sites.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Library</th><th>Best For</th><th>Integration</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Browser-use</strong></td><td>AI-driven browsing with natural language instructions</td><td>Available as a LangGraph node callable</td></tr>
+          <tr><td><strong>Crawl4ai</strong></td><td>Fast, AI-ready web scraping</td><td>Available as a LangGraph node callable</td></tr>
+          <tr><td><strong>Playwright</strong></td><td>Modern headless browser automation</td><td>In-browser MCP tools (click, type, scroll, wait, script)</td></tr>
+          <tr><td><strong>Selenium / ChromeDriver</strong></td><td>Fingerprint browsers (AdsPower, etc.)</td><td>Selenium MCP tools (click, type, scroll, keyboard)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Computer-Vision Guided Actions</h3>
+    <p>When in-browser automation isn't enough (pop-ups, CAPTCHAs, non-standard UIs), eCan.ai's <strong>eCanOCR</strong> service provides screen understanding and CV-guided mouse/keyboard actions — giving you full control over any desktop or browser window.</p>
+
+    <a class="doc-link" href="eCanMCP.md" target="_blank">eCanMCP.md — Full MCP tool reference</a>
+    <a class="doc-link" href="BROWSER_EVENT_MONITOR.md" target="_blank">BROWSER_EVENT_MONITOR.md — Browser event monitoring</a>
+  </section>
+
+  <!-- ── OCR ────────────────────────────────────────────────────── -->
+  <section id="ocr">
+    <h2>OCR Service (eCanOCR)</h2>
+    <p>eCanOCR is an API service that converts screen images to structured text. It combines <strong>Tesseract</strong>'s speed with a modified <strong>PaddleOCR</strong> engine for high accuracy, automatically restructuring raw OCR output into hierarchical paragraphs, lines, and words.</p>
+
+    <h3>Key Capabilities</h3>
+    <ul>
+      <li>Image-to-text extraction with paragraph and line segmentation</li>
+      <li>Icon recognition (when configured with icon templates)</li>
+      <li>Anchor-based content extraction — define key landmarks on a page to locate dynamic content</li>
+      <li>Table, calendar, and bounding-box region extraction</li>
+    </ul>
+
+    <h3>Content Skill Files (.csk)</h3>
+    <p>A <strong>.csk file</strong> describes expected page contents using a JSON instruction set. It defines <em>anchors</em> (distinct text or icon landmarks) and <em>info regions</em> (areas of interest relative to anchors). This lets agents reliably extract structured data from repeating page layouts.</p>
+
+    <a class="doc-link" href="eCanOCR.md" target="_blank">eCanOCR.md — OCR service reference</a>
+  </section>
+
+  <!-- ── MCP TOOLS ──────────────────────────────────────────────── -->
+  <section id="mcp">
+    <h2>MCP Tools</h2>
+    <p>eCan.ai exposes a set of <strong>streamable HTTP MCP tools</strong> that any LLM-integrated workflow can call. These tools are organized into five categories:</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-icon">🖱️</div>
+        <h4>Mouse &amp; Keyboard</h4>
+        <p>Click, double-click, right-click, drag-drop, scroll, text typing, key press. CV-guided targeting by anchor name or text.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👁️</div>
+        <h4>Screen Vision</h4>
+        <p>Capture screens, extract structured text via eCanOCR, search for specific elements by name and type.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📁</div>
+        <h4>File &amp; Directory</h4>
+        <p>OS-level file and directory operations — read, write, list, move, delete.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌐</div>
+        <h4>Browser Actions</h4>
+        <p>Playwright and Selenium in-browser tools: click, type, scroll, execute scripts, wait for elements, keyboard combos.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔌</div>
+        <h4>API Requests</h4>
+        <p>Generic HTTP requests with configurable method, headers, and body — call any external API from a workflow.</p>
+      </div>
+    </div>
+
+    <a class="doc-link" href="eCanMCP.md" target="_blank">eCanMCP.md — Full MCP tool syntax reference</a>
+    <a class="doc-link" href="MULTI_TOOL_CALLS.md" target="_blank">MULTI_TOOL_CALLS.md — Serial &amp; parallel multi-tool calls</a>
+  </section>
+
+  <!-- ── CHANNELS ───────────────────────────────────────────────── -->
+  <section id="channels">
+    <h2>Channel Integrations</h2>
+    <p>The channel system lets eCan.ai agents receive and reply to messages from external messaging platforms. Every channel adapter normalizes inbound messages into a common format, routes them through the agent pipeline, and sends replies back to the originating platform.</p>
+
+    <div class="platform-grid">
+      <div class="platform-card"><div class="picon">💬</div><strong>WebChat</strong><span>Built-in (always active)</span></div>
+      <div class="platform-card"><div class="picon">✈️</div><strong>Telegram</strong><span>Long-polling, no webhook needed</span></div>
+      <div class="platform-card"><div class="picon">💼</div><strong>Slack</strong><span>Socket Mode (WebSocket)</span></div>
+      <div class="platform-card"><div class="picon">🎮</div><strong>Discord</strong><span>Gateway bot (WebSocket)</span></div>
+      <div class="platform-card"><div class="picon">📱</div><strong>WhatsApp</strong><span>Cloud API + webhook*</span></div>
+      <div class="platform-card"><div class="picon">📎</div><strong>DingTalk</strong><span>Stream Mode (WebSocket)</span></div>
+      <div class="platform-card"><div class="picon">👤</div><strong>Facebook Messenger</strong><span>Graph API + webhook*</span></div>
+      <div class="platform-card"><div class="picon">🐦</div><strong>X (Twitter)</strong><span>Account Activity API + webhook*</span></div>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text3);">* Requires a publicly accessible endpoint (e.g., via ngrok or a reverse proxy).</p>
+
+    <h3>Quick Setup</h3>
+    <p>All channel configuration lives in <code>agent/agent_files/channels.json</code>. Enable a channel, fill in credentials, and restart eCan.ai — the channel manager starts automatically.</p>
+
+    <pre><code>{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "YOUR_BOT_TOKEN",
+      "allowed_chat_ids": [],
+      "default_agent_id": ""
+    }
+  }
+}</code></pre>
+
+    <p>Set <code>default_agent_id</code> to route a channel's messages to a specific agent, or leave it empty to route to the first available agent.</p>
+
+    <h3>Telegram Setup</h3>
+    <ol>
+      <li>Message <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram → <code>/newbot</code> → copy the bot token.</li>
+      <li>Add the token to <code>channels.json</code> under <code>"telegram"</code>.</li>
+      <li>Restart eCan.ai — the bot is live immediately.</li>
+    </ol>
+
+    <h3>Slack Setup</h3>
+    <ol>
+      <li>Create a Slack App at <a href="https://api.slack.com/apps" target="_blank">api.slack.com/apps</a>.</li>
+      <li>Enable Socket Mode and subscribe to <code>message.*</code> events.</li>
+      <li>Add <code>bot_token</code> and <code>app_token</code> to <code>channels.json</code>.</li>
+      <li>Invite the bot: <code>/invite @YourBotName</code> in a channel.</li>
+    </ol>
+
+    <h3>WhatsApp / Messenger / X</h3>
+    <p>These channels require a <strong>public webhook endpoint</strong>. Use ngrok for development:</p>
+    <pre><code>ngrok http 8443   # WhatsApp
+ngrok http 8444   # Messenger
+ngrok http 8445   # X (Twitter)</code></pre>
+    <p>Register the ngrok URL as the webhook in each platform's developer console, then fill in the credentials in <code>channels.json</code>.</p>
+
+    <a class="doc-link" href="channels.md" target="_blank">channels.md — Full channel configuration &amp; troubleshooting</a>
+  </section>
+
+  <!-- ── AVATAR ─────────────────────────────────────────────────── -->
+  <section id="avatar">
+    <h2>Avatar System</h2>
+    <p>Each agent can have a static image avatar or a dynamic video avatar. Avatars are stored locally and automatically synced to AWS S3 in the background.</p>
+
+    <h3>Supported Formats</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Formats</th><th>Display</th></tr></thead>
+        <tbody>
+          <tr><td>Image</td><td>PNG, JPG, GIF, WebP</td><td>Static image</td></tr>
+          <tr><td>Video</td><td>WebM, MP4, MOV, AVI</td><td>Looping, muted, auto-play</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>S3 Cloud Sync</h3>
+    <p>After upload, the file is saved locally and then uploaded to AWS S3 in a background thread — the UI is not blocked. The S3 URL is stored in the database and used when syncing agent data to the cloud.</p>
+
+    <div class="callout info">
+      <strong>Optional: ffmpeg</strong>
+      If ffmpeg is installed, a thumbnail frame is automatically extracted from video uploads. Without ffmpeg, videos still work — the poster image is simply omitted.
+    </div>
+
+    <a class="doc-link" href="AVATAR_GUIDE.md" target="_blank">AVATAR_GUIDE.md — Avatar system reference</a>
+    <a class="doc-link" href="S3_SETUP.md" target="_blank">S3_SETUP.md — S3 configuration guide</a>
+  </section>
+
+  <!-- ── CLI ────────────────────────────────────────────────────── -->
+  <section id="cli">
+    <h2>CLI Reference</h2>
+    <p>The eCan.ai CLI provides full control over the server and all resources in headless mode. No GUI required.</p>
+
+    <pre><code>python ecan_cli.py --help          # global help
+python ecan_cli.py version         # show version
+python ecan_cli.py status          # system status</code></pre>
+
+    <h3>Authentication</h3>
+    <pre><code>python ecan_cli.py auth login -u username -p password
+python ecan_cli.py auth status
+python ecan_cli.py auth logout</code></pre>
+
+    <h3>Resource Commands</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Resource</th><th>Commands</th></tr></thead>
+        <tbody>
+          <tr><td><strong>agents</strong></td><td>list · get · add · update · remove · run · stop · monitor</td></tr>
+          <tr><td><strong>tasks</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>skills</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>vehicles</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>knowledge</strong></td><td>list · get</td></tr>
+          <tr><td><strong>prompts</strong></td><td>list · get · add · remove</td></tr>
+          <tr><td><strong>tools</strong></td><td>list · get</td></tr>
+          <tr><td><strong>settings</strong></td><td>show · set · reset</td></tr>
+          <tr><td><strong>server</strong></td><td>start · stop · restart · status · logs</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Server Management</h3>
+    <pre><code>python ecan_cli.py server start                        # start in background
+python ecan_cli.py server start --host 0.0.0.0 --port 8080
+python ecan_cli.py server start --foreground           # foreground (debug)
+python ecan_cli.py server logs --follow                # tail logs
+python ecan_cli.py server stop</code></pre>
+
+    <h3>Output Formats</h3>
+    <p>Most list commands support <code>--output table</code> (default) and <code>--output json</code> for scripting:</p>
+    <pre><code>python ecan_cli.py agents list --output json | jq '.agents[0].name'</code></pre>
+
+    <a class="doc-link" href="CLI_GUIDE.md" target="_blank">CLI_GUIDE.md — Full CLI reference</a>
+  </section>
+
+  <!-- ── DEPLOYMENT ─────────────────────────────────────────────── -->
+  <section id="deployment">
+    <h2>Server Deployment</h2>
+
+    <h3>Environment Variables</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>ECAN_MODE</code></td><td><code>web</code></td><td>Must be <code>web</code> for headless mode</td></tr>
+          <tr><td><code>ECAN_WS_HOST</code></td><td><code>0.0.0.0</code></td><td>WebSocket bind address</td></tr>
+          <tr><td><code>ECAN_WS_PORT</code></td><td><code>8765</code></td><td>WebSocket port</td></tr>
+          <tr><td><code>ECAN_LOG_LEVEL</code></td><td><code>INFO</code></td><td>DEBUG / INFO / WARNING / ERROR</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Docker</h3>
+    <pre><code>docker-compose -f docker-compose.web.yml up -d
+docker-compose -f docker-compose.web.yml logs -f</code></pre>
+
+    <h3>Nginx Reverse Proxy (Production)</h3>
+    <pre><code>server {
+    listen 80;
+    server_name your-domain.com;
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+}</code></pre>
+
+    <h3>Systemd Service</h3>
+    <pre><code>[Unit]
+Description=eCan.ai Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/eCan.ai
+EnvironmentFile=/opt/eCan.ai/.env.web
+ExecStart=/opt/eCan.ai/venv/bin/python -m uvicorn web_server:app \
+          --host 127.0.0.1 --port 8765
+Restart=always
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+    <h3>Web Mode Limitations</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Feature</th><th>Desktop</th><th>Web / Headless</th></tr></thead>
+        <tbody>
+          <tr><td>File dialogs</td><td>✅</td><td>❌ (use file paths)</td></tr>
+          <tr><td>Screen capture</td><td>✅</td><td>❌</td></tr>
+          <tr><td>Desktop automation</td><td>✅</td><td>❌</td></tr>
+          <tr><td>Native notifications</td><td>✅</td><td>❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <a class="doc-link" href="DEPLOYMENT_UBUNTU.md" target="_blank">DEPLOYMENT_UBUNTU.md — Ubuntu deployment guide</a>
+    <a class="doc-link" href="WEB_DEPLOYMENT.md" target="_blank">WEB_DEPLOYMENT.md — Web/Docker architecture</a>
+  </section>
+
+  <!-- ── PROXY ──────────────────────────────────────────────────── -->
+  <section id="proxy">
+    <h2>Proxy Management</h2>
+    <p>eCan.ai includes a built-in proxy management system for routing browser automation through HTTP/SOCKS proxies — essential for e-commerce workflows that require IP rotation or geo-specific access.</p>
+    <p>Proxies are configured per-agent or per-task and are automatically applied to Playwright, Selenium, and HTTP request nodes.</p>
+    <a class="doc-link" href="PROXY_MANAGEMENT_SYSTEM.md" target="_blank">PROXY_MANAGEMENT_SYSTEM.md — Proxy management reference</a>
+  </section>
+
+  <!-- ── SETTINGS ───────────────────────────────────────────────── -->
+  <section id="settings">
+    <h2>Settings &amp; API Keys</h2>
+
+    <h3>LLM Providers</h3>
+    <p>Add API keys for the LLM providers you want to use. Keys are stored in <code>.env</code> (desktop) or <code>.env.web</code> (server).</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Provider</th><th>Environment Variable</th></tr></thead>
+        <tbody>
+          <tr><td>OpenAI (GPT-4o, o1, etc.)</td><td><code>OPENAI_API_KEY</code></td></tr>
+          <tr><td>Anthropic (Claude)</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+          <tr><td>Google (Gemini)</td><td><code>GOOGLE_API_KEY</code></td></tr>
+          <tr><td>Alibaba (Qwen / DashScope)</td><td><code>DASHSCOPE_API_KEY</code></td></tr>
+          <tr><td>Local (Ollama)</td><td>No key required — configure base URL in Settings</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>In-App Settings</h3>
+    <p>Open <strong>Settings</strong> from the sidebar to configure LLM defaults, browser automation options, memory limits, update preferences, and more. Changes take effect immediately without restarting.</p>
+  </section>
+
+  <!-- ── SHORTCUTS ──────────────────────────────────────────────── -->
+  <section id="shortcuts">
+    <h2>Keyboard Shortcuts</h2>
+    <h3>Skill Editor</h3>
+    <div class="shortcut-list">
+      <kbd>Ctrl/Cmd + Z</kbd><span>Undo</span>
+      <kbd>Ctrl/Cmd + Y</kbd><span>Redo</span>
+      <kbd>Ctrl/Cmd + S</kbd><span>Save flow</span>
+      <kbd>Ctrl + Scroll</kbd><span>Zoom in / out</span>
+      <kbd>Middle Mouse</kbd><span>Pan canvas</span>
+      <kbd>Shift + Drag</kbd><span>Multi-select nodes</span>
+      <kbd>Double-click Node</kbd><span>Open node editor</span>
+      <kbd>Right-click Canvas</kbd><span>Add node menu</span>
+    </div>
+
+    <h3>General App</h3>
+    <div class="shortcut-list">
+      <kbd>Ctrl/Cmd + ,</kbd><span>Open Settings</span>
+      <kbd>Ctrl/Cmd + K</kbd><span>Command palette</span>
+      <kbd>Escape</kbd><span>Close modal / cancel</span>
+    </div>
+  </section>
+
+  <!-- ── FAQ ────────────────────────────────────────────────────── -->
+  <section id="faq">
+    <h2>FAQ &amp; Troubleshooting</h2>
+
+    <h3>The skill editor doesn't load</h3>
+    <p>Refresh the page and ensure the eCan.ai backend server is running. In desktop mode, check the system tray icon — if it shows an error, restart the app.</p>
+
+    <h3>My agent doesn't respond on a channel</h3>
+    <ol>
+      <li>Verify <code>"enabled": true</code> is set in <code>channels.json</code>.</li>
+      <li>Ensure at least one agent has a running task with a skill containing a chat or <em>Pend For Event</em> node.</li>
+      <li>Check app logs for <code>[ChannelBridge]</code> entries — look for "No agent available" or "dispatch_inbound error".</li>
+      <li>For webhook channels (WhatsApp, Messenger, X): verify the webhook URL is publicly accessible and the verify token matches.</li>
+    </ol>
+
+    <h3>Server won't start</h3>
+    <pre><code># Check if the port is already in use
+netstat -an | grep 8765
+# Or use a different port
+./scripts/deploy-ubuntu.sh start -- --port 8080
+# View logs
+./scripts/deploy-ubuntu.sh logs</code></pre>
+
+    <h3>LLM calls are failing</h3>
+    <ul>
+      <li>Verify your API key is set in <code>.env</code> / <code>.env.web</code> and is valid.</li>
+      <li>Check token quota with your provider.</li>
+      <li>For local Ollama: ensure the model is downloaded (<code>ollama pull &lt;model&gt;</code>) and the base URL is correct in Settings.</li>
+    </ul>
+
+    <h3>Browser automation errors</h3>
+    <ul>
+      <li>Run <code>playwright install chromium --with-deps</code> to ensure the bundled browser is present.</li>
+      <li>For Selenium-based tools: ensure ChromeDriver matches the installed Chrome/Chromium version.</li>
+      <li>On headless servers: screen capture and desktop automation tools are unavailable — use Playwright or Crawl4ai instead.</li>
+    </ul>
+
+    <h3>How do I switch languages in a Code node?</h3>
+    <p>Use the language dropdown above the Monaco editor in the Code node's editor panel. Supports Python, JavaScript, and TypeScript.</p>
+  </section>
+
+  <!-- ── DOCS INDEX ─────────────────────────────────────────────── -->
+  <section id="docs-index">
+    <h2>All Documents</h2>
+    <p>Detailed reference documents for each subsystem:</p>
+
+    <h3>User-Facing Guides</h3>
+    <a class="doc-link" href="../gui_v2/src/modules/skill-editor/doc/skill_editor_help.md">Skill Editor Help</a>
+    <a class="doc-link" href="channels.md">Channel Integrations</a>
+    <a class="doc-link" href="CLI_GUIDE.md">CLI Reference</a>
+    <a class="doc-link" href="AVATAR_GUIDE.md">Avatar System</a>
+    <a class="doc-link" href="eCanMCP.md">MCP Tools</a>
+    <a class="doc-link" href="eCanOCR.md">OCR Service</a>
+    <a class="doc-link" href="mapping-dsl.md">Mapping DSL</a>
+    <a class="doc-link" href="prompt-variable-resolution.md">Prompt Variables</a>
+    <a class="doc-link" href="MULTI_TOOL_CALLS.md">Multi-Tool Calls</a>
+
+    <h3>Deployment &amp; Operations</h3>
+    <a class="doc-link" href="DEPLOYMENT_UBUNTU.md">Ubuntu Deployment</a>
+    <a class="doc-link" href="WEB_DEPLOYMENT.md">Web / Docker Deployment</a>
+    <a class="doc-link" href="S3_SETUP.md">S3 Avatar Storage</a>
+    <a class="doc-link" href="PROXY_MANAGEMENT_SYSTEM.md">Proxy Management</a>
+    <a class="doc-link" href="MEMORY_MONITOR.md">Memory Monitor</a>
+    <a class="doc-link" href="TOKEN_TRACKING_IMPLEMENTATION.md">Token Usage Tracking</a>
+    <a class="doc-link" href="BROWSER_EVENT_MONITOR.md">Browser Event Monitor</a>
+
+    <h3>Architecture &amp; Internals</h3>
+    <a class="doc-link" href="ipc-design.md">IPC Architecture</a>
+    <a class="doc-link" href="EVENT_DRIVEN_CHAT_ARCHITECTURE.md">Event-Driven Chat</a>
+    <a class="doc-link" href="build-architecture.md">Build System</a>
+    <a class="doc-link" href="OTA_PATH_STRUCTURE.md">OTA Update Paths</a>
+    <a class="doc-link" href="RELEASE_GUIDE.md">Release Guide</a>
+    <a class="doc-link" href="RELEASE_ENVIRONMENT_CHANNEL_GUIDE.md">Release Environments</a>
+    <a class="doc-link" href="frontend-store-architecture-analysis.md">Frontend Store Architecture</a>
+    <a class="doc-link" href="PYTHON_314_ASYNCIO_COMPATIBILITY.md">Python 3.14 Asyncio Compat</a>
+  </section>
+
+  <footer>
+    <p>eCan.ai v0.7.0 · <a href="https://www.ecan.ai">www.ecan.ai</a> · Updated April 2026 · <a href="cn/user_manual.html">中文版本</a></p>
+  </footer>
+
+</main>
+
+<script>
+  // Sidebar active link tracking
+  const links = document.querySelectorAll('nav a');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+
+  document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

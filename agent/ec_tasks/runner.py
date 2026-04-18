@@ -508,10 +508,6 @@ class TaskRunner(Generic[Context]):
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
             
-            # Update status
-            task.status.state = TaskState.canceled
-            task.status.message = "Task cancelled by user"
-            
             # Cleanup
             if hasattr(task, 'cleanup') and callable(task.cleanup):
                 task.cleanup()
@@ -523,6 +519,14 @@ class TaskRunner(Generic[Context]):
                         task.queue.get_nowait()
                     except Empty:
                         break
+            
+            # Update status AFTER all cleanup is done — setting it early causes the
+            # Guard in _submit_task_execution to misidentify the task as terminal
+            # and clear cancellation_event, which can prematurely wake the old
+            # execution loop if it is still blocked on cancellation_event.wait().
+            task.status.state = TaskState.canceled
+            task.status.message = "Task cancelled by user"
+            logger.info(f"[cancel_task] Status set to canceled for {task_id} (after cleanup)")
             
             logger.info(f"Task {task_id} cancelled successfully")
             
@@ -2490,6 +2494,7 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
+        
         # Block re-submission while already working. A second concurrent execution
         # shares the cached browser-use agent object and other module-level state,
         # causing unpredictable interference. The event is already in task.queue

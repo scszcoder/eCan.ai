@@ -5380,6 +5380,13 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     except Exception:
         pass
 
+    # Validate inputsValues exists - this is required for pend_event node
+    if "inputsValues" not in config_metadata:
+        raise KeyError(
+            f"pend_event node '{node_name}' is missing required 'inputsValues' in config_metadata. "
+            f"Available keys: {list(config_metadata.keys())}"
+        )
+    
     main_event = config_metadata["inputsValues"]["eventType"]["content"]
     additional_events = config_metadata["inputsValues"].get("pendingSources", {}).get("content", [])
     timer_name = (config_metadata["inputsValues"].get("timerName") or {}).get("content", "") or ""
@@ -6084,6 +6091,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     if str(_cdp_port_auto_val).lower() in ("true", "1", "yes", "on"):
         cdp_port_setting = "auto"
     
+    # Extract headless mode setting from node editor
+    node_headless = False
+    try:
+        headless_val = (inputs.get("headless") or {}).get("content")
+        node_headless = str(headless_val).lower() in ('true', '1', 'yes', 'on') if headless_val is not None else False
+    except Exception:
+        node_headless = False
+
     # Extract new browser automation options from node editor
     run_environment_setting = ((inputs.get("runEnvironment") or {}).get("content") or "full_local").lower().strip()
     privacy_strategy_setting = ((inputs.get("privacyStrategy") or {}).get("content") or "none").lower().strip()
@@ -6246,7 +6261,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     date_str = datetime.now().strftime("%Y%m%d")
     downloads_path = str(appdata_path / "daily_work" / f"D{date_str}" / shop_name) if shop_name else None
     
-    logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
+    logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}, headless={node_headless}")
     logger.debug(f"[BrowserAutomation] run_environment={run_environment_setting}, privacy_strategy={privacy_strategy_setting}, enable_judge={enable_judge_setting}")
     logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
@@ -6435,7 +6450,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         return getattr(session, "session_manager", None) is not None and getattr(session, "event_bus", None) is not None
 
     def _is_session_alive(session) -> bool:
-        """Check session is started AND its event bus is still operational."""
+        """Check session is started AND its event bus is still operational AND CDP connection alive."""
         if not _is_session_started(session):
             logger.debug(f"[BrowserAutomation] _is_session_alive: session_manager is None")
             return False
@@ -6458,6 +6473,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 return False
             if not eb_running:
                 return False
+
+            # Verify websocket connection is not closed — check multiple possible attribute
+            # names used by different Playwright/CDP client versions.
+            cdp_client = getattr(session, '_cdp_client_root', None) or getattr(session, 'cdp_client_root', None)
+            if cdp_client:
+                ws = getattr(cdp_client, 'ws', None) or getattr(cdp_client, 'websocket', None)
+                if ws is None:
+                    logger.debug(
+                        f"[BrowserAutomation] _is_session_alive: CDP client found but no websocket attribute "
+                        f"(tried ws, websocket); skipping CDP check, assuming alive"
+                    )
+                elif getattr(ws, 'closed', False) or getattr(ws, '_closed', False):
+                    logger.debug(f"[BrowserAutomation] _is_session_alive: CDP websocket is closed")
+                    return False
+
             return True
         except Exception as e:
             logger.debug(f"[BrowserAutomation] _is_session_alive: exception: {e}")
@@ -6472,6 +6502,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     _last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
     _browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
     _MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
+    _NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
 
     # Cache browser-use sub-agents across loop iterations (one per scope/task).
     # The browser-use Agent is heavyweight — it owns MessageManager, history, LLM
@@ -6479,6 +6510,50 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     # of allocations per cycle and adds unnecessary init overhead.
     # Keyed by the same _browser_scope_key used for _cached_browser_sessions.
     _cached_bu_agents: dict[str, Any] = {}
+
+    def cleanup_stale_browser_sessions() -> None:
+        """Remove dead sessions from _cached_browser_sessions in a thread-safe way.
+
+        Call this after task cancellation to prevent zombie sessions from being
+        reused by subsequent tasks. Replicates the CDP WebSocket closed-check from
+        _is_session_alive() but iterates the cache dict safely.
+        """
+        import threading as _th
+        _lock = _th.Lock()
+        with _lock:
+            stale_keys = []
+            for scope_key, session in _cached_browser_sessions.items():
+                try:
+                    cdp_client = getattr(session, '_cdp_client_root', None) or getattr(session, 'cdp_client_root', None)
+                    if cdp_client:
+                        ws = getattr(cdp_client, 'ws', None) or getattr(cdp_client, 'websocket', None)
+                        if ws is not None and (getattr(ws, 'closed', False) or getattr(ws, '_closed', False)):
+                            stale_keys.append(scope_key)
+                except Exception:
+                    pass
+            for key in stale_keys:
+                _cached_browser_sessions.pop(key, None)
+                logger.debug(f"[cleanup_stale_browser_sessions] Removed dead session: {key}")
+
+    def _is_matching_control_url(actual_url: str, preferred_url: str) -> bool:
+        """Treat localhost and 127.0.0.1 control-panel URLs as equivalent."""
+        if not actual_url or not preferred_url:
+            return False
+        try:
+            actual = urlparse(actual_url)
+            preferred = urlparse(preferred_url)
+            actual_host = (actual.hostname or "").lower()
+            preferred_host = (preferred.hostname or "").lower()
+            local_hosts = {"127.0.0.1", "localhost"}
+            if actual_host not in local_hosts or preferred_host not in local_hosts:
+                return actual_url.rstrip("/") == preferred_url.rstrip("/")
+            return (
+                (actual.port or 80) == (preferred.port or 80)
+                and actual.path.rstrip("/").startswith("/control")
+                and preferred.path.rstrip("/").startswith("/control")
+            )
+        except Exception:
+            return actual_url.rstrip("/") == preferred_url.rstrip("/")
 
     def _reset_bu_agent_for_next_round(agent: Any, mode: str, task: str) -> None:
         """Reset a cached browser-use sub-agent for re-use in the next loop round.
@@ -7644,26 +7719,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if match:
                         return match.group(0)
                 return None
-
-            def _is_matching_control_url(actual_url: str, preferred_url: str) -> bool:
-                """Treat localhost and 127.0.0.1 control-panel URLs as equivalent."""
-                if not actual_url or not preferred_url:
-                    return False
-                try:
-                    actual = urlparse(actual_url)
-                    preferred = urlparse(preferred_url)
-                    actual_host = (actual.hostname or "").lower()
-                    preferred_host = (preferred.hostname or "").lower()
-                    local_hosts = {"127.0.0.1", "localhost"}
-                    if actual_host not in local_hosts or preferred_host not in local_hosts:
-                        return actual_url.rstrip("/") == preferred_url.rstrip("/")
-                    return (
-                        (actual.port or 80) == (preferred.port or 80)
-                        and actual.path.rstrip("/").startswith("/control")
-                        and preferred.path.rstrip("/").startswith("/control")
-                    )
-                except Exception:
-                    return actual_url.rstrip("/") == preferred_url.rstrip("/")
 
             async def _maybe_run_frontdesk_dispatch_fastpath(agent_obj) -> dict | None:
                 if skill_name != "customer_front_desk":
@@ -8854,8 +8909,83 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 enable_default_extensions=not disable_extensions,
                 user_data_dir=_bp_user_data_dir,
                 keep_alive=keep_browser_alive or None,
+                headless=node_headless if node_headless else None,
             )
-            
+
+            # ── Fingerprint / stealth browser ──
+            # If the selected browser profile has enableStealth=true, apply
+            # fingerprint fields (user_agent, viewport, locale, anti-detect
+            # args) to the BrowserProfile object.  The stealth JS injection
+            # happens later, after the CDP session connects.
+            _fp_profile: dict | None = None
+            try:
+                _bp_settings = profile_settings if profile_settings else {}
+                if _bp_settings.get("enableStealth"):
+                    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import (
+                        apply_profile_to_browser_profile,
+                        load_profile,
+                        get_random_profile,
+                        generate_random_profile,
+                    )
+                    # Build an fp profile dict from the profile settings fields
+                    _fp_profile = {
+                        "id": _bp_settings.get("id", "stealth"),
+                        "userAgent": _bp_settings.get("user_agent") or "",
+                        "viewport": (
+                            {"width": _bp_settings["viewport_width"], "height": _bp_settings["viewport_height"]}
+                            if _bp_settings.get("viewport_width") and _bp_settings.get("viewport_height")
+                            else None
+                        ),
+                        "deviceScaleFactor": _bp_settings.get("deviceScaleFactor"),
+                        "timezone": _bp_settings.get("timezone") or "",
+                        "locale": _bp_settings.get("locale") or "",
+                        "displayLanguage": _bp_settings.get("displayLanguage") or "",
+                        "platform": _bp_settings.get("platform") or "",
+                        "languages": _bp_settings.get("languages") or [],
+                        "canvasNoiseSeed": _bp_settings.get("canvasNoiseSeed") or "",
+                        "webgl": {
+                            "vendor": _bp_settings.get("webglVendor") or "",
+                            "renderer": _bp_settings.get("webglRenderer") or "",
+                        },
+                        "hardwareConcurrency": _bp_settings.get("hardwareConcurrency"),
+                        "deviceMemory": _bp_settings.get("deviceMemory"),
+                        "webrtcPolicy": _bp_settings.get("webrtcPolicy") or "block",
+                        "doNotTrack": _bp_settings.get("doNotTrack") or "",
+                        # Hardware noise toggles
+                        "noiseWebGLImage": _bp_settings.get("noiseWebGLImage", True),
+                        "noiseClientRects": _bp_settings.get("noiseClientRects", True),
+                        "noiseSpeechVoices": _bp_settings.get("noiseSpeechVoices", True),
+                        "noiseMediaDevices": _bp_settings.get("noiseMediaDevices", True),
+                        "fontProtection": _bp_settings.get("fontProtection", True),
+                        "customFonts": _bp_settings.get("customFonts") or [],
+                        "portScanProtection": _bp_settings.get("portScanProtection", True),
+                        "portScanAllowedPorts": _bp_settings.get("portScanAllowedPorts") or "80,443",
+                        # WebGPU & geolocation
+                        "webgpuMode": _bp_settings.get("webgpuMode") or "based_on_webgl",
+                        "geoLocationMode": _bp_settings.get("geoLocationMode") or "",
+                        "geolocation": _bp_settings.get("geolocation"),
+                        "hardwareAcceleration": _bp_settings.get("hardwareAcceleration") or "default",
+                        "proxy": _bp_settings.get("fingerprintProxy"),
+                    }
+                    # If key fields are empty, user wants a random/auto profile
+                    if not _fp_profile["userAgent"] and not _fp_profile["canvasNoiseSeed"]:
+                        # Use deterministic seed from agent+node for stable profile
+                        _fp_seed = f"{calling_agent_id or 'default'}:{node_name}"
+                        _fp_profile = get_random_profile(seed=_fp_seed)
+                        logger.info(
+                            f"[BrowserAutomation] Stealth: auto-generated fingerprint profile "
+                            f"(seed={_fp_seed}, id={_fp_profile.get('id')})"
+                        )
+                    else:
+                        logger.info(
+                            f"[BrowserAutomation] Stealth: using configured fingerprint profile "
+                            f"(id={_fp_profile.get('id')}, ua_len={len(_fp_profile.get('userAgent', ''))})"
+                        )
+                    apply_profile_to_browser_profile(browser_profile, _fp_profile)
+            except Exception as _fp_err:
+                logger.warning(f"[BrowserAutomation] Stealth profile setup failed (non-fatal): {_fp_err}")
+                _fp_profile = None
+
             if browser_type_setting == 'new chromium':
                 logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
             else:
@@ -9080,6 +9210,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         agent._ecan_full_AgentOutput = agent.AgentOutput
                     _cached_bu_agents[_bu_scope_key] = agent
                     logger.info(f"[BrowserAutomation] Created new browser-use agent and cached (scope={_bu_scope_key})")
+
+                    # Stealth JS injection for new-chromium mode.
+                    # Pre-start the session so CDP is connected, inject stealth JS,
+                    # then agent.run() will call start() again (idempotent, safe no-op).
+                    if _fp_profile and hasattr(agent, "browser_session") and agent.browser_session:
+                        try:
+                            await agent.browser_session.start()
+                            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import inject_stealth
+                            _stealth_ok = await inject_stealth(agent.browser_session, _fp_profile)
+                            if _stealth_ok:
+                                logger.info(
+                                    f"[BrowserAutomation] Stealth JS injected into new-chromium session "
+                                    f"(profile={_fp_profile.get('id', '?')})"
+                                )
+                        except Exception as _stealth_err:
+                            logger.warning(f"[BrowserAutomation] Stealth JS injection failed (non-fatal): {_stealth_err}")
+
                 _agent_ref["agent"] = agent
 
             else:
@@ -9124,6 +9271,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if keep_browser_alive:
                         _patch_browser_session_lifecycle_debug(browser_session, source="post_start")
 
+                    # Stealth JS injection for existing-browser/CDP mode.
+                    # CDP is connected after session.start(), so we can inject now.
+                    if _fp_profile:
+                        try:
+                            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import inject_stealth
+                            _stealth_ok = await inject_stealth(browser_session, _fp_profile)
+                            if _stealth_ok:
+                                logger.info(
+                                    f"[BrowserAutomation] Stealth JS injected into existing-browser session "
+                                    f"(profile={_fp_profile.get('id', '?')})"
+                                )
+                        except Exception as _stealth_err:
+                            logger.warning(f"[BrowserAutomation] Stealth JS injection failed (non-fatal): {_stealth_err}")
+
                     # Focus/session preflight for CDP mode:
                     # If agent_focus_target_id is missing/invalid (common after target detach),
                     # re-bind to a valid page target before running browser-use Agent.
@@ -9140,8 +9301,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         cur_focus = getattr(browser_session, 'agent_focus_target_id', None)
                         valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
-                        # Capture first-invocation flag before preflight may update _last_known_focus_target_id.
-                        _preflight_is_first_invocation = (_last_known_focus_target_id is None)
 
                         def _resolve_target_id_for_assignment(
                             preferred_tab_id: str,
@@ -9189,6 +9348,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         elif page_target_ids:
                             target_focus = page_target_ids[0]
 
+                        if not page_target_ids:
+                            error_msg = (
+                                "[BrowserAutomation] Focus preflight failed: no browser tabs available. "
+                                "All tabs have been closed. Please open at least one tab before running the agent."
+                            )
+                            logger.error(error_msg)
+                            send_skill_editor_log("error", error_msg)
+                            raise RuntimeError(error_msg)
+
                         if target_focus:
                             if cur_focus != target_focus:
                                 await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_focus))
@@ -9196,129 +9364,77 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     f"[BrowserAutomation] Focus preflight switched target: "
                                     f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
                                 )
-                            elif assignment_target_focus:
-                                logger.info(
-                                    f"[BrowserAutomation] Focus preflight confirmed assigned tab already active: "
-                                    f"...{target_focus[-4:]}"
-                                )
                             _last_known_focus_target_id = target_focus
-
-                            # Warm browser state to repopulate selector/session mapping before TypeTextEvent.
                             await browser_session.get_browser_state_summary(include_screenshot=False)
-
-                            _tab_already_at_correct_url = False
-                            if skill_name == "rt_chat_bot" and assignment_chat_url:
-                                if assignment_target_focus:
-                                    # We found the pre-opened tab. Check if URL still matches.
-                                    latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
-                                    focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
-                                    focused_url = str(getattr(focused_target, 'url', '') or '').strip()
-                                    # Only navigate if the tab is NOT already at the correct URL.
-                                    # The fast-path pre-opens each tab at chat_url, so on first invocation
-                                    # the tab is already loaded — no navigation needed, no lifecycle wait.
-                                    # Only navigate if the URL drifted (e.g., tab reused from a previous session).
-                                    if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
-                                        await browser_session.event_bus.dispatch(
-                                            NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
-                                        )
-                                        logger.info(
-                                            f"[BrowserAutomation] Focus preflight navigated assigned tab to chat_url: "
-                                            f"{assignment_chat_url}"
-                                        )
-                                        await asyncio.sleep(1.0)
-                                        await browser_session.get_browser_state_summary(include_screenshot=False)
-                                    else:
-                                        logger.info(
-                                            f"[BrowserAutomation] Focus preflight: tab already at chat_url, no navigation needed: "
-                                            f"{assignment_chat_url}"
-                                        )
-                                        # Tab is already loaded at the correct URL.
-                                        # 1) Set flag so we can suppress browser-use's auto-navigate after agent creation.
-                                        # 2) Append a note to task so the LLM doesn't try to navigate on its own.
-                                        _tab_already_at_correct_url = True
-                                        task = (
-                                            task
-                                            + "\n\n## Tab Navigation Status\n"
-                                            f"The assigned chat tab is already open and focused at the correct URL ({assignment_chat_url}). "
-                                            "The browser is already showing the correct chat page. "
-                                            "Do NOT call navigate, go_to_url, or any navigation action — "
-                                            "read the page content directly."
-                                        )
-                                else:
-                                    # No pre-opened tab found for this assignment (tab_id was
-                                    # empty or the tab was already closed).  Open a NEW tab at
-                                    # the chat URL so this service agent gets its own dedicated
-                                    # tab instead of hijacking another agent's tab.
-                                    logger.warning(
-                                        f"[BrowserAutomation] Focus preflight: no matching tab for "
-                                        f"assignment (session={assignment_session_id}, "
-                                        f"tab_id={assignment_tab_id or 'none'}). "
-                                        f"Opening new tab at {assignment_chat_url}"
-                                    )
-                                    await browser_session.event_bus.dispatch(
-                                        NavigateToUrlEvent(url=assignment_chat_url, new_tab=True)
-                                    )
-                                    await asyncio.sleep(1.0)
-                                    # Re-read targets so the newly opened tab is visible.
-                                    sm_refresh = getattr(browser_session, 'session_manager', None)
-                                    if sm_refresh:
-                                        all_targets_refresh = sm_refresh.get_all_targets() or {}
-                                        chat_norm = assignment_chat_url.rstrip("/")
-                                        for tid_r, tgt_r in all_targets_refresh.items():
-                                            if getattr(tgt_r, 'target_type', '') not in ('page', 'tab'):
-                                                continue
-                                            tgt_url = str(getattr(tgt_r, 'url', '') or '').strip().rstrip("/")
-                                            if tgt_url == chat_norm:
-                                                target_focus = str(tid_r)
-                                                _last_known_focus_target_id = target_focus
-                                                await browser_session.event_bus.dispatch(
-                                                    SwitchTabEvent(target_id=target_focus)
-                                                )
-                                                logger.info(
-                                                    f"[BrowserAutomation] Focus preflight: opened and focused new tab "
-                                                    f"...{target_focus[-4:]} for {assignment_chat_url}"
-                                                )
-                                                break
-                                    await browser_session.get_browser_state_summary(include_screenshot=False)
-                        else:
-                            logger.warning("[BrowserAutomation] Focus preflight: no page/tab targets available before agent.run()")
-
-                        preferred_start_url = None if skill_name == "rt_chat_bot" else _extract_preferred_start_url(task, state)
-                        if preferred_start_url and sm:
-                            latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
-                            all_targets = sm.get_all_targets() if sm else {}
-                            preferred_target_id = None
-                            current_target = sm.get_target(latest_focus) if latest_focus else None
-                            current_url = getattr(current_target, 'url', '') if current_target else ''
-
-                            for tid, target in (all_targets or {}).items():
-                                if getattr(target, 'target_type', '') not in ('page', 'tab'):
-                                    continue
-                                target_url = getattr(target, 'url', '') or ''
-                                if _is_matching_control_url(target_url, preferred_start_url):
-                                    preferred_target_id = tid
-                                    break
-
-                            if preferred_target_id and preferred_target_id != latest_focus:
-                                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=preferred_target_id))
-                                _last_known_focus_target_id = preferred_target_id
-                                logger.info(
-                                    f"[BrowserAutomation] Switched to preferred control tab: "
-                                    f"...{preferred_target_id[-4:]} url={preferred_start_url}"
-                                )
-                                await browser_session.get_browser_state_summary(include_screenshot=False)
-                            elif not _is_matching_control_url(current_url, preferred_start_url):
-                                await browser_session.event_bus.dispatch(
-                                    NavigateToUrlEvent(url=preferred_start_url, new_tab=False)
-                                )
-                                logger.info(
-                                    f"[BrowserAutomation] Pre-navigated focused tab to preferred startup URL: "
-                                    f"{preferred_start_url}"
-                                )
-                                await asyncio.sleep(0.8)
-                                await browser_session.get_browser_state_summary(include_screenshot=False)
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
+                        raise
+
+                    # Restore browser state so selector/session mapping is fresh before agent.run()
+                    # picks it up — especially critical for rt_chat_bot where TypeTextEvent relies on
+                    # accurate selector resolution immediately after tab switch.
+                    if target_focus:
+                        await browser_session.get_browser_state_summary(include_screenshot=False)
+
+                    # Handle rt_chat_bot chat URL: if an assignment_chat_url is known, check whether
+                    # the focused tab already has it loaded; if not, navigate to it.
+                    _tab_already_at_correct_url = False
+                    if skill_name == "rt_chat_bot" and assignment_chat_url and target_focus:
+                        latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                        focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
+                        focused_url = str(getattr(focused_target, 'url', '') or '').strip()
+                        if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
+                            await browser_session.event_bus.dispatch(
+                                NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
+                            )
+                            logger.info(
+                                f"[BrowserAutomation] Focus preflight navigated to chat_url: {assignment_chat_url}"
+                            )
+                            await asyncio.sleep(1.0)
+                            await browser_session.get_browser_state_summary(include_screenshot=False)
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] Focus preflight: tab already at chat_url, no navigation needed: "
+                                f"{assignment_chat_url}"
+                            )
+                            _tab_already_at_correct_url = True
+
+                    # Handle preferred_start_url: for non-rt_chat_bot skills, ensure the focused
+                    # tab lands on the configured control panel URL before agent.run() starts.
+                    preferred_start_url = None if skill_name == "rt_chat_bot" else _extract_preferred_start_url(task, state)
+                    if preferred_start_url and sm:
+                        latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
+                        all_targets = sm.get_all_targets() if sm else {}
+                        preferred_target_id = None
+                        current_target = sm.get_target(latest_focus) if latest_focus else None
+                        current_url = getattr(current_target, 'url', '') if current_target else ''
+
+                        for tid, target in (all_targets or {}).items():
+                            if getattr(target, 'target_type', '') not in ('page', 'tab'):
+                                continue
+                            target_url = getattr(target, 'url', '') or ''
+                            if _is_matching_control_url(target_url, preferred_start_url):
+                                preferred_target_id = tid
+                                break
+
+                        if preferred_target_id and preferred_target_id != latest_focus:
+                            await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=preferred_target_id))
+                            _last_known_focus_target_id = preferred_target_id
+                            logger.info(
+                                f"[BrowserAutomation] Switched to preferred control tab: "
+                                f"...{preferred_target_id[-4:]} url={preferred_start_url}"
+                            )
+                            await browser_session.get_browser_state_summary(include_screenshot=False)
+                        elif not _is_matching_control_url(current_url, preferred_start_url):
+                            await browser_session.event_bus.dispatch(
+                                NavigateToUrlEvent(url=preferred_start_url, new_tab=False)
+                            )
+                            logger.info(
+                                f"[BrowserAutomation] Pre-navigated focused tab to preferred startup URL: "
+                                f"{preferred_start_url}"
+                            )
+                            await asyncio.sleep(0.8)
+                            await browser_session.get_browser_state_summary(include_screenshot=False)
 
                     # Reuse cached browser-use sub-agent if available (avoids per-cycle
                     # re-init overhead and the ~860 MB allocation spike).
@@ -9349,6 +9465,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
                         )
                     _agent_ref["agent"] = agent
+
+                    # Suppress browser-use's auto-navigate-from-task-URL feature when the
+                    # assigned chat tab is already loaded at the correct URL.  Without this,
+                    # browser-use appends a navigate initial-action that times out (30s)
+                    # because the page is already stable and no lifecycle events fire.
+                    if locals().get("_tab_already_at_correct_url"):
+                        try:
+                            agent.directly_open_url = False
+                            logger.info(
+                                "[BrowserAutomation] Suppressed auto-navigate (directly_open_url=False): "
+                                "tab already at correct URL"
+                            )
+                        except Exception:
+                            pass
                 else:
                     # Fallback: browser session creation failed or unsupported driver
                     logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
@@ -9359,16 +9489,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 setattr(agent, "_ecan_skill_name", skill_name)
                 setattr(agent, "_ecan_node_id", node_name)
                 setattr(agent, "_ecan_owner", owner)
-                # Suppress browser-use's auto-navigate-from-task-URL feature when the
-                # assigned chat tab is already loaded at the correct URL.  Without this,
-                # browser-use appends a navigate initial-action that times out (30s)
-                # because the page is already stable and no lifecycle events fire.
-                if locals().get("_tab_already_at_correct_url"):
-                    agent.directly_open_url = False
-                    logger.info(
-                        "[BrowserAutomation] Suppressed auto-navigate (directly_open_url=False): "
-                        "tab already at correct URL"
-                    )
             except Exception:
                 pass
             _browser_scope_key = _resolve_browser_scope_key(state)
