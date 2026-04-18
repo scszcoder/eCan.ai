@@ -1808,7 +1808,26 @@ class TaskRunner(Generic[Context]):
                 if not hasattr(target_task, "queue") or target_task.queue is None:
                     logger.error(f"[QUEUE] Target task has no queue: {target_task.name}")
                     return
-                
+
+                # ── Direct delivery fast-path ──
+                # When a chat_message carrying a structured response arrives for a
+                # task whose browser session has feige tools, deliver the reply
+                # directly (open_session + send_message) instead of queuing it for
+                # the LLM.  This cuts ~30s of queue wait + LLM round-trip.
+                if event_type == "chat_message":
+                    try:
+                        _dd_ok = self._try_direct_feige_delivery(target_task, request)
+                        if _dd_ok:
+                            logger.info(
+                                f"[QUEUE] Direct delivery succeeded for task={target_task.name}, "
+                                f"skipping queue"
+                            )
+                            return
+                    except Exception as _dd_err:
+                        logger.debug(
+                            f"[QUEUE] Direct delivery failed (non-fatal, will queue): {_dd_err}"
+                        )
+
                 try:
                     target_task.queue.put_nowait(request)
                     logger.info(f"[QUEUE] Message queued for task={target_task.name}")
@@ -1868,15 +1887,144 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
     
+    def _try_direct_feige_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
+        """
+        Attempt to deliver a chat_message response directly via feige tools,
+        bypassing the LLM queue.  Returns True if the reply was sent successfully.
+
+        This is the "direct delivery" fast-path: when a responder agent sends
+        a structured {response_text, customer_name} payload back to the front
+        desk, we call feige_open_session + feige_send_message on the cached
+        browser session immediately, cutting ~30s of queue + LLM latency.
+        """
+        import json as _json
+        import asyncio as _asyncio
+
+        # 1. Extract response_text and customer_name from the request payload
+        _human_text = ""
+        try:
+            from agent.ec_tasks.resume import normalize_event
+            _evt = normalize_event("chat_message", request, src="direct_delivery")
+            _human_text = (_evt.get("data") or {}).get("human_text", "")
+        except Exception:
+            pass
+        if not _human_text:
+            return False
+
+        try:
+            _parsed = _json.loads(_human_text)
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(_parsed, dict):
+            return False
+
+        _response_text = str(_parsed.get("response_text", "")).strip()
+        _customer_name = str(
+            _parsed.get("customer_name") or _parsed.get("customer_id") or ""
+        ).strip()
+        if not _response_text or not _customer_name:
+            return False
+
+        # 2. Find a cached browser session with feige tools
+        try:
+            from agent.ec_skills.build_node import _cached_browser_sessions
+        except ImportError:
+            return False
+
+        _session = None
+        for _key, _sess in _cached_browser_sessions.items():
+            if _sess is not None:
+                _session = _sess
+                break
+        if _session is None:
+            return False
+
+        # 3. Look up feige_open_session + feige_send_message tools
+        try:
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                custom_controller as _ctrl,
+            )
+            _actions = _ctrl.registry.registry.actions
+        except Exception:
+            return False
+
+        _open_fn = None
+        _send_fn = None
+        for _name, _act in _actions.items():
+            if _name.endswith("_open_session"):
+                _open_fn = (_name, _act)
+            elif _name.endswith("_send_message"):
+                _send_fn = (_name, _act)
+        if not _open_fn or not _send_fn:
+            return False
+
+        # 4. Execute open_session + send_message
+        _open_name, _open_act = _open_fn
+        _send_name, _send_act = _send_fn
+
+        async def _do_direct_delivery():
+            _open_params = _open_act.param_model(customer_name=_customer_name)
+            _open_result = await _open_act.function(
+                params=_open_params, browser_session=_session
+            )
+            _open_ok = _open_result and not getattr(_open_result, "error", None)
+            logger.info(
+                f"[DIRECT-DELIVERY] {_open_name} → "
+                f"{'OK' if _open_ok else 'FAIL'}: "
+                f"{getattr(_open_result, 'extracted_content', '') or getattr(_open_result, 'error', '')}"
+            )
+            if not _open_ok:
+                return False
+
+            await _asyncio.sleep(0.5)
+            _send_params = _send_act.param_model(text=_response_text)
+            _send_result = await _send_act.function(
+                params=_send_params, browser_session=_session
+            )
+            _send_ok = _send_result and not getattr(_send_result, "error", None)
+            logger.info(
+                f"[DIRECT-DELIVERY] {_send_name} → "
+                f"{'OK' if _send_ok else 'FAIL'}: "
+                f"{getattr(_send_result, 'extracted_content', '') or getattr(_send_result, 'error', '')}"
+            )
+            return _send_ok
+
+        # Run in the existing event loop or create one
+        try:
+            _loop = _asyncio.get_running_loop()
+            # We're in a sync context called from a thread; use run_coroutine_threadsafe
+            _future = _asyncio.run_coroutine_threadsafe(_do_direct_delivery(), _loop)
+            _result = _future.result(timeout=15)
+            if _result:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Reply sent to {_customer_name} "
+                    f"(bypassed queue+LLM), task={target_task.name}"
+                )
+            return bool(_result)
+        except RuntimeError:
+            # No running loop — try creating a temporary one
+            try:
+                _result = _asyncio.run(_do_direct_delivery())
+                if _result:
+                    logger.info(
+                        f"[DIRECT-DELIVERY] Reply sent to {_customer_name} "
+                        f"(bypassed queue+LLM, new loop), task={target_task.name}"
+                    )
+                return bool(_result)
+            except Exception:
+                return False
+        except Exception:
+            return False
+
     def _route_async_callback(self, request: Any) -> bool:
         """
         Route an async callback event to the correct task.
-        
+
         Uses the correlation_id to find the target task.
-        
+
         Args:
             request: The callback request (dict with correlation_id, result, error)
-            
+
         Returns:
             True if routed successfully, False otherwise
         """
