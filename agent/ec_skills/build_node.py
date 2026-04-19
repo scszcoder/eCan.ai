@@ -9956,6 +9956,36 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as _em_start_err:
                     logger.warning(f"[BrowserAutomation] Failed to start event monitors: {_em_start_err}")
 
+            # ── First-invocation short-circuit ──
+            # On auto-launch the browser_automation node runs before any
+            # event has fired.  Without event context the LLM has no
+            # actionable items, no pre-resolved agent list, and no
+            # override block — it loops aimlessly.  The EventMonitor is
+            # now started (see above), so we skip the LLM entirely and
+            # return a "done" state so the graph flows to pend_event,
+            # which picks up the first real browser_event within seconds.
+            if not _evt_type and _event_monitor_configs:
+                logger.info(
+                    f"[BrowserAutomation] First-invocation short-circuit: "
+                    f"no triggering event but {len(_event_monitor_configs)} "
+                    f"event monitor(s) configured — skipping LLM, flowing "
+                    f"to pend_event immediately (node={node_name})"
+                )
+                send_skill_editor_log(
+                    "log",
+                    f"[BrowserAutomation] First invocation: no event → "
+                    f"skipping LLM, entering event loop"
+                )
+                state["result"] = {
+                    "llm_result": {
+                        "all_done": False,
+                        "work_done": False,
+                        "hot_path": True,
+                        "hot_path_type": "first_invocation_skip",
+                    }
+                }
+                return state
+
             _frontdesk_fastpath_result = await _maybe_run_frontdesk_dispatch_fastpath(agent)
             if _frontdesk_fastpath_result is not None:
                 return _frontdesk_fastpath_result
