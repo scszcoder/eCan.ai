@@ -249,7 +249,21 @@ def standard_post_llm_func(askid, node_name, state, response):
                     # Return the full state with the analysis
                     result = json.loads(content)
                 else:
-                    result = raw_content
+                    # JSON repair: LLMs sometimes emit extra trailing braces
+                    # (e.g. `{...]} }` instead of `{...]}`) — strip trailing
+                    # `}` one at a time and retry.
+                    _repaired = False
+                    _repair_content = content.rstrip()
+                    for _ in range(3):
+                        if _repair_content.endswith('}') and len(_repair_content) > 2:
+                            _repair_content = _repair_content[:-1].rstrip()
+                            if is_json_parsable(_repair_content):
+                                result = json.loads(_repair_content)
+                                logger.info(f"[LLM_HOOKS] JSON repair succeeded: stripped trailing braces")
+                                _repaired = True
+                                break
+                    if not _repaired:
+                        result = raw_content
             else:
                 result = raw_content
 
