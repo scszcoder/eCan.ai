@@ -1989,30 +1989,36 @@ class TaskRunner(Generic[Context]):
             )
             return _send_ok
 
-        # Run in the existing event loop or create one
+        # NOTE: Direct delivery from sync_task_wait_in_line is unreliable
+        # because the browser session's CDP connection is bound to the main
+        # event loop, which may be blocked by the A2A executor calling us
+        # synchronously.  The configurable hotPathActions in build_node.py
+        # handles direct delivery in the correct async context instead.
+        # This code path is kept as a last-resort attempt for callers
+        # that run from a separate thread (e.g., channel bridges).
         try:
             _loop = _asyncio.get_running_loop()
-            # We're in a sync context called from a thread; use run_coroutine_threadsafe
-            _future = _asyncio.run_coroutine_threadsafe(_do_direct_delivery(), _loop)
-            _result = _future.result(timeout=15)
+            if _loop.is_running():
+                # We're in the event loop thread — can't block here.
+                # Let the message fall through to the queue; the Phase-2
+                # hot-path in build_node.py will handle direct delivery.
+                logger.debug(
+                    f"[DIRECT-DELIVERY] Skipping: event loop is running "
+                    f"(will use Phase-2 hot-path in build_node instead), "
+                    f"task={target_task.name}"
+                )
+                return False
+        except RuntimeError:
+            pass  # No running loop — safe to create one
+
+        try:
+            _result = _asyncio.run(_do_direct_delivery())
             if _result:
                 logger.info(
                     f"[DIRECT-DELIVERY] Reply sent to {_customer_name} "
                     f"(bypassed queue+LLM), task={target_task.name}"
                 )
             return bool(_result)
-        except RuntimeError:
-            # No running loop — try creating a temporary one
-            try:
-                _result = _asyncio.run(_do_direct_delivery())
-                if _result:
-                    logger.info(
-                        f"[DIRECT-DELIVERY] Reply sent to {_customer_name} "
-                        f"(bypassed queue+LLM, new loop), task={target_task.name}"
-                    )
-                return bool(_result)
-            except Exception:
-                return False
         except Exception:
             return False
 
