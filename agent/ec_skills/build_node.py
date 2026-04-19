@@ -6237,6 +6237,11 @@ _passive_steps_processed: set[str] = set()
 # Key: browser_session id, Value: PassiveAgent instance
 _cached_passive_agents: dict[int, "PassiveAgent"] = {}
 
+# Module-level guard: scopes that have already done the first-invocation skip.
+# Must be module-level (not closure-level) so it persists across skill rebuilds
+# when the runner re-submits after a failure.
+_first_invocation_done: set[str] = set()
+
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
@@ -9964,12 +9969,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # now started (see above), so we skip the LLM entirely and
             # return a "done" state so the graph flows to pend_event,
             # which picks up the first real browser_event within seconds.
+            # Guard: only fire once per scope so the loop doesn't repeat
+            # the skip if pend_event retries before an event arrives.
+            _fi_scope = _browser_scope_key or node_name
             if not _evt_type and _event_monitor_configs:
+                logger.info(
+                    f"[BrowserAutomation] First-invocation check: "
+                    f"scope={_fi_scope}, already_done={_fi_scope in _first_invocation_done}, "
+                    f"done_set={_first_invocation_done}"
+                )
+            if (
+                not _evt_type
+                and _event_monitor_configs
+                and _fi_scope not in _first_invocation_done
+            ):
+                _first_invocation_done.add(_fi_scope)
                 logger.info(
                     f"[BrowserAutomation] First-invocation short-circuit: "
                     f"no triggering event but {len(_event_monitor_configs)} "
                     f"event monitor(s) configured — skipping LLM, flowing "
-                    f"to pend_event immediately (node={node_name})"
+                    f"to pend_event immediately (node={node_name}, "
+                    f"scope={_fi_scope})"
                 )
                 send_skill_editor_log(
                     "log",
