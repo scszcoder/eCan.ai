@@ -797,7 +797,11 @@
         "accumulate": "跨轮累积"
       },
       "actionableField": "可操作项字段",
-      "actionableFieldPlaceholder": "例如 pending_timer（该字段非空即视为本轮需要处理的可操作项）"
+      "actionableFieldPlaceholder": "例如 pending_timer（该字段非空即视为本轮需要处理的可操作项）",
+      "hotPathSection": "热路径优化",
+      "hotPathSectionDesc": "跳过 LLM 执行确定性操作。配置由事件类型和载荷字段触发的动作序列。",
+      "hotPathActions": "热路径动作 (JSON)",
+      "autoDispatch": "自动分发配置 (JSON)"
     }
   },
   "formComponents": {
