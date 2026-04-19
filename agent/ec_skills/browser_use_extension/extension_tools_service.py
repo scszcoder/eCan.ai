@@ -67,7 +67,7 @@ _send_chat_dedup_cache: Dict[str, float] = {}  # key → timestamp
 # actionable_items filter so a customer with an in-flight dispatch is not
 # re-queued by the DOM monitor just because its pending_timer hasn't cleared
 # yet (pending_timer only clears after the reply reaches the customer).
-_SEND_CHAT_CUSTOMER_WINDOW_S = 90  # seconds
+_SEND_CHAT_CUSTOMER_WINDOW_S = 45  # seconds (reduced from 90 — shorter recovery when responder fails)
 _send_chat_customer_last: Dict[str, float] = {}  # customer_id → timestamp
 
 
