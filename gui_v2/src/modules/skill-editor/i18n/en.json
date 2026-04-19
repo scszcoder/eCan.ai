@@ -770,7 +770,11 @@
         "accumulate": "Accumulate all rounds"
       },
       "actionableField": "Actionable Field",
-      "actionableFieldPlaceholder": "e.g. pending_timer (per-item field whose non-empty value marks the item as actionable / needing work this round)"
+      "actionableFieldPlaceholder": "e.g. pending_timer (per-item field whose non-empty value marks the item as actionable / needing work this round)",
+      "hotPathSection": "Hot-Path Optimization",
+      "hotPathSectionDesc": "Skip the LLM for deterministic operations. Configure action sequences triggered by event type and payload fields.",
+      "hotPathActions": "Hot-Path Actions (JSON)",
+      "autoDispatch": "Auto-Dispatch Config (JSON)"
     },
     "mcp": {
       "name": "MCP",

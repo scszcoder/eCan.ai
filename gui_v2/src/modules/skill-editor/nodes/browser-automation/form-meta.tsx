@@ -257,6 +257,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   ], [t]);
 
   const [eventMonitorsExpanded, setEventMonitorsExpanded] = useState(false);
+  const [hotPathExpanded, setHotPathExpanded] = useState(false);
   const [expandedMonitorIndexes, setExpandedMonitorIndexes] = useState<number[]>([]);
 
   const parseDomExtractorConfig = useCallback((raw: any) => {
@@ -897,6 +898,48 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Hot-Path Optimization Section (collapsible) */}
+        <div
+          style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
+          onClick={() => setHotPathExpanded(!hotPathExpanded)}
+        >
+          {hotPathExpanded ? <IconChevronDown size="small" /> : <IconChevronRight size="small" />}
+          <Divider style={{ flex: 1, margin: 0 }}>{t('nodes.browserAutomation.hotPathSection', 'Hot-Path Optimization')}</Divider>
+        </div>
+        {hotPathExpanded && (
+          <div style={{ marginBottom: 8 }}>
+            <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+              {t('nodes.browserAutomation.hotPathSectionDesc', 'Skip the LLM for deterministic operations. Configure action sequences triggered by event type and payload fields.')}
+            </Typography.Text>
+            <FormItem name="hotPathActions" label={t('nodes.browserAutomation.hotPathActions', 'Hot-Path Actions (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.hotPathActions.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'[{"trigger":{"event_type":"chat_message","has_fields":["response_text"]},"actions":[{"tool":"tool_name","args":{"param":"{{field}}"}}]}]'}
+                    autosize={{ minRows: 3, maxRows: 10 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <FormItem name="autoDispatch" label={t('nodes.browserAutomation.autoDispatch', 'Auto-Dispatch Config (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.autoDispatch.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'{"trigger":{"event_type":"browser_event","require_actionable":true},"agent_selection":{"strategy":"first_available"},"payload_template":{"key":"{{field}}"},"item_filter":{"required_fields":["field1"]},"dispatch":{"tool":"send_chat","dedup":true}}'}
+                    autosize={{ minRows: 3, maxRows: 10 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+          </div>
+        )}
+
         {/* Event Monitors Section (collapsible) */}
         <div
           style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
@@ -1440,6 +1483,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'domLimit',
               'loopHistoryMode',
               'actionableField',
+              'hotPathActions',
+              'autoDispatch',
               'eventMonitors',
             ];
             
