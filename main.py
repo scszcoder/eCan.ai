@@ -28,6 +28,13 @@ os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30
 os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
 
 # ============================================================================
+# Increase Python recursion limit for LangGraph checkpoint serialization
+# The default 1000 is insufficient when msgpack serializes deeply nested state
+# objects (mcp_client, browser sessions, etc.) during GraphInterrupt checkpoints.
+# ============================================================================
+sys.setrecursionlimit(3000)
+
+# ============================================================================
 # CRITICAL: Force UTF-8 encoding for browser-use file operations
 # Patches browser-use to use UTF-8 instead of system default encoding (GBK on Windows)
 # Prevents 'gbk' codec errors when handling emoji/Unicode characters
