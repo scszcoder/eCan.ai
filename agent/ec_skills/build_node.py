@@ -4431,6 +4431,28 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         # Also auto-inject sender_agent_id for send_chat (same runtime agent_id).
                         if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
                             _target['sender_agent_id'] = _ctx_agent_id
+                        # Auto-inject recipient_agent_id for send_chat replies:
+                        # when the LLM leaves it blank, fill from the last chat_message
+                        # event's senderId so reply-to routing works automatically.
+                        if isinstance(_target, dict) and 'recipient_agent_id' in _target and not _target.get('recipient_agent_id'):
+                            if not _target.get('recipient_agent_name'):
+                                _evt_sender = ''
+                                for _evt in reversed(state.get('events') or []):
+                                    _ec = _evt.get('context') if isinstance(_evt, dict) else None
+                                    if isinstance(_ec, dict) and _ec.get('senderId'):
+                                        _evt_sender = str(_ec['senderId'])
+                                        break
+                                if not _evt_sender:
+                                    # Fallback: check prompt_refs["events"] compact form
+                                    _pr_events = (state.get('prompt_refs') or {}).get('events', '')
+                                    if isinstance(_pr_events, str) and 'senderId' in _pr_events:
+                                        try:
+                                            _evt_sender = json.loads(_pr_events).get('senderId', '')
+                                        except Exception:
+                                            pass
+                                if _evt_sender and _evt_sender != _ctx_agent_id:
+                                    _target['recipient_agent_id'] = _evt_sender
+                                    logger.info(f"[MCP Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender}")
             except Exception:
                 pass
 
