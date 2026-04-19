@@ -38,6 +38,182 @@ from typing import Any, Literal, cast, overload
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# ==================== Hot-Path Template Resolution ====================
+
+def _resolve_template(template: str, payload: dict) -> str:
+    """Resolve ``{{field}}`` or ``{{field1 || field2}}`` placeholders from *payload*.
+
+    - ``{{customer_name}}`` → ``payload["customer_name"]``
+    - ``{{customer_id || identity_key || customer_name}}`` → first non-empty value
+    - Non-template strings (no ``{{``/``}}``) are returned as-is.
+    """
+    if not isinstance(template, str):
+        return str(template) if template is not None else ""
+    if not (template.startswith("{{") and template.endswith("}}")):
+        return template
+    inner = template[2:-2].strip()
+    candidates = [c.strip() for c in inner.split("||")]
+    for field_name in candidates:
+        val = payload.get(field_name)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+# ==================== Auto-Dispatch Helper ====================
+
+# Round-robin index per node_name, module-level so it persists across invocations.
+_auto_dispatch_rr_index: dict[str, int] = {}
+
+
+async def _try_auto_dispatch(
+    config: dict,
+    actionable: list,
+    all_agents: list,
+    caller_id: str,
+    mainwin: object,
+    node_name: str,
+    evt_type: str,
+) -> dict | None:
+    """Attempt configurable auto-dispatch of actionable items to agents.
+
+    Returns a ``state`` dict (with ``hot_path_type: "auto_dispatch"``) if at
+    least one item was dispatched, otherwise ``None`` so the caller falls
+    through to the LLM.
+
+    *config* schema::
+
+        {
+          "trigger": {"event_type": "browser_event", "require_actionable": true},
+          "agent_selection": {"strategy": "first_available", "filter_by_tasks": []},
+          "payload_template": {"key": "{{field || fallback}}"},
+          "item_filter": {"required_fields": ["field1", "field2"]},
+          "dispatch": {"tool": "send_chat", "dedup": true, "per_item": true}
+        }
+    """
+    import time as _ad_time
+
+    # ── 1. Trigger check ──
+    trigger = config.get("trigger") or {}
+    required_evt = trigger.get("event_type", "")
+    if required_evt and required_evt != evt_type:
+        return None
+    if trigger.get("require_actionable", True) and not actionable:
+        return None
+
+    # ── 2. Agent selection ──
+    sel = config.get("agent_selection") or {}
+    strategy = sel.get("strategy", "first_available")
+    filter_tasks = sel.get("filter_by_tasks") or []
+
+    candidates = list(all_agents)
+    if filter_tasks:
+        candidates = [
+            a for a in candidates
+            if set(a.get("tasks", [])) & set(filter_tasks)
+        ]
+    if not candidates:
+        logger.debug(
+            f"[AUTO-DISPATCH] No candidate agents after filter "
+            f"(filter_by_tasks={filter_tasks}), node={node_name}"
+        )
+        return None
+
+    if strategy == "round_robin":
+        idx = _auto_dispatch_rr_index.get(node_name, 0)
+        target_agent = candidates[idx % len(candidates)]
+        _auto_dispatch_rr_index[node_name] = idx + 1
+    else:  # first_available
+        target_agent = candidates[0]
+
+    target_agent_id = target_agent.get("id", "")
+    target_agent_name = target_agent.get("name", target_agent_id)
+
+    # ── 3. Payload template & item filter ──
+    payload_tpl = config.get("payload_template") or {}
+    required_fields = (config.get("item_filter") or {}).get("required_fields") or []
+    dispatch_cfg = config.get("dispatch") or {}
+    use_dedup = dispatch_cfg.get("dedup", True)
+
+    from agent.mcp.server.chat_utils.chat_tools import send_chat as _auto_send_chat
+
+    dispatched = 0
+    for item in actionable:
+        # Resolve template fields
+        resolved = {}
+        for key, tpl in payload_tpl.items():
+            resolved[key] = _resolve_template(tpl, item)
+
+        # Check required fields
+        skip = False
+        for rf in required_fields:
+            # Check resolved payload first, then raw item
+            val = resolved.get(rf) or str(item.get(rf, "")).strip()
+            if not val:
+                skip = True
+                break
+        if skip:
+            continue
+
+        message_str = json.dumps(resolved, ensure_ascii=False)
+        send_config = {
+            "sender_agent_id": caller_id,
+            "recipient_agent_id": target_agent_id,
+            "message": message_str,
+        }
+
+        result = _auto_send_chat(mainwin, send_config)
+        if result.get("success"):
+            dispatched += 1
+
+            # Record in Fix A caches
+            if use_dedup:
+                try:
+                    from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                        _send_chat_customer_last,
+                        _send_chat_dedup_cache,
+                    )
+                    cust_id = (
+                        resolved.get("customer_id")
+                        or resolved.get("customer_name")
+                        or ""
+                    )
+                    if cust_id:
+                        _send_chat_customer_last[cust_id] = _ad_time.time()
+                        dedup_key = f"{target_agent_id}|{cust_id}"
+                        _send_chat_dedup_cache[dedup_key] = _ad_time.time()
+                except Exception:
+                    pass
+
+            logger.info(
+                f"[AUTO-DISPATCH] sent '{resolved.get('customer_name', '?')}' "
+                f"→ {target_agent_name} "
+                f"msg='{message_str[:80]}', node={node_name}"
+            )
+        else:
+            logger.warning(
+                f"[AUTO-DISPATCH] failed for item: {result.get('error', '?')}, "
+                f"node={node_name}"
+            )
+
+    if dispatched > 0:
+        logger.info(
+            f"[AUTO-DISPATCH] {dispatched}/{len(actionable)} items dispatched, "
+            f"skipping LLM Phase 1, node={node_name}"
+        )
+        return {
+            "result": {
+                "llm_result": {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "auto_dispatch",
+                }
+            }
+        }
+    return None
+
+
 # ==================== Lambda Proxy Helpers ====================
 
 def _should_use_proxy(node_inputs: dict | None = None) -> bool:
@@ -7478,7 +7654,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 "8. Calling `done(success=True)` while `actionable_items` is non-empty and neither a real dispatch NOR a DEDUP/already-sent response has occurred this round is a PROTOCOL VIOLATION.\n"
                                                 "9. If `actionable_items` is empty, call `done(success=True)` immediately — no work to do.\n"
                                                 "10. **Never use placeholder or template strings as real tool arguments.** "
-                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `{{last.bu_select_agents[0]}}`, `{{...}}`, or any other example/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
+                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `<example_agent_id>`, or any other placeholder/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. Use ONLY the real agent IDs from the Pre-resolved agent_list above. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
                                             )
                                             # ── Inject pre-resolved agent list ──
                                             # Look up service/responder agents and
@@ -7519,6 +7695,42 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                     f"(non-fatal): {_agent_inject_err}"
                                                 )
                                             _override_block += "---\n\n"
+
+                                            # ── Configurable auto-dispatch ──
+                                            # If the node has an autoDispatch config, try to
+                                            # dispatch actionable items directly to agents
+                                            # without invoking the browser-use LLM.
+                                            try:
+                                                _ad_raw = (inputs.get("autoDispatch") or {}).get("content")
+                                                _ad_cfg = None
+                                                if isinstance(_ad_raw, str) and _ad_raw.strip():
+                                                    _ad_cfg = json.loads(_ad_raw)
+                                                elif isinstance(_ad_raw, dict):
+                                                    _ad_cfg = _ad_raw
+                                                if (
+                                                    _ad_cfg
+                                                    and _all_agents
+                                                    and _caller_id
+                                                    and mainwin
+                                                ):
+                                                    _ad_state = await _try_auto_dispatch(
+                                                        config=_ad_cfg,
+                                                        actionable=_actionable,
+                                                        all_agents=_all_agents,
+                                                        caller_id=_caller_id,
+                                                        mainwin=mainwin,
+                                                        node_name=node_name,
+                                                        evt_type=_evt_type,
+                                                    )
+                                                    if _ad_state is not None:
+                                                        state.update(_ad_state)
+                                                        return state
+                                            except Exception as _ad_err:
+                                                logger.debug(
+                                                    f"[AUTO-DISPATCH] config-driven dispatch failed "
+                                                    f"(non-fatal, falling back to LLM): {_ad_err}"
+                                                )
+
                                     else:
                                         _items_json = json.dumps(
                                             _compact_items, ensure_ascii=False, indent=2
@@ -7557,6 +7769,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     _chat_customer_name = _cm_parsed.get("customer_name", "")
                         except (json.JSONDecodeError, Exception):
                             pass
+
                         if _chat_response_text:
                             # Escape quotes in response_text to avoid breaking
                             # the tool-call syntax shown to the browser-use LLM.
@@ -7671,14 +7884,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             for _hp_b_act in _hp_b_action_seq:
                                 _hp_b_tool_name = _hp_b_act.get("tool", "")
                                 _hp_b_args_tpl = _hp_b_act.get("args", {})
-                                # Resolve {{field}} placeholders from payload
+                                # Resolve {{field}} or {{field1 || field2}} placeholders
                                 _hp_b_args = {}
                                 for _ak, _av in _hp_b_args_tpl.items():
-                                    if isinstance(_av, str) and _av.startswith("{{") and _av.endswith("}}"):
-                                        _field = _av[2:-2].strip()
-                                        _hp_b_args[_ak] = str(_hp_b_payload.get(_field, ""))
-                                    else:
-                                        _hp_b_args[_ak] = _av
+                                    _hp_b_args[_ak] = _resolve_template(_av, _hp_b_payload)
                                 _hp_b_act_obj = _hp_b_actions_reg.get(_hp_b_tool_name)
                                 if not _hp_b_act_obj:
                                     logger.warning(f"[BrowserAutomation] HOT-PATH-B: tool '{_hp_b_tool_name}' not found")
@@ -7703,7 +7912,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 if not _hp_b_ok:
                                     _hp_b_all_ok = False
                                     break
-                                await _hp_b_asyncio.sleep(0.3)
+                                _hp_b_delay = _hp_b_act.get("delay_after_ms", 300) / 1000.0
+                                await _hp_b_asyncio.sleep(_hp_b_delay)
                             if _hp_b_all_ok:
                                 state.setdefault("result", {})["llm_result"] = {
                                     "all_done": False, "work_done": False,
