@@ -4432,9 +4432,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
                             _target['sender_agent_id'] = _ctx_agent_id
                         # Auto-inject recipient_agent_id for send_chat replies:
-                        # when the LLM leaves it blank, fill from the last chat_message
-                        # event's senderId so reply-to routing works automatically.
-                        if isinstance(_target, dict) and 'recipient_agent_id' in _target and not _target.get('recipient_agent_id'):
+                        # when the LLM leaves it blank (or omits it entirely), fill from
+                        # the last chat_message event's senderId so reply-to routing works.
+                        if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('recipient_agent_id'):
                             if not _target.get('recipient_agent_name'):
                                 _evt_sender = ''
                                 for _evt in reversed(state.get('events') or []):
@@ -4806,6 +4806,38 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _ti = _merge_inputs(_ti, _ci)
                 if _tr_root:
                     _ti = _coerce_all_inputs(_ti, _tr_root)
+                # Auto-inject agent_id / sender_agent_id / recipient_agent_id
+                # (mirrors the single-tool auto-inject at line ~4423)
+                try:
+                    _ctx_agent_id_mt = (state.get('attributes') or {}).get('agent_id', '')
+                    if _ctx_agent_id_mt:
+                        for _tgt_mt in (_ti, _ti.get('input') if isinstance(_ti, dict) else None):
+                            if not isinstance(_tgt_mt, dict):
+                                continue
+                            if 'agent_id' in _tgt_mt and not _tgt_mt.get('agent_id'):
+                                _tgt_mt['agent_id'] = _ctx_agent_id_mt
+                            if 'sender_agent_id' in _tgt_mt and not _tgt_mt.get('sender_agent_id'):
+                                _tgt_mt['sender_agent_id'] = _ctx_agent_id_mt
+                            if 'sender_agent_id' in _tgt_mt and not _tgt_mt.get('recipient_agent_id'):
+                                if not _tgt_mt.get('recipient_agent_name'):
+                                    _evt_sender_mt = ''
+                                    for _evt_mt in reversed(state.get('events') or []):
+                                        _ec_mt = _evt_mt.get('context') if isinstance(_evt_mt, dict) else None
+                                        if isinstance(_ec_mt, dict) and _ec_mt.get('senderId'):
+                                            _evt_sender_mt = str(_ec_mt['senderId'])
+                                            break
+                                    if not _evt_sender_mt:
+                                        _pr_events_mt = (state.get('prompt_refs') or {}).get('events', '')
+                                        if isinstance(_pr_events_mt, str) and 'senderId' in _pr_events_mt:
+                                            try:
+                                                _evt_sender_mt = json.loads(_pr_events_mt).get('senderId', '')
+                                            except Exception:
+                                                pass
+                                    if _evt_sender_mt and _evt_sender_mt != _ctx_agent_id_mt:
+                                        _tgt_mt['recipient_agent_id'] = _evt_sender_mt
+                                        logger.info(f"[MCP Multi-Tool Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender_mt} for tool={_tn}")
+                except Exception:
+                    pass
                 _tool_calls_to_run.append((_tn, _ti, _pipe_to, _alias))
 
             if not _tool_calls_to_run:
