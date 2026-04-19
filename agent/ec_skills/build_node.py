@@ -7654,7 +7654,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 "8. Calling `done(success=True)` while `actionable_items` is non-empty and neither a real dispatch NOR a DEDUP/already-sent response has occurred this round is a PROTOCOL VIOLATION.\n"
                                                 "9. If `actionable_items` is empty, call `done(success=True)` immediately — no work to do.\n"
                                                 "10. **Never use placeholder or template strings as real tool arguments.** "
-                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `{{last.bu_select_agents[0]}}`, `{{...}}`, or any other example/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
+                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `<example_agent_id>`, or any other placeholder/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. Use ONLY the real agent IDs from the Pre-resolved agent_list above. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
                                             )
                                             # ── Inject pre-resolved agent list ──
                                             # Look up service/responder agents and
