@@ -97,7 +97,7 @@ _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id
 # Prevents re-dispatching the same customer when the DOM monitor fires again
 # because the store's own reply appeared (self-message loop).
 _auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
-_AUTO_DISPATCH_COOLDOWN_S = 30.0  # seconds
+_AUTO_DISPATCH_COOLDOWN_S = 90.0  # seconds — must exceed full cycle time (dispatch→LLM→HOT-PATH-B→DOM-change→event)
 
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
@@ -7727,6 +7727,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             )
                                         except Exception:
                                             _cust_recent = lambda _c: 0.0  # noqa: E731
+                                        import time as _fix_a_time
+                                        _fix_a_now = _fix_a_time.time()
                                         for _it in _actionable_raw:
                                             _cust_id = _normalize_customer_id(
                                                 _it.get("customer_id")
@@ -7735,8 +7737,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 or ""
                                             )
                                             _age = _cust_recent(_cust_id) if _cust_id else 0.0
+                                            # Also check auto-dispatch cooldown (set by
+                                            # _try_auto_dispatch AND by HOT-PATH-B delivery)
+                                            _cd_ts = _auto_dispatch_cooldown.get(_cust_id, 0.0) if _cust_id else 0.0
+                                            _cd_age = (_fix_a_now - _cd_ts) if _cd_ts else 0.0
                                             if _age > 0.0:
                                                 _filtered_inflight.append((_cust_id, _age))
+                                            elif _cd_ts and _cd_age < _AUTO_DISPATCH_COOLDOWN_S:
+                                                _filtered_inflight.append((_cust_id, _cd_age))
                                             else:
                                                 _actionable.append(_it)
                                         if _filtered_inflight:
@@ -8068,6 +8076,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _hp_b_delay = _hp_b_act.get("delay_after_ms", 300) / 1000.0
                                 await _hp_b_asyncio.sleep(_hp_b_delay)
                             if _hp_b_all_ok:
+                                # ── Post-delivery: update cooldown + switch tab ──
+                                try:
+                                    _hp_b_cust = _normalize_customer_id(
+                                        _hp_b_payload.get("customer_name")
+                                        or _hp_b_payload.get("customer_id")
+                                        or ""
+                                    )
+                                    if _hp_b_cust:
+                                        import time as _hp_b_time
+                                        _auto_dispatch_cooldown[_hp_b_cust] = _hp_b_time.time()
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH-B: set cooldown for "
+                                            f"'{_hp_b_cust}' ({_AUTO_DISPATCH_COOLDOWN_S}s), "
+                                            f"node={node_name}"
+                                        )
+                                except Exception as _hp_b_cd_err:
+                                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: cooldown update failed: {_hp_b_cd_err}")
+                                # Switch back to "最近联系" tab so future DOM reads
+                                # show pending_timer (invisible on "当前会话" tab)
+                                try:
+                                    _hp_b_page = _hp_b_session.get_current_page()
+                                    if _hp_b_page:
+                                        _hp_b_tab_sel = '[data-qa-id="qa-last-chat-tab"]'
+                                        _hp_b_tab = await _hp_b_page.query_selector(_hp_b_tab_sel)
+                                        if _hp_b_tab:
+                                            await _hp_b_tab.click()
+                                            await _hp_b_asyncio.sleep(0.3)
+                                            logger.info(
+                                                f"[BrowserAutomation] HOT-PATH-B: switched back to "
+                                                f"'最近联系' tab, node={node_name}"
+                                            )
+                                except Exception as _hp_b_tab_err:
+                                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: tab switch failed: {_hp_b_tab_err}")
                                 state.setdefault("result", {})["llm_result"] = {
                                     "all_done": False, "work_done": False,
                                     "hot_path": True, "hot_path_type": "configurable",
