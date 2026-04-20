@@ -499,14 +499,6 @@ async def _try_auto_dispatch(
             )
             continue
 
-        # Preserve _msg_text for the post-dispatch seen-cache update below.
-        _msg_text = (
-            resolved.get("latest_message")
-            or resolved.get("last_message")
-            or item.get("last_message")
-            or ""
-        ).strip()[:80]
-
         target_agent = _pick_agent(cust_id)
         target_agent_id = target_agent.get("id", "")
         target_agent_name = target_agent.get("name", target_agent_id)
@@ -522,15 +514,13 @@ async def _try_auto_dispatch(
         if result.get("success"):
             dispatched += 1
 
-            # Update affinity: this customer → this agent
-            # Record seen message text (content-based dedup)
+            # Update affinity: this customer → this agent.
+            # NOTE: Do NOT write to _auto_dispatch_seen here — self_echo must only
+            # match OUR replies (populated by HOT-PATH-B on delivery), never the
+            # customer's own message text. A customer can legitimately re-send or
+            # repeat a question, and we must not treat that as an echo of our reply.
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
-                if _msg_text:
-                    _seen_entry = _auto_dispatch_seen.get(cust_id)
-                    _seen_set = _seen_entry[0] if _seen_entry else set()
-                    _seen_set.add(_msg_text)
-                    _auto_dispatch_seen[cust_id] = (_seen_set, now)
 
             # Record in Fix A caches
             if use_dedup:
@@ -7922,15 +7912,50 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # snapshot without needing to call a list tool.
                         try:
                             _evt_items = None
+                            _evt_items_src = ""
+                            # Path 0 (preferred): live EventMonitor snapshot. The
+                            # state.attributes.browser_event body is frozen at the
+                            # last pend_event resume — if this node has been running
+                            # for a while, the DOM has since moved on. Read the
+                            # monitor's current last_items directly so filters like
+                            # Fix A see fresh data.
+                            try:
+                                from agent.ec_skills.browser_use_extension.event_monitor import (
+                                    _active_monitor_sets as _ams,
+                                )
+                                _live_items = None
+                                for _mset in _ams.values():
+                                    for _mon in getattr(_mset, "monitors", []) or []:
+                                        _mcfg = getattr(_mon, "config", None)
+                                        _mlabel = getattr(_mcfg, "label", "") if _mcfg else ""
+                                        if _evt_label and _mlabel and _mlabel == _evt_label:
+                                            _mstate = getattr(_mon, "state", None)
+                                            if isinstance(_mstate, dict):
+                                                _cand = _mstate.get("last_items") or []
+                                                if isinstance(_cand, list) and _cand:
+                                                    _live_items = list(_cand)
+                                                    break
+                                    if _live_items:
+                                        break
+                                if _live_items:
+                                    _evt_items = _live_items
+                                    _evt_items_src = "live_monitor"
+                            except Exception as _live_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] live monitor snapshot lookup failed: {_live_err}"
+                                )
                             # Path 1: context.params.body (legacy)
-                            _evt_body = _evt_ctx.get("params", {})
-                            if isinstance(_evt_body, dict):
-                                _evt_body_str = _evt_body.get("body", "")
-                                if isinstance(_evt_body_str, str) and _evt_body_str:
-                                    _evt_body_parsed = json.loads(_evt_body_str)
-                                    _evt_items = _evt_body_parsed.get("items", [])
+                            if not _evt_items:
+                                _evt_body = _evt_ctx.get("params", {})
+                                if isinstance(_evt_body, dict):
+                                    _evt_body_str = _evt_body.get("body", "")
+                                    if isinstance(_evt_body_str, str) and _evt_body_str:
+                                        _evt_body_parsed = json.loads(_evt_body_str)
+                                        _evt_items = _evt_body_parsed.get("items", [])
+                                        if _evt_items:
+                                            _evt_items_src = "context.params.body"
                             # Path 2: state["attributes"]["browser_event"]["body"]["items"]
-                            # (resume.py stores it at attributes.browser_event)
+                            # (resume.py stores it at attributes.browser_event) — stalest path.
                             if not _evt_items and isinstance(state, dict):
                                 _be_data = (
                                     state.get("browser_event")  # top-level (resume_payload)
@@ -7940,6 +7965,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     _be_body = _be_data.get("body", {})
                                     if isinstance(_be_body, dict):
                                         _evt_items = _be_body.get("items", [])
+                                        if _evt_items:
+                                            _evt_items_src = "state.attributes.browser_event"
+                            if _evt_items and _evt_items_src:
+                                logger.info(
+                                    f"[BrowserAutomation] actionable_items source="
+                                    f"{_evt_items_src} ({len(_evt_items)} item(s)), "
+                                    f"node={node_name}"
+                                )
                             if isinstance(_evt_items, list) and _evt_items:
                                 # Strip heavy fields (avatars, URLs) but keep
                                 # everything else — no domain-specific filtering.
