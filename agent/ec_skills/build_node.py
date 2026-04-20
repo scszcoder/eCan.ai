@@ -60,6 +60,29 @@ def _resolve_template(template: str, payload: dict) -> str:
     return ""
 
 
+# ==================== Customer ID Normalization ====================
+
+def _normalize_customer_id(raw_id: str) -> str:
+    """Normalize a customer ID by stripping the message-preview suffix.
+
+    DOM extractor identity keys often look like ``"sc|有紫色款吗？"`` where
+    the part after ``|`` is the latest message preview.  This changes every
+    time a new message arrives, which breaks dedup and affinity caches.
+
+    This function returns just the stable portion (everything before the
+    first ``|``).  If there is no ``|`` or the result would be empty, the
+    original string is returned stripped.
+    """
+    if not raw_id:
+        return ""
+    s = str(raw_id).strip()
+    if "|" in s:
+        prefix = s.split("|", 1)[0].strip()
+        if prefix:
+            return prefix
+    return s
+
+
 # ==================== Auto-Dispatch Helper ====================
 
 # Round-robin index per node_name, module-level so it persists across invocations.
@@ -69,6 +92,12 @@ _auto_dispatch_rr_index: dict[str, int] = {}
 # returning customers are routed to the same agent that handled them before.
 # Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
 _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
+
+# Per-customer dispatch cooldown: customer_id → timestamp of last dispatch.
+# Prevents re-dispatching the same customer when the DOM monitor fires again
+# because the store's own reply appeared (self-message loop).
+_auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
+_AUTO_DISPATCH_COOLDOWN_S = 30.0  # seconds
 
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
@@ -234,11 +263,24 @@ async def _try_auto_dispatch(
         if skip:
             continue
 
-        cust_id = (
+        cust_id = _normalize_customer_id(
             resolved.get("customer_id")
             or resolved.get("customer_name")
             or ""
         )
+
+        # ── Cooldown: skip if this customer was dispatched very recently ──
+        # This prevents the store's own reply from triggering a re-dispatch
+        # loop (DOM monitor sees the reply, fires a new browser_event).
+        if cust_id:
+            _cd_last = _auto_dispatch_cooldown.get(cust_id, 0.0)
+            if (now - _cd_last) < _AUTO_DISPATCH_COOLDOWN_S:
+                logger.info(
+                    f"[AUTO-DISPATCH] COOLDOWN: skipping '{cust_id}' "
+                    f"(dispatched {now - _cd_last:.1f}s ago, "
+                    f"window={_AUTO_DISPATCH_COOLDOWN_S}s), node={node_name}"
+                )
+                continue
 
         target_agent = _pick_agent(cust_id)
         target_agent_id = target_agent.get("id", "")
@@ -256,8 +298,10 @@ async def _try_auto_dispatch(
             dispatched += 1
 
             # Update affinity: this customer → this agent
+            # Update cooldown: prevent re-dispatch within window
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
+                _auto_dispatch_cooldown[cust_id] = now
 
             # Record in Fix A caches
             if use_dedup:
@@ -291,6 +335,11 @@ async def _try_auto_dispatch(
     _stale = [k for k, (_, ts) in _auto_dispatch_affinity.items() if now - ts > affinity_ttl * 2]
     for k in _stale:
         _auto_dispatch_affinity.pop(k, None)
+
+    # Prune stale cooldown entries (older than 2× cooldown window)
+    _stale_cd = [k for k, ts in _auto_dispatch_cooldown.items() if now - ts > _AUTO_DISPATCH_COOLDOWN_S * 2]
+    for k in _stale_cd:
+        _auto_dispatch_cooldown.pop(k, None)
 
     if dispatched > 0:
         logger.info(
@@ -7679,12 +7728,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                         except Exception:
                                             _cust_recent = lambda _c: 0.0  # noqa: E731
                                         for _it in _actionable_raw:
-                                            _cust_id = str(
+                                            _cust_id = _normalize_customer_id(
                                                 _it.get("customer_id")
                                                 or _it.get("customer_name")
                                                 or _it.get("name")
                                                 or ""
-                                            ).strip()
+                                            )
                                             _age = _cust_recent(_cust_id) if _cust_id else 0.0
                                             if _age > 0.0:
                                                 _filtered_inflight.append((_cust_id, _age))
