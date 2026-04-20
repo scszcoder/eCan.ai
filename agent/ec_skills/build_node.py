@@ -371,14 +371,22 @@ async def _try_auto_dispatch(
         if a.get("status", "active") != "disabled"
     ]
     if filter_tasks:
-        candidates = [
-            a for a in candidates
-            if set(a.get("tasks", [])) & set(filter_tasks)
-        ]
+        _filter_patterns = [str(p) for p in filter_tasks if str(p).strip()]
+
+        def _agent_task_matches(agent_entry: dict) -> bool:
+            _tasks = [str(t) for t in (agent_entry.get("tasks") or [])]
+            for _pat in _filter_patterns:
+                for _t in _tasks:
+                    if _pat in _t:
+                        return True
+            return False
+
+        candidates = [a for a in candidates if _agent_task_matches(a)]
     if not candidates:
-        logger.debug(
+        logger.info(
             f"[AUTO-DISPATCH] No candidate agents after filter "
-            f"(filter_by_tasks={filter_tasks}), node={node_name}"
+            f"(filter_by_tasks={filter_tasks}, all_agent_tasks="
+            f"{[a.get('tasks', []) for a in all_agents]}), node={node_name}"
         )
         return None
 
