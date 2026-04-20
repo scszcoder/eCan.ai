@@ -255,17 +255,51 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
                     f"[condition-eval] CIRCULAR REF detected in state: "
                     f"keys pointing back to state={_self_ref_keys}"
                 )
-            # Log type info for each top-level key to diagnose what's
-            # causing recursion depth blowup
-            _type_info = {}
+            # Measure nesting depth per top-level key to find the offender
+            def _measure_depth(obj, _d=0, _visited=None):
+                if _visited is None:
+                    _visited = set()
+                oid = id(obj)
+                if oid in _visited:
+                    return (_d, "CYCLE")
+                if isinstance(obj, dict):
+                    if not obj:
+                        return (_d, None)
+                    _visited.add(oid)
+                    best = _d
+                    flag = None
+                    for v in obj.values():
+                        dd, ff = _measure_depth(v, _d + 1, _visited)
+                        if dd > best:
+                            best, flag = dd, ff
+                    return (best, flag)
+                elif isinstance(obj, list):
+                    if not obj:
+                        return (_d, None)
+                    _visited.add(oid)
+                    best = _d
+                    flag = None
+                    for v in obj:
+                        dd, ff = _measure_depth(v, _d + 1, _visited)
+                        if dd > best:
+                            best, flag = dd, ff
+                    return (best, flag)
+                return (_d, None)
+
+            _depth_info = {}
             for _k, _v in state.items():
                 _t = type(_v).__name__
-                if isinstance(_v, dict):
-                    _t += f"(keys={len(_v)})"
-                elif isinstance(_v, list):
-                    _t += f"(len={len(_v)})"
-                _type_info[_k] = _t
-            logger.info(f"[condition-eval] state field types: {_type_info}")
+                if isinstance(_v, (dict, list)):
+                    try:
+                        _dd, _ff = _measure_depth(_v, 0)
+                        _t += f"(depth={_dd}"
+                        if _ff:
+                            _t += f",{_ff}"
+                        _t += ")"
+                    except RecursionError:
+                        _t += "(depth=RECURSION_ERROR!)"
+                _depth_info[_k] = _t
+            logger.info(f"[condition-eval] state field depths: {_depth_info}")
 
         _processed_state = _unwrap_message_json(state)
 
