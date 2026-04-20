@@ -60,6 +60,29 @@ def _resolve_template(template: str, payload: dict) -> str:
     return ""
 
 
+# ==================== Customer ID Normalization ====================
+
+def _normalize_customer_id(raw_id: str) -> str:
+    """Normalize a customer ID by stripping the message-preview suffix.
+
+    DOM extractor identity keys often look like ``"sc|有紫色款吗？"`` where
+    the part after ``|`` is the latest message preview.  This changes every
+    time a new message arrives, which breaks dedup and affinity caches.
+
+    This function returns just the stable portion (everything before the
+    first ``|``).  If there is no ``|`` or the result would be empty, the
+    original string is returned stripped.
+    """
+    if not raw_id:
+        return ""
+    s = str(raw_id).strip()
+    if "|" in s:
+        prefix = s.split("|", 1)[0].strip()
+        if prefix:
+            return prefix
+    return s
+
+
 # ==================== Auto-Dispatch Helper ====================
 
 # Round-robin index per node_name, module-level so it persists across invocations.
@@ -69,6 +92,12 @@ _auto_dispatch_rr_index: dict[str, int] = {}
 # returning customers are routed to the same agent that handled them before.
 # Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
 _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
+
+# Per-customer dispatch cooldown: customer_id → timestamp of last dispatch.
+# Prevents re-dispatching the same customer when the DOM monitor fires again
+# because the store's own reply appeared (self-message loop).
+_auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
+_AUTO_DISPATCH_COOLDOWN_S = 90.0  # seconds — must exceed full cycle time (dispatch→LLM→HOT-PATH-B→DOM-change→event)
 
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
@@ -234,11 +263,24 @@ async def _try_auto_dispatch(
         if skip:
             continue
 
-        cust_id = (
+        cust_id = _normalize_customer_id(
             resolved.get("customer_id")
             or resolved.get("customer_name")
             or ""
         )
+
+        # ── Cooldown: skip if this customer was dispatched very recently ──
+        # This prevents the store's own reply from triggering a re-dispatch
+        # loop (DOM monitor sees the reply, fires a new browser_event).
+        if cust_id:
+            _cd_last = _auto_dispatch_cooldown.get(cust_id, 0.0)
+            if (now - _cd_last) < _AUTO_DISPATCH_COOLDOWN_S:
+                logger.info(
+                    f"[AUTO-DISPATCH] COOLDOWN: skipping '{cust_id}' "
+                    f"(dispatched {now - _cd_last:.1f}s ago, "
+                    f"window={_AUTO_DISPATCH_COOLDOWN_S}s), node={node_name}"
+                )
+                continue
 
         target_agent = _pick_agent(cust_id)
         target_agent_id = target_agent.get("id", "")
@@ -256,8 +298,10 @@ async def _try_auto_dispatch(
             dispatched += 1
 
             # Update affinity: this customer → this agent
+            # Update cooldown: prevent re-dispatch within window
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
+                _auto_dispatch_cooldown[cust_id] = now
 
             # Record in Fix A caches
             if use_dedup:
@@ -291,6 +335,11 @@ async def _try_auto_dispatch(
     _stale = [k for k, (_, ts) in _auto_dispatch_affinity.items() if now - ts > affinity_ttl * 2]
     for k in _stale:
         _auto_dispatch_affinity.pop(k, None)
+
+    # Prune stale cooldown entries (older than 2× cooldown window)
+    _stale_cd = [k for k, ts in _auto_dispatch_cooldown.items() if now - ts > _AUTO_DISPATCH_COOLDOWN_S * 2]
+    for k in _stale_cd:
+        _auto_dispatch_cooldown.pop(k, None)
 
     if dispatched > 0:
         logger.info(
@@ -7678,16 +7727,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             )
                                         except Exception:
                                             _cust_recent = lambda _c: 0.0  # noqa: E731
+                                        import time as _fix_a_time
+                                        _fix_a_now = _fix_a_time.time()
                                         for _it in _actionable_raw:
-                                            _cust_id = str(
+                                            _cust_id = _normalize_customer_id(
                                                 _it.get("customer_id")
                                                 or _it.get("customer_name")
                                                 or _it.get("name")
                                                 or ""
-                                            ).strip()
+                                            )
                                             _age = _cust_recent(_cust_id) if _cust_id else 0.0
+                                            # Also check auto-dispatch cooldown (set by
+                                            # _try_auto_dispatch AND by HOT-PATH-B delivery)
+                                            _cd_ts = _auto_dispatch_cooldown.get(_cust_id, 0.0) if _cust_id else 0.0
+                                            _cd_age = (_fix_a_now - _cd_ts) if _cd_ts else 0.0
                                             if _age > 0.0:
                                                 _filtered_inflight.append((_cust_id, _age))
+                                            elif _cd_ts and _cd_age < _AUTO_DISPATCH_COOLDOWN_S:
+                                                _filtered_inflight.append((_cust_id, _cd_age))
                                             else:
                                                 _actionable.append(_it)
                                         if _filtered_inflight:
@@ -8019,6 +8076,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _hp_b_delay = _hp_b_act.get("delay_after_ms", 300) / 1000.0
                                 await _hp_b_asyncio.sleep(_hp_b_delay)
                             if _hp_b_all_ok:
+                                # ── Post-delivery: update cooldown + switch tab ──
+                                try:
+                                    _hp_b_cust = _normalize_customer_id(
+                                        _hp_b_payload.get("customer_name")
+                                        or _hp_b_payload.get("customer_id")
+                                        or ""
+                                    )
+                                    if _hp_b_cust:
+                                        import time as _hp_b_time
+                                        _auto_dispatch_cooldown[_hp_b_cust] = _hp_b_time.time()
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH-B: set cooldown for "
+                                            f"'{_hp_b_cust}' ({_AUTO_DISPATCH_COOLDOWN_S}s), "
+                                            f"node={node_name}"
+                                        )
+                                except Exception as _hp_b_cd_err:
+                                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: cooldown update failed: {_hp_b_cd_err}")
+                                # Switch back to "最近联系" tab so future DOM reads
+                                # show pending_timer (invisible on "当前会话" tab)
+                                try:
+                                    _hp_b_page = _hp_b_session.get_current_page()
+                                    if _hp_b_page:
+                                        _hp_b_tab_sel = '[data-qa-id="qa-last-chat-tab"]'
+                                        _hp_b_tab = await _hp_b_page.query_selector(_hp_b_tab_sel)
+                                        if _hp_b_tab:
+                                            await _hp_b_tab.click()
+                                            await _hp_b_asyncio.sleep(0.3)
+                                            logger.info(
+                                                f"[BrowserAutomation] HOT-PATH-B: switched back to "
+                                                f"'最近联系' tab, node={node_name}"
+                                            )
+                                except Exception as _hp_b_tab_err:
+                                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: tab switch failed: {_hp_b_tab_err}")
                                 state.setdefault("result", {})["llm_result"] = {
                                     "all_done": False, "work_done": False,
                                     "hot_path": True, "hot_path_type": "configurable",
