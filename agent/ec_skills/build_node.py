@@ -93,11 +93,17 @@ _auto_dispatch_rr_index: dict[str, int] = {}
 # Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
 _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
 
-# Per-customer dispatch cooldown: customer_id → timestamp of last dispatch.
-# Prevents re-dispatching the same customer when the DOM monitor fires again
-# because the store's own reply appeared (self-message loop).
+# ── Content-based dispatch dedup ──────────────────────────────────────
+# Tracks per-customer: (set of seen message texts, timestamp of last update).
+# A message text that's already in the set is suppressed (already dispatched
+# or is the store's own reply echo).  A NEW message text is dispatched
+# immediately.  Entries expire after _AUTO_DISPATCH_SEEN_TTL_S.
+_auto_dispatch_seen: dict[str, tuple[set, float]] = {}  # cust → ({msg_texts}, ts)
+_AUTO_DISPATCH_SEEN_TTL_S = 300.0  # 5 min TTL for seen-message memory
+# Short hard cooldown (seconds) after HOT-PATH-B delivery.
+# Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
-_AUTO_DISPATCH_COOLDOWN_S = 90.0  # seconds — must exceed full cycle time (dispatch→LLM→HOT-PATH-B→DOM-change→event)
+_AUTO_DISPATCH_COOLDOWN_S = 10.0  # seconds — just enough to skip the post-delivery event burst
 
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
@@ -269,18 +275,41 @@ async def _try_auto_dispatch(
             or ""
         )
 
-        # ── Cooldown: skip if this customer was dispatched very recently ──
-        # This prevents the store's own reply from triggering a re-dispatch
-        # loop (DOM monitor sees the reply, fires a new browser_event).
+        # ── Dedup: content-based + short hard cooldown ──
+        # 1) Hard cooldown: skip for _AUTO_DISPATCH_COOLDOWN_S after HOT-PATH-B delivery
+        #    (suppresses the immediate DOM-echo event burst)
+        # 2) Content dedup: skip if this exact last_message text was already dispatched
+        #    or is the store's own reply (allows NEW messages through immediately)
         if cust_id:
             _cd_last = _auto_dispatch_cooldown.get(cust_id, 0.0)
-            if (now - _cd_last) < _AUTO_DISPATCH_COOLDOWN_S:
+            if _cd_last and (now - _cd_last) < _AUTO_DISPATCH_COOLDOWN_S:
                 logger.info(
                     f"[AUTO-DISPATCH] COOLDOWN: skipping '{cust_id}' "
-                    f"(dispatched {now - _cd_last:.1f}s ago, "
+                    f"(delivered {now - _cd_last:.1f}s ago, "
                     f"window={_AUTO_DISPATCH_COOLDOWN_S}s), node={node_name}"
                 )
                 continue
+            # Content-based dedup: check if we've already seen this message text
+            _msg_text = (
+                resolved.get("latest_message")
+                or resolved.get("last_message")
+                or item.get("last_message")
+                or ""
+            ).strip()[:80]  # truncated to match sidebar preview length
+            if _msg_text:
+                _seen_entry = _auto_dispatch_seen.get(cust_id)
+                if _seen_entry:
+                    _seen_set, _seen_ts = _seen_entry
+                    # Expire old entries
+                    if (now - _seen_ts) > _AUTO_DISPATCH_SEEN_TTL_S:
+                        _seen_set = set()
+                    if _msg_text in _seen_set:
+                        logger.info(
+                            f"[AUTO-DISPATCH] CONTENT-DEDUP: skipping '{cust_id}' "
+                            f"(message already seen: '{_msg_text[:40]}...'), "
+                            f"node={node_name}"
+                        )
+                        continue
 
         target_agent = _pick_agent(cust_id)
         target_agent_id = target_agent.get("id", "")
@@ -298,10 +327,14 @@ async def _try_auto_dispatch(
             dispatched += 1
 
             # Update affinity: this customer → this agent
-            # Update cooldown: prevent re-dispatch within window
+            # Record seen message text (content-based dedup)
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
-                _auto_dispatch_cooldown[cust_id] = now
+                if _msg_text:
+                    _seen_entry = _auto_dispatch_seen.get(cust_id)
+                    _seen_set = _seen_entry[0] if _seen_entry else set()
+                    _seen_set.add(_msg_text)
+                    _auto_dispatch_seen[cust_id] = (_seen_set, now)
 
             # Record in Fix A caches
             if use_dedup:
@@ -336,10 +369,14 @@ async def _try_auto_dispatch(
     for k in _stale:
         _auto_dispatch_affinity.pop(k, None)
 
-    # Prune stale cooldown entries (older than 2× cooldown window)
+    # Prune stale cooldown entries
     _stale_cd = [k for k, ts in _auto_dispatch_cooldown.items() if now - ts > _AUTO_DISPATCH_COOLDOWN_S * 2]
     for k in _stale_cd:
         _auto_dispatch_cooldown.pop(k, None)
+    # Prune stale seen-message entries
+    _stale_seen = [k for k, (_, ts) in _auto_dispatch_seen.items() if now - ts > _AUTO_DISPATCH_SEEN_TTL_S]
+    for k in _stale_seen:
+        _auto_dispatch_seen.pop(k, None)
 
     if dispatched > 0:
         logger.info(
@@ -7737,12 +7774,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 or ""
                                             )
                                             _age = _cust_recent(_cust_id) if _cust_id else 0.0
-                                            # Also check auto-dispatch cooldown (set by
-                                            # _try_auto_dispatch AND by HOT-PATH-B delivery)
+                                            # Also check auto-dispatch cooldown (short, post-delivery)
                                             _cd_ts = _auto_dispatch_cooldown.get(_cust_id, 0.0) if _cust_id else 0.0
                                             _cd_age = (_fix_a_now - _cd_ts) if _cd_ts else 0.0
-                                            if _age > 0.0:
+                                            # Content-based dedup: check if this message
+                                            # was already dispatched or is a store reply
+                                            _fix_a_msg = (
+                                                _it.get("last_message") or _it.get("latest_message") or ""
+                                            ).strip()[:80]
+                                            _fix_a_seen_entry = _auto_dispatch_seen.get(_cust_id) if _cust_id else None
+                                            _fix_a_msg_seen = (
+                                                _fix_a_seen_entry
+                                                and _fix_a_msg
+                                                and (_fix_a_now - _fix_a_seen_entry[1]) < _AUTO_DISPATCH_SEEN_TTL_S
+                                                and _fix_a_msg in _fix_a_seen_entry[0]
+                                            )
+                                            if _fix_a_msg_seen:
+                                                # Message text was already dispatched or is
+                                                # the store's reply echo — always suppress
+                                                _filtered_inflight.append((_cust_id, 0.0))
+                                            elif _age > 0.0 and not _fix_a_msg:
+                                                # In-flight dispatch, no message to compare
                                                 _filtered_inflight.append((_cust_id, _age))
+                                            elif _age > 0.0 and _fix_a_msg:
+                                                # In-flight dispatch, but message text
+                                                # available — check if it's a NEW message
+                                                # (not in seen set → customer sent something
+                                                # new while we're still processing the old one)
+                                                _actionable.append(_it)
                                             elif _cd_ts and _cd_age < _AUTO_DISPATCH_COOLDOWN_S:
                                                 _filtered_inflight.append((_cust_id, _cd_age))
                                             else:
@@ -8085,11 +8144,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     )
                                     if _hp_b_cust:
                                         import time as _hp_b_time
-                                        _auto_dispatch_cooldown[_hp_b_cust] = _hp_b_time.time()
+                                        _hp_b_now = _hp_b_time.time()
+                                        # Short hard cooldown to suppress immediate
+                                        # DOM-echo event burst
+                                        _auto_dispatch_cooldown[_hp_b_cust] = _hp_b_now
+                                        # Record the response text in seen-messages
+                                        # so the store's own reply appearing in the
+                                        # sidebar doesn't trigger a new dispatch
+                                        _hp_b_resp = (
+                                            _hp_b_payload.get("response_text") or ""
+                                        ).strip()[:80]
+                                        if _hp_b_resp:
+                                            _hp_b_seen = _auto_dispatch_seen.get(_hp_b_cust)
+                                            _hp_b_seen_set = _hp_b_seen[0] if _hp_b_seen else set()
+                                            _hp_b_seen_set.add(_hp_b_resp)
+                                            _auto_dispatch_seen[_hp_b_cust] = (_hp_b_seen_set, _hp_b_now)
                                         logger.info(
-                                            f"[BrowserAutomation] HOT-PATH-B: set cooldown for "
-                                            f"'{_hp_b_cust}' ({_AUTO_DISPATCH_COOLDOWN_S}s), "
-                                            f"node={node_name}"
+                                            f"[BrowserAutomation] HOT-PATH-B: set cooldown "
+                                            f"({_AUTO_DISPATCH_COOLDOWN_S}s) + content-dedup for "
+                                            f"'{_hp_b_cust}', node={node_name}"
                                         )
                                 except Exception as _hp_b_cd_err:
                                     logger.debug(f"[BrowserAutomation] HOT-PATH-B: cooldown update failed: {_hp_b_cd_err}")
