@@ -1269,6 +1269,18 @@ Stored in `data.inputsValues.autoDispatch.content` as a JSON object:
 
 All fields are optional with sensible defaults. Only `trigger.event_type` is needed for a minimal config.
 
+If `payload_template` is omitted (or empty), the dispatcher falls back to a canonical default:
+
+```json
+{
+  "customer_id": "{{customer_id || identity_key || customer_name}}",
+  "customer_name": "{{customer_name || name}}",
+  "latest_message": "{{latest_message || last_message || message}}"
+}
+```
+
+This guarantees downstream responder skills always receive a non-empty JSON payload with the fields they expect, regardless of what the DOM extractor happens to name its columns. Override `payload_template` only if your responder expects a different shape.
+
 ### 24.3 Template resolution
 
 Payload templates use `{{field}}` placeholders resolved from each actionable item's data. The `||` operator provides fallback fields:

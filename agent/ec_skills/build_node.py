@@ -394,6 +394,16 @@ async def _try_auto_dispatch(
 
     # ── 3. Payload template & item filter ──
     payload_tpl = config.get("payload_template") or {}
+    if not payload_tpl:
+        # Default: emit a canonical {customer_id, customer_name, latest_message}
+        # payload so downstream responders always have usable data even when
+        # the author didn't specify a template. Field fallbacks cover the
+        # common DOM-extractor shapes (customer_name + last_message).
+        payload_tpl = {
+            "customer_id": "{{customer_id || identity_key || customer_name}}",
+            "customer_name": "{{customer_name || name}}",
+            "latest_message": "{{latest_message || last_message || message}}",
+        }
     # Hot-path-A hardcodes self-echo + cooldown because they guard the
     # HOT-PATH-B delivery burst; callers can still override message_fields
     # / ttl / window via the authored item_filter.
