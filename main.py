@@ -28,6 +28,77 @@ os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30
 os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
 
 # ============================================================================
+# Increase Python recursion limit (general safety margin)
+# ============================================================================
+sys.setrecursionlimit(3000)
+
+# ============================================================================
+# CRITICAL: Patch LangGraph checkpoint serializer to handle ormsgpack TypeError.
+# ormsgpack has a hardcoded recursion limit of 255 (in Rust). When LangGraph
+# state contains deeply nested Pydantic models (browser sessions, MCP clients,
+# LangChain messages), ormsgpack.packb raises TypeError("Recursion limit reached")
+# which is NOT caught by the existing MsgpackEncodeError fallback. This patch
+# extends the catch to include TypeError so it falls back to pickle.
+# ============================================================================
+def _patch_langgraph_checkpoint_serializer():
+    """Patch LangGraph's checkpoint serializer to handle ormsgpack recursion limit.
+
+    ormsgpack has a hardcoded Rust-level recursion limit of 255. When the
+    LangGraph state contains deeply nested Pydantic models (browser sessions,
+    MCP clients, LangChain messages), packb() raises TypeError("Recursion limit
+    reached"). ormsgpack.MsgpackEncodeError IS TypeError (same class in the MRO),
+    so the existing except clause catches it — but the original code only falls
+    back to pickle when self.pickle_fallback is True (default: False).
+
+    This patch forces pickle fallback for recursion-limit errors even when
+    pickle_fallback is False. InMemorySaver runs same-process, so pickle is safe.
+    """
+    try:
+        from langgraph.checkpoint.serde import jsonplus
+        import ormsgpack
+        import pickle
+        import logging as _logging
+
+        _patch_log = _logging.getLogger("eCan")
+
+        _original_loads_typed = jsonplus.JsonPlusSerializer.loads_typed
+
+        def _patched_dumps_typed(self, obj):
+            if isinstance(obj, bytes):
+                return "bytes", obj
+            elif isinstance(obj, bytearray):
+                return "bytearray", obj
+            else:
+                try:
+                    return "msgpack", jsonplus._msgpack_enc(obj)
+                except ormsgpack.MsgpackEncodeError as exc:
+                    # ormsgpack.MsgpackEncodeError IS TypeError, so this
+                    # catches both encoding errors and recursion-limit errors.
+                    if "Recursion limit" in str(exc):
+                        _patch_log.debug(
+                            "[CheckpointPatch] ormsgpack recursion limit hit, "
+                            "falling back to pickle"
+                        )
+                        return "pickle", pickle.dumps(obj)
+                    if self.pickle_fallback:
+                        return "pickle", pickle.dumps(obj)
+                    raise exc
+
+        def _patched_loads_typed(self, data):
+            type_, data_ = data
+            # Handle pickle even when pickle_fallback is False
+            if type_ == "pickle":
+                return pickle.loads(data_)
+            return _original_loads_typed(self, data)
+
+        jsonplus.JsonPlusSerializer.dumps_typed = _patched_dumps_typed
+        jsonplus.JsonPlusSerializer.loads_typed = _patched_loads_typed
+    except Exception:
+        pass  # langgraph not installed or API changed — skip silently
+
+_patch_langgraph_checkpoint_serializer()
+
+# ============================================================================
 # CRITICAL: Force UTF-8 encoding for browser-use file operations
 # Patches browser-use to use UTF-8 instead of system default encoding (GBK on Windows)
 # Prevents 'gbk' codec errors when handling emoji/Unicode characters
