@@ -63,6 +63,70 @@ DEV_EVENT_POLL_INTERVAL_SEC = float(os.getenv("DEV_EVENT_POLL_INTERVAL_SEC", "0.
 # Falls back to this global default (also configurable via env var).
 DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
 
+# ── Queue event-type tagging & priority dequeue (Change 1a) ──
+# HOT-PATH optimization: when both chat_message and browser_event are queued
+# for the same task, chat_message must win. It carries the response_text from
+# the Q&A agent; if a stale browser_event resumes the pend_event first, the
+# chat_message sits unprocessed and the 15s response-time budget is blown.
+# We tag event_type on the raw request at enqueue, then scan the queue on
+# dequeue to promote chat_message ahead of browser_event.
+_EVT_TYPE_ATTR = "__ec_queue_event_type__"
+_PRIORITY_LOW_EVENT_TYPES = {"browser_event"}
+_PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_message"}
+
+
+def _tag_queue_event_type(request: Any, event_type: str) -> None:
+    """Stamp event_type onto the request so the dequeue side can classify it."""
+    try:
+        if isinstance(request, dict):
+            request[_EVT_TYPE_ATTR] = event_type
+        else:
+            try:
+                setattr(request, _EVT_TYPE_ATTR, event_type)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _classify_queue_event(msg: Any) -> str:
+    """Return the event_type tag we attached, or '' if unknown."""
+    try:
+        if isinstance(msg, dict):
+            return str(msg.get(_EVT_TYPE_ATTR, "") or "")
+        return str(getattr(msg, _EVT_TYPE_ATTR, "") or "")
+    except Exception:
+        return ""
+
+
+def _priority_dequeue(q: Queue, timeout: float) -> Any:
+    """Dequeue one item, preferring chat_message over browser_event.
+
+    Blocks up to `timeout` on the initial get (same semantics as q.get).
+    After the first get returns a browser_event, peek at the remaining
+    queued items and — if a higher-priority event is waiting behind it —
+    swap so the caller receives the higher-priority one. The browser_event
+    stays in the queue for the next iteration.
+    """
+    msg = q.get(timeout=timeout)
+    evt = _classify_queue_event(msg)
+    if evt not in _PRIORITY_LOW_EVENT_TYPES:
+        return msg
+    try:
+        with q.mutex:
+            for i, peek_msg in enumerate(q.queue):
+                peek_evt = _classify_queue_event(peek_msg)
+                if peek_evt in _PRIORITY_HIGH_EVENT_TYPES:
+                    q.queue[i] = msg
+                    logger.info(
+                        f"[QUEUE] Priority promotion: promoted '{peek_evt}' ahead of "
+                        f"'{evt}' (queue_depth={len(q.queue)})"
+                    )
+                    return peek_msg
+    except Exception as _prio_err:
+        logger.debug(f"[QUEUE] Priority scan failed (non-fatal): {_prio_err}")
+    return msg
+
 
 class TaskRunnerRegistry:
     """Global registry for TaskRunner instances to allow coordinated shutdown."""
@@ -1829,6 +1893,7 @@ class TaskRunner(Generic[Context]):
                         )
 
                 try:
+                    _tag_queue_event_type(request, event_type)
                     target_task.queue.put_nowait(request)
                     logger.info(f"[QUEUE] Message queued for task={target_task.name}")
 
@@ -1844,6 +1909,7 @@ class TaskRunner(Generic[Context]):
                     fallback_task = self._ensure_chatter_task(request=request, event_type=event_type, source=source)
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:
+                            _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
                             return
@@ -2493,7 +2559,7 @@ class TaskRunner(Generic[Context]):
                 return current_task, None, False
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
-                msg = current_task.queue.get(timeout=timeout)
+                msg = _priority_dequeue(current_task.queue, timeout=timeout)
 
                 # Tag the message with trigger source
                 if isinstance(msg, dict):

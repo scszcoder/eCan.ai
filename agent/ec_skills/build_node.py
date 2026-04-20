@@ -8055,22 +8055,37 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _hp_b_actions_list = json.loads(_hp_b_raw)
                     elif isinstance(_hp_b_raw, list):
                         _hp_b_actions_list = _hp_b_raw
-                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
-                        # Determine current event type and payload fields
-                        _hp_b_evt_type = ""
-                        _hp_b_payload = {}
-                        if isinstance(state, dict):
-                            _hp_b_pr = state.get("prompt_refs")
-                            if isinstance(_hp_b_pr, dict):
-                                _hp_b_evt_str = _hp_b_pr.get("events", "")
-                                if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
+                    # Determine current event type and payload fields
+                    _hp_b_evt_type = ""
+                    _hp_b_payload = {}
+                    if isinstance(state, dict):
+                        _hp_b_pr = state.get("prompt_refs")
+                        if isinstance(_hp_b_pr, dict):
+                            _hp_b_evt_str = _hp_b_pr.get("events", "")
+                            if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
+                                try:
                                     _hp_b_evt = json.loads(_hp_b_evt_str)
                                     _hp_b_evt_type = _hp_b_evt.get("event_type", "")
-                            _hp_b_input = state.get("input", "")
-                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                                except Exception:
+                                    pass
+                        _hp_b_input = state.get("input", "")
+                        if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                            try:
                                 _hp_b_parsed = json.loads(_hp_b_input)
                                 if isinstance(_hp_b_parsed, dict):
                                     _hp_b_payload = _hp_b_parsed
+                            except Exception:
+                                pass
+                    # Entry-log so we can see HOT-PATH-B was considered and why it
+                    # did (not) fire.
+                    logger.info(
+                        f"[BrowserAutomation] HOT-PATH-B: entry "
+                        f"event_type={_hp_b_evt_type or 'none'}, "
+                        f"payload_keys={list(_hp_b_payload.keys()) if _hp_b_payload else []}, "
+                        f"rules_configured={len(_hp_b_actions_list) if isinstance(_hp_b_actions_list, list) else 0}, "
+                        f"node={node_name}"
+                    )
+                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
 
                         for _hp_b_rule in _hp_b_actions_list:
                             if not isinstance(_hp_b_rule, dict):
@@ -8091,6 +8106,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
                                 f"executing {len(_hp_b_action_seq)} actions"
                             )
+                            # ── Pre-register cooldown + content-dedup BEFORE send ──
+                            # Without this, a self-echo race exists: feige_send_message
+                            # posts the message, the sidebar DOM update fires a new
+                            # browser_event, and _try_auto_dispatch re-dispatches the
+                            # store's OWN reply to the Q&A agent before the post-delivery
+                            # cooldown write lands (observed race window ~300ms).
+                            try:
+                                _hp_b_pre_cust = _normalize_customer_id(
+                                    _hp_b_payload.get("customer_name")
+                                    or _hp_b_payload.get("customer_id")
+                                    or ""
+                                )
+                                if _hp_b_pre_cust:
+                                    import time as _hp_b_pre_time
+                                    _hp_b_pre_now = _hp_b_pre_time.time()
+                                    _auto_dispatch_cooldown[_hp_b_pre_cust] = _hp_b_pre_now
+                                    _hp_b_pre_resp = (
+                                        _hp_b_payload.get("response_text") or ""
+                                    ).strip()[:80]
+                                    if _hp_b_pre_resp:
+                                        _hp_b_pre_seen = _auto_dispatch_seen.get(_hp_b_pre_cust)
+                                        _hp_b_pre_seen_set = _hp_b_pre_seen[0] if _hp_b_pre_seen else set()
+                                        _hp_b_pre_seen_set.add(_hp_b_pre_resp)
+                                        _auto_dispatch_seen[_hp_b_pre_cust] = (_hp_b_pre_seen_set, _hp_b_pre_now)
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH-B: PRE-registered cooldown "
+                                        f"({_AUTO_DISPATCH_COOLDOWN_S}s) + content-dedup for "
+                                        f"'{_hp_b_pre_cust}' (before send), node={node_name}"
+                                    )
+                            except Exception as _hp_b_pre_err:
+                                logger.warning(
+                                    f"[BrowserAutomation] HOT-PATH-B: pre-register cooldown failed: {_hp_b_pre_err}"
+                                )
                             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
                             _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
                             _hp_b_session = await _get_or_create_browser_session(
@@ -8190,7 +8238,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 return state
                             break  # Only try first matching rule
                 except Exception as _hp_b_err:
-                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}")
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
+                        exc_info=True,
+                    )
 
             if skill_name == "rt_chat_bot":
                 assignment_scope = _extract_assignment_scope(runtime_input)
@@ -9872,6 +9923,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
 
+                        # Entry-log: record the state we're about to act on so that if
+                        # the preflight hangs or fails we can tell which branch we took
+                        # and which targets were available.
+                        try:
+                            logger.info(
+                                f"[BrowserAutomation] Focus preflight entry: "
+                                f"target_count={len(page_target_ids)}, "
+                                f"cur_focus_valid={valid_cur_focus}, "
+                                f"last_focus_valid={valid_last_focus}, "
+                                f"assignment_tab_id={(assignment_tab_id or '')[-6:] or 'none'}, "
+                                f"skill={skill_name}, node={node_name}"
+                            )
+                        except Exception:
+                            pass
+
                         def _resolve_target_id_for_assignment(
                             preferred_tab_id: str,
                             preferred_chat_url: str,
@@ -9935,7 +10001,51 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
                                 )
                             _last_known_focus_target_id = target_focus
-                            await browser_session.get_browser_state_summary(include_screenshot=False)
+                            # Defensive preflight: get_browser_state_summary has been
+                            # observed to hang indefinitely (no internal timeout),
+                            # causing the whole browser_automation run to die. Wrap
+                            # with wait_for(3s) + one retry; on final failure log the
+                            # target state and SKIP — the next get_browser_state_summary
+                            # below will refresh the cache anyway.
+                            _preflight_ok = False
+                            for _preflight_attempt in range(2):
+                                try:
+                                    await asyncio.wait_for(
+                                        browser_session.get_browser_state_summary(include_screenshot=False),
+                                        timeout=3.0,
+                                    )
+                                    _preflight_ok = True
+                                    break
+                                except asyncio.TimeoutError:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight state-summary TIMEOUT "
+                                        f"after 3s (attempt {_preflight_attempt + 1}/2), "
+                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
+                                        f"target_count={len(page_target_ids)}, "
+                                        f"skill={skill_name}, node={node_name}"
+                                    )
+                                except Exception as _pf_inner_err:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight state-summary error "
+                                        f"(attempt {_preflight_attempt + 1}/2): {_pf_inner_err}"
+                                    )
+                            if not _preflight_ok:
+                                try:
+                                    _pf_cdp = getattr(browser_session, 'cdp_url', '') or ''
+                                    _pf_target = sm.get_target(target_focus) if sm else None
+                                    _pf_url = getattr(_pf_target, 'url', '') if _pf_target else ''
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
+                                        f"refresh after 2 failed attempts. Proceeding with run. "
+                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
+                                        f"url={_pf_url}, cdp={_pf_cdp}, "
+                                        f"skill={skill_name}, node={node_name}"
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
+                                        f"refresh after 2 failed attempts (state snapshot unavailable)"
+                                    )
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
                         raise
