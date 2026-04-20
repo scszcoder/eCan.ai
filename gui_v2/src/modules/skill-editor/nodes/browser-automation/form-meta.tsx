@@ -258,6 +258,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
 
   const [eventMonitorsExpanded, setEventMonitorsExpanded] = useState(false);
   const [hotPathExpanded, setHotPathExpanded] = useState(false);
+  const [nodeBehaviorExpanded, setNodeBehaviorExpanded] = useState(false);
   const [expandedMonitorIndexes, setExpandedMonitorIndexes] = useState<number[]>([]);
 
   const parseDomExtractorConfig = useCallback((raw: any) => {
@@ -940,6 +941,77 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </div>
         )}
 
+        {/* Node Behavior Section (collapsible) — assignment, preDispatch, stepPatches, tabPolicy */}
+        <div
+          style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
+          onClick={() => setNodeBehaviorExpanded(!nodeBehaviorExpanded)}
+        >
+          {nodeBehaviorExpanded ? <IconChevronDown size="small" /> : <IconChevronRight size="small" />}
+          <Divider style={{ flex: 1, margin: 0 }}>{t('nodes.browserAutomation.nodeBehaviorSection', 'Node Behavior')}</Divider>
+        </div>
+        {nodeBehaviorExpanded && (
+          <div style={{ marginBottom: 8 }}>
+            <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+              {t('nodes.browserAutomation.nodeBehaviorSectionDesc', 'Data-driven configuration that replaces per-skill hardcoded behavior. Leave blank for generic defaults; fill in to enable skill-specific flows (e.g. rt_chat_bot, customer_front_desk).')}
+            </Typography.Text>
+            <FormItem name="assignment" label={t('nodes.browserAutomation.assignment', 'Assignment Config (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.assignment.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'{"enabled":true,"require_any_of":["session_id","customer_id"],"on_missing":"skip_node","scope_contract_template":"[ASSIGNED SCOPE]\\nsession_id={session_id}\\ntab_id={tab_id}","navigate_field":"chat_url","strip_url_regex":"https?://[^\\\\s]+/chat\\\\?session=[^\\\\s]+","strip_url_replacement":"[assigned chat tab already open]"}'}
+                    autosize={{ minRows: 3, maxRows: 12 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <FormItem name="preDispatch" label={t('nodes.browserAutomation.preDispatch', 'Pre-Dispatch Config (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.preDispatch.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'{"enabled":true,"source_monitor_label":"conversation_became_active","require_url_path":"/control","allowed_statuses":["ok","empty","no_match"],"item_fields":{"session_id":["session","session_id","customer_id"],"customer_name":["customer_name","name"],"chat_url":["chat_url"]},"chat_url_template":"http://127.0.0.1:9877/chat?session={session_id}","recipient_filter":{"task_keywords":["feige_chat"],"skill_keywords":["rt_chat_bot"]},"dispatched_flag_attr":"_ecan_frontdesk_dispatched_all"}'}
+                    autosize={{ minRows: 3, maxRows: 12 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <FormItem name="stepPatches" label={t('nodes.browserAutomation.stepPatches', 'Step Patches (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.stepPatches.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'{"refocus_assigned_tab":true,"abort_when_pre_dispatched":true,"pre_dispatch_flag_attr":"_ecan_frontdesk_dispatched_all"}'}
+                    autosize={{ minRows: 3, maxRows: 10 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <FormItem name="tabPolicy" label={t('nodes.browserAutomation.tabPolicy', 'Tab Policy')} type="string" vertical>
+              <Field<string> name="inputsValues.tabPolicy.content">
+                {({ field }) => (
+                  <Select
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val as string)}
+                    optionList={[
+                      { label: t('nodes.browserAutomation.tabPolicyStrict', 'strict_single_tab (default — never switch_tab)'), value: '' },
+                      { label: t('nodes.browserAutomation.tabPolicyAllowAssigned', 'allow_assigned_tab (permit focusing the assigned tab_id)'), value: 'allow_assigned_tab' },
+                    ]}
+                    style={{ width: '100%' }}
+                    size="small"
+                  />
+                )}
+              </Field>
+            </FormItem>
+          </div>
+        )}
+
         {/* Event Monitors Section (collapsible) */}
         <div
           style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
@@ -1485,6 +1557,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'actionableField',
               'hotPathActions',
               'autoDispatch',
+              'assignment',
+              'preDispatch',
+              'stepPatches',
+              'tabPolicy',
               'eventMonitors',
             ];
             
