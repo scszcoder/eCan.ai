@@ -194,8 +194,27 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         # or state["result"]["llm_planner"] = {"message": "```json\n{...}\n```"}
         # Pre-process to extract inner JSON so dot-paths like
         # state["result"]["llm_planner"]["execution_plan"]["next_action"] work correctly.
-        def _unwrap_message_json(obj):
+        _seen_ids = set()          # track visited container ids to break cycles
+        _max_depth_hit = [0]       # track max depth for diagnostics
+        _cycles_broken = [0]       # count cycles broken
+
+        def _unwrap_message_json(obj, _depth=0):
+            if _depth > _max_depth_hit[0]:
+                _max_depth_hit[0] = _depth
+            # Guard 1: depth limit — condition expressions never reference
+            # data deeper than ~5 levels; 30 is generous headroom.
+            if _depth > 30:
+                return obj
+            # Guard 2: cycle detection — the state dict may contain
+            # circular references (e.g. a value that points back to a
+            # parent container).  Without this check _unwrap recurses
+            # infinitely and blows Python's stack.
+            obj_id = id(obj)
             if isinstance(obj, dict):
+                if obj_id in _seen_ids:
+                    _cycles_broken[0] += 1
+                    return obj          # break the cycle, return as-is
+                _seen_ids.add(obj_id)
                 msg = obj.get("message")
                 if isinstance(msg, str) and msg.strip():
                     if "```json" in msg or "```" in msg:
@@ -216,13 +235,46 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
                             return _json.loads(msg)
                         except Exception:
                             pass
-                return {k: _unwrap_message_json(v) for k, v in obj.items()}
+                return {k: _unwrap_message_json(v, _depth + 1) for k, v in obj.items()}
             elif isinstance(obj, list):
-                return [_unwrap_message_json(i) for i in obj]
+                if obj_id in _seen_ids:
+                    _cycles_broken[0] += 1
+                    return obj
+                _seen_ids.add(obj_id)
+                return [_unwrap_message_json(i, _depth + 1) for i in obj]
             return obj
 
+        # Detect circular references BEFORE traversal for diagnostics
+        if isinstance(state, dict):
+            _self_ref_keys = [
+                k for k, v in state.items()
+                if v is state or (isinstance(v, dict) and any(vv is state for vv in v.values()))
+            ]
+            if _self_ref_keys:
+                logger.warning(
+                    f"[condition-eval] CIRCULAR REF detected in state: "
+                    f"keys pointing back to state={_self_ref_keys}"
+                )
+            # Log type info for each top-level key to diagnose what's
+            # causing recursion depth blowup
+            _type_info = {}
+            for _k, _v in state.items():
+                _t = type(_v).__name__
+                if isinstance(_v, dict):
+                    _t += f"(keys={len(_v)})"
+                elif isinstance(_v, list):
+                    _t += f"(len={len(_v)})"
+                _type_info[_k] = _t
+            logger.info(f"[condition-eval] state field types: {_type_info}")
+
         _processed_state = _unwrap_message_json(state)
-        
+
+        if _cycles_broken[0] > 0 or _max_depth_hit[0] > 10:
+            logger.warning(
+                f"[condition-eval] _unwrap stats: max_depth={_max_depth_hit[0]}, "
+                f"cycles_broken={_cycles_broken[0]}, containers_visited={len(_seen_ids)}"
+            )
+
         # Log state keys and result for debugging
         state_keys = list(_processed_state.keys()) if isinstance(_processed_state, dict) else "NOT_A_DICT"
         state_result = _processed_state.get("result", "NO_RESULT_KEY") if isinstance(_processed_state, dict) else None
