@@ -135,7 +135,11 @@ _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id
 # or is the store's own reply echo).  A NEW message text is dispatched
 # immediately.  Entries expire after _AUTO_DISPATCH_SEEN_TTL_S.
 _auto_dispatch_seen: dict[str, tuple[set, float]] = {}  # cust → ({msg_texts}, ts)
-_AUTO_DISPATCH_SEEN_TTL_S = 300.0  # 5 min TTL for seen-message memory
+# Was 300s but caused false self_echo positives after a long pause between
+# customer turns. 60s is more than enough for the only real use case — swallow
+# the DOM-echo burst right after HOT-PATH-B delivery (which arrives within
+# seconds, not minutes).
+_AUTO_DISPATCH_SEEN_TTL_S = 60.0
 # Short hard cooldown (seconds) after HOT-PATH-B delivery.
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
@@ -276,6 +280,17 @@ def _evaluate_item_filter(
         if entry:
             seen_set, seen_ts = entry
             if (now - seen_ts) < ttl_s and msg_text in seen_set:
+                # Log seen-set contents so false positives are diagnosable
+                # (exact string + set members + age).
+                try:
+                    _seen_preview = [s[:50] for s in list(seen_set)[:6]]
+                except Exception:
+                    _seen_preview = ["<unreadable>"]
+                logger.info(
+                    f"[filter] self_echo match: cust={cust_id!r}, "
+                    f"msg_text={msg_text!r}, age={now - seen_ts:.1f}s, "
+                    f"seen_size={len(seen_set)}, seen_preview={_seen_preview}"
+                )
                 return False, "self_echo"
 
     # 4. In-flight — suppress items whose customer already has a dispatch
