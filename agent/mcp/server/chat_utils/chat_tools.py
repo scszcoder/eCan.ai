@@ -42,6 +42,11 @@ _last_discovery_ts: float = 0.0
 
 _DISPATCH_WINDOW_SEC = 30  # reset tracking after this many seconds of inactivity
 
+# Per-(sender, customer) response dedup.  Prevents the responder LLM from
+# sending multiple replies for the same customer in a single step.
+_send_chat_response_dedup: Dict[str, float] = {}  # "sender|customer" → ts
+_SEND_CHAT_RESPONSE_DEDUP_S = 15  # seconds
+
 
 def _get_dispatch_state(sender_id: str) -> Dict[str, Any]:
     """Get or create dispatch tracking state for a sender, auto-expiring stale entries."""
@@ -412,6 +417,56 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
         resolved_sender_id = getattr(getattr(sender_agent, "card", None), "id", "") or sender_agent_id
         resolved_recipient_id = getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id
+
+        # ── Dedup: skip if same sender already sent for this customer recently ──
+        # Prevents the responder LLM from sending multiple replies for the
+        # same customer in a single step (duplicate tool calls).
+        try:
+            _msg_obj = None
+            if isinstance(message_text, str):
+                try:
+                    _msg_obj = json.loads(message_text)
+                except Exception:
+                    pass
+            if isinstance(_msg_obj, dict):
+                _sc_cust = str(
+                    _msg_obj.get("customer_id") or _msg_obj.get("customer_name") or ""
+                ).strip()
+                # Normalize: strip message-preview suffix ("sc|有紫色款吗？" → "sc")
+                if "|" in _sc_cust:
+                    _prefix = _sc_cust.split("|", 1)[0].strip()
+                    if _prefix:
+                        _sc_cust = _prefix
+                if _sc_cust:
+                    _sc_dedup_key = f"{resolved_sender_id}|{_sc_cust}"
+                    _sc_now = time.time()
+                    _sc_last = _send_chat_response_dedup.get(_sc_dedup_key)
+                    if _sc_last is not None and (_sc_now - _sc_last) < _SEND_CHAT_RESPONSE_DEDUP_S:
+                        logger.info(
+                            f"[send_chat] DEDUP: skipping duplicate response for "
+                            f"customer '{_sc_cust}' from sender={resolved_sender_id} "
+                            f"(last sent {_sc_now - _sc_last:.1f}s ago, "
+                            f"window={_SEND_CHAT_RESPONSE_DEDUP_S}s)"
+                        )
+                        return {
+                            "success": True,
+                            "message_id": "",
+                            "chat_id": chat_id,
+                            "recipient": resolved_recipient_id,
+                            "timestamp": int(_sc_now * 1000),
+                            "dedup": True,
+                            "note": f"Duplicate response for '{_sc_cust}' suppressed"
+                        }
+                    _send_chat_response_dedup[_sc_dedup_key] = _sc_now
+                    # Prune old entries
+                    _sc_stale = [
+                        k for k, t in _send_chat_response_dedup.items()
+                        if _sc_now - t > _SEND_CHAT_RESPONSE_DEDUP_S * 3
+                    ]
+                    for k in _sc_stale:
+                        _send_chat_response_dedup.pop(k, None)
+        except Exception as _dedup_err:
+            logger.debug(f"[send_chat] Response dedup check failed (non-fatal): {_dedup_err}")
 
         # ── General-purpose auto-distribution ──
         # When a sender targets the same recipient multiple times in quick
