@@ -65,6 +65,33 @@ def _resolve_template(template: str, payload: dict) -> str:
 # Round-robin index per node_name, module-level so it persists across invocations.
 _auto_dispatch_rr_index: dict[str, int] = {}
 
+# Affinity table: customer_id → agent_id.  Persists across invocations so
+# returning customers are routed to the same agent that handled them before.
+# Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
+_auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
+
+
+def _get_agent_load(agent_id: str, mainwin) -> int:
+    """Return the number of non-done tasks queued for *agent_id*.
+
+    This lets load-aware strategies favour agents with shorter queues.
+    Returns 0 if the agent's runner is not accessible (safe default).
+    """
+    try:
+        for agent in (mainwin.agents or []):
+            card = getattr(agent, "card", None)
+            if card and getattr(card, "id", "") == agent_id:
+                runner = getattr(agent, "runner", None)
+                if runner:
+                    return sum(
+                        1 for st in runner._task_states.values()
+                        if not st.get("_done", False)
+                    )
+                return 0
+        return 0
+    except Exception:
+        return 0
+
 
 async def _try_auto_dispatch(
     config: dict,
@@ -85,11 +112,33 @@ async def _try_auto_dispatch(
 
         {
           "trigger": {"event_type": "browser_event", "require_actionable": true},
-          "agent_selection": {"strategy": "first_available", "filter_by_tasks": []},
+          "agent_selection": {
+            "strategy": "round_robin",
+            "filter_by_tasks": ["客户应答"],
+            "affinity_ttl_s": 1800
+          },
           "payload_template": {"key": "{{field || fallback}}"},
           "item_filter": {"required_fields": ["field1", "field2"]},
           "dispatch": {"tool": "send_chat", "dedup": true, "per_item": true}
         }
+
+    Agent selection strategies
+    -------------------------
+    ``first_available``
+        Pick the candidate with the fewest pending tasks (load-aware).
+        Ties broken by list order.
+
+    ``round_robin``
+        Rotate through candidates.  With ``per_item: true`` each actionable
+        item advances the index, spreading items across agents evenly.
+
+    Affinity / sticky routing
+    -------------------------
+    Before any strategy runs, the dispatcher checks whether the customer
+    (derived from the resolved ``customer_id`` or ``customer_name``) was
+    previously assigned to one of the current candidates.  If so — and the
+    assignment is fresher than ``affinity_ttl_s`` (default 30 min) — the
+    same agent is reused.  This keeps an ongoing conversation on one agent.
     """
     import time as _ad_time
 
@@ -101,12 +150,17 @@ async def _try_auto_dispatch(
     if trigger.get("require_actionable", True) and not actionable:
         return None
 
-    # ── 2. Agent selection ──
+    # ── 2. Build candidate pool ──
     sel = config.get("agent_selection") or {}
     strategy = sel.get("strategy", "first_available")
     filter_tasks = sel.get("filter_by_tasks") or []
+    affinity_ttl = float(sel.get("affinity_ttl_s", 1800))
 
-    candidates = list(all_agents)
+    # Exclude disabled agents — they never launch tasks.
+    candidates = [
+        a for a in all_agents
+        if a.get("status", "active") != "disabled"
+    ]
     if filter_tasks:
         candidates = [
             a for a in candidates
@@ -119,15 +173,7 @@ async def _try_auto_dispatch(
         )
         return None
 
-    if strategy == "round_robin":
-        idx = _auto_dispatch_rr_index.get(node_name, 0)
-        target_agent = candidates[idx % len(candidates)]
-        _auto_dispatch_rr_index[node_name] = idx + 1
-    else:  # first_available
-        target_agent = candidates[0]
-
-    target_agent_id = target_agent.get("id", "")
-    target_agent_name = target_agent.get("name", target_agent_id)
+    candidate_ids = {a["id"] for a in candidates}
 
     # ── 3. Payload template & item filter ──
     payload_tpl = config.get("payload_template") or {}
@@ -136,6 +182,40 @@ async def _try_auto_dispatch(
     use_dedup = dispatch_cfg.get("dedup", True)
 
     from agent.mcp.server.chat_utils.chat_tools import send_chat as _auto_send_chat
+
+    # ── 4. Agent-picker with affinity → strategy fallback ──
+    _rr_idx = _auto_dispatch_rr_index.get(node_name, 0)
+    now = _ad_time.time()
+
+    # Lazy-load per-agent load counts (computed once per dispatch batch).
+    _load_cache: dict[str, int] = {}
+
+    def _agent_load(aid: str) -> int:
+        if aid not in _load_cache:
+            _load_cache[aid] = _get_agent_load(aid, mainwin)
+        return _load_cache[aid]
+
+    def _pick_agent(customer_id: str) -> dict:
+        nonlocal _rr_idx
+
+        # ── Affinity check: reuse previous agent if still valid ──
+        if customer_id:
+            entry = _auto_dispatch_affinity.get(customer_id)
+            if entry:
+                prev_agent_id, ts = entry
+                if (now - ts) < affinity_ttl and prev_agent_id in candidate_ids:
+                    for c in candidates:
+                        if c["id"] == prev_agent_id:
+                            return c
+
+        # ── Strategy fallback ──
+        if strategy == "round_robin":
+            agent = candidates[_rr_idx % len(candidates)]
+            _rr_idx += 1
+            return agent
+
+        # first_available: pick candidate with lowest pending-task count
+        return min(candidates, key=lambda c: _agent_load(c["id"]))
 
     dispatched = 0
     for item in actionable:
@@ -147,13 +227,22 @@ async def _try_auto_dispatch(
         # Check required fields
         skip = False
         for rf in required_fields:
-            # Check resolved payload first, then raw item
             val = resolved.get(rf) or str(item.get(rf, "")).strip()
             if not val:
                 skip = True
                 break
         if skip:
             continue
+
+        cust_id = (
+            resolved.get("customer_id")
+            or resolved.get("customer_name")
+            or ""
+        )
+
+        target_agent = _pick_agent(cust_id)
+        target_agent_id = target_agent.get("id", "")
+        target_agent_name = target_agent.get("name", target_agent_id)
 
         message_str = json.dumps(resolved, ensure_ascii=False)
         send_config = {
@@ -166,6 +255,10 @@ async def _try_auto_dispatch(
         if result.get("success"):
             dispatched += 1
 
+            # Update affinity: this customer → this agent
+            if cust_id:
+                _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
+
             # Record in Fix A caches
             if use_dedup:
                 try:
@@ -173,21 +266,16 @@ async def _try_auto_dispatch(
                         _send_chat_customer_last,
                         _send_chat_dedup_cache,
                     )
-                    cust_id = (
-                        resolved.get("customer_id")
-                        or resolved.get("customer_name")
-                        or ""
-                    )
                     if cust_id:
-                        _send_chat_customer_last[cust_id] = _ad_time.time()
+                        _send_chat_customer_last[cust_id] = now
                         dedup_key = f"{target_agent_id}|{cust_id}"
-                        _send_chat_dedup_cache[dedup_key] = _ad_time.time()
+                        _send_chat_dedup_cache[dedup_key] = now
                 except Exception:
                     pass
 
             logger.info(
                 f"[AUTO-DISPATCH] sent '{resolved.get('customer_name', '?')}' "
-                f"→ {target_agent_name} "
+                f"→ {target_agent_name} (load={_agent_load(target_agent_id)}) "
                 f"msg='{message_str[:80]}', node={node_name}"
             )
         else:
@@ -195,6 +283,14 @@ async def _try_auto_dispatch(
                 f"[AUTO-DISPATCH] failed for item: {result.get('error', '?')}, "
                 f"node={node_name}"
             )
+
+    # Persist round-robin index across calls
+    _auto_dispatch_rr_index[node_name] = _rr_idx
+
+    # Prune stale affinity entries (older than 2× TTL)
+    _stale = [k for k, (_, ts) in _auto_dispatch_affinity.items() if now - ts > affinity_ttl * 2]
+    for k in _stale:
+        _auto_dispatch_affinity.pop(k, None)
 
     if dispatched > 0:
         logger.info(
@@ -7670,7 +7766,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 _caller_id = str(calling_agent_id or "").strip()
                                                 if _caller_id and mainwin:
                                                     _agents_result = _list_agents_fn(mainwin, {"exclude_self": _caller_id})
-                                                    _all_agents = _agents_result.get("agents", [])
+                                                    _all_agents = [
+                                                        a for a in _agents_result.get("agents", [])
+                                                        if a.get("status", "active") != "disabled"
+                                                    ]
                                                     if _all_agents:
                                                         _agent_lines = []
                                                         for _ag in _all_agents:
