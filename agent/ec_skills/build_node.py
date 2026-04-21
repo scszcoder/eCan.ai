@@ -129,17 +129,16 @@ _auto_dispatch_rr_index: dict[str, int] = {}
 # Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
 _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
 
-# ── Content-based dispatch dedup ──────────────────────────────────────
-# Tracks per-customer: (set of seen message texts, timestamp of last update).
-# A message text that's already in the set is suppressed (already dispatched
-# or is the store's own reply echo).  A NEW message text is dispatched
-# immediately.  Entries expire after _AUTO_DISPATCH_SEEN_TTL_S.
-_auto_dispatch_seen: dict[str, tuple[set, float]] = {}  # cust → ({msg_texts}, ts)
-# Was 300s but caused false self_echo positives after a long pause between
-# customer turns. 60s is more than enough for the only real use case — swallow
-# the DOM-echo burst right after HOT-PATH-B delivery (which arrives within
-# seconds, not minutes).
-_AUTO_DISPATCH_SEEN_TTL_S = 60.0
+# ── Identity-key dispatch dedup ──────────────────────────────────────
+# Tracks identity_key → dispatched_at. identity_key is the DOM's own stable
+# key (e.g. 'sc|有绿色款吗？' = '<customer>|<message preview>'). When the
+# customer sends a new message, the key changes; when the agent replies, the
+# key disappears from the DOM snapshot and the Fix-A caller prunes it — so a
+# subsequent identical question by the same customer re-fires naturally. The
+# safety TTL below is only garbage-collection for stranded entries; it is
+# NOT part of the dedup decision.
+_dispatched_identity_keys: dict[str, float] = {}  # identity_key → ts
+_DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
 # Short hard cooldown (seconds) after HOT-PATH-B delivery.
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
@@ -196,9 +195,7 @@ def _evaluate_item_filter(
             {"field": "customer_name", "regex": "^店铺"}
           ],
           "exclude_self_echo": {
-            "enabled": true,
-            "message_fields": ["last_message", "latest_message"],
-            "ttl_s": 300
+            "enabled": true
           },
           "inflight": {
             "enabled": true,
@@ -211,10 +208,11 @@ def _evaluate_item_filter(
           }
         }
 
-    The three stateful checks (self_echo, inflight, cooldown) require a
-    ``customer_id``. Self-echo and cooldown read the module-level caches
-    ``_auto_dispatch_seen`` / ``_auto_dispatch_cooldown``. In-flight is
-    evaluated via a caller-supplied ``inflight_check(customer_id) -> age``
+    The three stateful checks (self_echo, inflight, cooldown) each require
+    different item data. ``exclude_self_echo`` reads the DOM's
+    ``identity_key`` and checks ``_dispatched_identity_keys`` — no TTL.
+    ``cooldown`` reads ``_auto_dispatch_cooldown`` by customer_id. In-flight
+    is evaluated via a caller-supplied ``inflight_check(customer_id) -> age``
     callback so this helper stays free of browser-extension imports.
     """
     if now is None:
@@ -256,13 +254,11 @@ def _evaluate_item_filter(
             if matched:
                 return False, f"exclude:{field}:{op}:{literal[:30]}"
 
-    # Derive message text once for self_echo + inflight.
     se_cfg = cfg.get("exclude_self_echo") or {}
     il_cfg = cfg.get("inflight") or {}
     cd_cfg = cfg.get("cooldown") or {}
-    msg_fields = (se_cfg.get("message_fields")
-                  or il_cfg.get("message_fields")
-                  or ["last_message", "latest_message"])
+    # msg_text powers inflight's allow_new_message gate.
+    msg_fields = il_cfg.get("message_fields") or ["last_message", "latest_message"]
     msg_text = ""
     for mf in msg_fields:
         v = resolved.get(mf) or item.get(mf) or ""
@@ -272,30 +268,23 @@ def _evaluate_item_filter(
 
     cust_id = customer_id or ""
 
-    # 3. Self-echo (content-based dedup) — suppress messages already dispatched
-    #    or posted by the store itself (DOM echo of our own reply).
-    if se_cfg.get("enabled") and cust_id and msg_text:
-        ttl_s = float(se_cfg.get("ttl_s") or _AUTO_DISPATCH_SEEN_TTL_S)
-        entry = _auto_dispatch_seen.get(cust_id)
-        if entry:
-            seen_set, seen_ts = entry
-            if (now - seen_ts) < ttl_s and msg_text in seen_set:
-                # Log seen-set contents so false positives are diagnosable
-                # (exact string + set members + age).
-                try:
-                    _seen_preview = [s[:50] for s in list(seen_set)[:6]]
-                except Exception:
-                    _seen_preview = ["<unreadable>"]
-                logger.info(
-                    f"[filter] self_echo match: cust={cust_id!r}, "
-                    f"msg_text={msg_text!r}, age={now - seen_ts:.1f}s, "
-                    f"seen_size={len(seen_set)}, seen_preview={_seen_preview}"
-                )
-                return False, "self_echo"
+    # 3. Identity-key dedup — skip items whose DOM identity_key has already
+    #    been dispatched. When the customer sends a new message, identity_key
+    #    changes; when the agent replies, the old identity_key disappears
+    #    from the DOM snapshot and the caller prunes our record of it. So an
+    #    identical repeat question by the same customer re-fires naturally.
+    if se_cfg.get("enabled"):
+        ident = str(item.get("identity_key") or "").strip()
+        if ident and ident in _dispatched_identity_keys:
+            logger.info(
+                f"[filter] identity_key dedup: cust={cust_id!r}, "
+                f"identity_key={ident!r}, "
+                f"age={now - _dispatched_identity_keys[ident]:.1f}s"
+            )
+            return False, "already_dispatched"
 
     # 4. In-flight — suppress items whose customer already has a dispatch
-    #    in flight, unless allow_new_message is set and there is new text
-    #    (caller keeps self_echo separately to catch echoes).
+    #    in flight, unless allow_new_message is set and there is new text.
     if il_cfg.get("enabled") and cust_id and inflight_check:
         try:
             age = float(inflight_check(cust_id) or 0.0)
@@ -423,11 +412,7 @@ async def _try_auto_dispatch(
     # HOT-PATH-B delivery burst; callers can still override message_fields
     # / ttl / window via the authored item_filter.
     _user_filter = dict(config.get("item_filter") or {})
-    _user_filter.setdefault("exclude_self_echo", {
-        "enabled": True,
-        "message_fields": ["latest_message", "last_message"],
-        "ttl_s": _AUTO_DISPATCH_SEEN_TTL_S,
-    })
+    _user_filter.setdefault("exclude_self_echo", {"enabled": True})
     _user_filter.setdefault("cooldown", {
         "enabled": True,
         "window_s": _AUTO_DISPATCH_COOLDOWN_S,
@@ -510,34 +495,22 @@ async def _try_auto_dispatch(
             "message": message_str,
         }
 
-        # Capture msg_text for the dedup write below.
-        _msg_text = (
-            resolved.get("latest_message")
-            or resolved.get("last_message")
-            or item.get("last_message")
-            or ""
-        ).strip()[:80]
-
         result = _auto_send_chat(mainwin, send_config)
         if result.get("success"):
             dispatched += 1
 
             # Update affinity: this customer → this agent.
-            # Record the just-dispatched message text so rapid-fire DOM polls
-            # (250ms cadence) don't re-dispatch the SAME text before the DOM has
-            # moved on. This is NOT a "self-echo of our reply" guard — it's a
-            # debounce. TTL is short (_AUTO_DISPATCH_SEEN_TTL_S = 60s); if a
-            # customer legitimately resends the exact same question 60s+ later,
-            # it passes. Staleness of this cache vs. a NEW customer message is
-            # no longer a problem because Fix A now reads actionable_items from
-            # the live EventMonitor snapshot, not the frozen state body.
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
-                if _msg_text:
-                    _seen_entry = _auto_dispatch_seen.get(cust_id)
-                    _seen_set = _seen_entry[0] if _seen_entry else set()
-                    _seen_set.add(_msg_text)
-                    _auto_dispatch_seen[cust_id] = (_seen_set, now)
+
+            # Record identity_key so repeat dispatch attempts while the same
+            # customer message is still in the DOM are suppressed. The caller
+            # prunes this entry when the key disappears from the snapshot
+            # (customer sent a new message or agent replied), so a legitimate
+            # repeat of the same question re-fires naturally.
+            _ident = str(item.get("identity_key") or "").strip()
+            if _ident:
+                _dispatched_identity_keys[_ident] = now
 
             # Record in Fix A caches
             if use_dedup:
@@ -576,10 +549,10 @@ async def _try_auto_dispatch(
     _stale_cd = [k for k, ts in _auto_dispatch_cooldown.items() if now - ts > _AUTO_DISPATCH_COOLDOWN_S * 2]
     for k in _stale_cd:
         _auto_dispatch_cooldown.pop(k, None)
-    # Prune stale seen-message entries
-    _stale_seen = [k for k, (_, ts) in _auto_dispatch_seen.items() if now - ts > _AUTO_DISPATCH_SEEN_TTL_S]
-    for k in _stale_seen:
-        _auto_dispatch_seen.pop(k, None)
+    # Safety gc for identity-key records (DOM-diff pruning is the primary path)
+    _stale_ident = [k for k, ts in _dispatched_identity_keys.items() if now - ts > _DISPATCHED_IDENTITY_SAFETY_TTL_S]
+    for k in _stale_ident:
+        _dispatched_identity_keys.pop(k, None)
 
     if dispatched > 0:
         logger.info(
@@ -8070,15 +8043,29 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             "allow_new_message": True,
                                             "message_fields": ["last_message", "latest_message"],
                                         })
-                                        _fix_a_user_filter.setdefault("exclude_self_echo", {
-                                            "enabled": True,
-                                            "message_fields": ["last_message", "latest_message"],
-                                            "ttl_s": _AUTO_DISPATCH_SEEN_TTL_S,
-                                        })
+                                        _fix_a_user_filter.setdefault("exclude_self_echo", {"enabled": True})
                                         _fix_a_user_filter.setdefault("cooldown", {
                                             "enabled": True,
                                             "window_s": _AUTO_DISPATCH_COOLDOWN_S,
                                         })
+
+                                        # Prune identity_key records for entries no longer in the
+                                        # DOM snapshot — the customer either sent a new message
+                                        # (key changed) or the agent replied (key disappeared).
+                                        # This keeps the dedup set aligned with live state so a
+                                        # repeat of an identical earlier question is not silently
+                                        # suppressed forever.
+                                        _live_ident_keys = {
+                                            str(_it.get("identity_key") or "").strip()
+                                            for _it in _compact_items
+                                            if _it.get("identity_key")
+                                        }
+                                        _stale_live = [
+                                            _k for _k in _dispatched_identity_keys
+                                            if _k and _k not in _live_ident_keys
+                                        ]
+                                        for _k in _stale_live:
+                                            _dispatched_identity_keys.pop(_k, None)
 
                                         _actionable = []
                                         _filtered_inflight: list[tuple[str, str]] = []
@@ -8400,12 +8387,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
                                 f"executing {len(_hp_b_action_seq)} actions"
                             )
-                            # ── Pre-register cooldown + content-dedup BEFORE send ──
-                            # Without this, a self-echo race exists: feige_send_message
-                            # posts the message, the sidebar DOM update fires a new
-                            # browser_event, and _try_auto_dispatch re-dispatches the
-                            # store's OWN reply to the Q&A agent before the post-delivery
-                            # cooldown write lands (observed race window ~300ms).
+                            # ── Pre-register cooldown BEFORE send ──
+                            # Without this, a race exists: feige_send_message posts the
+                            # message, the sidebar DOM update fires a new browser_event,
+                            # and _try_auto_dispatch re-dispatches the store's OWN reply
+                            # to the Q&A agent before the post-delivery cooldown lands
+                            # (observed race window ~300ms).
                             try:
                                 _hp_b_pre_cust = _normalize_customer_id(
                                     _hp_b_payload.get("customer_name")
@@ -8416,17 +8403,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     import time as _hp_b_pre_time
                                     _hp_b_pre_now = _hp_b_pre_time.time()
                                     _auto_dispatch_cooldown[_hp_b_pre_cust] = _hp_b_pre_now
-                                    _hp_b_pre_resp = (
-                                        _hp_b_payload.get("response_text") or ""
-                                    ).strip()[:80]
-                                    if _hp_b_pre_resp:
-                                        _hp_b_pre_seen = _auto_dispatch_seen.get(_hp_b_pre_cust)
-                                        _hp_b_pre_seen_set = _hp_b_pre_seen[0] if _hp_b_pre_seen else set()
-                                        _hp_b_pre_seen_set.add(_hp_b_pre_resp)
-                                        _auto_dispatch_seen[_hp_b_pre_cust] = (_hp_b_pre_seen_set, _hp_b_pre_now)
                                     logger.info(
                                         f"[BrowserAutomation] HOT-PATH-B: PRE-registered cooldown "
-                                        f"({_AUTO_DISPATCH_COOLDOWN_S}s) + content-dedup for "
+                                        f"({_AUTO_DISPATCH_COOLDOWN_S}s) for "
                                         f"'{_hp_b_pre_cust}' (before send), node={node_name}"
                                     )
                             except Exception as _hp_b_pre_err:
@@ -8487,23 +8466,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     if _hp_b_cust:
                                         import time as _hp_b_time
                                         _hp_b_now = _hp_b_time.time()
-                                        # Short hard cooldown to suppress immediate
-                                        # DOM-echo event burst
+                                        # Short hard cooldown to suppress the DOM-echo
+                                        # event burst right after the reply is typed.
                                         _auto_dispatch_cooldown[_hp_b_cust] = _hp_b_now
-                                        # Record the response text in seen-messages
-                                        # so the store's own reply appearing in the
-                                        # sidebar doesn't trigger a new dispatch
-                                        _hp_b_resp = (
-                                            _hp_b_payload.get("response_text") or ""
-                                        ).strip()[:80]
-                                        if _hp_b_resp:
-                                            _hp_b_seen = _auto_dispatch_seen.get(_hp_b_cust)
-                                            _hp_b_seen_set = _hp_b_seen[0] if _hp_b_seen else set()
-                                            _hp_b_seen_set.add(_hp_b_resp)
-                                            _auto_dispatch_seen[_hp_b_cust] = (_hp_b_seen_set, _hp_b_now)
                                         logger.info(
                                             f"[BrowserAutomation] HOT-PATH-B: set cooldown "
-                                            f"({_AUTO_DISPATCH_COOLDOWN_S}s) + content-dedup for "
+                                            f"({_AUTO_DISPATCH_COOLDOWN_S}s) for "
                                             f"'{_hp_b_cust}', node={node_name}"
                                         )
                                 except Exception as _hp_b_cd_err:
