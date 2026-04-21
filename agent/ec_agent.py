@@ -527,11 +527,9 @@ class EC_Agent(Agent):
 
 	def a2a_send_chat_message_sync(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
-		logger.info("[ec_agent] recipient card:", recipient_agent.get_card().name.lower())
-		logger.info("[ec_agent] sending message:", message)
 		try:
+			recipient_name = recipient_agent.get_card().name
 			a2a_end_point = recipient_agent.get_card().url.rstrip('/')
-			logger.info("[ec_agent] a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
 			if isinstance(message["attributes"]['params']['content'], str):
 				msg_text = message["attributes"]['params']['content']
@@ -571,7 +569,7 @@ class EC_Agent(Agent):
 				raise KeyError(f"Missing 'messages' key. Message structure: {list(message.keys())}")
 			sess_id = message['messages'][1]      # chat_id for session
 			trace_task_id = message['messages'][3]  # task_id for trace linkage
-				
+
 			# Build message payload dict (compatible with A2AClientWrapper)
 			payload = {
 				"id": trace_task_id,
@@ -585,9 +583,11 @@ class EC_Agent(Agent):
 				}
 			}
 
-			logger.info("[ec_agent] client payload:", payload)
+			logger.info(f"[a2a_send] -> {recipient_name} @ {a2a_end_point}, task={trace_task_id}, sess={sess_id}")
+			logger.debug("[a2a_send] payload=%s", payload)
 			response = self.a2a_client.sync_send_task(payload)
-			logger.info("[ec_agent] A2A RESPONSE:", response)
+			logger.info(f"[a2a_send] done {recipient_name} (task={trace_task_id})")
+			logger.debug("[a2a_send] response=%s", response)
 			return response
 		except Exception as e:
 			# Get the traceback information
