@@ -510,17 +510,34 @@ async def _try_auto_dispatch(
             "message": message_str,
         }
 
+        # Capture msg_text for the dedup write below.
+        _msg_text = (
+            resolved.get("latest_message")
+            or resolved.get("last_message")
+            or item.get("last_message")
+            or ""
+        ).strip()[:80]
+
         result = _auto_send_chat(mainwin, send_config)
         if result.get("success"):
             dispatched += 1
 
             # Update affinity: this customer → this agent.
-            # NOTE: Do NOT write to _auto_dispatch_seen here — self_echo must only
-            # match OUR replies (populated by HOT-PATH-B on delivery), never the
-            # customer's own message text. A customer can legitimately re-send or
-            # repeat a question, and we must not treat that as an echo of our reply.
+            # Record the just-dispatched message text so rapid-fire DOM polls
+            # (250ms cadence) don't re-dispatch the SAME text before the DOM has
+            # moved on. This is NOT a "self-echo of our reply" guard — it's a
+            # debounce. TTL is short (_AUTO_DISPATCH_SEEN_TTL_S = 60s); if a
+            # customer legitimately resends the exact same question 60s+ later,
+            # it passes. Staleness of this cache vs. a NEW customer message is
+            # no longer a problem because Fix A now reads actionable_items from
+            # the live EventMonitor snapshot, not the frozen state body.
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
+                if _msg_text:
+                    _seen_entry = _auto_dispatch_seen.get(cust_id)
+                    _seen_set = _seen_entry[0] if _seen_entry else set()
+                    _seen_set.add(_msg_text)
+                    _auto_dispatch_seen[cust_id] = (_seen_set, now)
 
             # Record in Fix A caches
             if use_dedup:
@@ -7923,23 +7940,41 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 from agent.ec_skills.browser_use_extension.event_monitor import (
                                     _active_monitor_sets as _ams,
                                 )
+                                # Prefer a monitor whose label matches _evt_label,
+                                # but fall back to any monitor with a non-empty
+                                # last_items snapshot. _evt_label is frequently
+                                # empty for chat_message-triggered runs, and
+                                # requiring an exact match was silently skipping
+                                # the live path in practice.
                                 _live_items = None
+                                _live_src_label = ""
+                                _fallback_items = None
+                                _fallback_label = ""
                                 for _mset in _ams.values():
                                     for _mon in getattr(_mset, "monitors", []) or []:
                                         _mcfg = getattr(_mon, "config", None)
                                         _mlabel = getattr(_mcfg, "label", "") if _mcfg else ""
-                                        if _evt_label and _mlabel and _mlabel == _evt_label:
-                                            _mstate = getattr(_mon, "state", None)
-                                            if isinstance(_mstate, dict):
-                                                _cand = _mstate.get("last_items") or []
-                                                if isinstance(_cand, list) and _cand:
-                                                    _live_items = list(_cand)
-                                                    break
+                                        _mstate = getattr(_mon, "state", None)
+                                        if not isinstance(_mstate, dict):
+                                            continue
+                                        _cand = _mstate.get("last_items") or []
+                                        if not (isinstance(_cand, list) and _cand):
+                                            continue
+                                        if _evt_label and _mlabel == _evt_label:
+                                            _live_items = list(_cand)
+                                            _live_src_label = _mlabel
+                                            break
+                                        if _fallback_items is None:
+                                            _fallback_items = list(_cand)
+                                            _fallback_label = _mlabel
                                     if _live_items:
                                         break
+                                if not _live_items and _fallback_items:
+                                    _live_items = _fallback_items
+                                    _live_src_label = _fallback_label or "(no-label)"
                                 if _live_items:
                                     _evt_items = _live_items
-                                    _evt_items_src = "live_monitor"
+                                    _evt_items_src = f"live_monitor[{_live_src_label}]"
                             except Exception as _live_err:
                                 logger.debug(
                                     f"[BrowserAutomation] live monitor snapshot lookup failed: {_live_err}"
