@@ -774,7 +774,15 @@
       "hotPathSection": "Hot-Path Optimization",
       "hotPathSectionDesc": "Skip the LLM for deterministic operations. Configure action sequences triggered by event type and payload fields.",
       "hotPathActions": "Hot-Path Actions (JSON)",
-      "autoDispatch": "Auto-Dispatch Config (JSON)"
+      "autoDispatch": "Auto-Dispatch Config (JSON)",
+      "nodeBehaviorSection": "Node Behavior",
+      "nodeBehaviorSectionDesc": "Data-driven configuration that replaces per-skill hardcoded behavior. Leave blank for generic defaults; fill in to enable skill-specific flows (e.g. rt_chat_bot, customer_front_desk).",
+      "assignment": "Assignment Config (JSON)",
+      "preDispatch": "Pre-Dispatch Config (JSON)",
+      "stepPatches": "Step Patches (JSON)",
+      "tabPolicy": "Tab Policy",
+      "tabPolicyStrict": "strict_single_tab (default — never switch_tab)",
+      "tabPolicyAllowAssigned": "allow_assigned_tab (permit focusing the assigned tab_id)"
     },
     "mcp": {
       "name": "MCP",

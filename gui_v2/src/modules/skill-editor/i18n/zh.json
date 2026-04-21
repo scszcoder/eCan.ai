@@ -801,7 +801,15 @@
       "hotPathSection": "热路径优化",
       "hotPathSectionDesc": "跳过 LLM 执行确定性操作。配置由事件类型和载荷字段触发的动作序列。",
       "hotPathActions": "热路径动作 (JSON)",
-      "autoDispatch": "自动分发配置 (JSON)"
+      "autoDispatch": "自动分发配置 (JSON)",
+      "nodeBehaviorSection": "节点行为",
+      "nodeBehaviorSectionDesc": "数据驱动配置，替代按技能硬编码的行为。留空使用通用默认；填写可启用技能特定流程（例如 rt_chat_bot、customer_front_desk）。",
+      "assignment": "分配配置 (JSON)",
+      "preDispatch": "前置分发配置 (JSON)",
+      "stepPatches": "步骤补丁 (JSON)",
+      "tabPolicy": "标签页策略",
+      "tabPolicyStrict": "strict_single_tab（默认 — 禁止 switch_tab）",
+      "tabPolicyAllowAssigned": "allow_assigned_tab（允许聚焦已分配的 tab_id）"
     }
   },
   "formComponents": {

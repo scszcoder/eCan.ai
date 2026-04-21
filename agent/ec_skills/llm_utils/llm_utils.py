@@ -2687,8 +2687,16 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         
         inbound_chat_attrs = {}
         try:
+            # resume.py writes chat_attributes at state.attributes.chat_attributes
+            # (see resume.py:1128 + build_node.py:6339). The old debug.chat_attributes
+            # path is never populated, which silently broke A2A-sender routing and
+            # forced this code to fall through to find_opposite_agent(chat_id) —
+            # where chat_id is a synthesized customer_id like "sc", not a real DB
+            # chat row id, so the lookup always failed.
+            _attrs = state.get("attributes", {}) or {}
             inbound_chat_attrs = (
-                (state.get("attributes", {}).get("debug", {}) or {}).get("chat_attributes", {})
+                _attrs.get("chat_attributes")
+                or (_attrs.get("debug", {}) or {}).get("chat_attributes")
                 or {}
             )
         except Exception:
