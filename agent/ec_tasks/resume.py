@@ -990,6 +990,58 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     logger.debug("build resume load, mapping>>>>", mapping)
     resume_payload, state_patch = build_resume_from_mapping(event, current_state, node_output=None, mapping=mapping)
 
+    # --- Inject prompt_refs.events for chat_message resumes ---
+    # Mirrors prep_skills_run._extract_chat_message_input_patch: downstream
+    # browser_automation nodes (HOT-PATH-B) read state.prompt_refs.events to
+    # decide Phase 1 (dispatch) vs Phase 2 (reply). Without this write, parallel
+    # node invocations during resume see an empty envelope and fall back to the
+    # stale attributes.browser_event (event_type=none), producing template
+    # responses and out-of-order delivery. pend_event_node writes this field
+    # post-interrupt, but that happens AFTER the first build_node re-entry in
+    # the same superstep, so we must seed it in state_patch here.
+    try:
+        _is_chat_message = False
+        if isinstance(event, dict) and event.get("event_type") == "chat_message":
+            _is_chat_message = True
+        elif isinstance(msg, dict) and msg.get("method") == "chat_message":
+            _is_chat_message = True
+        elif isinstance(msg, dict) and _safe_get(msg, "params.metadata.mtype") == "send_chat":
+            _is_chat_message = True
+
+        if _is_chat_message:
+            compact_event: Dict[str, Any] = {"event_type": "chat_message"}
+            if isinstance(event, dict):
+                for k in ("source", "tag", "node", "timestamp", "id", "sessionId",
+                          "chatId", "senderId", "senderName", "receiverId",
+                          "transport", "senderType"):
+                    v = event.get(k) or (event.get("context", {}) or {}).get(k)
+                    if v is not None:
+                        compact_event[k] = v
+                if isinstance(event.get("data"), dict):
+                    ht = event["data"].get("human_text")
+                    if isinstance(ht, str) and ht:
+                        compact_event["human_text"] = ht
+            if isinstance(msg, dict):
+                meta_params = _safe_get(msg, "params.metadata.params") or _safe_get(msg, "params.metadata") or {}
+                if isinstance(meta_params, dict):
+                    for k in ("chatId", "senderId", "senderName", "receiverId",
+                              "transport", "senderType"):
+                        if k not in compact_event and k in meta_params:
+                            compact_event[k] = meta_params[k]
+
+            _write(
+                state_patch,
+                "prompt_refs.events",
+                json.dumps(compact_event, ensure_ascii=False, default=str),
+                on_conflict="overwrite",
+            )
+            logger.info(
+                f"[build_general_resume_payload] Injected prompt_refs.events for chat_message "
+                f"(sender={compact_event.get('senderId', '?')}, chat={compact_event.get('chatId', '?')})"
+            )
+    except Exception as _env_err:
+        logger.debug(f"[build_general_resume_payload] prompt_refs.events injection skipped: {_env_err}")
+
     # Fallback enrichment when mapping rules do not produce payload
     try:
         # Handle async_callback events (e.g., passive browser commands from cloud)

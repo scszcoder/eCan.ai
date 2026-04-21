@@ -38,6 +38,42 @@ from typing import Any, Literal, cast, overload
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# ==================== Node Input Helpers ====================
+
+class _SafeFormatDict(dict):
+    """dict subclass for str.format_map() that returns "" for missing keys.
+
+    Used when rendering user-authored templates where a referenced field
+    may legitimately be empty or undefined.
+    """
+    def __missing__(self, key):
+        return ""
+
+
+def _parse_json_input(inputs: dict, key: str):
+    """Read inputs[key].content and decode it as JSON.
+
+    Accepts either a JSON string (the common Flowgram shape for textarea
+    inputs) or a pre-parsed dict/list.  Returns ``None`` when absent or
+    invalid so callers can use ``isinstance()`` checks without try/except.
+    """
+    raw = (inputs.get(key) or {}).get("content") if isinstance(inputs, dict) else None
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except Exception as err:
+            logger.warning(f"[NodeInputs] Failed to parse '{key}' as JSON (non-fatal): {err}")
+            return None
+    return None
+
+
 # ==================== Hot-Path Template Resolution ====================
 
 def _resolve_template(template: str, payload: dict) -> str:
@@ -99,7 +135,11 @@ _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id
 # or is the store's own reply echo).  A NEW message text is dispatched
 # immediately.  Entries expire after _AUTO_DISPATCH_SEEN_TTL_S.
 _auto_dispatch_seen: dict[str, tuple[set, float]] = {}  # cust → ({msg_texts}, ts)
-_AUTO_DISPATCH_SEEN_TTL_S = 300.0  # 5 min TTL for seen-message memory
+# Was 300s but caused false self_echo positives after a long pause between
+# customer turns. 60s is more than enough for the only real use case — swallow
+# the DOM-echo burst right after HOT-PATH-B delivery (which arrives within
+# seconds, not minutes).
+_AUTO_DISPATCH_SEEN_TTL_S = 60.0
 # Short hard cooldown (seconds) after HOT-PATH-B delivery.
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
@@ -126,6 +166,155 @@ def _get_agent_load(agent_id: str, mainwin) -> int:
         return 0
     except Exception:
         return 0
+
+
+# ==================== Item Filter Evaluator ====================
+
+def _evaluate_item_filter(
+    item: dict,
+    filter_cfg: dict | None,
+    *,
+    resolved: dict | None = None,
+    customer_id: str | None = None,
+    inflight_check=None,
+    now: float | None = None,
+) -> tuple[bool, str]:
+    """Check an actionable item against a data-driven filter config.
+
+    Returns ``(keep, reason)``. ``reason`` is "" when keeping, otherwise a
+    short tag like ``"required_field_missing:customer_name"`` or
+    ``"exclude:customer_name:equals:您好"``.
+
+    Config schema (all keys optional):
+
+        {
+          "required_fields": ["customer_name", ...],
+          "exclude_patterns": [
+            {"field": "customer_name", "equals": "您好"},
+            {"field": "customer_name", "contains": "通知"},
+            {"field": "customer_name", "prefix": "系统"},
+            {"field": "customer_name", "regex": "^店铺"}
+          ],
+          "exclude_self_echo": {
+            "enabled": true,
+            "message_fields": ["last_message", "latest_message"],
+            "ttl_s": 300
+          },
+          "inflight": {
+            "enabled": true,
+            "allow_new_message": true,
+            "message_fields": ["last_message", "latest_message"]
+          },
+          "cooldown": {
+            "enabled": true,
+            "window_s": 10
+          }
+        }
+
+    The three stateful checks (self_echo, inflight, cooldown) require a
+    ``customer_id``. Self-echo and cooldown read the module-level caches
+    ``_auto_dispatch_seen`` / ``_auto_dispatch_cooldown``. In-flight is
+    evaluated via a caller-supplied ``inflight_check(customer_id) -> age``
+    callback so this helper stays free of browser-extension imports.
+    """
+    if now is None:
+        now = time.time()
+    cfg = filter_cfg or {}
+    resolved = resolved or {}
+
+    # 1. Required fields — must resolve to non-empty in resolved or item.
+    for rf in (cfg.get("required_fields") or []):
+        v = resolved.get(rf) or str(item.get(rf, "") or "").strip()
+        if not v:
+            return False, f"required_field_missing:{rf}"
+
+    # 2. Exclude patterns — drop on first match.
+    for pat in (cfg.get("exclude_patterns") or []):
+        if not isinstance(pat, dict):
+            continue
+        field = pat.get("field")
+        if not field:
+            continue
+        val = str(resolved.get(field) or item.get(field, "") or "").strip()
+        if not val:
+            continue
+        for op in ("equals", "contains", "prefix", "regex"):
+            if op not in pat:
+                continue
+            literal = str(pat[op])
+            try:
+                if op == "equals":
+                    matched = (val == literal)
+                elif op == "contains":
+                    matched = (literal in val)
+                elif op == "prefix":
+                    matched = val.startswith(literal)
+                else:  # regex
+                    matched = bool(re.search(literal, val))
+            except Exception:
+                matched = False
+            if matched:
+                return False, f"exclude:{field}:{op}:{literal[:30]}"
+
+    # Derive message text once for self_echo + inflight.
+    se_cfg = cfg.get("exclude_self_echo") or {}
+    il_cfg = cfg.get("inflight") or {}
+    cd_cfg = cfg.get("cooldown") or {}
+    msg_fields = (se_cfg.get("message_fields")
+                  or il_cfg.get("message_fields")
+                  or ["last_message", "latest_message"])
+    msg_text = ""
+    for mf in msg_fields:
+        v = resolved.get(mf) or item.get(mf) or ""
+        if isinstance(v, str) and v.strip():
+            msg_text = v.strip()[:80]
+            break
+
+    cust_id = customer_id or ""
+
+    # 3. Self-echo (content-based dedup) — suppress messages already dispatched
+    #    or posted by the store itself (DOM echo of our own reply).
+    if se_cfg.get("enabled") and cust_id and msg_text:
+        ttl_s = float(se_cfg.get("ttl_s") or _AUTO_DISPATCH_SEEN_TTL_S)
+        entry = _auto_dispatch_seen.get(cust_id)
+        if entry:
+            seen_set, seen_ts = entry
+            if (now - seen_ts) < ttl_s and msg_text in seen_set:
+                # Log seen-set contents so false positives are diagnosable
+                # (exact string + set members + age).
+                try:
+                    _seen_preview = [s[:50] for s in list(seen_set)[:6]]
+                except Exception:
+                    _seen_preview = ["<unreadable>"]
+                logger.info(
+                    f"[filter] self_echo match: cust={cust_id!r}, "
+                    f"msg_text={msg_text!r}, age={now - seen_ts:.1f}s, "
+                    f"seen_size={len(seen_set)}, seen_preview={_seen_preview}"
+                )
+                return False, "self_echo"
+
+    # 4. In-flight — suppress items whose customer already has a dispatch
+    #    in flight, unless allow_new_message is set and there is new text
+    #    (caller keeps self_echo separately to catch echoes).
+    if il_cfg.get("enabled") and cust_id and inflight_check:
+        try:
+            age = float(inflight_check(cust_id) or 0.0)
+        except Exception:
+            age = 0.0
+        if age > 0.0:
+            if il_cfg.get("allow_new_message", True) and msg_text:
+                pass  # new user message; let it through
+            else:
+                return False, f"inflight:{age:.0f}s"
+
+    # 5. Cooldown — short hard window after HOT-PATH-B delivery.
+    if cd_cfg.get("enabled") and cust_id:
+        window = float(cd_cfg.get("window_s") or _AUTO_DISPATCH_COOLDOWN_S)
+        cd_ts = _auto_dispatch_cooldown.get(cust_id, 0.0)
+        if cd_ts and (now - cd_ts) < window:
+            return False, f"cooldown:{now - cd_ts:.0f}s"
+
+    return True, ""
 
 
 async def _try_auto_dispatch(
@@ -197,14 +386,22 @@ async def _try_auto_dispatch(
         if a.get("status", "active") != "disabled"
     ]
     if filter_tasks:
-        candidates = [
-            a for a in candidates
-            if set(a.get("tasks", [])) & set(filter_tasks)
-        ]
+        _filter_patterns = [str(p) for p in filter_tasks if str(p).strip()]
+
+        def _agent_task_matches(agent_entry: dict) -> bool:
+            _tasks = [str(t) for t in (agent_entry.get("tasks") or [])]
+            for _pat in _filter_patterns:
+                for _t in _tasks:
+                    if _pat in _t:
+                        return True
+            return False
+
+        candidates = [a for a in candidates if _agent_task_matches(a)]
     if not candidates:
-        logger.debug(
+        logger.info(
             f"[AUTO-DISPATCH] No candidate agents after filter "
-            f"(filter_by_tasks={filter_tasks}), node={node_name}"
+            f"(filter_by_tasks={filter_tasks}, all_agent_tasks="
+            f"{[a.get('tasks', []) for a in all_agents]}), node={node_name}"
         )
         return None
 
@@ -212,7 +409,30 @@ async def _try_auto_dispatch(
 
     # ── 3. Payload template & item filter ──
     payload_tpl = config.get("payload_template") or {}
-    required_fields = (config.get("item_filter") or {}).get("required_fields") or []
+    if not payload_tpl:
+        # Default: emit a canonical {customer_id, customer_name, latest_message}
+        # payload so downstream responders always have usable data even when
+        # the author didn't specify a template. Field fallbacks cover the
+        # common DOM-extractor shapes (customer_name + last_message).
+        payload_tpl = {
+            "customer_id": "{{customer_id || identity_key || customer_name}}",
+            "customer_name": "{{customer_name || name}}",
+            "latest_message": "{{latest_message || last_message || message}}",
+        }
+    # Hot-path-A hardcodes self-echo + cooldown because they guard the
+    # HOT-PATH-B delivery burst; callers can still override message_fields
+    # / ttl / window via the authored item_filter.
+    _user_filter = dict(config.get("item_filter") or {})
+    _user_filter.setdefault("exclude_self_echo", {
+        "enabled": True,
+        "message_fields": ["latest_message", "last_message"],
+        "ttl_s": _AUTO_DISPATCH_SEEN_TTL_S,
+    })
+    _user_filter.setdefault("cooldown", {
+        "enabled": True,
+        "window_s": _AUTO_DISPATCH_COOLDOWN_S,
+    })
+    item_filter_cfg = _user_filter
     dispatch_cfg = config.get("dispatch") or {}
     use_dedup = dispatch_cfg.get("dedup", True)
 
@@ -259,57 +479,25 @@ async def _try_auto_dispatch(
         for key, tpl in payload_tpl.items():
             resolved[key] = _resolve_template(tpl, item)
 
-        # Check required fields
-        skip = False
-        for rf in required_fields:
-            val = resolved.get(rf) or str(item.get(rf, "")).strip()
-            if not val:
-                skip = True
-                break
-        if skip:
-            continue
-
         cust_id = _normalize_customer_id(
             resolved.get("customer_id")
             or resolved.get("customer_name")
             or ""
         )
 
-        # ── Dedup: content-based + short hard cooldown ──
-        # 1) Hard cooldown: skip for _AUTO_DISPATCH_COOLDOWN_S after HOT-PATH-B delivery
-        #    (suppresses the immediate DOM-echo event burst)
-        # 2) Content dedup: skip if this exact last_message text was already dispatched
-        #    or is the store's own reply (allows NEW messages through immediately)
-        if cust_id:
-            _cd_last = _auto_dispatch_cooldown.get(cust_id, 0.0)
-            if _cd_last and (now - _cd_last) < _AUTO_DISPATCH_COOLDOWN_S:
-                logger.info(
-                    f"[AUTO-DISPATCH] COOLDOWN: skipping '{cust_id}' "
-                    f"(delivered {now - _cd_last:.1f}s ago, "
-                    f"window={_AUTO_DISPATCH_COOLDOWN_S}s), node={node_name}"
-                )
-                continue
-            # Content-based dedup: check if we've already seen this message text
-            _msg_text = (
-                resolved.get("latest_message")
-                or resolved.get("last_message")
-                or item.get("last_message")
-                or ""
-            ).strip()[:80]  # truncated to match sidebar preview length
-            if _msg_text:
-                _seen_entry = _auto_dispatch_seen.get(cust_id)
-                if _seen_entry:
-                    _seen_set, _seen_ts = _seen_entry
-                    # Expire old entries
-                    if (now - _seen_ts) > _AUTO_DISPATCH_SEEN_TTL_S:
-                        _seen_set = set()
-                    if _msg_text in _seen_set:
-                        logger.info(
-                            f"[AUTO-DISPATCH] CONTENT-DEDUP: skipping '{cust_id}' "
-                            f"(message already seen: '{_msg_text[:40]}...'), "
-                            f"node={node_name}"
-                        )
-                        continue
+        keep, reason = _evaluate_item_filter(
+            item,
+            item_filter_cfg,
+            resolved=resolved,
+            customer_id=cust_id,
+            now=now,
+        )
+        if not keep:
+            logger.info(
+                f"[AUTO-DISPATCH] filter drop '{cust_id or '?'}' "
+                f"reason={reason}, node={node_name}"
+            )
+            continue
 
         target_agent = _pick_agent(cust_id)
         target_agent_id = target_agent.get("id", "")
@@ -322,12 +510,27 @@ async def _try_auto_dispatch(
             "message": message_str,
         }
 
+        # Capture msg_text for the dedup write below.
+        _msg_text = (
+            resolved.get("latest_message")
+            or resolved.get("last_message")
+            or item.get("last_message")
+            or ""
+        ).strip()[:80]
+
         result = _auto_send_chat(mainwin, send_config)
         if result.get("success"):
             dispatched += 1
 
-            # Update affinity: this customer → this agent
-            # Record seen message text (content-based dedup)
+            # Update affinity: this customer → this agent.
+            # Record the just-dispatched message text so rapid-fire DOM polls
+            # (250ms cadence) don't re-dispatch the SAME text before the DOM has
+            # moved on. This is NOT a "self-echo of our reply" guard — it's a
+            # debounce. TTL is short (_AUTO_DISPATCH_SEEN_TTL_S = 60s); if a
+            # customer legitimately resends the exact same question 60s+ later,
+            # it passes. Staleness of this cache vs. a NEW customer message is
+            # no longer a problem because Fix A now reads actionable_items from
+            # the live EventMonitor snapshot, not the frozen state body.
             if cust_id:
                 _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
                 if _msg_text:
@@ -4061,6 +4264,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         logger.info(log_msg)
         send_skill_editor_log("info", log_msg)
 
+    def _get_llm_manager_singleton():
+        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
+        if "singleton" in _LLM_MANAGER_CACHE:
+            return _LLM_MANAGER_CACHE["singleton"]
+        try:
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            mgr = get_llm_manager()
+            _LLM_MANAGER_CACHE["singleton"] = mgr
+            return mgr
+        except Exception as e:
+            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
+            return None
+
     # --- MCP tool input helpers (schema-aware) ---
 
     def _get_tool_schema_by_name(tool_name: str):
@@ -7713,15 +7929,68 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # snapshot without needing to call a list tool.
                         try:
                             _evt_items = None
+                            _evt_items_src = ""
+                            # Path 0 (preferred): live EventMonitor snapshot. The
+                            # state.attributes.browser_event body is frozen at the
+                            # last pend_event resume — if this node has been running
+                            # for a while, the DOM has since moved on. Read the
+                            # monitor's current last_items directly so filters like
+                            # Fix A see fresh data.
+                            try:
+                                from agent.ec_skills.browser_use_extension.event_monitor import (
+                                    _active_monitor_sets as _ams,
+                                )
+                                # Prefer a monitor whose label matches _evt_label,
+                                # but fall back to any monitor with a non-empty
+                                # last_items snapshot. _evt_label is frequently
+                                # empty for chat_message-triggered runs, and
+                                # requiring an exact match was silently skipping
+                                # the live path in practice.
+                                _live_items = None
+                                _live_src_label = ""
+                                _fallback_items = None
+                                _fallback_label = ""
+                                for _mset in _ams.values():
+                                    for _mon in getattr(_mset, "monitors", []) or []:
+                                        _mcfg = getattr(_mon, "config", None)
+                                        _mlabel = getattr(_mcfg, "label", "") if _mcfg else ""
+                                        _mstate = getattr(_mon, "state", None)
+                                        if not isinstance(_mstate, dict):
+                                            continue
+                                        _cand = _mstate.get("last_items") or []
+                                        if not (isinstance(_cand, list) and _cand):
+                                            continue
+                                        if _evt_label and _mlabel == _evt_label:
+                                            _live_items = list(_cand)
+                                            _live_src_label = _mlabel
+                                            break
+                                        if _fallback_items is None:
+                                            _fallback_items = list(_cand)
+                                            _fallback_label = _mlabel
+                                    if _live_items:
+                                        break
+                                if not _live_items and _fallback_items:
+                                    _live_items = _fallback_items
+                                    _live_src_label = _fallback_label or "(no-label)"
+                                if _live_items:
+                                    _evt_items = _live_items
+                                    _evt_items_src = f"live_monitor[{_live_src_label}]"
+                            except Exception as _live_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] live monitor snapshot lookup failed: {_live_err}"
+                                )
                             # Path 1: context.params.body (legacy)
-                            _evt_body = _evt_ctx.get("params", {})
-                            if isinstance(_evt_body, dict):
-                                _evt_body_str = _evt_body.get("body", "")
-                                if isinstance(_evt_body_str, str) and _evt_body_str:
-                                    _evt_body_parsed = json.loads(_evt_body_str)
-                                    _evt_items = _evt_body_parsed.get("items", [])
+                            if not _evt_items:
+                                _evt_body = _evt_ctx.get("params", {})
+                                if isinstance(_evt_body, dict):
+                                    _evt_body_str = _evt_body.get("body", "")
+                                    if isinstance(_evt_body_str, str) and _evt_body_str:
+                                        _evt_body_parsed = json.loads(_evt_body_str)
+                                        _evt_items = _evt_body_parsed.get("items", [])
+                                        if _evt_items:
+                                            _evt_items_src = "context.params.body"
                             # Path 2: state["attributes"]["browser_event"]["body"]["items"]
-                            # (resume.py stores it at attributes.browser_event)
+                            # (resume.py stores it at attributes.browser_event) — stalest path.
                             if not _evt_items and isinstance(state, dict):
                                 _be_data = (
                                     state.get("browser_event")  # top-level (resume_payload)
@@ -7731,6 +8000,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     _be_body = _be_data.get("body", {})
                                     if isinstance(_be_body, dict):
                                         _evt_items = _be_body.get("items", [])
+                                        if _evt_items:
+                                            _evt_items_src = "state.attributes.browser_event"
+                            if _evt_items and _evt_items_src:
+                                logger.info(
+                                    f"[BrowserAutomation] actionable_items source="
+                                    f"{_evt_items_src} ({len(_evt_items)} item(s)), "
+                                    f"node={node_name}"
+                                )
                             if isinstance(_evt_items, list) and _evt_items:
                                 # Strip heavy fields (avatars, URLs) but keep
                                 # everything else — no domain-specific filtering.
@@ -7752,20 +8029,59 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             it for it in _compact_items
                                             if str(it.get(actionable_field, "")).strip()
                                         ]
-                                        # Fix A: filter out customers with an in-flight
-                                        # dispatch (any recipient) so the DOM's still-stuck
-                                        # pending_timer doesn't loop the LLM into
-                                        # re-dispatching while Phase-2 reply is pending.
-                                        _actionable = []
-                                        _filtered_inflight = []
+                                        # Fix A: apply the data-driven item_filter (authored
+                                        # on the browser_automation node as autoDispatch.item_filter)
+                                        # via the shared evaluator, with Fix A's defaults
+                                        # (inflight + self_echo + cooldown) pre-enabled so the
+                                        # DOM's still-stuck pending_timer doesn't loop the LLM
+                                        # into re-dispatching while Phase-2 reply is pending.
                                         try:
                                             from agent.ec_skills.browser_use_extension.extension_tools_service import (
                                                 customer_recently_dispatched as _cust_recent,
                                             )
                                         except Exception:
                                             _cust_recent = lambda _c: 0.0  # noqa: E731
-                                        import time as _fix_a_time
-                                        _fix_a_now = _fix_a_time.time()
+                                        _fix_a_now = time.time()
+
+                                        # Pull user-authored filter off autoDispatch (may be
+                                        # missing on nodes without the blob; evaluator is
+                                        # tolerant to an empty cfg).
+                                        _fix_a_user_filter: dict = {}
+                                        try:
+                                            _fa_raw = (inputs.get("autoDispatch") or {}).get("content")
+                                            if isinstance(_fa_raw, str) and _fa_raw.strip():
+                                                _fa_parsed = json.loads(_fa_raw)
+                                                if isinstance(_fa_parsed, dict):
+                                                    _fif = _fa_parsed.get("item_filter")
+                                                    if isinstance(_fif, dict):
+                                                        _fix_a_user_filter = dict(_fif)
+                                            elif isinstance(_fa_raw, dict):
+                                                _fif = _fa_raw.get("item_filter")
+                                                if isinstance(_fif, dict):
+                                                    _fix_a_user_filter = dict(_fif)
+                                        except Exception as _fa_err:
+                                            logger.debug(
+                                                f"[BrowserAutomation] Fix A: could not parse "
+                                                f"autoDispatch.item_filter ({_fa_err}); using defaults"
+                                            )
+
+                                        _fix_a_user_filter.setdefault("inflight", {
+                                            "enabled": True,
+                                            "allow_new_message": True,
+                                            "message_fields": ["last_message", "latest_message"],
+                                        })
+                                        _fix_a_user_filter.setdefault("exclude_self_echo", {
+                                            "enabled": True,
+                                            "message_fields": ["last_message", "latest_message"],
+                                            "ttl_s": _AUTO_DISPATCH_SEEN_TTL_S,
+                                        })
+                                        _fix_a_user_filter.setdefault("cooldown", {
+                                            "enabled": True,
+                                            "window_s": _AUTO_DISPATCH_COOLDOWN_S,
+                                        })
+
+                                        _actionable = []
+                                        _filtered_inflight: list[tuple[str, str]] = []
                                         for _it in _actionable_raw:
                                             _cust_id = _normalize_customer_id(
                                                 _it.get("customer_id")
@@ -7773,46 +8089,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 or _it.get("name")
                                                 or ""
                                             )
-                                            _age = _cust_recent(_cust_id) if _cust_id else 0.0
-                                            # Also check auto-dispatch cooldown (short, post-delivery)
-                                            _cd_ts = _auto_dispatch_cooldown.get(_cust_id, 0.0) if _cust_id else 0.0
-                                            _cd_age = (_fix_a_now - _cd_ts) if _cd_ts else 0.0
-                                            # Content-based dedup: check if this message
-                                            # was already dispatched or is a store reply
-                                            _fix_a_msg = (
-                                                _it.get("last_message") or _it.get("latest_message") or ""
-                                            ).strip()[:80]
-                                            _fix_a_seen_entry = _auto_dispatch_seen.get(_cust_id) if _cust_id else None
-                                            _fix_a_msg_seen = (
-                                                _fix_a_seen_entry
-                                                and _fix_a_msg
-                                                and (_fix_a_now - _fix_a_seen_entry[1]) < _AUTO_DISPATCH_SEEN_TTL_S
-                                                and _fix_a_msg in _fix_a_seen_entry[0]
+                                            _keep, _reason = _evaluate_item_filter(
+                                                _it,
+                                                _fix_a_user_filter,
+                                                customer_id=_cust_id,
+                                                inflight_check=_cust_recent,
+                                                now=_fix_a_now,
                                             )
-                                            if _fix_a_msg_seen:
-                                                # Message text was already dispatched or is
-                                                # the store's reply echo — always suppress
-                                                _filtered_inflight.append((_cust_id, 0.0))
-                                            elif _age > 0.0 and not _fix_a_msg:
-                                                # In-flight dispatch, no message to compare
-                                                _filtered_inflight.append((_cust_id, _age))
-                                            elif _age > 0.0 and _fix_a_msg:
-                                                # In-flight dispatch, but message text
-                                                # available — check if it's a NEW message
-                                                # (not in seen set → customer sent something
-                                                # new while we're still processing the old one)
+                                            if _keep:
                                                 _actionable.append(_it)
-                                            elif _cd_ts and _cd_age < _AUTO_DISPATCH_COOLDOWN_S:
-                                                _filtered_inflight.append((_cust_id, _cd_age))
                                             else:
-                                                _actionable.append(_it)
+                                                _filtered_inflight.append((_cust_id or "?", _reason))
                                         if _filtered_inflight:
                                             logger.info(
                                                 f"[BrowserAutomation] Fix A: filtered {len(_filtered_inflight)} "
-                                                f"actionable entry/entries with in-flight dispatch "
+                                                f"actionable entry/entries "
                                                 f"(kept {len(_actionable)} of {len(_actionable_raw)}): "
                                                 + ", ".join(
-                                                    f"{c}({a:.0f}s ago)" for c, a in _filtered_inflight
+                                                    f"{c}({r})" for c, r in _filtered_inflight
                                                 )
                                                 + f" node={node_name}"
                                             )
@@ -8055,22 +8349,37 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _hp_b_actions_list = json.loads(_hp_b_raw)
                     elif isinstance(_hp_b_raw, list):
                         _hp_b_actions_list = _hp_b_raw
-                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
-                        # Determine current event type and payload fields
-                        _hp_b_evt_type = ""
-                        _hp_b_payload = {}
-                        if isinstance(state, dict):
-                            _hp_b_pr = state.get("prompt_refs")
-                            if isinstance(_hp_b_pr, dict):
-                                _hp_b_evt_str = _hp_b_pr.get("events", "")
-                                if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
+                    # Determine current event type and payload fields
+                    _hp_b_evt_type = ""
+                    _hp_b_payload = {}
+                    if isinstance(state, dict):
+                        _hp_b_pr = state.get("prompt_refs")
+                        if isinstance(_hp_b_pr, dict):
+                            _hp_b_evt_str = _hp_b_pr.get("events", "")
+                            if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
+                                try:
                                     _hp_b_evt = json.loads(_hp_b_evt_str)
                                     _hp_b_evt_type = _hp_b_evt.get("event_type", "")
-                            _hp_b_input = state.get("input", "")
-                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                                except Exception:
+                                    pass
+                        _hp_b_input = state.get("input", "")
+                        if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                            try:
                                 _hp_b_parsed = json.loads(_hp_b_input)
                                 if isinstance(_hp_b_parsed, dict):
                                     _hp_b_payload = _hp_b_parsed
+                            except Exception:
+                                pass
+                    # Entry-log so we can see HOT-PATH-B was considered and why it
+                    # did (not) fire.
+                    logger.info(
+                        f"[BrowserAutomation] HOT-PATH-B: entry "
+                        f"event_type={_hp_b_evt_type or 'none'}, "
+                        f"payload_keys={list(_hp_b_payload.keys()) if _hp_b_payload else []}, "
+                        f"rules_configured={len(_hp_b_actions_list) if isinstance(_hp_b_actions_list, list) else 0}, "
+                        f"node={node_name}"
+                    )
+                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
 
                         for _hp_b_rule in _hp_b_actions_list:
                             if not isinstance(_hp_b_rule, dict):
@@ -8091,6 +8400,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
                                 f"executing {len(_hp_b_action_seq)} actions"
                             )
+                            # ── Pre-register cooldown + content-dedup BEFORE send ──
+                            # Without this, a self-echo race exists: feige_send_message
+                            # posts the message, the sidebar DOM update fires a new
+                            # browser_event, and _try_auto_dispatch re-dispatches the
+                            # store's OWN reply to the Q&A agent before the post-delivery
+                            # cooldown write lands (observed race window ~300ms).
+                            try:
+                                _hp_b_pre_cust = _normalize_customer_id(
+                                    _hp_b_payload.get("customer_name")
+                                    or _hp_b_payload.get("customer_id")
+                                    or ""
+                                )
+                                if _hp_b_pre_cust:
+                                    import time as _hp_b_pre_time
+                                    _hp_b_pre_now = _hp_b_pre_time.time()
+                                    _auto_dispatch_cooldown[_hp_b_pre_cust] = _hp_b_pre_now
+                                    _hp_b_pre_resp = (
+                                        _hp_b_payload.get("response_text") or ""
+                                    ).strip()[:80]
+                                    if _hp_b_pre_resp:
+                                        _hp_b_pre_seen = _auto_dispatch_seen.get(_hp_b_pre_cust)
+                                        _hp_b_pre_seen_set = _hp_b_pre_seen[0] if _hp_b_pre_seen else set()
+                                        _hp_b_pre_seen_set.add(_hp_b_pre_resp)
+                                        _auto_dispatch_seen[_hp_b_pre_cust] = (_hp_b_pre_seen_set, _hp_b_pre_now)
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH-B: PRE-registered cooldown "
+                                        f"({_AUTO_DISPATCH_COOLDOWN_S}s) + content-dedup for "
+                                        f"'{_hp_b_pre_cust}' (before send), node={node_name}"
+                                    )
+                            except Exception as _hp_b_pre_err:
+                                logger.warning(
+                                    f"[BrowserAutomation] HOT-PATH-B: pre-register cooldown failed: {_hp_b_pre_err}"
+                                )
                             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
                             _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
                             _hp_b_session = await _get_or_create_browser_session(
@@ -8190,83 +8532,86 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 return state
                             break  # Only try first matching rule
                 except Exception as _hp_b_err:
-                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}")
-
-            if skill_name == "rt_chat_bot":
-                assignment_scope = _extract_assignment_scope(runtime_input)
-                assignment_session_id = str(
-                    assignment_scope.get("session_id")
-                    or assignment_scope.get("sessionId")
-                    or (state.get("chat_id") if isinstance(state, dict) else "")
-                    or ""
-                ).strip()
-                assignment_tab_id = str(
-                    assignment_scope.get("tab_id") or assignment_scope.get("tabId") or ""
-                ).strip()
-                assignment_chat_url = str(
-                    assignment_scope.get("chat_url") or assignment_scope.get("chatUrl") or ""
-                ).strip()
-                assignment_customer_name = str(
-                    assignment_scope.get("customer_name") or assignment_scope.get("customerName") or ""
-                ).strip()
-
-                # ── Short-circuit: no assignment → skip browser entirely ──
-                # Base tasks (feige_chat_1/2/3) may receive stray browser events
-                # but have no customer assignment. Starting a browser session would
-                # waste resources and cause CDP contention.  Return immediately.
-                if not assignment_session_id and not assignment_chat_url:
-                    logger.info(
-                        f"[BrowserAutomation] rt_chat_bot node has no assignment "
-                        f"(no session_id, no chat_url) — skipping browser. "
-                        f"node={node_name}, runtime_input={runtime_input[:200] if runtime_input else 'empty'}"
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
+                        exc_info=True,
                     )
-                    return {
-                        "result": {"llm_result": {"all_done": False, "work_done": False}},
-                    }
 
-                scope_contract_lines = [
-                    "## Runtime Scope Contract (STRICT — follow exactly)",
-                    "",
-                    "You are a customer-service chat agent. Assignment is already done.",
-                    "You MUST complete this task in EXACTLY 2 steps. No more.",
-                    "",
-                ]
-                if assignment_session_id:
-                    scope_contract_lines.append(f"Assigned session_id: {assignment_session_id}")
-                if assignment_tab_id:
-                    scope_contract_lines.append(f"Assigned tab_id: {assignment_tab_id}")
-                if assignment_chat_url:
-                    scope_contract_lines.append(f"Assigned chat_url: {assignment_chat_url}")
-                if assignment_customer_name:
-                    scope_contract_lines.append(f"Assigned customer_name: {assignment_customer_name}")
-                scope_contract_lines.extend([
-                    "",
-                    "### Step 1: Read the page",
-                    "- If you are not on the assigned chat tab, navigate to it.",
-                    "- Read the latest customer message from the chat messages area.",
-                    "- Decide your reply.",
-                    "",
-                    "### Step 2: Reply and finish",
-                    "- Type your reply into the chat input field.",
-                    "- Click Send (or press Enter).",
-                    "- Immediately call done() with success=true.",
-                    "- Do NOT take another step to verify the send worked.",
-                    "",
-                    "### FORBIDDEN (will waste time and cause errors):",
-                    "- Do NOT call bu_send_chat, bu_list_session_monitors, bu_get_session_monitor_snapshot, or bu_upsert_session_monitor.",
-                    "- Do NOT assign or re-assign sessions.",
-                    "- Do NOT navigate to any page other than the assigned chat.",
-                    "- Do NOT re-type or re-send if you already typed and sent.",
-                    "- Do NOT take a 3rd step. After step 2, you MUST call done().",
-                    "- Do NOT verify, check, or validate that your message appeared.",
-                    "",
-                    "Your ONLY job: read customer message → type reply → send → done().",
-                ])
-                task = f"{task}\n\n" + "\n".join(scope_contract_lines)
-                logger.info(
-                    f"[BrowserAutomation] Applied customer-service runtime scope contract "
-                    f"(session_id={assignment_session_id or 'unknown'}, tab_id={assignment_tab_id or 'none'})"
-                )
+            # ── Assignment scope (always extracted — safe no-op when runtime_input
+            # is not JSON).  Downstream focus-preflight and per-step refocus read
+            # these variables; keeping them defined unconditionally removes the
+            # previous skill-specific gate around both extraction and use.
+            assignment_scope = _extract_assignment_scope(runtime_input)
+            assignment_session_id = str(
+                assignment_scope.get("session_id")
+                or assignment_scope.get("sessionId")
+                or (state.get("chat_id") if isinstance(state, dict) else "")
+                or ""
+            ).strip()
+            assignment_tab_id = str(
+                assignment_scope.get("tab_id") or assignment_scope.get("tabId") or ""
+            ).strip()
+            assignment_chat_url = str(
+                assignment_scope.get("chat_url") or assignment_scope.get("chatUrl") or ""
+            ).strip()
+            assignment_customer_name = str(
+                assignment_scope.get("customer_name") or assignment_scope.get("customerName") or ""
+            ).strip()
+
+            # ── Data-driven assignment gate + scope-contract injection ──
+            # Replaces the previous `if skill_name == "rt_chat_bot":` block.
+            # Config shape (authored on the node editor as JSON):
+            #   {
+            #     "enabled": true,
+            #     "require_any_of": ["session_id", "chat_url"],
+            #     "on_missing": "skip_node",   // or "proceed"
+            #     "scope_contract_template": "## Runtime Scope Contract ...\\n..."
+            #   }
+            # Template placeholders: {session_id}, {tab_id}, {chat_url},
+            # {customer_name}.  Missing keys render as empty strings.
+            _asg_cfg = _parse_json_input(inputs, "assignment")
+            if isinstance(_asg_cfg, dict) and _asg_cfg.get("enabled", True):
+                _require_any = [str(f) for f in (_asg_cfg.get("require_any_of") or [])]
+                if _require_any:
+                    _scope_values = {
+                        "session_id": assignment_session_id,
+                        "tab_id": assignment_tab_id,
+                        "chat_url": assignment_chat_url,
+                        "customer_name": assignment_customer_name,
+                    }
+                    _present = any(str(_scope_values.get(f) or "").strip() for f in _require_any)
+                    if not _present:
+                        _on_missing = str(_asg_cfg.get("on_missing") or "skip_node").strip()
+                        if _on_missing == "skip_node":
+                            logger.info(
+                                f"[BrowserAutomation] assignment gate: require_any_of={_require_any} "
+                                f"not present — skipping browser run. node={node_name}, "
+                                f"runtime_input={(runtime_input or '')[:200]}"
+                            )
+                            return {
+                                "result": {"llm_result": {"all_done": False, "work_done": False}},
+                            }
+
+                _tpl = _asg_cfg.get("scope_contract_template")
+                if isinstance(_tpl, str) and _tpl.strip():
+                    try:
+                        _rendered = _tpl.format_map(_SafeFormatDict({
+                            "session_id": assignment_session_id,
+                            "tab_id": assignment_tab_id,
+                            "chat_url": assignment_chat_url,
+                            "customer_name": assignment_customer_name,
+                        }))
+                        task = f"{task}\n\n{_rendered}"
+                        logger.info(
+                            f"[BrowserAutomation] Applied scope contract "
+                            f"(session_id={assignment_session_id or 'unknown'}, "
+                            f"tab_id={assignment_tab_id or 'none'}), node={node_name}"
+                        )
+                    except Exception as _render_err:
+                        logger.warning(
+                            f"[BrowserAutomation] Scope contract render failed "
+                            f"(non-fatal): {_render_err}"
+                        )
 
             _browser_scope_key = _resolve_browser_scope_key(state)
             _cached_browser_session = _cached_browser_sessions.get(_browser_scope_key)
@@ -8290,12 +8635,47 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         return match.group(0)
                 return None
 
+            _pre_dispatch_cfg = _parse_json_input(inputs, "preDispatch") or {}
+            if not isinstance(_pre_dispatch_cfg, dict):
+                _pre_dispatch_cfg = {}
+            _pre_dispatch_enabled = bool(_pre_dispatch_cfg.get("enabled", False))
+            _pd_source_label = str(_pre_dispatch_cfg.get("source_monitor_label") or "").strip()
+            _pd_require_url_path = str(_pre_dispatch_cfg.get("require_url_path") or "").strip()
+            _pd_allowed_statuses = {
+                str(s).strip().lower()
+                for s in (_pre_dispatch_cfg.get("allowed_statuses") or ["ok", "empty", "no_match"])
+                if str(s).strip()
+            }
+            _pd_item_fields = _pre_dispatch_cfg.get("item_fields") or {}
+            if not isinstance(_pd_item_fields, dict):
+                _pd_item_fields = {}
+            _pd_session_keys = [str(k) for k in (_pd_item_fields.get("session_id") or ["session", "session_id", "customer_id"])]
+            _pd_name_keys = [str(k) for k in (_pd_item_fields.get("customer_name") or ["customer_name", "name", "customer"])]
+            _pd_chat_url_keys = [str(k) for k in (_pd_item_fields.get("chat_url") or ["chat_url"])]
+            _pd_chat_url_template = str(_pre_dispatch_cfg.get("chat_url_template") or "")
+            _pd_recipient_filter = _pre_dispatch_cfg.get("recipient_filter") or {}
+            if not isinstance(_pd_recipient_filter, dict):
+                _pd_recipient_filter = {}
+            _pd_task_keywords = [str(k).lower() for k in (_pd_recipient_filter.get("task_keywords") or []) if str(k).strip()]
+            _pd_skill_keywords = [str(k).lower() for k in (_pd_recipient_filter.get("skill_keywords") or []) if str(k).strip()]
+            _pd_flag_attr = str(_pre_dispatch_cfg.get("dispatched_flag_attr") or "_ecan_frontdesk_dispatched_all")
+            _pd_state_attr = str(_pre_dispatch_cfg.get("dispatch_state_attr") or "_ecan_frontdesk_dispatch_state")
+            _pd_log_tag = str(_pre_dispatch_cfg.get("log_tag") or "PreDispatch")
+            _pd_fastpath_marker = str(_pre_dispatch_cfg.get("result_marker_key") or "frontdesk_fastpath")
+            _pd_history_prefix = str(_pre_dispatch_cfg.get("history_prefix") or "predispatch")
+            _pd_assignment_extra_fields = _pre_dispatch_cfg.get("assignment_extra_fields") or []
+            if not isinstance(_pd_assignment_extra_fields, list):
+                _pd_assignment_extra_fields = []
+
             async def _maybe_run_frontdesk_dispatch_fastpath(agent_obj) -> dict | None:
-                if skill_name != "customer_front_desk":
+                if not _pre_dispatch_enabled:
+                    return None
+                if not _pd_source_label:
+                    logger.warning(f"[BrowserAutomation] {_pd_log_tag} skipped: preDispatch.source_monitor_label is required but missing")
                     return None
                 browser_session = getattr(agent_obj, "browser_session", None)
                 if not browser_session:
-                    logger.info("[BrowserAutomation] Front-desk fast-path skipped: no browser session on agent")
+                    logger.info(f"[BrowserAutomation] {_pd_log_tag} skipped: no browser session on agent")
                     return None
 
                 try:
@@ -8322,7 +8702,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         for _monitor in list(getattr(_active_monitor_set, "monitors", []) or []):
                             _state = getattr(_monitor, "state", None)
                             _cfg = (_state or {}).get("config") if isinstance(_state, dict) else None
-                            if str(getattr(_cfg, "label", "") or "").strip() != "conversation_became_active":
+                            if str(getattr(_cfg, "label", "") or "").strip() != _pd_source_label:
                                 continue
                             control_state = _state
                             active_monitor_set = _active_monitor_set
@@ -8333,17 +8713,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                     if not active_monitor_set or not control_state:
                         logger.info(
-                            f"[BrowserAutomation] Front-desk fast-path skipped: no active control monitor "
+                            f"[BrowserAutomation] {_pd_log_tag} skipped: no active monitor with label={_pd_source_label!r} "
                             f"(scope={scope_key}, candidates={len(candidate_sessions)})"
                         )
                         return None
 
                     status = str(control_state.get("last_status") or "").strip().lower()
                     current_url = str(control_state.get("last_current_url") or "").strip()
-                    if status not in {"ok", "empty", "no_match"} or "/control" not in current_url:
+                    if status not in _pd_allowed_statuses or (_pd_require_url_path and _pd_require_url_path not in current_url):
                         logger.info(
-                            f"[BrowserAutomation] Front-desk fast-path skipped: control monitor not ready "
-                            f"(status={status}, current_url={current_url})"
+                            f"[BrowserAutomation] {_pd_log_tag} skipped: monitor not ready "
+                            f"(status={status}, current_url={current_url}, require_path={_pd_require_url_path!r})"
                         )
                         return None
 
@@ -8351,17 +8731,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if not isinstance(raw_items, list):
                         raw_items = []
                     logger.info(
-                        f"[BrowserAutomation] Front-desk fast-path candidate items: "
+                        f"[BrowserAutomation] {_pd_log_tag} candidate items: "
                         f"count={len(raw_items)} scope={scope_key} chosen_session_obj={id(chosen_session) if chosen_session else 'none'}"
                     )
 
-                    dispatch_state = getattr(chosen_session, "_ecan_frontdesk_dispatch_state", None)
+                    dispatch_state = getattr(chosen_session, _pd_state_attr, None)
                     if not isinstance(dispatch_state, dict):
                         dispatch_state = {
                             "opened_tabs": {},
                             "assigned_sessions": {},
                         }
-                        setattr(chosen_session, "_ecan_frontdesk_dispatch_state", dispatch_state)
+                        setattr(chosen_session, _pd_state_attr, dispatch_state)
 
                     # Prevent concurrent fast-path invocations from racing
                     _fp_lock = dispatch_state.get("_lock")
@@ -8370,10 +8750,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _fp_lock = _fp_threading.Lock()
                         dispatch_state["_lock"] = _fp_lock
                     if not _fp_lock.acquire(blocking=False):
-                        logger.info("[BrowserAutomation] Front-desk fast-path skipped: another invocation already running")
+                        logger.info(f"[BrowserAutomation] {_pd_log_tag} skipped: another invocation already running")
                         # Abort this LLM run — another fast-path is handling it
-                        setattr(chosen_session, "_ecan_frontdesk_dispatched_all", True)
-                        return {"final": json.dumps({"all_done": True, "message": "Fast-path handled by another invocation"}), "history": "frontdesk_fastpath:dedup"}
+                        setattr(chosen_session, _pd_flag_attr, True)
+                        return {"final": json.dumps({"all_done": True, "message": f"{_pd_log_tag} handled by another invocation"}), "history": f"{_pd_history_prefix}:dedup"}
 
                     opened_tabs = dispatch_state.setdefault("opened_tabs", {})
                     assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
@@ -8389,61 +8769,76 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 return str(tid or "")
                         return ""
 
+                    def _pick_first(item: dict, keys: list) -> str:
+                        for _k in keys:
+                            _v = item.get(_k)
+                            if _v is None:
+                                continue
+                            _s = str(_v).strip()
+                            if _s:
+                                return _s
+                        return ""
+
                     actionable = []
                     for item in raw_items:
                         if not isinstance(item, dict):
                             continue
-                        session_id = str(
-                            item.get("session")
-                            or item.get("session_id")
-                            or item.get("customer_id")
-                            or ""
-                        ).strip()
+                        session_id = _pick_first(item, _pd_session_keys)
                         if not session_id:
                             continue
-                        customer_name = str(
-                            item.get("customer_name")
-                            or item.get("name")
-                            or item.get("customer")
-                            or ""
-                        ).strip()
-                        chat_url = str(item.get("chat_url") or "").strip() or f"http://127.0.0.1:9877/chat?session={session_id}"
-                        actionable.append({
+                        customer_name = _pick_first(item, _pd_name_keys)
+                        chat_url = _pick_first(item, _pd_chat_url_keys)
+                        if not chat_url and _pd_chat_url_template:
+                            try:
+                                chat_url = _pd_chat_url_template.format_map(_SafeFormatDict({
+                                    "session_id": session_id,
+                                    "customer_id": session_id,
+                                    "customer_name": customer_name,
+                                }))
+                            except Exception:
+                                chat_url = ""
+                        entry = {
                             "customer_id": session_id,
                             "session_id": session_id,
                             "customer_name": customer_name,
                             "chat_url": chat_url,
-                        })
+                        }
+                        # Carry through any extra fields the caller wants forwarded on the assignment payload.
+                        for _extra_key in _pd_assignment_extra_fields:
+                            _ek = str(_extra_key)
+                            if _ek and _ek not in entry and _ek in item:
+                                entry[_ek] = item.get(_ek)
+                        actionable.append(entry)
 
                     if not actionable:
                         payload = {
                             "all_done": True,
                             "work_result": {
-                                "frontdesk_fastpath": True,
+                                _pd_fastpath_marker: True,
                                 "visible_session_count": 0,
                                 "opened_count": 0,
                                 "assigned_count": 0,
                                 "last_action_succeeded": True,
                                 "no_customers": True,
                             },
-                            "message": "Front desk fast-path: no visible customer sessions on control page.",
+                            "message": f"{_pd_log_tag}: no visible customer sessions.",
                         }
-                        logger.info("[BrowserAutomation] Front-desk fast-path completed: no visible sessions")
+                        logger.info(f"[BrowserAutomation] {_pd_log_tag} completed: no visible sessions")
                         if _fp_lock.locked():
                             _fp_lock.release()
-                        return {"final": json.dumps(payload, ensure_ascii=False), "history": "frontdesk_fastpath:no_customers"}
+                        return {"final": json.dumps(payload, ensure_ascii=False), "history": f"{_pd_history_prefix}:no_customers"}
 
                     opened_rows = []
                     assigned_rows = []
                     failure_rows = []
                     sender_agent_id = str(calling_agent_id or "").strip()
                     if not sender_agent_id:
-                        logger.info("[BrowserAutomation] Front-desk fast-path skipped: missing runtime sender agent id")
+                        logger.info(f"[BrowserAutomation] {_pd_log_tag} skipped: missing runtime sender agent id")
                         if _fp_lock.locked():
                             _fp_lock.release()
                         return None
 
-                    # Discover service agents dynamically (round-robin, no hardcoded IDs).
+                    # Discover recipient agents dynamically (round-robin, no hardcoded IDs).
                     # Cache the filtered agent list and round-robin index in dispatch_state
                     # so it persists across fast-path invocations.
                     from agent.mcp.server.chat_utils.chat_tools import list_chat_agents as _list_chat_agents
@@ -8453,27 +8848,35 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             {"exclude_self": sender_agent_id},
                         )
                         _all_agents = _all_agents_result.get("agents", [])
-                        # Filter to agents whose task names contain the service-agent keyword.
-                        # The front-desk prompt instructs: filter to tasks containing 'feige_chat'.
-                        # As a fallback also accept skill names containing 'rt_chat_bot'.
-                        _service_agents = [
-                            a for a in _all_agents
-                            if any("feige_chat" in str(t).lower() for t in a.get("tasks", []))
-                            or any("rt_chat_bot" in str(s).lower() for s in a.get("skills", []))
-                        ]
+
+                        def _agent_matches(agent_entry: dict) -> bool:
+                            if _pd_task_keywords:
+                                _tasks = [str(t).lower() for t in agent_entry.get("tasks", [])]
+                                if any(any(kw in t for t in _tasks) for kw in _pd_task_keywords):
+                                    return True
+                            if _pd_skill_keywords:
+                                _skills = [str(s).lower() for s in agent_entry.get("skills", [])]
+                                if any(any(kw in s for s in _skills) for kw in _pd_skill_keywords):
+                                    return True
+                            return False
+
+                        if _pd_task_keywords or _pd_skill_keywords:
+                            _service_agents = [a for a in _all_agents if _agent_matches(a)]
+                        else:
+                            _service_agents = []
                         if not _service_agents:
                             # Broadest fallback: exclude the sender itself
                             _service_agents = [a for a in _all_agents if a.get("id") != sender_agent_id]
                         dispatch_state["service_agents"] = [a["id"] for a in _service_agents]
                         dispatch_state.setdefault("rr_index", 0)
                         logger.info(
-                            f"[BrowserAutomation] Front-desk fast-path discovered {len(_service_agents)} service agents: "
+                            f"[BrowserAutomation] {_pd_log_tag} discovered {len(_service_agents)} recipient agents: "
                             f"{[a['id'][-8:] for a in _service_agents]}"
                         )
 
                     service_agent_ids = dispatch_state.get("service_agents") or []
                     if not service_agent_ids:
-                        failure_rows.append("no service agents available")
+                        failure_rows.append("no recipient agents available")
                     else:
                         for item in actionable:
                             session_id = item["session_id"]
@@ -8481,10 +8884,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                             # Open a dedicated tab for this session if not already open.
                             # This is instant (deterministic CDP, no LLM cost) and gives each
-                            # service agent a pre-loaded tab so they don't waste LLM steps navigating.
-                            # Each session gets its own unique tab → no sharing between agents.
+                            # recipient agent a pre-loaded tab so they don't waste LLM steps navigating.
                             tab_id = opened_tabs.get(session_id) or ""
-                            if not tab_id:
+                            if not tab_id and chat_url:
                                 try:
                                     # Check if a tab is already open at this URL.
                                     tab_id = _find_target_id_for_url(chat_url) or ""
@@ -8504,12 +8906,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     if tab_id:
                                         opened_tabs[session_id] = tab_id
                                         logger.info(
-                                            f"[BrowserAutomation] Front-desk fast-path opened tab "
+                                            f"[BrowserAutomation] {_pd_log_tag} opened tab "
                                             f"tab_id=...{tab_id[-6:]} for session={session_id}"
                                         )
                                 except Exception as _open_err:
                                     logger.warning(
-                                        f"[BrowserAutomation] Front-desk fast-path failed to open tab "
+                                        f"[BrowserAutomation] {_pd_log_tag} failed to open tab "
                                         f"for session={session_id}: {_open_err}"
                                     )
                             opened_rows.append(session_id)
@@ -8517,12 +8919,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             if assigned_sessions.get(session_id):
                                 continue
 
-                            # Pick next service agent in round-robin order.
+                            # Pick next recipient agent in round-robin order.
                             rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
                             recipient_agent_id = service_agent_ids[rr_idx]
                             dispatch_state["rr_index"] = rr_idx + 1
 
-                            # Include tab_id so the service agent can focus the pre-opened tab
+                            # Include tab_id so the recipient agent can focus the pre-opened tab
                             # immediately without LLM-driven navigation (fast + no token cost).
                             assignment_payload = {
                                 "customer_id": item["customer_id"],
@@ -8533,6 +8935,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 assignment_payload["tab_id"] = tab_id
                             if item.get("customer_name"):
                                 assignment_payload["customer_name"] = item["customer_name"]
+                            for _extra_key in _pd_assignment_extra_fields:
+                                _ek = str(_extra_key)
+                                if _ek and _ek in item and _ek not in assignment_payload:
+                                    assignment_payload[_ek] = item.get(_ek)
 
                             send_result = send_chat(
                                 mainwin,
@@ -8567,7 +8973,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     payload = {
                         "all_done": True,
                         "work_result": {
-                            "frontdesk_fastpath": True,
+                            _pd_fastpath_marker: True,
                             "visible_session_count": len(actionable),
                             "opened_count": len(opened_rows),
                             "assigned_count": len(assigned_rows),
@@ -8578,28 +8984,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         "assigned_sessions": assigned_rows,
                         "failures": failure_rows,
                         "message": (
-                            "Front desk fast-path completed"
+                            f"{_pd_log_tag} completed"
                             if not failure_rows
-                            else "Front desk fast-path completed with failures"
+                            else f"{_pd_log_tag} completed with failures"
                         ),
                     }
                     logger.info(
-                        f"[BrowserAutomation] Front-desk fast-path completed: "
+                        f"[BrowserAutomation] {_pd_log_tag} completed: "
                         f"visible={len(actionable)} opened={len(opened_rows)} "
                         f"assigned={len(assigned_rows)} failures={len(failure_rows)}"
                     )
                     # Signal any concurrently-running LLM invocation (from the first
                     # auto-triggered entry) to stop — it would just duplicate work.
                     if assigned_rows or (not failure_rows and assigned_sessions):
-                        setattr(chosen_session, "_ecan_frontdesk_dispatched_all", True)
+                        setattr(chosen_session, _pd_flag_attr, True)
                     if _fp_lock.locked():
                         _fp_lock.release()
                     return {
                         "final": json.dumps(payload, ensure_ascii=False),
-                        "history": "frontdesk_fastpath",
+                        "history": _pd_history_prefix,
                     }
                 except Exception as _frontdesk_fastpath_err:
-                    logger.warning(f"[BrowserAutomation] Front-desk fast-path failed: {_frontdesk_fastpath_err}")
+                    logger.warning(f"[BrowserAutomation] {_pd_log_tag} failed: {_frontdesk_fastpath_err}")
                     try:
                         if _fp_lock.locked():
                             _fp_lock.release()
@@ -9872,6 +10278,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
 
+                        # Entry-log: record the state we're about to act on so that if
+                        # the preflight hangs or fails we can tell which branch we took
+                        # and which targets were available.
+                        try:
+                            logger.info(
+                                f"[BrowserAutomation] Focus preflight entry: "
+                                f"target_count={len(page_target_ids)}, "
+                                f"cur_focus_valid={valid_cur_focus}, "
+                                f"last_focus_valid={valid_last_focus}, "
+                                f"assignment_tab_id={(assignment_tab_id or '')[-6:] or 'none'}, "
+                                f"skill={skill_name}, node={node_name}"
+                            )
+                        except Exception:
+                            pass
+
                         def _resolve_target_id_for_assignment(
                             preferred_tab_id: str,
                             preferred_chat_url: str,
@@ -9935,7 +10356,51 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
                                 )
                             _last_known_focus_target_id = target_focus
-                            await browser_session.get_browser_state_summary(include_screenshot=False)
+                            # Defensive preflight: get_browser_state_summary has been
+                            # observed to hang indefinitely (no internal timeout),
+                            # causing the whole browser_automation run to die. Wrap
+                            # with wait_for(3s) + one retry; on final failure log the
+                            # target state and SKIP — the next get_browser_state_summary
+                            # below will refresh the cache anyway.
+                            _preflight_ok = False
+                            for _preflight_attempt in range(2):
+                                try:
+                                    await asyncio.wait_for(
+                                        browser_session.get_browser_state_summary(include_screenshot=False),
+                                        timeout=3.0,
+                                    )
+                                    _preflight_ok = True
+                                    break
+                                except asyncio.TimeoutError:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight state-summary TIMEOUT "
+                                        f"after 3s (attempt {_preflight_attempt + 1}/2), "
+                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
+                                        f"target_count={len(page_target_ids)}, "
+                                        f"skill={skill_name}, node={node_name}"
+                                    )
+                                except Exception as _pf_inner_err:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight state-summary error "
+                                        f"(attempt {_preflight_attempt + 1}/2): {_pf_inner_err}"
+                                    )
+                            if not _preflight_ok:
+                                try:
+                                    _pf_cdp = getattr(browser_session, 'cdp_url', '') or ''
+                                    _pf_target = sm.get_target(target_focus) if sm else None
+                                    _pf_url = getattr(_pf_target, 'url', '') if _pf_target else ''
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
+                                        f"refresh after 2 failed attempts. Proceeding with run. "
+                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
+                                        f"url={_pf_url}, cdp={_pf_cdp}, "
+                                        f"skill={skill_name}, node={node_name}"
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
+                                        f"refresh after 2 failed attempts (state snapshot unavailable)"
+                                    )
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
                         raise
@@ -9946,32 +10411,51 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if target_focus:
                         await browser_session.get_browser_state_summary(include_screenshot=False)
 
-                    # Handle rt_chat_bot chat URL: if an assignment_chat_url is known, check whether
-                    # the focused tab already has it loaded; if not, navigate to it.
+                    # Assignment URL navigation: if the node's `assignment` config
+                    # names a URL-bearing field (default "chat_url") and that
+                    # scope field is present, ensure the focused tab is loaded
+                    # there before the LLM runs.  When this path is used, skip
+                    # the generic _extract_preferred_start_url fallback — the two
+                    # are alternative ways to anchor the starting URL.
                     _tab_already_at_correct_url = False
-                    if skill_name == "rt_chat_bot" and assignment_chat_url and target_focus:
+                    _asg_nav_field = "chat_url"
+                    if isinstance(_asg_cfg, dict) and _asg_cfg.get("enabled", True):
+                        _asg_nav_field = str(_asg_cfg.get("navigate_field") or "chat_url").strip() or "chat_url"
+                    _asg_nav_url_map = {
+                        "chat_url": assignment_chat_url,
+                        "session_id": assignment_session_id,
+                        "tab_id": assignment_tab_id,
+                        "customer_name": assignment_customer_name,
+                    }
+                    _asg_nav_url = str(_asg_nav_url_map.get(_asg_nav_field) or "").strip()
+                    _assignment_nav_used = False
+                    if _asg_nav_url and target_focus:
                         latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
                         focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
                         focused_url = str(getattr(focused_target, 'url', '') or '').strip()
-                        if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
+                        if focused_url.rstrip("/") != _asg_nav_url.rstrip("/"):
                             await browser_session.event_bus.dispatch(
-                                NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
+                                NavigateToUrlEvent(url=_asg_nav_url, new_tab=False)
                             )
                             logger.info(
-                                f"[BrowserAutomation] Focus preflight navigated to chat_url: {assignment_chat_url}"
+                                f"[BrowserAutomation] Focus preflight navigated to assignment "
+                                f"{_asg_nav_field}: {_asg_nav_url}"
                             )
                             await asyncio.sleep(1.0)
                             await browser_session.get_browser_state_summary(include_screenshot=False)
                         else:
                             logger.info(
-                                f"[BrowserAutomation] Focus preflight: tab already at chat_url, no navigation needed: "
-                                f"{assignment_chat_url}"
+                                f"[BrowserAutomation] Focus preflight: tab already at assignment "
+                                f"{_asg_nav_field}, no navigation needed: {_asg_nav_url}"
                             )
                             _tab_already_at_correct_url = True
+                        _assignment_nav_used = True
 
-                    # Handle preferred_start_url: for non-rt_chat_bot skills, ensure the focused
-                    # tab lands on the configured control panel URL before agent.run() starts.
-                    preferred_start_url = None if skill_name == "rt_chat_bot" else _extract_preferred_start_url(task, state)
+                    # Generic preferred_start_url fallback — only runs when no
+                    # assignment URL was consumed above.
+                    preferred_start_url = (
+                        None if _assignment_nav_used else _extract_preferred_start_url(task, state)
+                    )
                     if preferred_start_url and sm:
                         latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
                         all_targets = sm.get_all_targets() if sm else {}
@@ -10441,35 +10925,46 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 agent_class_name = agent.__class__.__name__
 
                 # Resolve the target tab ID to keep focused across steps.
-                # IMPORTANT: per-step refocus is only enabled for rt_chat_bot by default.
-                # For research/executor flows, forcing refocus each step can bounce
-                # the agent back to the original search tab and cause repeated clicks.
-                # To enable for other skills: add `enable_step_refocus: true` in the
-                # node's inputsValues, or add the skill name to the condition below.
-                _step_focus_target = None
-                _enable_step_refocus = (
-                    inputs.get("enable_step_refocus", {}).get("content", "")
-                    if isinstance(inputs, dict) else ""
+                # Per-step refocus is opt-in via `stepPatches.refocus_assigned_tab`
+                # (or the legacy `enable_step_refocus` input).  For research/
+                # executor flows, forcing refocus each step can bounce the agent
+                # back to the original search tab and cause repeated clicks — so
+                # the default is off.
+                _step_patches_cfg = _parse_json_input(inputs, "stepPatches") or {}
+                if not isinstance(_step_patches_cfg, dict):
+                    _step_patches_cfg = {}
+                _refocus_enabled = bool(_step_patches_cfg.get("refocus_assigned_tab", False))
+                _abort_when_pre_dispatched = bool(_step_patches_cfg.get("abort_when_pre_dispatched", False))
+                _pre_dispatch_flag_attr = str(
+                    _step_patches_cfg.get("pre_dispatch_flag_attr") or "_ecan_frontdesk_dispatched_all"
                 )
-                if (_enable_step_refocus.lower() == "true"
-                        or skill_name == "rt_chat_bot") and hasattr(agent, 'step'):
+
+                # Back-compat: legacy standalone `enable_step_refocus` input.
+                if not _refocus_enabled and isinstance(inputs, dict):
+                    _legacy_refocus = str(
+                        (inputs.get("enable_step_refocus") or {}).get("content", "") or ""
+                    ).strip().lower()
+                    if _legacy_refocus == "true":
+                        _refocus_enabled = True
+
+                _step_focus_target = None
+                if _refocus_enabled and hasattr(agent, 'step'):
                     _step_focus_target = (
                         locals().get("assignment_target_focus")
                         or _last_known_focus_target_id
                         or None
                     )
 
-                # Patch agent.step for:
-                # - rt_chat_bot: per-step tab refocus (safety net)
-                # - customer_front_desk: abort if fast-path already dispatched
-                # - any skill with cancellation_event
-                # NOTE: No cross-agent step lock needed — each agent now has its own
-                # independent CDP connection (no shared session_manager/event_bus).
-                _needs_step_patch = (
-                    (cancellation_event and hasattr(agent, 'step'))
-                    or (skill_name == "rt_chat_bot" and hasattr(agent, 'step'))
-                    or (skill_name == "customer_front_desk" and hasattr(agent, 'step'))
-                    or (node_dom_focus_selector and hasattr(agent, 'step'))
+                # Patch agent.step when any step-level hook is needed:
+                # - cancellation_event: cooperative stop support
+                # - refocus_assigned_tab: per-step tab refocus safety net
+                # - abort_when_pre_dispatched: abort stale LLM run after preDispatch
+                # - dom_focus_selector: DOM pruning around the LLM snapshot
+                _needs_step_patch = bool(hasattr(agent, 'step')) and (
+                    bool(cancellation_event)
+                    or _refocus_enabled
+                    or _abort_when_pre_dispatched
+                    or bool(node_dom_focus_selector)
                 )
 
                 # Always pass cancellation_event to agent.run() so stop button works
@@ -10499,20 +10994,22 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _patch_cancel = cancellation_event
                     _patch_focus = _step_focus_target
                     _patch_bs = getattr(agent, 'browser_session', None) if _step_focus_target else None
-                    _patch_skill = skill_name
+                    _patch_abort_pre = _abort_when_pre_dispatched
+                    _patch_pre_attr = _pre_dispatch_flag_attr
                     _patch_dom_focus = node_dom_focus_selector  # CSS selectors for DOM pruning
 
                     async def _step_with_cancel(*a, **kw):
-                        # Front desk: abort if fast-path already dispatched all assignments
-                        # (this invocation is a stale auto-triggered LLM run).
-                        if _patch_skill == "customer_front_desk":
+                        # preDispatch abort guard: if an earlier deterministic
+                        # dispatch (see `preDispatch` config) already handled all
+                        # work, this LLM invocation is stale — cancel it.
+                        if _patch_abort_pre:
                             _bs_check = getattr(agent, 'browser_session', None)
-                            if _bs_check and getattr(_bs_check, '_ecan_frontdesk_dispatched_all', False):
+                            if _bs_check and getattr(_bs_check, _patch_pre_attr, False):
                                 logger.info(
-                                    "[BrowserAutomation] Front-desk LLM step aborted: "
-                                    "fast-path already dispatched all assignments"
+                                    f"[BrowserAutomation] LLM step aborted: "
+                                    f"preDispatch already completed (flag={_patch_pre_attr})"
                                 )
-                                raise asyncio.CancelledError("Front desk work completed by fast-path")
+                                raise asyncio.CancelledError("Work completed by preDispatch")
 
                         # Per-step tab refocus: re-acquire focus on the assigned tab.
                         # With independent sessions this is a safety net — each session
@@ -10612,8 +11109,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _patch_labels.append("cancellation")
                     if _step_focus_target:
                         _patch_labels.append(f"tab refocus (target=...{_step_focus_target[-4:]})")
-                    if _patch_skill == "customer_front_desk":
-                        _patch_labels.append("fast-path abort guard")
+                    if _patch_abort_pre:
+                        _patch_labels.append(f"preDispatch abort guard (flag={_patch_pre_attr})")
                     if _patch_dom_focus:
                         _patch_labels.append(f"DOM focus ({_patch_dom_focus})")
                     logger.info(
@@ -11405,12 +11902,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 if marker in task_text_raw:
                     return task_text_raw
 
-                if skill_name == "rt_chat_bot":
+                # Tab policy variant: authored on the node as `tabPolicy`.
+                # Accepts "strict_single_tab" (default — never switch_tab) or
+                # "allow_assigned_tab" (focus the assigned tab_id / chat_url).
+                _tab_policy = ""
+                if isinstance(inputs, dict):
+                    _tab_policy = str(
+                        (inputs.get("tabPolicy") or {}).get("content", "") or ""
+                    ).strip().lower()
+                if _tab_policy == "allow_assigned_tab":
                     tab_guardrail = (
-                        "2) If an assigned `tab_id` is provided for this customer-service invocation, "
+                        "2) If an assigned `tab_id` is provided for this invocation, "
                         "you may and should focus that assigned tab. Do not switch to unrelated stale tabs "
                         "from previous sessions. If no assigned `tab_id` is available, navigate directly to "
-                        "the assigned `chat_url`.\n"
+                        "the assigned URL.\n"
                     )
                 else:
                     tab_guardrail = (
@@ -11447,32 +11952,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # ── Suppress duplicate initial-URL navigation for reused sessions ──
         # browser-use auto-detects URLs in the task text and navigates to them
         # on agent startup.  When a persistent browser session already has the
-        # target tab open, this creates a duplicate tab.  Strip the chat_url
-        # from the task text when we know the session will be reused.
+        # target tab open, this creates a duplicate tab.  If the node's
+        # `assignment.strip_url_regex` is set, strip matching bare URLs from the
+        # task text so browser-use doesn't reopen them.
         try:
-            if skill_name == "rt_chat_bot":
+            _strip_regex_src = ""
+            _strip_replacement = "[assigned chat tab already open]"
+            if isinstance(_asg_cfg, dict):
+                _strip_regex_src = str(_asg_cfg.get("strip_url_regex") or "").strip()
+                _strip_replacement = str(
+                    _asg_cfg.get("strip_url_replacement") or _strip_replacement
+                )
+            if _strip_regex_src:
                 _browser_scope_key_check = _resolve_browser_scope_key(state)
                 _existing_session = _cached_browser_sessions.get(_browser_scope_key_check)
-                # Use _is_session_started (not _is_session_alive) to avoid cross-thread
-                # asyncio attribute reads that may incorrectly report the event bus as dead.
                 _session_usable = _existing_session is not None and _is_session_started(_existing_session)
                 logger.debug(
                     f"[BrowserAutomation] URL strip check: scope={_browser_scope_key_check} "
                     f"cached={'yes' if _existing_session else 'no'} started={_session_usable}"
                 )
                 if _session_usable:
-                    # Session is cached & started → strip bare chat URLs to avoid
-                    # browser-use auto-opening a duplicate tab.  Keep URLs inside
-                    # JSON payloads (they have surrounding quotes) and inside
-                    # markdown/instruction text (preceded by backtick or colon).
                     import re as _re_strip
-                    _chat_url_pattern = _re_strip.compile(
-                        r'(?<!["\':`,\\])https?://127\.0\.0\.1:9877/chat\?session=\S+'
-                    )
-                    _stripped = _chat_url_pattern.sub('[assigned chat tab already open]', combined_task)
+                    _chat_url_pattern = _re_strip.compile(_strip_regex_src)
+                    _stripped = _chat_url_pattern.sub(_strip_replacement, combined_task)
                     if _stripped != combined_task:
                         logger.info(
-                            f"[BrowserAutomation] Stripped bare chat URL from task to prevent "
+                            f"[BrowserAutomation] Stripped matching URL(s) from task to prevent "
                             f"duplicate tab (session reused, scope={_browser_scope_key_check})"
                         )
                         combined_task = _stripped
