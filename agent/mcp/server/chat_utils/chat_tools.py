@@ -17,6 +17,7 @@ References:
 - my_twin_chatter_skill.py: parrot function (lines 131-142)
 """
 
+import hashlib
 import json
 import time
 import uuid
@@ -42,10 +43,17 @@ _last_discovery_ts: float = 0.0
 
 _DISPATCH_WINDOW_SEC = 30  # reset tracking after this many seconds of inactivity
 
-# Per-(sender, customer) response dedup.  Prevents the responder LLM from
-# sending multiple replies for the same customer in a single step.
-_send_chat_response_dedup: Dict[str, float] = {}  # "sender|customer" → ts
-_SEND_CHAT_RESPONSE_DEDUP_S = 15  # seconds
+# Per-(sender, recipient, customer, content-hash) response dedup.  Prevents
+# the responder LLM from sending the *exact same* reply twice in a single
+# step — without blocking the front-desk from dispatching legitimate new
+# customer messages for the same customer. Key components:
+#   - sender        : distinguishes different agents
+#   - recipient     : front-desk→responder and responder→front-desk don't collide
+#   - customer      : per-customer scoping
+#   - content hash  : only an identical message text is considered a duplicate
+# Window kept short (in-single-step scope) so fast typing conversations pass.
+_send_chat_response_dedup: Dict[str, float] = {}
+_SEND_CHAT_RESPONSE_DEDUP_S = 3  # seconds
 
 
 def _get_dispatch_state(sender_id: str) -> Dict[str, Any]:
@@ -438,13 +446,20 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     if _prefix:
                         _sc_cust = _prefix
                 if _sc_cust:
-                    _sc_dedup_key = f"{resolved_sender_id}|{_sc_cust}"
+                    _sc_content_hash = hashlib.md5(
+                        (message_text or "").encode("utf-8", errors="replace")
+                    ).hexdigest()[:12]
+                    _sc_dedup_key = (
+                        f"{resolved_sender_id}|{resolved_recipient_id}|"
+                        f"{_sc_cust}|{_sc_content_hash}"
+                    )
                     _sc_now = time.time()
                     _sc_last = _send_chat_response_dedup.get(_sc_dedup_key)
                     if _sc_last is not None and (_sc_now - _sc_last) < _SEND_CHAT_RESPONSE_DEDUP_S:
                         logger.info(
-                            f"[send_chat] DEDUP: skipping duplicate response for "
-                            f"customer '{_sc_cust}' from sender={resolved_sender_id} "
+                            f"[send_chat] DEDUP: skipping exact-duplicate response for "
+                            f"customer '{_sc_cust}' sender={resolved_sender_id} "
+                            f"recipient={resolved_recipient_id} hash={_sc_content_hash} "
                             f"(last sent {_sc_now - _sc_last:.1f}s ago, "
                             f"window={_SEND_CHAT_RESPONSE_DEDUP_S}s)"
                         )
