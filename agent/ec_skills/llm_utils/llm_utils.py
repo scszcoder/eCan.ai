@@ -2648,42 +2648,96 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         # This maintains backward compatibility
         logger.debug(f"[send_response_back] async_response={async_response}, sending via A2A")
         
-        # CRITICAL FIX: Use chatId from attributes.params if available, otherwise fallback to messages[1]
-        # When a chat is deleted and recreated, attributes.params.chatId has the new chatId,
-        # but messages[1] still has the old deleted chatId
+        # Resolve chatId by trying every known source against the chat DB
+        # and picking the first one that actually resolves to a real chat.
+        #
+        # Historical context: the original code preferred
+        # `attributes.params.metadata.params.chatId` over `messages[1]` to
+        # handle the "chat deleted and recreated" case where messages[1]
+        # still held a stale (deleted) id.  But front-desk skills now
+        # synthesize `params.chatId = customer_name` (e.g. '客户A') when
+        # dispatching browser-driven tasks — that string is NOT a DB chat
+        # row id, so the lookup at `find_opposite_agent(chat_id)` below
+        # failed with `Chat not found or has no data: 客户A` on every
+        # cycle (observed 2026-04-22 12:31–12:32 run).  When that error
+        # fires the QA worker silently has no reply target, so no
+        # `chat_message` is emitted back and the front-desk's pend_event
+        # node waits forever — which is exactly the stuck-after-one-round
+        # behaviour we saw.
+        #
+        # Fix: try each candidate in order, probe the chat DB, and use
+        # the first that resolves.  messages[1] is kept as a candidate
+        # (not pre-empted) so the "chat recreated" scenario still works
+        # when params.chatId IS a valid id.
         chat_id = None
         chat_id_source = None
+        _chat_id_candidates: list[tuple[str, str]] = []  # (source_label, chat_id)
         try:
-            # Try multiple locations to get the most up-to-date chatId
-            params = state.get("attributes", {}).get("params", {})
-            
-            # Check if params is a TaskSendParams object with metadata
-            if hasattr(params, 'metadata') and isinstance(params.metadata, dict):
-                metadata_params = params.metadata.get("params", {})
-                if isinstance(metadata_params, dict):
-                    chat_id = metadata_params.get("chatId")
-                    if chat_id:
-                        chat_id_source = "params.metadata.params"
-            
-            # If not found, try direct params dict access
-            if not chat_id and isinstance(params, dict):
-                chat_id = params.get("chatId")
-                if chat_id:
-                    chat_id_source = "params"
-            
-            # If still not found, fallback to messages[1]
-            if not chat_id and isinstance(state.get("messages"), list) and len(state["messages"]) > 1:
-                chat_id = state["messages"][1]
-                chat_id_source = "messages[1]"
-                
-            if chat_id:
-                logger.info(f"[send_response_back] Using chatId: {chat_id} (from {chat_id_source})")
-            else:
-                logger.error("[send_response_back] No chatId found in any location")
+            _sr_params = state.get("attributes", {}).get("params", {})
+            # attributes.params.metadata.params.chatId (A2A TaskSendParams)
+            if hasattr(_sr_params, "metadata") and isinstance(_sr_params.metadata, dict):
+                _meta_params = _sr_params.metadata.get("params", {})
+                if isinstance(_meta_params, dict):
+                    _cid = _meta_params.get("chatId")
+                    if _cid:
+                        _chat_id_candidates.append(("params.metadata.params", str(_cid)))
+            # attributes.params.chatId (plain dict-shaped params)
+            if isinstance(_sr_params, dict):
+                _cid = _sr_params.get("chatId")
+                if _cid:
+                    _chat_id_candidates.append(("params", str(_cid)))
+            # messages[1] — original A2A chat row id
+            _msgs = state.get("messages")
+            if isinstance(_msgs, list) and len(_msgs) > 1 and _msgs[1]:
+                _chat_id_candidates.append(("messages[1]", str(_msgs[1])))
         except Exception as e:
-            logger.error(f"[send_response_back] Error extracting chatId: {e}, falling back to messages[1]")
-            chat_id = state.get("messages", [None])[1] if len(state.get("messages", [])) > 1 else None
-            chat_id_source = "messages[1] (fallback)"
+            logger.error(f"[send_response_back] Error collecting chatId candidates: {e}")
+
+        # Probe candidates against the chat DB.  De-dup while preserving order.
+        _seen_cids: set[str] = set()
+        _ordered_candidates: list[tuple[str, str]] = []
+        for _src, _cid in _chat_id_candidates:
+            if _cid in _seen_cids:
+                continue
+            _seen_cids.add(_cid)
+            _ordered_candidates.append((_src, _cid))
+
+        _probe_mainwin = getattr(self_agent, "mainwin", None)
+        _probe_service = getattr(_probe_mainwin, "db_chat_service", None) if _probe_mainwin else None
+        if _probe_service and _ordered_candidates:
+            for _src, _cid in _ordered_candidates:
+                try:
+                    _probe = _probe_service.get_chat_by_id(_cid, True)
+                except Exception as _pe:
+                    logger.debug(f"[send_response_back] chatId probe errored for {_cid!r} (src={_src}): {_pe}")
+                    continue
+                if _probe and _probe.get("success") and _probe.get("data") is not None:
+                    chat_id = _cid
+                    chat_id_source = _src
+                    break
+                else:
+                    logger.debug(
+                        f"[send_response_back] chatId candidate {_cid!r} from {_src} "
+                        f"did not resolve to a real chat — trying next"
+                    )
+
+        # If probing failed (or DB service unavailable), fall back to the
+        # first non-empty candidate — preserves prior behaviour when the
+        # probe can't run.
+        if not chat_id and _ordered_candidates:
+            chat_id_source, chat_id = _ordered_candidates[0]
+            chat_id_source = f"{chat_id_source} (unprobed)"
+
+        if chat_id:
+            logger.info(
+                f"[send_response_back] Using chatId: {chat_id} (from {chat_id_source}, "
+                f"candidates_tried={[s for s,_ in _ordered_candidates]})"
+            )
+        else:
+            logger.error(
+                f"[send_response_back] No chatId found in any location "
+                f"(candidates_tried={[s for s,_ in _ordered_candidates]})"
+            )
         
         inbound_chat_attrs = {}
         try:

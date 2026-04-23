@@ -44,6 +44,53 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
                 if attempt < max_retries - 1:
                     import time
                     time.sleep(0.1)
+            except Exception as _other_err:
+                _last_err = _other_err
+                # Non-permission errors on Windows usually mean a stuck
+                # rotation slot (e.g. `eCan.log.1` left behind by a prior
+                # crashed rotation).  Move the blocking backup aside with
+                # a timestamped suffix so the next retry proceeds.
+                try:
+                    import time as _rot_time
+                    import os as _rot_os
+                    target_1 = f"{self.baseFilename}.1"
+                    if _rot_os.path.exists(target_1):
+                        stuck_path = f"{target_1}.stuck-{int(_rot_time.time())}"
+                        _rot_os.rename(target_1, stuck_path)
+                        sys.stderr.write(
+                            f"[WindowsSafeRotatingFileHandler] moved stuck "
+                            f"{target_1!r} -> {stuck_path!r} to unblock rotation\n"
+                        )
+                except Exception:
+                    pass
+        # All retries failed.  The stock RotatingFileHandler.doRollover
+        # closes `self.stream` BEFORE attempting the rename, so a failed
+        # rotation leaves the handler with a closed FD.  Subsequent
+        # emit() calls then write to the dead FD and Python's logging
+        # framework silently discards the records via handleError --
+        # the exact symptom observed 2026-04-22 14:51:10 where eCan.log
+        # went dark while the app kept running for several more minutes.
+        # Make the failure visible AND guarantee we keep a live stream,
+        # even if that means appending to the already-oversized file.
+        _last_err = locals().get("_last_err", None)
+        try:
+            sys.stderr.write(
+                f"[WindowsSafeRotatingFileHandler] rollover FAILED for "
+                f"{self.baseFilename!r} after {max_retries} attempts: "
+                f"{type(_last_err).__name__ if _last_err else 'Unknown'}: "
+                f"{_last_err!s}. Continuing to append to current file.\n"
+            )
+        except Exception:
+            pass
+        try:
+            if getattr(self, "stream", None) is None or getattr(self.stream, "closed", False):
+                self.stream = self._open()
+        except Exception as _reopen_err:
+            try:
+                sys.stderr.write(
+                    f"[WindowsSafeRotatingFileHandler] could not reopen stream "
+                    f"for {self.baseFilename!r}: {_reopen_err!s}\n"
+                )
             except Exception:
                 pass
 
