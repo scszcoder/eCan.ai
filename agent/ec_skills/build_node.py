@@ -143,6 +143,547 @@ _DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
 _AUTO_DISPATCH_COOLDOWN_S = 10.0  # seconds — just enough to skip the post-delivery event burst
+# Last reply text HOT-PATH-B typed for each customer, keyed by normalised
+# customer id.  Used by PreDispatch as a "stale last_message" guard:
+# when Feige's sidebar preview still echoes our own outgoing text because
+# the customer's freshest bubble hasn't refreshed the preview row yet,
+# we'd otherwise hand the Q&A worker a stale last_message and get an
+# answer to the previous turn.  Compare and skip to wait for the real diff.
+_auto_dispatch_last_agent_reply: dict[str, str] = {}  # cust → reply text (normalised)
+
+
+# HOT-PATH-B recent-send dedup cache keyed by (normalised customer_id,
+# sha1(response_text)) → timestamp.  Prevents replay loops when the
+# same (customer, reply) pair re-enters HOT-PATH-B due to a stale
+# pend_event_node resume (e.g. the `send_response_back` fallback path
+# re-fires the same chat_message after `Chat not found: 客户B`
+# errors — observed 2026-04-22 11:51 with 8+ identical HOT-PATH-B
+# entries within ~6 s).  TTL keeps the cache bounded; after TTL
+# expires a genuinely identical new reply can be re-sent.
+_hp_b_recent_sends: dict[tuple[str, str], float] = {}
+_HP_B_DEDUP_TTL_S = 15.0
+
+
+def _hp_b_reply_fingerprint(customer: str, reply_text: str) -> tuple[str, str]:
+    """Build a stable (customer, reply-hash) key for HOT-PATH-B dedup."""
+    import hashlib as _hp_b_hl
+    cust = _normalize_customer_id(customer or "")
+    rtxt = _normalize_reply_text(reply_text or "")
+    h = _hp_b_hl.sha1(rtxt.encode("utf-8", errors="ignore")).hexdigest()[:16] if rtxt else ""
+    return (cust, h)
+
+
+def _hp_b_was_recently_sent(customer: str, reply_text: str) -> float:
+    """Return age (s) of a recent identical send, or 0.0 if none/expired."""
+    key = _hp_b_reply_fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return 0.0
+    import time as _hp_b_time
+    ts = _hp_b_recent_sends.get(key)
+    if ts is None:
+        return 0.0
+    age = _hp_b_time.time() - ts
+    if age > _HP_B_DEDUP_TTL_S:
+        _hp_b_recent_sends.pop(key, None)
+        return 0.0
+    return age
+
+
+def _hp_b_mark_sent(customer: str, reply_text: str) -> None:
+    key = _hp_b_reply_fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return
+    import time as _hp_b_time
+    _hp_b_recent_sends[key] = _hp_b_time.time()
+    # Opportunistic GC to keep the dict bounded under long runs.
+    if len(_hp_b_recent_sends) > 256:
+        now = _hp_b_time.time()
+        for k in list(_hp_b_recent_sends.keys()):
+            if now - _hp_b_recent_sends[k] > _HP_B_DEDUP_TTL_S:
+                _hp_b_recent_sends.pop(k, None)
+
+
+# Reads the currently-active chat row's customer name from Feige's DOM.
+# Used by HOT-PATH-B after feige_open_session to verify the SPA
+# actually switched to the intended customer before typing and sending
+# the reply.  Without this verification, a race between
+# get_or_create_cdp_session(focus=True) and the emulation's React
+# render commit can cause feige_send_message to type into whichever
+# session the middle pane last committed — which in the 2026-04-22
+# 11:51 run put 客户B's answer into 客户C's chat window.  Returns
+# JSON with { ok: bool, active: name }.  Matches both the real
+# Feige DOM (`.active` on `[data-qa-id="qa-conversation-chat-item"]`
+# with a `[data-qa-id="qa-conversation-nickname"]` child) and the
+# local emulation (`.chat-item.active` with a `.Jv6FtqUv5VoYARd2pp4y`
+# child — see customer_logs/emulation/static/app.js:328-334).
+_FEIGE_ACTIVE_CUSTOMER_JS = r"""
+(function() {
+  var el = document.querySelector('[data-qa-id="qa-conversation-chat-item"].active')
+        || document.querySelector('.chat-item.active');
+  if (!el) {
+    // Fallback: any qa-conversation-chat-item whose className includes 'active'.
+    var items = document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"], .chat-item');
+    for (var i = 0; i < items.length; i++) {
+      if ((items[i].className || '').toLowerCase().indexOf('active') >= 0) { el = items[i]; break; }
+    }
+  }
+  if (!el) return JSON.stringify({ ok: false, active: '' });
+  var nm = el.querySelector('[data-qa-id="qa-conversation-nickname"], .Jv6FtqUv5VoYARd2pp4y');
+  var name = (nm ? nm.textContent : el.textContent).trim();
+  return JSON.stringify({ ok: true, active: name });
+})()
+"""
+
+
+def _normalize_reply_text(text: str) -> str:
+    """Normalise a reply for DOM-echo comparison.
+
+    Feige's sidebar preview may trim or collapse whitespace when it
+    renders the `last_message` row, so we compare whitespace-collapsed,
+    stripped versions.  We also limit the comparison to the first 120
+    chars because the sidebar sometimes truncates long replies with an
+    ellipsis — a prefix match is sufficient to recognise our own echo.
+    """
+    if not text:
+        return ""
+    s = re.sub(r"\s+", " ", str(text)).strip()
+    return s[:120]
+
+
+# Walks Feige's chat-thread DOM backwards and returns the most recent
+# *customer* bubble (skipping agent replies and system/event spans).
+# Returns JSON with {text, msg_id, timestamp, index} — all empty / -1
+# when no customer bubble exists in the currently-focused pane.  The
+# selectors mirror the ones in
+# agent.ec_skills.browser_use_extension.extension_tools_service._FEIGE_GET_THREAD_JS
+# (keep in sync if selectors change).
+_FEIGE_LATEST_CUSTOMER_BUBBLE_JS = r"""
+(function() {
+  var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+  for (var i = wrappers.length - 1; i >= 0; i--) {
+    var wrap = wrappers[i];
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!bubble) continue;                               // system / event
+    if (bubble.classList.contains('messageIsMe')) continue; // agent reply
+    var text = (bubble.querySelector('pre') || bubble).textContent.trim();
+    var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
+    var ts = tsEl ? tsEl.textContent.trim() : '';
+    var msgIdEl = wrap.querySelector('[data-id]');
+    var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
+    return JSON.stringify({ text: text, msg_id: msgId, timestamp: ts, index: i });
+  }
+  return JSON.stringify({ text: '', msg_id: '', timestamp: '', index: -1 });
+})()
+"""
+
+
+# Clicks the sidebar row whose name matches `customer_name`.  Used by
+# PreDispatch before scraping to guarantee the chat pane is focused on
+# the customer we're about to dispatch for — in Feige the chat pane is a
+# single-focus region, so scraping without clicking first would pick up
+# whatever other customer happened to be displayed.  Returns JSON with
+# {ok, name, already_active}.
+_FEIGE_CLICK_SIDEBAR_ROW_JS = r"""
+(function(customerName) {
+  // Extract the customer display name from a chat-list row.  Real Feige
+  // (and the emulation that mirrors it) renders the name in two
+  // redundant places:
+  //   • <div class="MP1bk3ccfHC9V2SnPCGD" title="客户C">…</div>
+  //     — wrapper carrying the exact name in its `title` attribute
+  //   • <span class="Jv6FtqUv5VoYARd2pp4y">客户C</span>
+  //     — inner span with the name as its textContent
+  // The row also contains tags, a timestamp, the last-message preview
+  // and an unread badge — so comparing against `row.textContent` as a
+  // last-ditch fallback is meaningless (`"客户C重复来访2分钟质量怎么样？1"`
+  // never equals `"客户C"`).  We therefore only accept a name from one
+  // of the precise name nodes and leave an explicit diagnostic when no
+  // node matches, to make future selector drift obvious in logs.
+  function readName(row) {
+    var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
+    if (wrap) {
+      var t = wrap.getAttribute('title');
+      if (t && t.trim()) return t.trim();
+    }
+    var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
+    if (span) {
+      var s = (span.textContent || '').trim();
+      if (s) return s;
+    }
+    // Legacy selector kept as a last resort in case real Feige ever
+    // ships it; the emulation and current production DOM do not.
+    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (legacy) {
+      var l = (legacy.textContent || '').trim();
+      if (l) return l;
+    }
+    return '';
+  }
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var target = null;
+  var seenNames = [];
+  for (var i = 0; i < items.length; i++) {
+    var nm = readName(items[i]);
+    if (nm) seenNames.push(nm);
+    if (nm === customerName) { target = items[i]; break; }
+  }
+  if (!target) {
+    return JSON.stringify({
+      ok: false,
+      name: customerName,
+      already_active: false,
+      diagnostics: { item_count: items.length, seen_names: seenNames.slice(0, 20) }
+    });
+  }
+  var alreadyActive = target.classList.contains('active') ||
+                      (target.className || '').toLowerCase().indexOf('active') >= 0;
+  if (!alreadyActive) target.click();
+  return JSON.stringify({ ok: true, name: customerName, already_active: alreadyActive });
+})(CUSTOMER_NAME)
+"""
+
+
+async def _ensure_feige_tab_focused(browser_session) -> bool:
+    """Switch *browser_session* to its Feige (im.jinritemai.com) tab if
+    it isn't already focused there.  Returns True when the active page
+    contains 'im.jinritemai.com' in its URL after the call, False
+    otherwise (e.g. no Feige tab open).  Mirrors the tab-switch pattern
+    used by HOT-PATH-B before running feige_* actions — without it any
+    JS evaluated via CDP runs against whatever tab happens to be active
+    (often not Feige), producing empty DOM queries and misleading
+    "no customer bubble" results that quietly fall back to the sidebar
+    preview (observed 22:33:13 dispatching Mary's own reply text as
+    `last_message` because the scrape ran on a non-Feige tab).
+    """
+    import asyncio as _ef_asyncio
+    try:
+        page = await browser_session.get_current_page()
+        cur_url = ""
+        try:
+            cur_url = page.url if page else ""
+        except Exception:
+            cur_url = ""
+        if "im.jinritemai.com" in (cur_url or ""):
+            return True
+        sm = getattr(browser_session, "session_manager", None)
+        all_targets = sm.get_all_targets() if sm else {}
+        feige_tid = ""
+        _scan_count = 0
+        for tid, tgt in (all_targets or {}).items():
+            if getattr(tgt, "target_type", "") not in ("page", "tab"):
+                continue
+            _scan_count += 1
+            turl = str(getattr(tgt, "url", "") or "")
+            if "im.jinritemai.com" in turl:
+                feige_tid = str(tid)
+                break
+        if not feige_tid:
+            logger.info(
+                f"[BrowserAutomation] ensure-feige-tab: no Feige tab among "
+                f"{_scan_count} page/tab targets (cur_url={cur_url!r})"
+            )
+            return False
+        # Directly acquire a CDP session for the Feige target and
+        # update agent focus synchronously.  Previously this used
+        # `SwitchTabEvent` via the event bus, but that runs
+        # asynchronously while `_evaluate_js` calls
+        # `get_or_create_cdp_session()` with no target_id — which falls
+        # back to `agent_focus_target_id`.  The race meant JS ran
+        # against the front-desk's stale focused tab (empty URL in the
+        # 23:23 logs), not Feige, producing persistent
+        # `selector_not_found` for every Feige selector including
+        # `qa-conversation-chat-item` (which feige_open_session finds
+        # fine because it runs on the QA worker's dedicated session).
+        #
+        # `get_or_create_cdp_session(target_id=..., focus=True)` is
+        # awaited and guarantees `agent_focus_target_id` points at the
+        # Feige tab before returning, so subsequent `_evaluate_js`
+        # calls will run against Feige's DOM.
+        try:
+            if hasattr(browser_session, "get_or_create_cdp_session"):
+                await browser_session.get_or_create_cdp_session(
+                    target_id=feige_tid, focus=True
+                )
+            else:
+                # Fallback for legacy BrowserSession API without the
+                # method — fire the event and sleep as before.
+                from browser_use.browser.events import SwitchTabEvent as _EF_STE
+                await browser_session.event_bus.dispatch(_EF_STE(target_id=feige_tid))
+                await _ef_asyncio.sleep(0.3)
+        except Exception as _focus_err:
+            logger.info(
+                f"[BrowserAutomation] ensure-feige-tab: focus-target failed "
+                f"(target=...{feige_tid[-6:]}): {_focus_err}"
+            )
+            return False
+        logger.info(
+            f"[BrowserAutomation] ensure-feige-tab: focused Feige tab "
+            f"(target=...{feige_tid[-6:]}, was cur_url={cur_url!r})"
+        )
+        # Click Feige's '最近联系' (recent-contacts) inner sub-tab if it
+        # isn't already active.  Without this, the Feige SPA may be on
+        # '待回复' / '人工接待' / some other sub-tab where the sidebar
+        # selector '[data-qa-id="qa-conversation-chat-item"]' returns
+        # zero elements — exactly the `sidebar row not found` pattern
+        # we saw persisting across every scrape attempt 22:48-22:49.
+        #
+        # HOT-PATH-B attempts this via `page.query_selector` but that
+        # method doesn't exist on browser_use's Page object (observed
+        # `'Page' object has no attribute 'query_selector'` exceptions
+        # in the 23:10-23:13 log).  We use a direct CDP JS eval instead
+        # — same transport as the rest of the scrape helpers.
+        try:
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                _evaluate_js as _ef_eval_js,
+            )
+            # Try several selectors in priority order.  Real Feige uses
+            # `[data-qa-id="qa-last-chat-tab"]`; the local emulation
+            # (`customer_logs/emulation/static/index.html`) uses
+            # `.tab[data-tab="recent"]`.  We also fall back to a
+            # text-content search for "最近联系" so either DOM shape is
+            # covered without further code changes.  When all selectors
+            # miss, we dump a one-shot summary of the body's
+            # `data-qa-id` attributes and the top-level tab bar HTML so
+            # the next run's log tells us exactly what selector the
+            # live page is rendering.
+            _sub_tab_js = r"""
+(function() {
+  var selectors = [
+    '[data-qa-id="qa-last-chat-tab"]',
+    '.tab[data-tab="recent"]',
+    '[data-tab="recent"]'
+  ];
+  var el = null, matched = '';
+  for (var i = 0; i < selectors.length; i++) {
+    el = document.querySelector(selectors[i]);
+    if (el) { matched = selectors[i]; break; }
+  }
+  if (!el) {
+    // text-content fallback: any small element whose trimmed text is
+    // exactly "最近联系"
+    var nodes = document.querySelectorAll('button, div[role="button"], [class*="tab"], a, span');
+    for (var j = 0; j < nodes.length; j++) {
+      var t = (nodes[j].textContent || '').trim();
+      if (t === '最近联系' || t === '最近联系人') { el = nodes[j]; matched = 'textmatch:最近联系'; break; }
+    }
+  }
+  if (!el) {
+    // gather diagnostics so the caller can log a one-shot DOM dump
+    var dataQaIds = [];
+    var qaNodes = document.querySelectorAll('[data-qa-id]');
+    for (var k = 0; k < qaNodes.length && dataQaIds.length < 40; k++) {
+      var v = qaNodes[k].getAttribute('data-qa-id') || '';
+      if (v && dataQaIds.indexOf(v) < 0) dataQaIds.push(v);
+    }
+    var tabBar = document.querySelector('#tabBar, .tab-bar, [class*="tabBar"], [class*="TabBar"]');
+    var tabBarHtml = tabBar ? (tabBar.outerHTML || '').slice(0, 800) : '';
+    var chatItemCount = document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]').length;
+    return JSON.stringify({
+      ok: false,
+      reason: 'selector_not_found',
+      diagnostics: {
+        url: (location && location.href) || '',
+        data_qa_ids: dataQaIds,
+        tab_bar_html: tabBarHtml,
+        chat_item_count: chatItemCount
+      }
+    });
+  }
+  var cls = (el.className || '').toLowerCase();
+  var alreadyActive = cls.indexOf('active') >= 0 || (el.classList && el.classList.contains('active'));
+  if (!alreadyActive) { el.click(); }
+  return JSON.stringify({ ok: true, already_active: alreadyActive, matched: matched });
+})()
+"""
+            res = await _ef_eval_js(browser_session, _sub_tab_js)
+            if isinstance(res, str):
+                try:
+                    res = json.loads(res)
+                except Exception:
+                    res = {}
+            res = res if isinstance(res, dict) else {}
+            if res.get("ok") and not res.get("already_active"):
+                await _ef_asyncio.sleep(0.15)
+                # Poll for chat-item rows to actually render before returning.
+                # Previously we slept a fixed 0.3 s and proceeded, but the
+                # emulation's React commit can take 100–400 ms after the click,
+                # so `_scrape_latest_customer_bubble` sometimes ran against a
+                # DOM that still had zero `qa-conversation-chat-item` nodes —
+                # producing the persistent "sidebar row not found" log seen
+                # 2026-04-22 11:51 on every PreDispatch pass.
+                _poll_js = (
+                    "(function(){var n=document.querySelectorAll("
+                    "'[data-qa-id=\"qa-conversation-chat-item\"]');"
+                    "return JSON.stringify({count:n.length});})()"
+                )
+                _poll_ok = False
+                for _i in range(6):  # up to 6 × 75 ms = 450 ms after the 150 ms sleep
+                    try:
+                        _pr = await _ef_eval_js(browser_session, _poll_js)
+                        if isinstance(_pr, str):
+                            try:
+                                _pr = json.loads(_pr)
+                            except Exception:
+                                _pr = {}
+                        if isinstance(_pr, dict) and int(_pr.get("count") or 0) > 0:
+                            _poll_ok = True
+                            break
+                    except Exception:
+                        pass
+                    await _ef_asyncio.sleep(0.075)
+                logger.info(
+                    f"[BrowserAutomation] ensure-feige-tab: clicked "
+                    f"'最近联系' inner sub-tab (matched={res.get('matched')!r}, "
+                    f"chat_items_ready={_poll_ok})"
+                )
+            elif res.get("ok"):
+                # already active — nothing to do, but log the matched selector
+                # once for diagnostics.
+                logger.debug(
+                    f"[BrowserAutomation] ensure-feige-tab: '最近联系' "
+                    f"sub-tab already active (matched={res.get('matched')!r})"
+                )
+            else:
+                diag = res.get("diagnostics") or {}
+                logger.info(
+                    f"[BrowserAutomation] ensure-feige-tab: recent-contacts "
+                    f"sub-tab selector not found "
+                    f"(url={diag.get('url')!r}, "
+                    f"chat_items={diag.get('chat_item_count')}, "
+                    f"data_qa_ids={diag.get('data_qa_ids')}, "
+                    f"tab_bar_html={(diag.get('tab_bar_html') or '')[:400]!r})"
+                )
+        except Exception as _tab_err:
+            logger.info(
+                f"[BrowserAutomation] ensure-feige-tab: recent-contacts "
+                f"sub-tab click failed: {_tab_err}"
+            )
+        return True
+    except Exception as _err:
+        logger.info(f"[BrowserAutomation] ensure-feige-tab: exception: {_err}")
+        return False
+
+
+async def _scrape_latest_customer_bubble(browser_session, customer_name: str) -> dict:
+    """Focus the chat pane on *customer_name* and return the most recent
+    customer bubble.
+
+    Returns a dict ``{text, msg_id, timestamp, index, scrape_ok}``.
+    ``scrape_ok`` is False when the sidebar row could not be clicked or
+    the thread DOM contained no customer bubbles — callers should fall
+    back to the sidebar preview in that case.
+    """
+    import asyncio as _s_asyncio
+    empty = {"text": "", "msg_id": "", "timestamp": "", "index": -1, "scrape_ok": False}
+    if not browser_session or not customer_name:
+        return empty
+
+    # ── Feige active-session race guard (2026-04-22) ──
+    # If HOT-PATH-B is currently typing a reply into a DIFFERENT
+    # customer's chat, clicking another sidebar row here would switch
+    # the active session and cause the typed reply to land in the
+    # wrong chat (observed 16:48:10 → 客户A's reply typed into 客户C
+    # after PreDispatch clicked 客户B then 客户C rows between
+    # open_session(客户A) verification and feige_send_message).
+    # Skip the sidebar-click scrape when another customer holds the
+    # typing lock; caller (PreDispatch) will fall back to the sidebar
+    # preview text, which is accurate enough for one cycle.
+    try:
+        _st_holder = _feige_typing_holder()
+        _st_cust_key = _normalize_customer_id(customer_name)
+        if _st_holder and _st_holder != _st_cust_key:
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: yield — another "
+                f"customer is currently being typed to ({_st_holder!r}); "
+                f"skipping sidebar click for {customer_name!r} to avoid "
+                f"stealing the active session (caller will use sidebar preview)"
+            )
+            return empty
+    except Exception as _st_err:
+        logger.debug(
+            f"[BrowserAutomation] scrape-latest-customer: typing-lock check "
+            f"failed (non-fatal): {_st_err}"
+        )
+
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js as _s_eval_js,
+        )
+    except Exception as _imp_err:
+        logger.info(
+            f"[BrowserAutomation] scrape-latest-customer: _evaluate_js import "
+            f"failed for {customer_name!r}: {_imp_err}"
+        )
+        return empty
+
+    # Ensure we are on Feige before running any JS — otherwise queries
+    # return empty and we silently fall back to the (often stale) side-
+    # bar preview.
+    if not await _ensure_feige_tab_focused(browser_session):
+        logger.info(
+            f"[BrowserAutomation] scrape-latest-customer: no Feige tab focusable "
+            f"for {customer_name!r} — falling back to sidebar preview"
+        )
+        return empty
+
+    try:
+        _click_js = _FEIGE_CLICK_SIDEBAR_ROW_JS.replace(
+            "CUSTOMER_NAME", json.dumps(customer_name, ensure_ascii=False)
+        )
+        click_raw = await _s_eval_js(browser_session, _click_js)
+        if isinstance(click_raw, str):
+            try:
+                click_data = json.loads(click_raw)
+            except Exception:
+                click_data = {}
+        else:
+            click_data = click_raw if isinstance(click_raw, dict) else {}
+        if not click_data.get("ok"):
+            _diag = click_data.get("diagnostics") or {}
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: sidebar row not found "
+                f"for {customer_name!r} — falling back to sidebar preview "
+                f"(item_count={_diag.get('item_count')!r}, "
+                f"seen_names={_diag.get('seen_names')!r})"
+            )
+            return empty
+        # Brief settle so the chat pane repaints after clicking a row.
+        if not click_data.get("already_active"):
+            await _s_asyncio.sleep(0.35)
+        scrape_raw = await _s_eval_js(browser_session, _FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
+        if isinstance(scrape_raw, str):
+            try:
+                data = json.loads(scrape_raw)
+            except Exception:
+                data = {}
+        else:
+            data = scrape_raw if isinstance(scrape_raw, dict) else {}
+        text = str(data.get("text") or "").strip()
+        msg_id = str(data.get("msg_id") or "").strip()
+        idx = int(data.get("index", -1) or -1)
+        if not text:
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: thread had no customer "
+                f"bubble for {customer_name!r} (index={idx}) — falling back"
+            )
+            return empty
+        logger.info(
+            f"[BrowserAutomation] scrape-latest-customer: {customer_name!r} "
+            f"latest_bubble msg_id=...{msg_id[-8:] if msg_id else '<none>'} "
+            f"text={text[:40]!r}"
+        )
+        return {
+            "text": text,
+            "msg_id": msg_id,
+            "timestamp": str(data.get("timestamp") or "").strip(),
+            "index": idx,
+            "scrape_ok": True,
+        }
+    except Exception as _err:
+        logger.info(
+            f"[BrowserAutomation] scrape-latest-customer: JS eval failed for "
+            f"{customer_name!r}: {_err}"
+        )
+        return empty
 
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
@@ -6613,6 +7154,558 @@ _cached_passive_agents: dict[int, "PassiveAgent"] = {}
 # when the runner re-submits after a failure.
 _first_invocation_done: set[str] = set()
 
+# Module-level PreDispatch state, shared across all BrowserSession instances
+# (and their "scopes" like node:... / chat:<customer>). Keyed by
+# (calling_agent_id, node_name, dispatch_state_attr). Without this, the per-
+# BrowserSession dispatch_state caused duplicate assignments whenever Mary
+# resumed under a different scope (empty state, so the assigned_sessions dedup
+# was bypassed).
+_frontdesk_dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
+
+# Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
+# customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
+# or scope=chat:<customer> (a QA worker whose EventMonitor happens to fire
+# first after the front-desk's runner drops off between rounds).  Without a
+# shared lock, both would dispatch the *same* customer turn to different
+# QA workers in parallel.  First PreDispatch to dispatch acquires the lock;
+# subsequent PreDispatches skip that customer until:
+#   * HOT-PATH-B finishes typing the reply and calls the clear helper, OR
+#   * the TTL elapses (safety net if the responder crashes).
+# The lock is per-customer, so multi-customer simultaneity is unaffected —
+# customer A's lock never blocks dispatching customer B.
+_customer_dispatch_inflight: dict[str, float] = {}
+_CUSTOMER_DISPATCH_INFLIGHT_TTL_S = 30.0
+
+# Per-customer record of the LAST customer bubble msg_id that PreDispatch
+# successfully dispatched.  Replaces the text-based dom-echo guard with a
+# strict identity check on Feige's own `data-id` attribute: if the thread
+# scrape still returns the same msg_id we've already dispatched, the
+# customer has not sent anything new (regardless of what the sidebar
+# preview echoes), so we skip without burning an LLM step.  When the
+# customer sends a new bubble, the msg_id changes and the guard releases.
+_customer_last_dispatched_msg_id: dict[str, str] = {}
+
+
+def _is_customer_dispatch_inflight(customer_key: str) -> float:
+    """Return age (s) of an active inflight lock, or 0.0 if none/expired."""
+    if not customer_key:
+        return 0.0
+    import time as _cdi_time
+    ts = _customer_dispatch_inflight.get(customer_key)
+    if ts is None:
+        return 0.0
+    age = _cdi_time.time() - ts
+    if age > _CUSTOMER_DISPATCH_INFLIGHT_TTL_S:
+        _customer_dispatch_inflight.pop(customer_key, None)
+        return 0.0
+    return age
+
+
+def _mark_customer_dispatch_inflight(customer_key: str) -> None:
+    if not customer_key:
+        return
+    import time as _cdi_time
+    _customer_dispatch_inflight[customer_key] = _cdi_time.time()
+
+
+def _clear_customer_dispatch_inflight(customer_key: str) -> None:
+    if not customer_key:
+        return
+    _customer_dispatch_inflight.pop(customer_key, None)
+
+
+# ── Feige active-session race guard (2026-04-22) ───────────────────────────
+# HOT-PATH-B's feige_open_session → feige_send_message pair and PreDispatch's
+# _scrape_latest_customer_bubble BOTH mutate the same global "active chat"
+# state in the Feige DOM by clicking sidebar rows.  Observed repro on 客户A:
+# HOT-PATH-B opened 客户A, verified active-customer=客户A, scheduled a 300 ms
+# inter-action delay; during that delay a parallel PreDispatch (running on a
+# different per-customer scope's persistent event loop) clicked 客户B and
+# then 客户C sidebar rows for its own scrape; HOT-PATH-B then typed customer
+# A's reply into 客户C's chat.  客户A ended up "answered" from the bot's POV
+# (locks cleared) but never actually replied to.
+#
+# To prevent this we track a single module-level "who is currently typing
+# into Feige" holder.  The holder is set by HOT-PATH-B right before
+# feige_open_session and released after feige_send_message completes (or on
+# any early break).  A TTL guards against stuck holders if HOT-PATH-B
+# crashes without releasing.  `_scrape_latest_customer_bubble` checks the
+# holder: if another customer is currently typing, it skips its sidebar
+# click and returns empty (caller falls back to the sidebar preview — that
+# single scrape-cycle is the worst-case cost of waiting).
+import threading as _feige_typing_threading
+
+_feige_typing_lock_holder: str = ""
+_feige_typing_lock_ts: float = 0.0
+_feige_typing_lock_mu = _feige_typing_threading.Lock()
+_FEIGE_TYPING_LOCK_TTL_S = 8.0  # max time HOT-PATH-B needs from open to send
+
+
+def _try_acquire_feige_typing(customer_key: str) -> bool:
+    """Claim the Feige active-session for *customer_key*.
+
+    Returns True if the lock was acquired (or if the caller already holds
+    it — re-entrant).  Returns False if another customer holds a fresh
+    lock.  Expired locks are reclaimed automatically.
+    """
+    global _feige_typing_lock_holder, _feige_typing_lock_ts
+    if not customer_key:
+        return True  # un-keyed callers (e.g. browser_event-only) bypass the guard
+    import time as _t
+    with _feige_typing_lock_mu:
+        now = _t.time()
+        cur = _feige_typing_lock_holder
+        cur_age = now - _feige_typing_lock_ts if cur else 0.0
+        if cur and cur != customer_key and cur_age < _FEIGE_TYPING_LOCK_TTL_S:
+            return False
+        # reclaim stale or unset
+        _feige_typing_lock_holder = customer_key
+        _feige_typing_lock_ts = now
+        return True
+
+
+def _release_feige_typing(customer_key: str) -> None:
+    """Release the Feige typing lock if held by *customer_key*."""
+    global _feige_typing_lock_holder, _feige_typing_lock_ts
+    if not customer_key:
+        return
+    with _feige_typing_lock_mu:
+        if _feige_typing_lock_holder == customer_key:
+            _feige_typing_lock_holder = ""
+            _feige_typing_lock_ts = 0.0
+
+
+def _feige_typing_holder() -> str:
+    """Return the current holder (empty string if none or expired)."""
+    import time as _t
+    with _feige_typing_lock_mu:
+        if not _feige_typing_lock_holder:
+            return ""
+        if _t.time() - _feige_typing_lock_ts > _FEIGE_TYPING_LOCK_TTL_S:
+            return ""  # stale — will be reclaimed on next acquire
+        return _feige_typing_lock_holder
+
+
+# ── Upstream-output compaction ────────────────────────────────────────────
+# Walk `state["tool_result"]` and build a compact JSON summary for injection
+# into the browser-automation task prompt.  Drops noise keys, truncates
+# oversized payloads, and applies generic detail-page heuristics to avoid
+# feeding the LLM a bloated blob.
+#
+# Extracted from `_auto` on 2026-04-22 (was ~327 lines of nested helpers
+# inside the build function).  Pure: reads state, returns a string.
+# `current_node_name` is excluded from the output to prevent self-feedback
+# loops on retries.
+def _compact_tool_result_for_prompt(state: dict, current_node_name: str) -> str:
+    import json
+    import re
+    from urllib.parse import urlsplit, parse_qs
+
+    tr = state.get("tool_result") if isinstance(state, dict) else None
+    if not isinstance(tr, dict):
+        return "{}"
+
+    # Keys we want to preserve verbatim when present in any node output.
+    keep_keys = {
+        "status", "reason", "price_range", "links",
+        "downloaded_images", "download_count", "image_urls", "image_descriptions",
+        "listing_url", "title", "description", "price",
+        "product_keyword", "brand", "model", "category", "condition",
+        "original_images", "products", "highlights_summary", "target_audience",
+        "notes", "is_free_shipping", "is_used", "features", "listing_images",
+        "search_keyword",
+    }
+
+    # Generic noise keys to avoid prompt bloat and scenario-specific internals.
+    drop_keys = {
+        "provider", "task", "systemPrompt", "history", "prompts", "prompt_refs",
+        "messages", "threads", "events", "attachments", "http_response",
+        "cli_input", "cli_results", "attributes",
+    }
+
+    def _extract_links(*texts):
+        links = []
+        for txt in texts:
+            if not txt:
+                continue
+            s = str(txt)
+            links.extend(re.findall(r'https?://[^\s\]\"\'\)]+', s))
+            for m in re.findall(r'//[^\s\]\"\'\)]+', s):
+                links.append(f"https:{m}")
+        dedup = []
+        seen = set()
+        for u in links:
+            if u in seen:
+                continue
+            seen.add(u)
+            dedup.append(u)
+        return dedup
+
+    def _extract_json_object_from_text(text):
+        """Best-effort JSON object extractor for node outputs.
+        Supports plain JSON and fenced code blocks."""
+        if not isinstance(text, str):
+            return None
+        s = text.strip()
+        if not s:
+            return None
+        if s.startswith("```"):
+            s = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", s)
+            s = re.sub(r"\n?```$", "", s).strip()
+        for candidate in (s,):
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        m = re.search(r"\{[\s\S]*\}", s)
+        if m:
+            block = m.group(0)
+            try:
+                parsed = json.loads(block)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return None
+        return None
+
+    def _merge_keep_keys_from_dict(dst: dict, src: dict):
+        if not isinstance(src, dict):
+            return
+        for k in keep_keys:
+            v = src.get(k)
+            if v in (None, "", [], {}):
+                continue
+            dst[k] = v
+
+    def _is_small_scalar(v):
+        return isinstance(v, (str, int, float, bool)) and len(str(v)) <= 200
+
+    def _is_small_scalar_list(v):
+        return (
+            isinstance(v, list)
+            and len(v) <= 20
+            and all(_is_small_scalar(i) for i in v)
+        )
+
+    def _merge_generic_fields_from_dict(dst: dict, src: dict, depth: int = 0):
+        """Scenario-agnostic field extraction: keep compact, actionable keys
+        from arbitrary JSON-like outputs."""
+        if not isinstance(src, dict) or depth > 1:
+            return
+        for k, v in src.items():
+            if not isinstance(k, str):
+                continue
+            kl = k.lower()
+            if (
+                k in drop_keys
+                or kl.startswith("_")
+                or any(tok in kl for tok in ("prompt", "history", "message", "thread", "event", "attachment", "screenshot", "dom", "html", "markdown"))
+            ):
+                continue
+            if v in (None, "", [], {}):
+                continue
+            if k in dst:
+                continue
+            if _is_small_scalar(v) or _is_small_scalar_list(v):
+                dst[k] = v
+                continue
+            if isinstance(v, dict) and len(v) <= 20:
+                if all(_is_small_scalar(sv) for sv in v.values()):
+                    dst[k] = v
+                _merge_generic_fields_from_dict(dst, v, depth + 1)
+
+    def _is_actionable_detail_link(url: str) -> bool:
+        """Generic heuristic to keep likely detail pages, drop home/search/list pages."""
+        try:
+            s = str(url or "").strip()
+            if not s.startswith(("http://", "https://")):
+                return False
+            p = urlsplit(s)
+            if not p.netloc:
+                return False
+            path = (p.path or "").strip().lower()
+            query = (p.query or "").lower()
+            query_map = parse_qs(p.query or "", keep_blank_values=True)
+            if path in ("", "/"):
+                return False
+            text = f"{path}?{query}"
+            if any(k in text for k in ("/search", "search?", "keyword=", "query=", "q=", "wd=", "/list", "list?")):
+                return False
+            id_keys = ("id", "itemid", "item_id", "sku", "sku_id", "productid", "product_id", "pid")
+            if any(k in query_map and any(str(v).strip() for v in query_map.get(k, [])) for k in id_keys):
+                return True
+            if re.search(r"\d{5,}", path):
+                return True
+            segments = [seg for seg in path.split("/") if seg]
+            if len(segments) >= 2 and segments[-1] not in ("home", "index", "category", "categories", "catalog", "list", "search"):
+                return True
+            return False
+        except Exception:
+            return False
+
+    compact = {}
+    for _nid, _val in tr.items():
+        # Exclude current node output to avoid self-feedback loops on retries.
+        if _nid == current_node_name:
+            continue
+        if not isinstance(_val, dict):
+            continue
+        row = {}
+
+        # 1) Direct extraction from node output dict.
+        _merge_keep_keys_from_dict(row, _val)
+        _merge_generic_fields_from_dict(row, _val)
+
+        # 2) Generic extraction from nested dict/string payloads.
+        candidate_payloads = [
+            _val.get("final"), _val.get("result"), _val.get("llm_result"),
+            _val.get("response"), _val.get("output"), _val.get("text"),
+            _val.get("history"),
+        ]
+        for payload in candidate_payloads:
+            if isinstance(payload, dict):
+                _merge_keep_keys_from_dict(row, payload)
+                _merge_generic_fields_from_dict(row, payload)
+                nested = payload.get("result")
+                if isinstance(nested, dict):
+                    _merge_keep_keys_from_dict(row, nested)
+                    _merge_generic_fields_from_dict(row, nested)
+            elif isinstance(payload, str):
+                parsed = _extract_json_object_from_text(payload)
+                if isinstance(parsed, dict):
+                    _merge_keep_keys_from_dict(row, parsed)
+                    _merge_generic_fields_from_dict(row, parsed)
+                    nested = parsed.get("result")
+                    if isinstance(nested, dict):
+                        _merge_keep_keys_from_dict(row, nested)
+                        _merge_generic_fields_from_dict(row, nested)
+
+        # Extract links from products array for backward compat.
+        if "products" in row and "links" not in row:
+            prods = row.get("products")
+            if isinstance(prods, list):
+                prod_links = [p.get("link") for p in prods if isinstance(p, dict) and p.get("link")]
+                if prod_links:
+                    row["links"] = prod_links
+
+        # Normalize and filter links with generic detail-page heuristics.
+        if "links" in row:
+            raw_links = row.get("links")
+            if isinstance(raw_links, str):
+                raw_links = [raw_links]
+            if isinstance(raw_links, list):
+                filtered_links = []
+                seen_links = set()
+                for u in raw_links:
+                    su = str(u or "").strip()
+                    if not su or su in seen_links:
+                        continue
+                    seen_links.add(su)
+                    if _is_actionable_detail_link(su):
+                        filtered_links.append(su)
+                if filtered_links:
+                    row["links"] = filtered_links
+                else:
+                    row.pop("links", None)
+
+        if "links" not in row:
+            links = _extract_links(_val.get("final"), _val.get("error"), _val.get("task"))
+            if links:
+                links = [u for u in links if _is_actionable_detail_link(u)]
+                if links:
+                    row["links"] = links[:8]
+
+        # Skip rows that only contain status/reason with no actionable payload.
+        actionable_keys = set(row.keys()) - {"status", "reason"}
+        if not actionable_keys:
+            continue
+
+        if row:
+            compact[_nid] = row
+
+    payload = json.dumps(compact, ensure_ascii=False)
+    try:
+        key_summary = {
+            nid: sorted(list(val.keys()))[:15]
+            for nid, val in compact.items()
+            if isinstance(val, dict)
+        }
+        logger.info(
+            f"[UpstreamCompact] node={current_node_name} "
+            f"upstream_nodes={list(compact.keys())} "
+            f"key_summary={key_summary} "
+            f"payload_chars={len(payload)}"
+        )
+    except Exception:
+        pass
+    if len(payload) > 12000:
+        payload = payload[:12000] + "...(truncated)"
+    return payload
+
+
+# ── Pure helpers extracted from _auto (commit 2, 2026-04-22) ─────────────
+# Keeping them module-level makes the prompt-mutation pipeline readable at
+# a glance and enables unit testing without building a full browser node.
+
+def _parse_required_vars_marker(task_text_raw: str) -> list[str]:
+    """Extract variable names from a `[REQUIRED_VARS:v1,v2,...]` marker.
+
+    Returns a de-duplicated list preserving declaration order, or an empty
+    list when the marker is absent or unparsable.
+    """
+    import re as _re
+    try:
+        m = _re.search(r"\[REQUIRED_VARS:([^\]]+)\]", str(task_text_raw or ""))
+        if not m:
+            return []
+        raw = m.group(1)
+        vars_list = [v.strip() for v in raw.split(",") if v.strip()]
+        seen: set[str] = set()
+        out: list[str] = []
+        for v in vars_list:
+            if v in seen:
+                continue
+            seen.add(v)
+            out.append(v)
+        return out
+    except Exception:
+        return []
+
+
+def _resolve_local_dir_from_prompt_var(task_text_raw: str, context: dict) -> tuple[str, str]:
+    """Resolve the `[LOCAL_DIR_VAR:name]` marker against the format context.
+
+    Returns `(var_name, resolved_path)`.  When the marker is present but
+    the variable is missing/empty, returns `(var_name, "")` so callers can
+    distinguish "no marker" from "marker but no value".
+    """
+    import re as _re
+    try:
+        marker_match = _re.search(r"\[LOCAL_DIR_VAR:([a-zA-Z_][a-zA-Z0-9_]*)\]", str(task_text_raw or ""))
+        if not marker_match:
+            return "", ""
+        var_name = marker_match.group(1).strip()
+        if not var_name:
+            return "", ""
+        value = (context or {}).get(var_name)
+        if isinstance(value, str) and value.strip():
+            return var_name, value.strip()
+        return var_name, ""
+    except Exception:
+        return "", ""
+
+
+def _build_local_dir_snapshot(dir_path: str) -> str:
+    """Return a compact JSON snapshot of a local directory.
+
+    The snapshot contains:
+      - absolute path, existence flag, file count
+      - first 60 filenames (sorted)
+      - first 2400-byte prefix of up to 3 small text files
+    Intended for injection into an LLM prompt so the browser-automation
+    agent can ground extraction on local files without navigating the web.
+    """
+    import json as _json
+    import os as _os
+    try:
+        if not dir_path:
+            return ""
+        abs_dir = _os.path.abspath(_os.path.expanduser(dir_path))
+        payload: dict = {
+            "dir_path": abs_dir,
+            "exists": _os.path.isdir(abs_dir),
+            "file_count": 0,
+            "sample_files": [],
+            "text_snippets": {},
+        }
+        if not payload["exists"]:
+            payload["error"] = "directory_not_found"
+            return _json.dumps(payload, ensure_ascii=False)
+
+        names = sorted(_os.listdir(abs_dir))
+        payload["file_count"] = len(names)
+        payload["sample_files"] = names[:60]
+
+        text_exts = {".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".log"}
+        picked = 0
+        for name in names:
+            if picked >= 3:
+                break
+            fpath = _os.path.join(abs_dir, name)
+            if not _os.path.isfile(fpath):
+                continue
+            ext = _os.path.splitext(name)[1].lower()
+            if ext not in text_exts:
+                continue
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                    snippet = f.read(2400)
+                if snippet.strip():
+                    payload["text_snippets"][name] = snippet
+                    picked += 1
+            except Exception:
+                continue
+        return _json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        return _json.dumps({"error": f"snapshot_failed: {e}"}, ensure_ascii=False)
+
+
+def _append_anti_risk_guardrails(task_text_raw: str, inputs: dict | None = None) -> str:
+    """Append a shared anti-risk guardrail block to a browser task prompt.
+
+    Idempotent: returns `task_text_raw` unchanged when the marker
+    `[GLOBAL ANTI-RISK GUARDRAILS]` is already present.  The `inputs` dict
+    (the node's `inputsValues`) is consulted for a `tabPolicy` override.
+    """
+    try:
+        if not isinstance(task_text_raw, str) or not task_text_raw.strip():
+            return task_text_raw
+
+        marker = "[GLOBAL ANTI-RISK GUARDRAILS]"
+        if marker in task_text_raw:
+            return task_text_raw
+
+        _tab_policy = ""
+        if isinstance(inputs, dict):
+            _tab_policy = str(
+                (inputs.get("tabPolicy") or {}).get("content", "") or ""
+            ).strip().lower()
+        if _tab_policy == "allow_assigned_tab":
+            tab_guardrail = (
+                "2) If an assigned `tab_id` is provided for this invocation, "
+                "you may and should focus that assigned tab. Do not switch to unrelated stale tabs "
+                "from previous sessions. If no assigned `tab_id` is available, navigate directly to "
+                "the assigned URL.\n"
+            )
+        else:
+            tab_guardrail = (
+                "2) Never use switch_tab. Always stay in the current active tab and use navigate "
+                "to load any new URL. Do not switch to any stale tab from a previous run.\n"
+            )
+
+        guardrail_text = (
+            "\n\n[GLOBAL ANTI-RISK GUARDRAILS]\n"
+            "1) Anti-bot handling: if the page shows any rate-limit, captcha, "
+            "human-verification, access-denied, or unusual-traffic warning (in any language), "
+            "perform at most one low-risk recovery attempt (for example: refresh once or navigate "
+            "to site home then continue with the same intent). If still blocked, return "
+            "blocked(reason=risk_control).\n"
+            f"{tab_guardrail}"
+            "3) Low-frequency behavior: avoid repeated clicks on the same element and "
+            "unnecessary refresh loops. Retry the same failed action at most once.\n"
+            "4) Fast convergence: if 2-3 consecutive actions produce no meaningful state change, "
+            "stop and return blocked(reason=navigation_deadlock).\n"
+            "5) Minimum-necessary actions: prefer direct navigation to target pages and extract "
+            "required data with the shortest path. End as soon as success criteria are met.\n"
+            "6) Cooldown policy: after blocked(reason=risk_control), treat the site as cooling down "
+            "for this run and continue with alternative paths or downstream steps."
+        )
+        return f"{task_text_raw}{guardrail_text}"
+    except Exception:
+        return task_text_raw
+
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
@@ -7765,6 +8858,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
         nonlocal _last_known_focus_target_ids
+        # Entry trace — pairs with [BA._auto] worker_call start/done so we
+        # can see whether the hang is in the thread-hop itself or inside
+        # the coroutine body.
+        import time as _rbu_time
+        _rbu_t0 = _rbu_time.perf_counter()
+        try:
+            _rbu_thread_name = threading.current_thread().name
+        except Exception:
+            _rbu_thread_name = "?"
+        logger.info(
+            f"[BA._run_browser_use] enter node={node_name} thread={_rbu_thread_name} "
+            f"calling_agent_id={calling_agent_id!r} task_len={len(task or '')}"
+        )
         try:
             import asyncio
             from browser_use import Agent as BUAgent
@@ -8336,33 +9442,146 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _hp_b_actions_list = json.loads(_hp_b_raw)
                     elif isinstance(_hp_b_raw, list):
                         _hp_b_actions_list = _hp_b_raw
-                    # Determine current event type and payload fields
+                    # Determine current event type and payload fields.
+                    # IMPORTANT (customer cross-talk fix 2026-04-22): We must read the
+                    # payload from the JUST-RESUMED event for THIS cycle, not from
+                    # state["input"] (stale) and not from state["events"][-1] alone
+                    # (which can contain an event from a different customer's cycle
+                    # when multiple chat_messages are interleaved on the same task's
+                    # shared graph state).
+                    #
+                    # Priority order for sourcing the payload:
+                    #   1. state["prompt_refs"]["events"] (AUTHORITATIVE — this is
+                    #      written by pend_event_node for THIS cycle's triggering
+                    #      event, and matches the "Injected triggering event
+                    #      context" log emitted just above)
+                    #   2. state["events"][-1].data.human_text (matches #1 in most
+                    #      cases; used when prompt_refs is missing)
+                    #   3. state["input"] (legacy fallback ONLY when the current
+                    #      event is itself a chat_message)
+                    #
+                    # Cross-check: if #1 and #2 disagree on customer_name, trust #1
+                    # and WARN — that is the cross-customer bleed scenario.
                     _hp_b_evt_type = ""
                     _hp_b_payload = {}
+                    _hp_b_payload_src = "none"
+                    _hp_b_payload_from_events_tail = {}
                     if isinstance(state, dict):
+                        # --- 1. prompt_refs.events (authoritative per-cycle) ---
                         _hp_b_pr = state.get("prompt_refs")
                         if isinstance(_hp_b_pr, dict):
                             _hp_b_evt_str = _hp_b_pr.get("events", "")
                             if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
                                 try:
                                     _hp_b_evt = json.loads(_hp_b_evt_str)
-                                    _hp_b_evt_type = _hp_b_evt.get("event_type", "")
+                                    _hp_b_evt_type = _hp_b_evt.get("event_type", "") or _hp_b_evt_type
+                                    _hp_b_pr_ht = _hp_b_evt.get("human_text")
+                                    if isinstance(_hp_b_pr_ht, str) and _hp_b_pr_ht.strip():
+                                        try:
+                                            _hp_b_parsed = json.loads(_hp_b_pr_ht)
+                                            if isinstance(_hp_b_parsed, dict):
+                                                _hp_b_payload = _hp_b_parsed
+                                                _hp_b_payload_src = "prompt_refs.events.human_text"
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
-                        _hp_b_input = state.get("input", "")
-                        if isinstance(_hp_b_input, str) and _hp_b_input.strip():
-                            try:
-                                _hp_b_parsed = json.loads(_hp_b_input)
-                                if isinstance(_hp_b_parsed, dict):
-                                    _hp_b_payload = _hp_b_parsed
-                            except Exception:
-                                pass
+                        # --- 2. state.events[-1] — also sample so we can detect
+                        # disagreement with #1 (cross-customer bleed warning). ---
+                        _hp_b_events_list = state.get("events") or []
+                        if isinstance(_hp_b_events_list, list) and _hp_b_events_list:
+                            _hp_b_last_evt = _hp_b_events_list[-1] if isinstance(_hp_b_events_list[-1], dict) else {}
+                            _hp_b_tail_type = _hp_b_last_evt.get("event_type", "")
+                            _hp_b_evt_data = _hp_b_last_evt.get("data") or {}
+                            _hp_b_raw_ht = _hp_b_evt_data.get("human_text") if isinstance(_hp_b_evt_data, dict) else None
+                            if isinstance(_hp_b_raw_ht, str) and _hp_b_raw_ht.strip():
+                                try:
+                                    _hp_b_tail_parsed = json.loads(_hp_b_raw_ht)
+                                    if isinstance(_hp_b_tail_parsed, dict):
+                                        _hp_b_payload_from_events_tail = _hp_b_tail_parsed
+                                        # Fill in only if prompt_refs.events was empty.
+                                        if not _hp_b_payload:
+                                            _hp_b_payload = _hp_b_tail_parsed
+                                            _hp_b_payload_src = "events[-1].data.human_text"
+                                            _hp_b_evt_type = _hp_b_tail_type or _hp_b_evt_type
+                                except Exception:
+                                    pass
+                        # --- 3. Legacy state.input fallback ---
+                        # Only trust state.input when the current cycle is itself a
+                        # chat_message AND we could not source a payload from #1/#2.
+                        # Otherwise the inherited value is from a previous customer.
+                        if not _hp_b_payload and _hp_b_evt_type == "chat_message":
+                            _hp_b_input = state.get("input", "")
+                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                                try:
+                                    _hp_b_parsed = json.loads(_hp_b_input)
+                                    if isinstance(_hp_b_parsed, dict):
+                                        _hp_b_payload = _hp_b_parsed
+                                        _hp_b_payload_src = "state.input[legacy-fallback]"
+                                except Exception:
+                                    pass
+                    # Cross-customer bleed detection: if prompt_refs.events (cycle
+                    # truth) disagrees with state.events[-1] (accumulated tail), WARN
+                    # loudly and trust prompt_refs. Previously we trusted tail first,
+                    # which caused HOT-PATH-B to type customer B's reply into customer
+                    # C's chat when their cycles interleaved on the shared task state.
+                    try:
+                        if (
+                            _hp_b_payload
+                            and _hp_b_payload_from_events_tail
+                            and _hp_b_payload is not _hp_b_payload_from_events_tail
+                        ):
+                            _cn_cur = (
+                                _hp_b_payload.get("customer_name")
+                                or _hp_b_payload.get("customer_id")
+                                or ""
+                            )
+                            _cn_tail = (
+                                _hp_b_payload_from_events_tail.get("customer_name")
+                                or _hp_b_payload_from_events_tail.get("customer_id")
+                                or ""
+                            )
+                            if _cn_cur and _cn_tail and _cn_cur != _cn_tail:
+                                logger.warning(
+                                    f"[BrowserAutomation] HOT-PATH-B: cycle/tail customer "
+                                    f"disagreement — cycle(prompt_refs)={_cn_cur!r} "
+                                    f"tail(events[-1])={_cn_tail!r}; trusting cycle. "
+                                    f"This indicates state.events accumulated from a "
+                                    f"prior customer's resume that is not the current "
+                                    f"cycle — defence-in-depth for graph-state bleed."
+                                )
+                    except Exception:
+                        pass
+                    # Cross-check: detect stale-state bleed. If state.input carries a
+                    # customer_name different from the per-cycle payload's, log a
+                    # WARN so we can track residual bleed after this fix.
+                    try:
+                        if _hp_b_payload and isinstance(state, dict):
+                            _hp_b_state_input = state.get("input", "")
+                            if isinstance(_hp_b_state_input, str) and _hp_b_state_input.strip():
+                                try:
+                                    _hp_b_si = json.loads(_hp_b_state_input)
+                                    if isinstance(_hp_b_si, dict):
+                                        _hp_b_cn_cur = (_hp_b_payload.get("customer_name") or _hp_b_payload.get("customer_id") or "")
+                                        _hp_b_cn_stale = (_hp_b_si.get("customer_name") or _hp_b_si.get("customer_id") or "")
+                                        if _hp_b_cn_cur and _hp_b_cn_stale and _hp_b_cn_cur != _hp_b_cn_stale:
+                                            logger.warning(
+                                                f"[BrowserAutomation] HOT-PATH-B: detected stale state.input bleed "
+                                                f"(cur_cycle_customer='{_hp_b_cn_cur}' src={_hp_b_payload_src} "
+                                                f"!= state.input_customer='{_hp_b_cn_stale}'); using cur_cycle payload"
+                                            )
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
                     # Entry-log so we can see HOT-PATH-B was considered and why it
                     # did (not) fire.
                     logger.info(
                         f"[BrowserAutomation] HOT-PATH-B: entry "
                         f"event_type={_hp_b_evt_type or 'none'}, "
                         f"payload_keys={list(_hp_b_payload.keys()) if _hp_b_payload else []}, "
+                        f"payload_src={_hp_b_payload_src}, "
+                        f"payload_customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id') or '-'}, "
                         f"rules_configured={len(_hp_b_actions_list) if isinstance(_hp_b_actions_list, list) else 0}, "
                         f"node={node_name}"
                     )
@@ -8387,30 +9606,78 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
                                 f"executing {len(_hp_b_action_seq)} actions"
                             )
-                            # ── Pre-register cooldown BEFORE send ──
-                            # Without this, a race exists: feige_send_message posts the
-                            # message, the sidebar DOM update fires a new browser_event,
-                            # and _try_auto_dispatch re-dispatches the store's OWN reply
-                            # to the Q&A agent before the post-delivery cooldown lands
-                            # (observed race window ~300ms).
+                            # ── Replay dedup guard (fixes observed crosstalk loop) ──
+                            # 2026-04-22 11:51 run: HOT-PATH-B re-entered 8+ times with
+                            # an IDENTICAL payload ({customer_name:'客户B', response_text:...})
+                            # because send_response_back's fallback path keeps re-firing
+                            # the same chat_message after `Chat not found: 客户B` errors.
+                            # Each replay re-ran feige_open_session + feige_send_message,
+                            # and due to a brief focus race between cycles, some of those
+                            # sends landed in the wrong customer's chat pane (客户C got
+                            # 客户B's XXL answer).  Short-TTL dedup on (cust, reply-hash)
+                            # breaks the loop without blocking legitimate future replies.
+                            _hp_b_dedup_cust = (
+                                _hp_b_payload.get("customer_name")
+                                or _hp_b_payload.get("customer_id")
+                                or ""
+                            )
+                            _hp_b_dedup_reply = _hp_b_payload.get("response_text") or ""
+                            _hp_b_dedup_age = _hp_b_was_recently_sent(
+                                _hp_b_dedup_cust, _hp_b_dedup_reply
+                            )
+                            if _hp_b_dedup_age > 0:
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH-B: dedup skip "
+                                    f"cust={_hp_b_dedup_cust!r} reply_len="
+                                    f"{len(_hp_b_dedup_reply)} (identical reply already "
+                                    f"sent {_hp_b_dedup_age:.1f}s ago, "
+                                    f"ttl={_HP_B_DEDUP_TTL_S}s), node={node_name}"
+                                )
+                                # Release the cross-scope inflight lock so the
+                                # *next* genuine customer turn isn't blocked by
+                                # the stale inflight record from the loop.
+                                try:
+                                    _hp_b_skip_cust = _normalize_customer_id(_hp_b_dedup_cust)
+                                    if _hp_b_skip_cust:
+                                        _clear_customer_dispatch_inflight(_hp_b_skip_cust)
+                                except Exception:
+                                    pass
+                                state.setdefault("result", {})["llm_result"] = {
+                                    "all_done": False, "work_done": False,
+                                    "hot_path": True, "hot_path_type": "dedup_skip",
+                                }
+                                return state
+                            # ── Pre-record the outgoing reply text BEFORE send ──
+                            # The equality guard in PreDispatch compares the DOM's
+                            # sidebar `last_message` against this recorded text to
+                            # recognise our own DOM-echo events and skip them.  By
+                            # recording *before* feige_send_message runs, we close
+                            # the race window entirely: if a DOM diff fires while
+                            # typing is in flight, the recorded text is already
+                            # available for comparison.  If the send ultimately
+                            # fails, the recorded text is harmless — the DOM won't
+                            # contain it, so the equality guard will never match a
+                            # genuine event against it.
                             try:
                                 _hp_b_pre_cust = _normalize_customer_id(
                                     _hp_b_payload.get("customer_name")
                                     or _hp_b_payload.get("customer_id")
                                     or ""
                                 )
-                                if _hp_b_pre_cust:
-                                    import time as _hp_b_pre_time
-                                    _hp_b_pre_now = _hp_b_pre_time.time()
-                                    _auto_dispatch_cooldown[_hp_b_pre_cust] = _hp_b_pre_now
+                                _hp_b_pre_reply = _normalize_reply_text(
+                                    _hp_b_payload.get("response_text") or ""
+                                )
+                                if _hp_b_pre_cust and _hp_b_pre_reply:
+                                    _auto_dispatch_last_agent_reply[_hp_b_pre_cust] = _hp_b_pre_reply
                                     logger.info(
-                                        f"[BrowserAutomation] HOT-PATH-B: PRE-registered cooldown "
-                                        f"({_AUTO_DISPATCH_COOLDOWN_S}s) for "
-                                        f"'{_hp_b_pre_cust}' (before send), node={node_name}"
+                                        f"[BrowserAutomation] HOT-PATH-B: pre-recorded "
+                                        f"last_agent_reply for '{_hp_b_pre_cust}' "
+                                        f"(len={len(_hp_b_pre_reply)}, before send), "
+                                        f"node={node_name}"
                                     )
                             except Exception as _hp_b_pre_err:
                                 logger.warning(
-                                    f"[BrowserAutomation] HOT-PATH-B: pre-register cooldown failed: {_hp_b_pre_err}"
+                                    f"[BrowserAutomation] HOT-PATH-B: pre-record reply failed: {_hp_b_pre_err}"
                                 )
                             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
                             _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
@@ -8422,6 +9689,167 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 break
                             _hp_b_all_ok = True
                             import asyncio as _hp_b_asyncio
+
+                            # Pre-action: make sure we're on the Feige (im.jinritemai.com) browser
+                            # tab AND on Feige's "最近联系" (recent contacts) sub-tab before the
+                            # action sequence runs. Otherwise feige_open_session's JS queries a
+                            # DOM that has no qa-conversation-chat-item elements and fails with
+                            # "Session not found".
+                            try:
+                                from browser_use.browser.events import SwitchTabEvent as _HP_STE
+
+                                _hp_b_page = await _hp_b_session.get_current_page()
+                                _hp_b_cur_url = ""
+                                try:
+                                    _hp_b_cur_url = _hp_b_page.url if _hp_b_page else ""
+                                except Exception:
+                                    _hp_b_cur_url = ""
+
+                                # If current tab isn't Feige, look through all tabs for one whose
+                                # URL contains 'im.jinritemai.com' and switch focus to it.
+                                if "im.jinritemai.com" not in (_hp_b_cur_url or ""):
+                                    _hp_b_sm = getattr(_hp_b_session, "session_manager", None)
+                                    _hp_b_targets = _hp_b_sm.get_all_targets() if _hp_b_sm else {}
+                                    _hp_b_feige_tid = ""
+                                    for _tid, _tgt in (_hp_b_targets or {}).items():
+                                        if getattr(_tgt, "target_type", "") not in ("page", "tab"):
+                                            continue
+                                        _turl = str(getattr(_tgt, "url", "") or "")
+                                        if "im.jinritemai.com" in _turl:
+                                            _hp_b_feige_tid = str(_tid)
+                                            break
+                                    if _hp_b_feige_tid:
+                                        # Prefer direct CDP-session acquisition
+                                        # (synchronous focus update) over the
+                                        # event-bus SwitchTabEvent path: the
+                                        # latter races with downstream
+                                        # `_evaluate_js` calls that fall back
+                                        # to `agent_focus_target_id`, which
+                                        # caused feige_open_session to fail
+                                        # with "Session not found" on fresh
+                                        # QA-worker sessions (observed
+                                        # 2026-04-22 11:18:38).  Falls back to
+                                        # the legacy path if the method is
+                                        # unavailable on this browser_use
+                                        # version.
+                                        try:
+                                            if hasattr(_hp_b_session, "get_or_create_cdp_session"):
+                                                await _hp_b_session.get_or_create_cdp_session(
+                                                    target_id=_hp_b_feige_tid, focus=True
+                                                )
+                                            else:
+                                                await _hp_b_session.event_bus.dispatch(
+                                                    _HP_STE(target_id=_hp_b_feige_tid)
+                                                )
+                                                await _hp_b_asyncio.sleep(0.3)
+                                        except Exception as _hp_b_focus_err:
+                                            logger.warning(
+                                                f"[BrowserAutomation] HOT-PATH-B: focus-target "
+                                                f"failed (target=...{_hp_b_feige_tid[-6:]}): "
+                                                f"{_hp_b_focus_err}"
+                                            )
+                                        _hp_b_page = await _hp_b_session.get_current_page()
+                                        try:
+                                            _hp_b_cur_url = _hp_b_page.url if _hp_b_page else ""
+                                        except Exception:
+                                            _hp_b_cur_url = ""
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH-B: focused Feige tab "
+                                            f"(target=...{_hp_b_feige_tid[-6:]}, "
+                                            f"url={_hp_b_cur_url!r}), node={node_name}"
+                                        )
+                                    else:
+                                        logger.warning(
+                                            f"[BrowserAutomation] HOT-PATH-B: no Feige tab found "
+                                            f"among {len(_hp_b_targets or {})} targets; current "
+                                            f"url={_hp_b_cur_url!r}. feige_* actions will likely "
+                                            f"fail."
+                                        )
+
+                                # Now click the "最近联系" sub-tab inside the
+                                # Feige SPA if present.  Uses CDP JS eval
+                                # instead of page.query_selector because
+                                # browser_use's Page object doesn't expose
+                                # query_selector (historically logged as
+                                # `'Page' object has no attribute
+                                # 'query_selector'`, making this sub-tab click
+                                # a silent no-op).
+                                try:
+                                    from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                                        _evaluate_js as _hp_b_eval_js,
+                                    )
+                                    _hp_b_sub_tab_js = r"""
+(function() {
+  var el = document.querySelector('[data-qa-id="qa-last-chat-tab"]');
+  if (!el) return JSON.stringify({ ok: false, reason: 'selector_not_found' });
+  var cls = (el.className || '').toLowerCase();
+  var alreadyActive = cls.indexOf('active') >= 0 || (el.classList && el.classList.contains('active'));
+  if (!alreadyActive) { el.click(); }
+  return JSON.stringify({ ok: true, already_active: alreadyActive });
+})()
+"""
+                                    _hp_b_res = await _hp_b_eval_js(_hp_b_session, _hp_b_sub_tab_js)
+                                    if isinstance(_hp_b_res, str):
+                                        try:
+                                            _hp_b_res = json.loads(_hp_b_res)
+                                        except Exception:
+                                            _hp_b_res = {}
+                                    _hp_b_res = _hp_b_res if isinstance(_hp_b_res, dict) else {}
+                                    if _hp_b_res.get("ok") and not _hp_b_res.get("already_active"):
+                                        await _hp_b_asyncio.sleep(0.3)
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH-B: pre-switched to "
+                                            f"'最近联系' tab, node={node_name}"
+                                        )
+                                except Exception as _hp_b_subtab_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] HOT-PATH-B: '最近联系' "
+                                        f"sub-tab click skipped: {_hp_b_subtab_err}"
+                                    )
+                            except Exception as _hp_b_pretab_err:
+                                logger.warning(
+                                    f"[BrowserAutomation] HOT-PATH-B: pre-action tab switch failed "
+                                    f"(non-fatal): {_hp_b_pretab_err}",
+                                    exc_info=True,
+                                )
+
+                            # ── Feige typing lock acquire (fixes cross-session
+                            # typing race, 2026-04-22).  Claim exclusive access
+                            # to Feige's active-chat state for this customer so
+                            # that parallel PreDispatch scrapes on other scopes
+                            # cannot click sidebar rows between our open_session
+                            # and send_message.  We wait up to 3 s for a prior
+                            # holder to release; if it doesn't, we log WARN and
+                            # proceed (degrading to the pre-fix behaviour with
+                            # visibility, rather than stalling the customer).
+                            _hp_b_typing_cust = _normalize_customer_id(
+                                _hp_b_payload.get("customer_name")
+                                or _hp_b_payload.get("customer_id")
+                                or ""
+                            )
+                            _hp_b_typing_acquired = False
+                            if _hp_b_typing_cust:
+                                for _hp_b_lock_wait in range(30):  # 30 × 100 ms
+                                    if _try_acquire_feige_typing(_hp_b_typing_cust):
+                                        _hp_b_typing_acquired = True
+                                        break
+                                    await _hp_b_asyncio.sleep(0.1)
+                                if _hp_b_typing_acquired:
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH-B: acquired Feige "
+                                        f"typing lock for cust={_hp_b_typing_cust!r}, "
+                                        f"node={node_name}"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"[BrowserAutomation] HOT-PATH-B: could not "
+                                        f"acquire Feige typing lock for "
+                                        f"cust={_hp_b_typing_cust!r} within 3s "
+                                        f"(current holder={_feige_typing_holder()!r}); "
+                                        f"proceeding anyway — race guard bypassed, "
+                                        f"node={node_name}"
+                                    )
+
                             for _hp_b_act in _hp_b_action_seq:
                                 _hp_b_tool_name = _hp_b_act.get("tool", "")
                                 _hp_b_args_tpl = _hp_b_act.get("args", {})
@@ -8436,6 +9864,120 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     break
                                 _hp_b_param_model = _hp_b_act_obj.param_model
                                 _hp_b_params = _hp_b_param_model(**_hp_b_args)
+
+                                # ── Pre-send re-verify (2026-04-22 Fix A) ──
+                                # Immediately before feige_send_message, re-check
+                                # that Feige's active customer still matches the
+                                # intended customer.  Even with the typing lock
+                                # held, CDP/render latency between our earlier
+                                # open_session verification and this send can let
+                                # an in-flight click-event from another scope's
+                                # scrape (that fired before we acquired the lock)
+                                # commit late and switch the active session.
+                                # If drift is detected we re-open inline before
+                                # proceeding.  This is the last-line guarantee
+                                # that the reply lands in the correct chat.
+                                if (
+                                    _hp_b_tool_name == "feige_send_message"
+                                    and _hp_b_typing_cust
+                                ):
+                                    try:
+                                        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                                            _evaluate_js as _hp_b_eval_js_v2,
+                                        )
+                                        _hp_b_pre_send_active = ""
+                                        _hp_b_pre_send_ok = False
+                                        _vres2 = await _hp_b_eval_js_v2(
+                                            _hp_b_session, _FEIGE_ACTIVE_CUSTOMER_JS
+                                        )
+                                        if isinstance(_vres2, str):
+                                            try:
+                                                _vres2 = json.loads(_vres2)
+                                            except Exception:
+                                                _vres2 = {}
+                                        if isinstance(_vres2, dict) and _vres2.get("ok"):
+                                            _hp_b_pre_send_active = str(
+                                                _vres2.get("active") or ""
+                                            ).strip()
+                                            _hp_b_pre_send_ok = (
+                                                _normalize_customer_id(_hp_b_pre_send_active)
+                                                == _hp_b_typing_cust
+                                            )
+                                        if not _hp_b_pre_send_ok:
+                                            logger.warning(
+                                                f"[BrowserAutomation] HOT-PATH-B: pre-send "
+                                                f"active-customer DRIFT detected — "
+                                                f"expected={_hp_b_typing_cust!r} "
+                                                f"active={_hp_b_pre_send_active!r}; "
+                                                f"re-opening session before typing, "
+                                                f"node={node_name}"
+                                            )
+                                            # Re-open the expected customer's
+                                            # session and wait for the DOM to
+                                            # commit.  If we still can't confirm
+                                            # after the retry, abort the send so
+                                            # we never type into the wrong chat.
+                                            _reopen_obj = _hp_b_actions_reg.get("feige_open_session")
+                                            if _reopen_obj:
+                                                _reopen_params = _reopen_obj.param_model(
+                                                    customer_name=_hp_b_typing_cust
+                                                )
+                                                try:
+                                                    await _reopen_obj.function(
+                                                        params=_reopen_params,
+                                                        browser_session=_hp_b_session,
+                                                    )
+                                                except Exception as _re_err:
+                                                    logger.debug(
+                                                        f"[BrowserAutomation] HOT-PATH-B: "
+                                                        f"re-open feige_open_session errored: {_re_err}"
+                                                    )
+                                            _hp_b_reverify_ok = False
+                                            _hp_b_reverify_active = ""
+                                            for _ri in range(8):  # up to 8 × 75 ms
+                                                _vres3 = await _hp_b_eval_js_v2(
+                                                    _hp_b_session, _FEIGE_ACTIVE_CUSTOMER_JS
+                                                )
+                                                if isinstance(_vres3, str):
+                                                    try:
+                                                        _vres3 = json.loads(_vres3)
+                                                    except Exception:
+                                                        _vres3 = {}
+                                                if isinstance(_vres3, dict) and _vres3.get("ok"):
+                                                    _hp_b_reverify_active = str(
+                                                        _vres3.get("active") or ""
+                                                    ).strip()
+                                                    if (
+                                                        _normalize_customer_id(_hp_b_reverify_active)
+                                                        == _hp_b_typing_cust
+                                                    ):
+                                                        _hp_b_reverify_ok = True
+                                                        break
+                                                await _hp_b_asyncio.sleep(0.075)
+                                            if not _hp_b_reverify_ok:
+                                                logger.error(
+                                                    f"[BrowserAutomation] HOT-PATH-B: "
+                                                    f"ABORT send — pre-send re-verify failed "
+                                                    f"after re-open: expected="
+                                                    f"{_hp_b_typing_cust!r} active="
+                                                    f"{_hp_b_reverify_active!r}. Refusing "
+                                                    f"to type into the wrong session, "
+                                                    f"node={node_name}"
+                                                )
+                                                _hp_b_all_ok = False
+                                                break
+                                            logger.info(
+                                                f"[BrowserAutomation] HOT-PATH-B: pre-send "
+                                                f"re-verify recovered — active now "
+                                                f"{_hp_b_reverify_active!r}, node={node_name}"
+                                            )
+                                    except Exception as _hp_b_presend_err:
+                                        logger.warning(
+                                            f"[BrowserAutomation] HOT-PATH-B: pre-send "
+                                            f"re-verify errored (non-fatal, proceeding): "
+                                            f"{_hp_b_presend_err}"
+                                        )
+
                                 # Call with browser_session if the function expects it
                                 import inspect as _hp_b_inspect
                                 _hp_b_sig = _hp_b_inspect.signature(_hp_b_act_obj.function)
@@ -8446,40 +9988,195 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 else:
                                     _hp_b_result = await _hp_b_act_obj.function(params=_hp_b_params)
                                 _hp_b_ok = _hp_b_result and not getattr(_hp_b_result, "error", None)
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → "
-                                    f"{'OK' if _hp_b_ok else 'FAIL'}"
-                                )
+                                if _hp_b_ok:
+                                    logger.info(
+                                        f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → OK "
+                                        f"args={_hp_b_args} "
+                                        f"extracted={getattr(_hp_b_result, 'extracted_content', '')!r}"
+                                    )
+                                    # ── Post-open verification (fixes crosstalk) ──
+                                    # Immediately after feige_open_session, verify the
+                                    # emulation actually committed its state change to
+                                    # the expected customer.  Observed 2026-04-22 11:51
+                                    # that feige_open_session returned OK but due to a
+                                    # focus-vs-render race the `.chat-item.active` in
+                                    # the DOM was still the PREVIOUS customer, so the
+                                    # subsequent feige_send_message typed into the
+                                    # wrong session.  Poll briefly; abort the sequence
+                                    # on confirmed mismatch.
+                                    if _hp_b_tool_name == "feige_open_session":
+                                        _hp_b_expected = (
+                                            _hp_b_args.get("customer_name")
+                                            or _hp_b_args.get("customer_id")
+                                            or ""
+                                        )
+                                        if _hp_b_expected:
+                                            try:
+                                                from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                                                    _evaluate_js as _hp_b_eval_js,
+                                                )
+                                                _hp_b_active = ""
+                                                _hp_b_verify_ok = False
+                                                for _vi in range(8):  # up to 8 × 75 ms = 600 ms
+                                                    _vres = await _hp_b_eval_js(
+                                                        _hp_b_session, _FEIGE_ACTIVE_CUSTOMER_JS
+                                                    )
+                                                    if isinstance(_vres, str):
+                                                        try:
+                                                            _vres = json.loads(_vres)
+                                                        except Exception:
+                                                            _vres = {}
+                                                    if isinstance(_vres, dict) and _vres.get("ok"):
+                                                        _hp_b_active = str(_vres.get("active") or "").strip()
+                                                        if _hp_b_active == str(_hp_b_expected).strip():
+                                                            _hp_b_verify_ok = True
+                                                            break
+                                                    await _hp_b_asyncio.sleep(0.075)
+                                                if not _hp_b_verify_ok:
+                                                    logger.error(
+                                                        f"[BrowserAutomation] HOT-PATH-B: "
+                                                        f"ABORT send — active-customer "
+                                                        f"verification failed after "
+                                                        f"feige_open_session: expected="
+                                                        f"{_hp_b_expected!r} active="
+                                                        f"{_hp_b_active!r}. Refusing to type "
+                                                        f"reply into the wrong session "
+                                                        f"(crosstalk guard), node={node_name}"
+                                                    )
+                                                    _hp_b_all_ok = False
+                                                    break
+                                                else:
+                                                    logger.info(
+                                                        f"[BrowserAutomation] HOT-PATH-B: "
+                                                        f"active-customer verified = "
+                                                        f"{_hp_b_active!r} after "
+                                                        f"feige_open_session"
+                                                    )
+                                            except Exception as _hp_b_vfy_err:
+                                                logger.warning(
+                                                    f"[BrowserAutomation] HOT-PATH-B: "
+                                                    f"active-customer verification errored "
+                                                    f"(non-fatal, proceeding): "
+                                                    f"{_hp_b_vfy_err}"
+                                                )
+                                else:
+                                    _hp_b_err_msg = (
+                                        getattr(_hp_b_result, "error", None)
+                                        if _hp_b_result is not None
+                                        else "action returned None"
+                                    )
+                                    logger.warning(
+                                        f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → FAIL "
+                                        f"args={_hp_b_args} error={_hp_b_err_msg!r}"
+                                    )
                                 if not _hp_b_ok:
                                     _hp_b_all_ok = False
                                     break
                                 _hp_b_delay = _hp_b_act.get("delay_after_ms", 300) / 1000.0
                                 await _hp_b_asyncio.sleep(_hp_b_delay)
                             if _hp_b_all_ok:
-                                # ── Post-delivery: update cooldown + switch tab ──
+                                # Mark this (cust, reply) as sent so any immediate
+                                # replay of the same chat_message (from
+                                # send_response_back fallback path) is deduped
+                                # by the guard at the top of HOT-PATH-B.
                                 try:
-                                    _hp_b_cust = _normalize_customer_id(
+                                    _hp_b_mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
+                                except Exception:
+                                    pass
+                                # Reply text was already pre-recorded before send
+                                # (see the `Pre-record the outgoing reply text BEFORE
+                                # send` block above). No timer-based cooldown is
+                                # needed — PreDispatch's equality guard uses the
+                                # pre-recorded text directly to recognise DOM echoes.
+
+                                # Release the QA-response pending lock so the next
+                                # *genuine* customer turn for this customer can be
+                                # dispatched again.  Acquired in
+                                # agent.mcp.server.chat_utils.chat_tools.send_chat
+                                # on the first response-bearing payload.  Keyed by
+                                # (recipient=this typing agent, customer).  Safe
+                                # no-op if the lock already expired via TTL.
+                                try:
+                                    from agent.mcp.server.chat_utils.chat_tools import (
+                                        clear_qa_response_pending as _hp_b_clear_pending,
+                                    )
+                                    _hp_b_clr_cust = _normalize_customer_id(
                                         _hp_b_payload.get("customer_name")
                                         or _hp_b_payload.get("customer_id")
                                         or ""
                                     )
-                                    if _hp_b_cust:
-                                        import time as _hp_b_time
-                                        _hp_b_now = _hp_b_time.time()
-                                        # Short hard cooldown to suppress the DOM-echo
-                                        # event burst right after the reply is typed.
-                                        _auto_dispatch_cooldown[_hp_b_cust] = _hp_b_now
+                                    if _hp_b_clr_cust and calling_agent_id:
+                                        _hp_b_clear_pending(str(calling_agent_id), _hp_b_clr_cust)
                                         logger.info(
-                                            f"[BrowserAutomation] HOT-PATH-B: set cooldown "
-                                            f"({_AUTO_DISPATCH_COOLDOWN_S}s) for "
-                                            f"'{_hp_b_cust}', node={node_name}"
+                                            f"[BrowserAutomation] HOT-PATH-B: cleared "
+                                            f"qa_response_pending lock for "
+                                            f"recipient={calling_agent_id!r} "
+                                            f"cust={_hp_b_clr_cust!r}, node={node_name}"
                                         )
-                                except Exception as _hp_b_cd_err:
-                                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: cooldown update failed: {_hp_b_cd_err}")
+                                except Exception as _hp_b_clr_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] HOT-PATH-B: "
+                                        f"qa_response_pending clear failed: {_hp_b_clr_err}"
+                                    )
+
+                                # Release the cross-scope dispatch-inflight
+                                # lock so the next customer turn (or a
+                                # queued follow-up already visible in the
+                                # sidebar) can be dispatched by the first
+                                # PreDispatch that notices it.
+                                try:
+                                    if _hp_b_clr_cust:
+                                        _clear_customer_dispatch_inflight(_hp_b_clr_cust)
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH-B: cleared "
+                                            f"customer_dispatch_inflight lock for "
+                                            f"cust={_hp_b_clr_cust!r}, node={node_name}"
+                                        )
+                                except Exception as _hp_b_cdi_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] HOT-PATH-B: "
+                                        f"customer_dispatch_inflight clear failed: {_hp_b_cdi_err}"
+                                    )
+                                # Evict this customer from assigned_sessions so the next
+                                # customer message for them re-dispatches. Without this, the
+                                # PreDispatch dedup guard (`if assigned_sessions.get(sid): continue`)
+                                # would permanently skip this customer after their first reply.
+                                try:
+                                    # Prefer the shared module-level dispatch_state
+                                    # (see _frontdesk_dispatch_state_by_agent). Fall back
+                                    # to the per-session attribute only if for some reason
+                                    # PreDispatch hasn't run yet.
+                                    _hp_b_shared_key = (
+                                        str(calling_agent_id or ""),
+                                        str(node_name or ""),
+                                        "_ecan_frontdesk_dispatch_state",
+                                    )
+                                    _hp_b_ds = _frontdesk_dispatch_state_by_agent.get(_hp_b_shared_key)
+                                    if not isinstance(_hp_b_ds, dict):
+                                        _hp_b_ds = getattr(_hp_b_session, "_ecan_frontdesk_dispatch_state", None)
+                                    if isinstance(_hp_b_ds, dict):
+                                        _hp_b_as = _hp_b_ds.get("assigned_sessions") or {}
+                                        _hp_b_raw_sid = (
+                                            _hp_b_payload.get("session_id")
+                                            or _hp_b_payload.get("customer_name")
+                                            or _hp_b_payload.get("customer_id")
+                                            or ""
+                                        )
+                                        if _hp_b_raw_sid and _hp_b_raw_sid in _hp_b_as:
+                                            _hp_b_as.pop(_hp_b_raw_sid, None)
+                                            logger.info(
+                                                f"[BrowserAutomation] HOT-PATH-B: evicted "
+                                                f"assigned_sessions[{_hp_b_raw_sid!r}] so next "
+                                                f"customer message will re-dispatch, node={node_name}"
+                                            )
+                                except Exception as _hp_b_evict_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] HOT-PATH-B: assigned_sessions eviction failed: {_hp_b_evict_err}"
+                                    )
                                 # Switch back to "最近联系" tab so future DOM reads
                                 # show pending_timer (invisible on "当前会话" tab)
                                 try:
-                                    _hp_b_page = _hp_b_session.get_current_page()
+                                    _hp_b_page = await _hp_b_session.get_current_page()
                                     if _hp_b_page:
                                         _hp_b_tab_sel = '[data-qa-id="qa-last-chat-tab"]'
                                         _hp_b_tab = await _hp_b_page.query_selector(_hp_b_tab_sel)
@@ -8497,13 +10194,78 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     "hot_path": True, "hot_path_type": "configurable",
                                 }
                                 logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={node_name}")
+                                # Release Feige typing lock now that the
+                                # open+send pair for this customer has
+                                # completed successfully.  Other scopes can
+                                # resume scraping sidebar rows without
+                                # disturbing an in-flight reply.
+                                try:
+                                    if _hp_b_typing_acquired and _hp_b_typing_cust:
+                                        _release_feige_typing(_hp_b_typing_cust)
+                                except Exception:
+                                    pass
                                 return state
+                            else:
+                                # Any action in the sequence failed (e.g.
+                                # feige_open_session returning "Session not
+                                # found" when Feige's SPA is transiently in a
+                                # bad state).  Release the cross-scope
+                                # `_customer_dispatch_inflight` lock here —
+                                # otherwise PreDispatch keeps skipping the
+                                # next message for this customer for the full
+                                # 120 s TTL (observed 2026-04-22 11:18:38 —
+                                # customer A's question sat unanswered for
+                                # `1m 42s` with repeated
+                                # `PreDispatch inflight skip ... ttl=120.0s`).
+                                # We deliberately do NOT clear
+                                # `qa_response_pending` or evict
+                                # `assigned_sessions`: the QA worker already
+                                # generated a reply and we want the *next*
+                                # genuine customer turn to cause a fresh
+                                # reply, not for PreDispatch to race with a
+                                # half-consumed state.
+                                try:
+                                    _hp_b_fail_cust = _normalize_customer_id(
+                                        _hp_b_payload.get("customer_name")
+                                        or _hp_b_payload.get("customer_id")
+                                        or ""
+                                    )
+                                    if _hp_b_fail_cust:
+                                        _clear_customer_dispatch_inflight(_hp_b_fail_cust)
+                                        logger.info(
+                                            f"[BrowserAutomation] HOT-PATH-B: released "
+                                            f"customer_dispatch_inflight after action-failure "
+                                            f"for cust={_hp_b_fail_cust!r}, node={node_name}"
+                                        )
+                                except Exception as _hp_b_fail_cdi_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] HOT-PATH-B: inflight clear "
+                                        f"after failure: {_hp_b_fail_cdi_err}"
+                                    )
+                                # Release the Feige typing lock on failure
+                                # so other scopes aren't blocked waiting on
+                                # a customer whose send aborted.
+                                try:
+                                    if _hp_b_typing_acquired and _hp_b_typing_cust:
+                                        _release_feige_typing(_hp_b_typing_cust)
+                                except Exception:
+                                    pass
                             break  # Only try first matching rule
                 except Exception as _hp_b_err:
                     logger.warning(
                         f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
                         exc_info=True,
                     )
+                    # Defensive release of the Feige typing lock in case a
+                    # mid-sequence exception aborted before the explicit
+                    # release paths above.  Safe no-op when not held.
+                    try:
+                        _typing_cust_fallback = locals().get("_hp_b_typing_cust", "")
+                        _typing_acq_fallback = locals().get("_hp_b_typing_acquired", False)
+                        if _typing_acq_fallback and _typing_cust_fallback:
+                            _release_feige_typing(_typing_cust_fallback)
+                    except Exception:
+                        pass
 
             # ── Assignment scope (always extracted — safe no-op when runtime_input
             # is not JSON).  Downstream focus-preflight and per-step refocus read
@@ -8641,6 +10403,40 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 if not _pd_source_label:
                     logger.warning(f"[BrowserAutomation] {_pd_log_tag} skipped: preDispatch.source_monitor_label is required but missing")
                     return None
+                # PreDispatch is a customer-message fan-out: it reads the event-monitor
+                # snapshot of the Feige session list and assigns each actionable customer
+                # to a worker agent. It must NOT run when Mary is resuming on an
+                # agent-to-agent chat_message (the worker's reply coming back to the
+                # front-desk). That path is HOT-PATH-B territory (typing the reply into
+                # Feige). Running PreDispatch here would cause duplicate assignments,
+                # because this resume typically scopes to a different cached browser
+                # session (e.g. scope='chat:<customer>') whose dispatch_state is empty,
+                # bypassing the assigned_sessions dedup that lives on the original
+                # session (scope='node:<node_id>').
+                try:
+                    _pd_evt = state.get("event_type") or state.get("event", {}).get("type") or ""
+                except Exception:
+                    _pd_evt = ""
+                if str(_pd_evt).strip().lower() == "chat_message":
+                    logger.info(
+                        f"[BrowserAutomation] {_pd_log_tag} skipped: event_type=chat_message "
+                        f"(agent-to-agent reply, handled by HOT-PATH-B; PreDispatch only runs "
+                        f"on customer browser_event)"
+                    )
+                    return None
+
+                # NOTE: PreDispatch now runs in *any* scope (front-desk
+                # `node:<node>` and QA-scope `chat:<customer>`).  Earlier we
+                # hard-skipped QA-scope to stop parallel over-dispatch, but
+                # that caused follow-up customer messages to be ignored
+                # whenever the front-desk's DOM-diff runner dropped off
+                # between rounds (observed 21:17:33/21:17:56 on 客户A —
+                # only Mary's runner was subscribed to label='最近联系',
+                # so skipping her PreDispatch meant no dispatch at all).
+                # De-duplication is now enforced per-customer via the
+                # cross-scope `_customer_dispatch_inflight` lock inside
+                # the dispatch loop below, so whichever scope's monitor
+                # fires first wins and the others silently no-op.
                 browser_session = getattr(agent_obj, "browser_session", None)
                 if not browser_session:
                     logger.info(f"[BrowserAutomation] {_pd_log_tag} skipped: no browser session on agent")
@@ -8703,13 +10499,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"count={len(raw_items)} scope={scope_key} chosen_session_obj={id(chosen_session) if chosen_session else 'none'}"
                     )
 
-                    dispatch_state = getattr(chosen_session, _pd_state_attr, None)
+                    # Resolve dispatch_state from a MODULE-LEVEL dict keyed by
+                    # (agent_id, node_name, state_attr). This ensures the
+                    # assigned_sessions dedup persists across different
+                    # BrowserSession "scopes" (e.g. node:<node_id> vs
+                    # chat:<customer>), which would otherwise each keep a
+                    # separate empty dispatch_state and allow duplicate
+                    # customer assignments. A backref is also mirrored on the
+                    # browser_session so legacy attribute-based reads keep
+                    # working.
+                    _pd_shared_key = (
+                        str(calling_agent_id or ""),
+                        str(node_name or ""),
+                        _pd_state_attr,
+                    )
+                    dispatch_state = _frontdesk_dispatch_state_by_agent.get(_pd_shared_key)
                     if not isinstance(dispatch_state, dict):
                         dispatch_state = {
                             "opened_tabs": {},
                             "assigned_sessions": {},
                         }
-                        setattr(chosen_session, _pd_state_attr, dispatch_state)
+                        _frontdesk_dispatch_state_by_agent[_pd_shared_key] = dispatch_state
+                    # Mirror onto the current session so any code path still
+                    # reading the attribute directly gets the same object.
+                    setattr(chosen_session, _pd_state_attr, dispatch_state)
 
                     # Prevent concurrent fast-path invocations from racing
                     _fp_lock = dispatch_state.get("_lock")
@@ -8817,6 +10630,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         )
                         _all_agents = _all_agents_result.get("agents", [])
 
+                        # Only consider agents that are enabled and running. Agents with DB
+                        # status 'disabled' are skipped at launch and will silently black-hole
+                        # any chat sent to them.
+                        def _agent_is_live(agent_entry: dict) -> bool:
+                            _status = str(agent_entry.get("status") or "").strip().lower()
+                            return _status and _status != "disabled"
+
+                        _live_agents = [a for a in _all_agents if _agent_is_live(a)]
+                        _dropped_disabled = [
+                            a.get("id", "")[-8:] for a in _all_agents if not _agent_is_live(a)
+                        ]
+                        if _dropped_disabled:
+                            logger.info(
+                                f"[BrowserAutomation] {_pd_log_tag} excluded {len(_dropped_disabled)} "
+                                f"non-live agents from recipient pool: {_dropped_disabled}"
+                            )
+
                         def _agent_matches(agent_entry: dict) -> bool:
                             if _pd_task_keywords:
                                 _tasks = [str(t).lower() for t in agent_entry.get("tasks", [])]
@@ -8828,13 +10658,29 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     return True
                             return False
 
-                        if _pd_task_keywords or _pd_skill_keywords:
-                            _service_agents = [a for a in _all_agents if _agent_matches(a)]
+                        _filter_specified = bool(_pd_task_keywords or _pd_skill_keywords)
+                        if _filter_specified:
+                            _service_agents = [a for a in _live_agents if _agent_matches(a)]
+                            if not _service_agents:
+                                # Filter was specified but matched nothing. Do NOT fall back to
+                                # "all live agents" — that would route messages to the wrong
+                                # worker pool. Fail loudly and let the caller retry after fixing
+                                # the filter or starting the intended agents.
+                                logger.warning(
+                                    f"[BrowserAutomation] {_pd_log_tag} no live agents match "
+                                    f"recipient_filter (task_keywords={_pd_task_keywords}, "
+                                    f"skill_keywords={_pd_skill_keywords}); "
+                                    f"live_pool={[a['id'][-8:] for a in _live_agents]}. "
+                                    "Aborting dispatch — configure recipient_filter to match an "
+                                    "enabled agent's task or skill."
+                                )
+                                if _fp_lock.locked():
+                                    _fp_lock.release()
+                                return None
                         else:
-                            _service_agents = []
-                        if not _service_agents:
-                            # Broadest fallback: exclude the sender itself
-                            _service_agents = [a for a in _all_agents if a.get("id") != sender_agent_id]
+                            # No filter specified → any live non-sender agent is a valid recipient.
+                            _service_agents = list(_live_agents)
+
                         dispatch_state["service_agents"] = [a["id"] for a in _service_agents]
                         dispatch_state.setdefault("rr_index", 0)
                         logger.info(
@@ -8884,8 +10730,182 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     )
                             opened_rows.append(session_id)
 
-                            if assigned_sessions.get(session_id):
-                                continue
+                            # Stable per-customer key used by the dedup
+                            # guards and the cross-scope inflight lock.
+                            _pd_cd_key = _normalize_customer_id(
+                                item.get("customer_name")
+                                or item.get("customer_id")
+                                or session_id
+                                or ""
+                            )
+
+                            # Cross-scope dispatch-inflight guard.  Any
+                            # PreDispatch invocation (front-desk or
+                            # QA-scope) that finds this customer already
+                            # being handled skips.  The lock is released
+                            # by HOT-PATH-B on successful typing, or by
+                            # the TTL safety cap if the responder never
+                            # finishes.  This is the single source of
+                            # truth for cross-agent dedup — the per-
+                            # dispatch-state `assigned_sessions` dict is
+                            # not shared across scopes and therefore
+                            # cannot protect against parallel fan-outs
+                            # when two different EventMonitor runners
+                            # (front-desk + QA) fire on the same diff.
+                            try:
+                                _pd_inflight_age = _is_customer_dispatch_inflight(_pd_cd_key)
+                                if _pd_inflight_age > 0:
+                                    logger.info(
+                                        f"[BrowserAutomation] {_pd_log_tag} inflight skip "
+                                        f"session={session_id!r} cust={_pd_cd_key!r} "
+                                        f"(another dispatch is in flight, age={_pd_inflight_age:.1f}s, "
+                                        f"ttl={_CUSTOMER_DISPATCH_INFLIGHT_TTL_S}s)"
+                                    )
+                                    continue
+                            except Exception as _pd_infl_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] {_pd_log_tag} inflight "
+                                    f"check failed: {_pd_infl_err}"
+                                )
+
+                            # ── Chat-thread scrape (ground truth) ──
+                            # The sidebar preview that populates
+                            # `item['last_message']` shows whichever
+                            # message is most recent in EITHER direction
+                            # — bot auto-replies, human-agent messages,
+                            # and system spans all suppress the real
+                            # customer query (observed 21:48:40 on 客户A:
+                            # sidebar showed "亲亲，在哒~..." auto-reply
+                            # while the customer had just asked "能不能
+                            # 便宜点？"; QA got the auto-reply text as
+                            # `last_message` and produced a generic
+                            # greeting that didn't answer the question).
+                            #
+                            # To get the truth, we click the customer's
+                            # sidebar row (safe: we're about to dispatch
+                            # this customer anyway) and scrape the thread
+                            # for the most recent *customer* bubble.  If
+                            # successful, we overwrite `last_message`
+                            # and record the bubble's DOM msg_id for the
+                            # dedup guard below.  If the scrape fails
+                            # we keep the sidebar preview as a fallback.
+                            _pd_scraped = await _scrape_latest_customer_bubble(
+                                chosen_session, str(item.get("customer_name") or "")
+                            )
+                            _pd_scraped_msg_id = ""
+                            if _pd_scraped.get("scrape_ok"):
+                                _pd_scraped_msg_id = _pd_scraped.get("msg_id", "")
+                                _pd_orig_last = str(item.get("last_message") or "")
+                                _pd_new_last = _pd_scraped.get("text", "") or ""
+                                if _pd_new_last and _pd_new_last != _pd_orig_last:
+                                    logger.info(
+                                        f"[BrowserAutomation] {_pd_log_tag} thread-scrape "
+                                        f"overrode last_message for cust={_pd_cd_key!r}: "
+                                        f"sidebar={_pd_orig_last[:40]!r} -> "
+                                        f"customer_bubble={_pd_new_last[:40]!r} "
+                                        f"(msg_id=...{_pd_scraped_msg_id[-8:]})"
+                                    )
+                                item["last_message"] = _pd_new_last
+                            else:
+                                logger.debug(
+                                    f"[BrowserAutomation] {_pd_log_tag} thread-scrape "
+                                    f"returned no customer bubble for cust={_pd_cd_key!r}; "
+                                    f"falling back to sidebar preview"
+                                )
+
+                            # Msg-id dedup guard: if the last customer
+                            # bubble msg_id is identical to the one we
+                            # already dispatched for this customer, the
+                            # customer hasn't said anything new.  Skip
+                            # regardless of whatever the sidebar preview
+                            # currently echoes (auto-reply, our own
+                            # typing, whatever).  This replaces the
+                            # older text-based dom-echo guard, which
+                            # suppressed follow-ups whenever the
+                            # sidebar re-echoed our reply (observed
+                            # 21:49:14 skipping Q4 "有绿色吗？").
+                            try:
+                                if _pd_scraped_msg_id:
+                                    _pd_prev_msg_id = _customer_last_dispatched_msg_id.get(
+                                        _pd_cd_key, ""
+                                    )
+                                    if _pd_prev_msg_id and _pd_prev_msg_id == _pd_scraped_msg_id:
+                                        logger.info(
+                                            f"[BrowserAutomation] {_pd_log_tag} msg-id dedup "
+                                            f"skip session={session_id!r} cust={_pd_cd_key!r} "
+                                            f"(last customer bubble msg_id=...{_pd_scraped_msg_id[-8:]} "
+                                            f"already dispatched)"
+                                        )
+                                        continue
+                            except Exception as _pd_mid_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] {_pd_log_tag} msg-id guard "
+                                    f"failed: {_pd_mid_err}"
+                                )
+
+                            # Scrape-failure fallback guards.  The thread
+                            # scrape is the precise source of truth, but
+                            # when it fails (Feige tab not focusable,
+                            # selector drift, empty pane, etc.) we have
+                            # two secondary defences against the runaway
+                            # loop observed 22:42-22:43, where the side-
+                            # bar preview echoed Mary's own reply and
+                            # PreDispatch re-dispatched her reply text
+                            # back to a QA worker 8 times:
+                            #   (a) text-based dom-echo — skip if the
+                            #       sidebar `last_message` matches the
+                            #       reply HOT-PATH-B pre-recorded just
+                            #       before it typed.  Whitespace-
+                            #       normalised, prefix-limited.
+                            #   (b) legacy assigned_sessions heuristic.
+                            # Both only apply when the scrape gave us no
+                            # msg_id to trust.
+                            if not _pd_scraped_msg_id:
+                                try:
+                                    _pd_last_agent_reply = _auto_dispatch_last_agent_reply.get(
+                                        _pd_cd_key, ""
+                                    )
+                                    _pd_item_last_norm = _normalize_reply_text(
+                                        item.get("last_message") or ""
+                                    )
+                                    if (
+                                        _pd_last_agent_reply
+                                        and _pd_item_last_norm
+                                        and _pd_item_last_norm == _pd_last_agent_reply
+                                    ):
+                                        logger.info(
+                                            f"[BrowserAutomation] {_pd_log_tag} dom-echo "
+                                            f"skip session={session_id!r} cust={_pd_cd_key!r} "
+                                            f"(thread-scrape unavailable; sidebar last_message "
+                                            f"matches our pre-recorded reply — refusing to "
+                                            f"re-dispatch our own text)"
+                                        )
+                                        continue
+                                except Exception as _pd_eq_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] {_pd_log_tag} dom-echo "
+                                        f"fallback failed: {_pd_eq_err}"
+                                    )
+                                if assigned_sessions.get(session_id):
+                                    logger.info(
+                                        f"[BrowserAutomation] {_pd_log_tag} assigned-sessions "
+                                        f"skip session={session_id!r} cust={_pd_cd_key!r} "
+                                        f"(thread-scrape unavailable, falling back to legacy "
+                                        f"dedup; prior assignment={assigned_sessions.get(session_id)})"
+                                    )
+                                    continue
+                            if _pd_scraped_msg_id and assigned_sessions.get(session_id):
+                                # Scrape succeeded AND assigned_sessions
+                                # has a stale entry — clear it so the new
+                                # customer turn can dispatch cleanly.  The
+                                # msg-id guard above already confirmed
+                                # this is genuinely a new customer turn.
+                                logger.info(
+                                    f"[BrowserAutomation] {_pd_log_tag} clearing stale "
+                                    f"assigned_sessions entry for session={session_id!r} "
+                                    f"(new customer bubble detected, msg_id=...{_pd_scraped_msg_id[-8:]})"
+                                )
+                                assigned_sessions.pop(session_id, None)
 
                             # Pick next recipient agent in round-robin order.
                             rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
@@ -8908,6 +10928,31 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 if _ek and _ek in item and _ek not in assignment_payload:
                                     assignment_payload[_ek] = item.get(_ek)
 
+                            # Acquire the cross-scope inflight lock BEFORE
+                            # send_chat so concurrent PreDispatch invocations
+                            # from other scopes (front-desk + QA) skip this
+                            # customer immediately.  Previously this was
+                            # acquired AFTER send_chat returned success,
+                            # leaving a ~100-500 ms race window where a
+                            # parallel scope could pass its own inflight
+                            # check and fire a duplicate send_chat for the
+                            # same customer turn -- observed 2026-04-22
+                            # 14:50:50 as duplicate feige_send_message
+                            # HOT-PATH-B events with identical text.  Lock
+                            # is released below on send_chat failure.
+                            try:
+                                _mark_customer_dispatch_inflight(_pd_cd_key)
+                                logger.debug(
+                                    f"[BrowserAutomation] {_pd_log_tag} acquired "
+                                    f"inflight lock for cust={_pd_cd_key!r} "
+                                    f"(recipient=...{recipient_agent_id[-6:]})"
+                                )
+                            except Exception as _pd_mark_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] {_pd_log_tag} inflight "
+                                    f"acquire failed: {_pd_mark_err}"
+                                )
+
                             send_result = send_chat(
                                 mainwin,
                                 {
@@ -8925,10 +10970,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     "message_id": str(send_result.get("message_id") or ""),
                                     "timestamp": int(send_result.get("timestamp") or 0),
                                 }
+                                # Record the msg_id we just dispatched so
+                                # subsequent PreDispatch cycles skip this
+                                # exact customer turn via the msg-id
+                                # dedup guard above.  Only record non-
+                                # empty ids (scrape may have failed and
+                                # fallen back to sidebar preview — in
+                                # that case the guard is a no-op and we
+                                # rely on the inflight lock alone).
+                                if _pd_scraped_msg_id:
+                                    _customer_last_dispatched_msg_id[_pd_cd_key] = _pd_scraped_msg_id
                                 assigned_rows.append(
                                     f"{session_id}->{recipient_agent_id[-6:]} msg={str(send_result.get('message_id') or '')[:8]}"
                                 )
                             else:
+                                # send_chat failed -- release the inflight
+                                # lock we just acquired so this customer is
+                                # not blocked for the full TTL even though
+                                # no dispatch actually reached HOT-PATH-B.
+                                try:
+                                    _clear_customer_dispatch_inflight(_pd_cd_key)
+                                except Exception:
+                                    pass
                                 failure_rows.append(
                                     f"{session_id}: assignment failed: {send_result.get('error', 'unknown error')}"
                                 )
@@ -11231,7 +13294,303 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _err_text = str(e).strip() or repr(e)
             raise RuntimeError(f"Browser automation failed: {_err_text}") from e
 
+    # ── Inner helpers for _auto (commit 3, 2026-04-22) ────────────────────
+    # Declared here so they close over `_run_browser_use`,
+    # `_resolve_browser_scope_key`, `_event_monitor_configs`, `skill_name`,
+    # `node_name`, `owner`, and the other build-scope closures.  Keeps
+    # `_auto`'s linear flow compact without plumbing 10+ params into
+    # module-level helpers.
+
+    def _execute_browser_use_run(
+        *,
+        state: dict,
+        runtime,
+        combined_task: str,
+        mainwin,
+        agent_id: str | None,
+        use_hard_timeout: bool,
+        effective_timeout: float,
+        correlation_id,
+    ) -> dict:
+        """Run `_run_browser_use` in the appropriate worker loop.
+
+        Handles hard/soft timeout, persistent vs per-call worker selection,
+        guardrail-timer cancellation on success, and exception-to-info
+        conversion (including suppression of non-fatal watchdog teardown
+        noise).  Always returns an `info` dict — never raises.
+        """
+        import time as _exbu_time
+        info: dict = {}
+        try:
+            if use_hard_timeout:
+                import asyncio
+                log_msg = f"[BROWSER_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+                try:
+                    async def _run_with_hard_timeout():
+                        return await asyncio.wait_for(
+                            _run_browser_use(combined_task, mainwin, state, agent_id),
+                            timeout=effective_timeout
+                        )
+                    if _event_monitor_configs:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                        _browser_scope_key = _resolve_browser_scope_key(state)
+                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
+                        logger.info(
+                            f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                            f"{_worker_suffix} "
+                            f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
+                            f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
+                            f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
+                        )
+                        info = run_async_in_persistent_worker_thread(
+                            _run_with_hard_timeout,
+                            worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        ) or {}
+                    else:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                        info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
+                except asyncio.TimeoutError:
+                    error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
+                    logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
+                    send_skill_editor_log("error", error_msg)
+                    try:
+                        task = state.get('_managed_task')
+                        if task is None and runtime and hasattr(runtime, 'context'):
+                            task = runtime.context.get('task') or runtime.context.get('managed_task')
+                        if task and hasattr(task, 'record_failure'):
+                            task.record_failure()
+                    except Exception:
+                        pass
+                    info = {"error": error_msg, "timed_out": True}
+            else:
+                if _event_monitor_configs:
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                    _browser_scope_key = _resolve_browser_scope_key(state)
+                    _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
+                    logger.info(
+                        f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                        f"{_worker_suffix} "
+                        f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
+                        f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
+                        f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
+                    )
+                    _worker_t0 = _exbu_time.perf_counter()
+                    logger.info(
+                        f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}"
+                    )
+                    info = run_async_in_persistent_worker_thread(
+                        lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
+                        worker_name=f"browser-use-persistent-{_worker_suffix}",
+                    ) or {}
+                    logger.info(
+                        f"[BA._auto] worker_call done node={node_name} kind=persistent "
+                        f"elapsed_ms={(_exbu_time.perf_counter()-_worker_t0)*1000:.0f} "
+                        f"info_keys={list(info.keys()) if isinstance(info, dict) else type(info).__name__}"
+                    )
+                else:
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                    _worker_t0 = _exbu_time.perf_counter()
+                    logger.info(f"[BA._auto] worker_call start node={node_name} kind=per_call")
+                    info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
+                    logger.info(
+                        f"[BA._auto] worker_call done node={node_name} kind=per_call "
+                        f"elapsed_ms={(_exbu_time.perf_counter()-_worker_t0)*1000:.0f} "
+                        f"info_keys={list(info.keys()) if isinstance(info, dict) else type(info).__name__}"
+                    )
+
+            # Cancel guardrail timer on success
+            if correlation_id:
+                try:
+                    task = state.get('_managed_task')
+                    if task is None and runtime and hasattr(runtime, 'context'):
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    if task:
+                        resolve_async_operation(task, correlation_id, result={"status": "completed"})
+                        logger.info(f"[BROWSER_GUARDRAIL] Cancelled timer {correlation_id} (browser automation completed)")
+                except Exception as e:
+                    logger.warning(f"[BROWSER_GUARDRAIL] Failed to cancel timer: {e}")
+
+        except Exception as e:
+            # Cancel guardrail timer on error too
+            if correlation_id:
+                try:
+                    task = state.get('_managed_task')
+                    if task is None and runtime and hasattr(runtime, 'context'):
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    if task:
+                        resolve_async_operation(task, correlation_id, error=str(e))
+                except Exception:
+                    pass
+
+            import traceback as _traceback
+            _err_text = str(e).strip() or repr(e)
+            _err_type = type(e).__name__
+            _tb = _traceback.format_exc()
+            error_msg = f"browser-use run failed: {_err_text}"
+            _err_text_l = _err_text.lower()
+            _tb_l = (_tb or "").lower()
+            _is_nonfatal_watchdog_noise = (
+                "root cdp client not initialized" in _err_text_l
+                and ("watchdog" in _err_text_l or "watchdog" in _tb_l)
+            )
+            if _is_nonfatal_watchdog_noise:
+                logger.warning(f"[BrowserAutomation] Non-fatal watchdog noise suppressed: {error_msg}")
+                logger.debug(f"[BrowserAutomation] suppressed traceback:\n{_tb}")
+                send_skill_editor_log(
+                    "warning",
+                    "⚠️ [BrowserAutomation] Suppressed non-fatal watchdog teardown noise",
+                )
+                info = {
+                    "status": "warning",
+                    "warning_type": "non_fatal_watchdog_noise",
+                    "warning": error_msg,
+                }
+            else:
+                logger.error(f"[BrowserAutomation] {error_msg}")
+                logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
+                logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
+                send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
+                info = {
+                    "error": error_msg,
+                    "error_type": _err_type,
+                    "error_repr": repr(e),
+                    "traceback": _tb,
+                }
+        return info
+
+    def _apply_required_vars_preflight(state: dict, combined_task: str, format_context: dict) -> bool:
+        """Fail-fast check for missing `[REQUIRED_VARS:...]` placeholders.
+
+        When one or more declared variables are missing or empty in
+        `format_context`, this writes a blocked payload into
+        `state["tool_result"][node_name]`, appends a history entry and
+        returns ``True``.  Otherwise returns ``False`` and leaves state
+        unchanged.  Swallows unexpected errors (treated as non-blocking).
+        """
+        try:
+            _required_vars = _parse_required_vars_marker(combined_task)
+            if not _required_vars:
+                return False
+
+            _missing_vars: list[str] = []
+            _missing_details: list[str] = []
+            _placeholders_in_text = set(re.findall(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}", str(combined_task or "")))
+            for _v in _required_vars:
+                _val = (format_context or {}).get(_v)
+                if _val is None or str(_val).strip() == "":
+                    _missing_vars.append(_v)
+                    if _v not in _placeholders_in_text:
+                        _missing_details.append(
+                            f"  - '{_v}': placeholder {{{{{_v}}}}} not found in prompt text. "
+                            f"The resolver only processes variables that appear as {{{{name}}}} "
+                            f"in the prompt body. Fix: add '| {_v} | {{{{{_v}}}}} |' to the "
+                            f"input parameters table in the prompt."
+                        )
+                    else:
+                        _missing_details.append(
+                            f"  - '{_v}': placeholder {{{{{_v}}}}} exists in prompt but resolved "
+                            f"to empty. Check that an upstream node outputs a field named '{_v}' "
+                            f"in its JSON result, or that init_params defines it."
+                        )
+
+            if not _missing_vars:
+                return False
+
+            _diag_lines = "\n".join(_missing_details)
+            _blocked_payload = {
+                "status": "blocked",
+                "reason": "missing_required_inputs",
+                "missing_fields": _missing_vars,
+                "node": node_name,
+                "notes": f"Missing required variables: {', '.join(_missing_vars)}",
+                "diagnosis": _diag_lines.strip(),
+            }
+            state.setdefault("tool_result", {})
+            if isinstance(state.get("tool_result"), dict):
+                state["tool_result"][node_name] = _blocked_payload
+            state["result"] = _blocked_payload
+            add_to_history(
+                state,
+                ActionMessage(
+                    content=(
+                        f"action: browser-use preflight; "
+                        f"result: blocked(reason=missing_required_inputs, "
+                        f"missing={_missing_vars})"
+                    )
+                ),
+            )
+            send_skill_editor_log(
+                "warning",
+                f"[BrowserAutomation] Preflight BLOCKED — node='{node_name}' "
+                f"missing vars: {_missing_vars}\n"
+                f"Diagnosis per variable:\n{_diag_lines}\n"
+                f"Placeholders found in prompt text: {sorted(_placeholders_in_text)}",
+            )
+            return True
+        except Exception:
+            return False
+
+    def _finalize_automation_result(
+        *,
+        state: dict,
+        info: dict,
+        provider: str,
+        task_instructions: str,
+        final_system_prompt: str,
+        action: str,
+        wait_for_done: bool,
+    ) -> dict:
+        """Persist the browser-automation run result into state.
+
+        Writes `tool_result[node_name]`, increments `n_steps`, optionally
+        raises an interrupt for human check, and appends a truncated
+        history entry.  Returns the (mutated) state.
+        """
+        state.setdefault("tool_result", {})
+        tr = state.get("tool_result")
+        if not isinstance(tr, dict):
+            tr = {}
+            state["tool_result"] = tr
+        tr[node_name] = {
+            "provider": provider,
+            "task": task_instructions,
+            "systemPrompt": final_system_prompt,
+            **info,
+        }
+
+        if wait_for_done and info.get("error"):
+            interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
+
+        try:
+            state["n_steps"] = int(state.get("n_steps", 0) or 0) + 1
+        except Exception:
+            state["n_steps"] = 1
+
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+        info_for_history = truncate_screenshot_for_logging(info)
+        add_to_history(state, ActionMessage(content=f"action: {provider} {task_instructions}; result: {info_for_history}"))
+
+        return state
+
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
+        # ── Entry trace (diagnostic) ──
+        # Added 2026-04-22 after repeated hangs observed between the node
+        # entry wrapper log and the first HOT-PATH-B / PreDispatch log.
+        # These info-level checkpoints make the hang location visible
+        # without requiring a debugger attach.
+        import time as _ba_auto_time
+        _ba_auto_t0 = _ba_auto_time.perf_counter()
+        try:
+            _ba_auto_thread_name = threading.current_thread().name
+        except Exception:
+            _ba_auto_thread_name = "?"
+        logger.info(
+            f"[BA._auto] enter node={node_name} thread={_ba_auto_thread_name} "
+            f"state_keys={list(state.keys()) if isinstance(state, dict) else type(state).__name__}"
+        )
+
         # Use the pre-resolved prompts from build time (when cloud context was available)
         # instead of calling _resolve_prompt_templates again at runtime
         active_system_prompt = resolved_system_prompt
@@ -11269,322 +13628,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             continue
                         prompt_refs[_key] = _val
 
-                def _compact_upstream_outputs_for_prompt(_state: dict) -> str:
-                    import json
-                    import re
-                    from urllib.parse import urlsplit, parse_qs
-
-                    tr = _state.get("tool_result")
-                    if not isinstance(tr, dict):
-                        return "{}"
-
-                    keep_keys = {
-                        "status",
-                        "reason",
-                        "price_range",
-                        "links",
-                        "downloaded_images",
-                        "download_count",
-                        "image_urls",
-                        "image_descriptions",
-                        "listing_url",
-                        "title",
-                        "description",
-                        "price",
-                        "product_keyword",
-                        "brand",
-                        "model",
-                        "category",
-                        "condition",
-                        "original_images",
-                        "products",
-                        "highlights_summary",
-                        "target_audience",
-                        "notes",
-                        "is_free_shipping",
-                        "is_used",
-                        "features",
-                        "listing_images",
-                        "search_keyword",
-                    }
-
-                    # Generic noise keys to avoid prompt bloat and scenario-specific internals.
-                    drop_keys = {
-                        "provider",
-                        "task",
-                        "systemPrompt",
-                        "history",
-                        "prompts",
-                        "prompt_refs",
-                        "messages",
-                        "threads",
-                        "events",
-                        "attachments",
-                        "http_response",
-                        "cli_input",
-                        "cli_results",
-                        "attributes",
-                    }
-
-                    def _extract_links(*texts):
-                        links = []
-                        for txt in texts:
-                            if not txt:
-                                continue
-                            s = str(txt)
-                            links.extend(re.findall(r'https?://[^\s\]\"\'\)]+', s))
-                            for m in re.findall(r'//[^\s\]\"\'\)]+', s):
-                                links.append(f"https:{m}")
-                        dedup = []
-                        seen = set()
-                        for u in links:
-                            if u in seen:
-                                continue
-                            seen.add(u)
-                            dedup.append(u)
-                        return dedup
-
-                    def _extract_json_object_from_text(text):
-                        """
-                        Best-effort JSON object extractor for node outputs.
-                        Supports plain JSON and fenced code blocks.
-                        """
-                        if not isinstance(text, str):
-                            return None
-                        s = text.strip()
-                        if not s:
-                            return None
-
-                        # Strip fenced code block wrappers when present.
-                        if s.startswith("```"):
-                            s = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", s)
-                            s = re.sub(r"\n?```$", "", s).strip()
-
-                        # Fast path: whole string is a JSON object/array.
-                        for candidate in (s,):
-                            try:
-                                parsed = json.loads(candidate)
-                                if isinstance(parsed, dict):
-                                    return parsed
-                            except Exception:
-                                pass
-
-                        # Fallback: capture the largest {...} block.
-                        m = re.search(r"\{[\s\S]*\}", s)
-                        if m:
-                            block = m.group(0)
-                            try:
-                                parsed = json.loads(block)
-                                if isinstance(parsed, dict):
-                                    return parsed
-                            except Exception:
-                                return None
-                        return None
-
-                    def _merge_keep_keys_from_dict(dst: dict, src: dict):
-                        if not isinstance(src, dict):
-                            return
-                        for k in keep_keys:
-                            v = src.get(k)
-                            if v in (None, "", [], {}):
-                                continue
-                            dst[k] = v
-
-                    def _is_small_scalar(v):
-                        return isinstance(v, (str, int, float, bool)) and len(str(v)) <= 200
-
-                    def _is_small_scalar_list(v):
-                        return (
-                            isinstance(v, list)
-                            and len(v) <= 20
-                            and all(_is_small_scalar(i) for i in v)
-                        )
-
-                    def _merge_generic_fields_from_dict(dst: dict, src: dict, depth: int = 0):
-                        """
-                        Scenario-agnostic field extraction:
-                        keep compact, actionable keys from arbitrary JSON-like outputs.
-                        """
-                        if not isinstance(src, dict) or depth > 1:
-                            return
-                        for k, v in src.items():
-                            if not isinstance(k, str):
-                                continue
-                            kl = k.lower()
-                            if (
-                                k in drop_keys
-                                or kl.startswith("_")
-                                or any(tok in kl for tok in ("prompt", "history", "message", "thread", "event", "attachment", "screenshot", "dom", "html", "markdown"))
-                            ):
-                                continue
-                            if v in (None, "", [], {}):
-                                continue
-
-                            # Preserve explicit keep_keys precedence.
-                            if k in dst:
-                                continue
-
-                            if _is_small_scalar(v) or _is_small_scalar_list(v):
-                                dst[k] = v
-                                continue
-
-                            # Keep compact nested dicts with scalar values only.
-                            if isinstance(v, dict) and len(v) <= 20:
-                                if all(_is_small_scalar(sv) for sv in v.values()):
-                                    dst[k] = v
-                                # Also recurse one level to collect commonly useful nested keys.
-                                _merge_generic_fields_from_dict(dst, v, depth + 1)
-
-                    def _is_actionable_detail_link(url: str) -> bool:
-                        """Generic heuristic to keep likely detail pages, drop home/search/list pages."""
-                        try:
-                            s = str(url or "").strip()
-                            if not s.startswith(("http://", "https://")):
-                                return False
-                            p = urlsplit(s)
-                            if not p.netloc:
-                                return False
-
-                            path = (p.path or "").strip().lower()
-                            query = (p.query or "").lower()
-                            query_map = parse_qs(p.query or "", keep_blank_values=True)
-
-                            # Home/landing pages are not actionable detail links.
-                            if path in ("", "/"):
-                                return False
-
-                            # Drop obvious search/listing URLs.
-                            text = f"{path}?{query}"
-                            if any(k in text for k in ("/search", "search?", "keyword=", "query=", "q=", "wd=", "/list", "list?")):
-                                return False
-
-                            # Keep links with common detail id parameters.
-                            id_keys = ("id", "itemid", "item_id", "sku", "sku_id", "productid", "product_id", "pid")
-                            if any(k in query_map and any(str(v).strip() for v in query_map.get(k, [])) for k in id_keys):
-                                return True
-
-                            # Keep paths that look like detail pages (have a long numeric token).
-                            if re.search(r"\d{5,}", path):
-                                return True
-
-                            # Keep deeper paths unless they look like generic landing sections.
-                            segments = [seg for seg in path.split("/") if seg]
-                            if len(segments) >= 2 and segments[-1] not in ("home", "index", "category", "categories", "catalog", "list", "search"):
-                                return True
-
-                            return False
-                        except Exception:
-                            return False
-
-                    compact = {}
-                    for _nid, _val in tr.items():
-                        # Exclude current node output to avoid self-feedback loops on retries.
-                        # Example: download_images retry should not consume prior
-                        # {"download_images": {"status":"blocked", ...}} as upstream input.
-                        if _nid == node_name:
-                            continue
-                        if not isinstance(_val, dict):
-                            continue
-                        row = {}
-
-                        # 1) Direct extraction from node output dict.
-                        _merge_keep_keys_from_dict(row, _val)
-                        _merge_generic_fields_from_dict(row, _val)
-
-                        # 2) Generic extraction from nested dict/string payloads.
-                        #    This keeps behavior generic across browser/llm nodes.
-                        candidate_payloads = [
-                            _val.get("final"),
-                            _val.get("result"),
-                            _val.get("llm_result"),
-                            _val.get("response"),
-                            _val.get("output"),
-                            _val.get("text"),
-                            _val.get("history"),
-                        ]
-                        for payload in candidate_payloads:
-                            if isinstance(payload, dict):
-                                _merge_keep_keys_from_dict(row, payload)
-                                _merge_generic_fields_from_dict(row, payload)
-                                nested = payload.get("result")
-                                if isinstance(nested, dict):
-                                    _merge_keep_keys_from_dict(row, nested)
-                                    _merge_generic_fields_from_dict(row, nested)
-                            elif isinstance(payload, str):
-                                parsed = _extract_json_object_from_text(payload)
-                                if isinstance(parsed, dict):
-                                    _merge_keep_keys_from_dict(row, parsed)
-                                    _merge_generic_fields_from_dict(row, parsed)
-                                    nested = parsed.get("result")
-                                    if isinstance(nested, dict):
-                                        _merge_keep_keys_from_dict(row, nested)
-                                        _merge_generic_fields_from_dict(row, nested)
-
-                        # Extract links from products array for backward compat.
-                        if "products" in row and "links" not in row:
-                            prods = row.get("products")
-                            if isinstance(prods, list):
-                                prod_links = [p.get("link") for p in prods if isinstance(p, dict) and p.get("link")]
-                                if prod_links:
-                                    row["links"] = prod_links
-
-                        # Normalize and filter links with generic detail-page heuristics.
-                        if "links" in row:
-                            raw_links = row.get("links")
-                            if isinstance(raw_links, str):
-                                raw_links = [raw_links]
-                            if isinstance(raw_links, list):
-                                filtered_links = []
-                                seen_links = set()
-                                for u in raw_links:
-                                    su = str(u or "").strip()
-                                    if not su or su in seen_links:
-                                        continue
-                                    seen_links.add(su)
-                                    if _is_actionable_detail_link(su):
-                                        filtered_links.append(su)
-                                if filtered_links:
-                                    row["links"] = filtered_links
-                                else:
-                                    row.pop("links", None)
-
-                        if "links" not in row:
-                            links = _extract_links(_val.get("final"), _val.get("error"), _val.get("task"))
-                            if links:
-                                links = [u for u in links if _is_actionable_detail_link(u)]
-                                if links:
-                                    row["links"] = links[:8]
-
-                        # Skip rows that only contain status/reason with no actionable payload.
-                        actionable_keys = set(row.keys()) - {"status", "reason"}
-                        if not actionable_keys:
-                            continue
-
-                        if row:
-                            compact[_nid] = row
-
-                    payload = json.dumps(compact, ensure_ascii=False)
-                    try:
-                        key_summary = {
-                            nid: sorted(list(val.keys()))[:15]
-                            for nid, val in compact.items()
-                            if isinstance(val, dict)
-                        }
-                        logger.info(
-                            f"[UpstreamCompact] node={node_name} "
-                            f"upstream_nodes={list(compact.keys())} "
-                            f"key_summary={key_summary} "
-                            f"payload_chars={len(payload)}"
-                        )
-                    except Exception:
-                        pass
-                    if len(payload) > 12000:
-                        payload = payload[:12000] + "...(truncated)"
-                    return payload
-
                 # Prevent prompt bloat when upstream_outputs is requested.
+                # Logic extracted to module-level `_compact_tool_result_for_prompt`.
                 if "upstream_outputs" in variables:
-                    prompt_refs["upstream_outputs"] = _compact_upstream_outputs_for_prompt(state)
+                    prompt_refs["upstream_outputs"] = _compact_tool_result_for_prompt(state, node_name)
         except Exception as _inject_prompt_ref_err:
             logger.debug(f"[BrowserAutomation] Failed injecting node inputsValues into prompt_refs: {_inject_prompt_ref_err}")
 
@@ -11683,149 +13730,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
         # Fast preflight: fail early on missing required prompt variables
         # (marker-driven, avoids an expensive LLM/browser round-trip).
-        def _parse_required_vars_marker(task_text_raw: str) -> list[str]:
-            try:
-                m = re.search(r"\[REQUIRED_VARS:([^\]]+)\]", str(task_text_raw or ""))
-                if not m:
-                    return []
-                raw = m.group(1)
-                vars_list = [v.strip() for v in raw.split(",") if v.strip()]
-                # Keep stable order and dedupe
-                seen = set()
-                out = []
-                for v in vars_list:
-                    if v in seen:
-                        continue
-                    seen.add(v)
-                    out.append(v)
-                return out
-            except Exception:
-                return []
-
-        try:
-            _required_vars = _parse_required_vars_marker(combined_task)
-            if _required_vars:
-                _missing_vars = []
-                _missing_details: list[str] = []
-                # Scan the raw prompt text for {{var}} placeholders so we can
-                # give a precise diagnosis when a variable is missing.
-                _placeholders_in_text = set(re.findall(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}", str(combined_task or "")))
-                for _v in _required_vars:
-                    _val = (format_context or {}).get(_v)
-                    if _val is None or str(_val).strip() == "":
-                        _missing_vars.append(_v)
-                        if _v not in _placeholders_in_text:
-                            # Variable name never appears as {{var}} in the prompt text.
-                            # The resolver only scans {{...}} placeholders, so this variable
-                            # was never looked up from upstream outputs at all.
-                            _missing_details.append(
-                                f"  - '{_v}': placeholder {{{{{_v}}}}} not found in prompt text. "
-                                f"The resolver only processes variables that appear as {{{{name}}}} "
-                                f"in the prompt body. Fix: add '| {_v} | {{{{{_v}}}}} |' to the "
-                                f"input parameters table in the prompt."
-                            )
-                        else:
-                            _missing_details.append(
-                                f"  - '{_v}': placeholder {{{{{_v}}}}} exists in prompt but resolved "
-                                f"to empty. Check that an upstream node outputs a field named '{_v}' "
-                                f"in its JSON result, or that init_params defines it."
-                            )
-                if _missing_vars:
-                    _diag_lines = "\n".join(_missing_details)
-                    _blocked_payload = {
-                        "status": "blocked",
-                        "reason": "missing_required_inputs",
-                        "missing_fields": _missing_vars,
-                        "node": node_name,
-                        "notes": f"Missing required variables: {', '.join(_missing_vars)}",
-                        "diagnosis": _diag_lines.strip(),
-                    }
-                    state.setdefault("tool_result", {})
-                    if isinstance(state.get("tool_result"), dict):
-                        state["tool_result"][node_name] = _blocked_payload
-                    state["result"] = _blocked_payload
-                    add_to_history(
-                        state,
-                        ActionMessage(
-                            content=(
-                                f"action: browser-use preflight; "
-                                f"result: blocked(reason=missing_required_inputs, "
-                                f"missing={_missing_vars})"
-                            )
-                        ),
-                    )
-                    send_skill_editor_log(
-                        "warning",
-                        f"[BrowserAutomation] Preflight BLOCKED — node='{node_name}' "
-                        f"missing vars: {_missing_vars}\n"
-                        f"Diagnosis per variable:\n{_diag_lines}\n"
-                        f"Placeholders found in prompt text: {sorted(_placeholders_in_text)}",
-                    )
-                    return state
-        except Exception:
-            pass
+        # Extracted to _apply_required_vars_preflight (commit 3 cleanup).
+        _preflight_blocked = _apply_required_vars_preflight(state, combined_task, format_context)
+        if _preflight_blocked:
+            return state
 
         # Deterministic local-directory grounding for local-analysis prompts.
         # Variable name is defined by prompt marker, e.g. [LOCAL_DIR_VAR:local_dir].
-        def _resolve_local_dir_from_prompt_var(task_text_raw: str, context: dict) -> tuple[str, str]:
-            try:
-                marker_match = re.search(r"\[LOCAL_DIR_VAR:([a-zA-Z_][a-zA-Z0-9_]*)\]", str(task_text_raw or ""))
-                if not marker_match:
-                    return "", ""
-                var_name = marker_match.group(1).strip()
-                if not var_name:
-                    return "", ""
-                value = (context or {}).get(var_name)
-                if isinstance(value, str) and value.strip():
-                    return var_name, value.strip()
-                return var_name, ""
-            except Exception:
-                return "", ""
-
-        def _build_local_dir_snapshot(dir_path: str) -> str:
-            try:
-                if not dir_path:
-                    return ""
-                abs_dir = os.path.abspath(os.path.expanduser(dir_path))
-                payload: dict[str, Any] = {
-                    "dir_path": abs_dir,
-                    "exists": os.path.isdir(abs_dir),
-                    "file_count": 0,
-                    "sample_files": [],
-                    "text_snippets": {},
-                }
-                if not payload["exists"]:
-                    payload["error"] = "directory_not_found"
-                    return json.dumps(payload, ensure_ascii=False)
-
-                names = sorted(os.listdir(abs_dir))
-                payload["file_count"] = len(names)
-                payload["sample_files"] = names[:60]
-
-                text_exts = {".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".log"}
-                picked = 0
-                for name in names:
-                    if picked >= 3:
-                        break
-                    fpath = os.path.join(abs_dir, name)
-                    if not os.path.isfile(fpath):
-                        continue
-                    ext = os.path.splitext(name)[1].lower()
-                    if ext not in text_exts:
-                        continue
-                    try:
-                        # Read only small prefix to avoid prompt bloat
-                        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                            snippet = f.read(2400)
-                        if snippet.strip():
-                            payload["text_snippets"][name] = snippet
-                            picked += 1
-                    except Exception:
-                        continue
-                return json.dumps(payload, ensure_ascii=False)
-            except Exception as e:
-                return json.dumps({"error": f"snapshot_failed: {e}"}, ensure_ascii=False)
-
+        # _resolve_local_dir_from_prompt_var and _build_local_dir_snapshot
+        # extracted to module level (commit 2).
         _local_dir_grounded = False
         try:
             _enable_local_dir_grounding = "[LOCAL_DIR_GROUNDING:ON]" in str(combined_task or "")
@@ -11857,65 +13770,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception:
             pass
 
-        # Global anti-risk guardrails for browser automation.
-        # This keeps prompts user-friendly while enforcing a consistent low-risk behavior
-        # across different skills/sites (instead of requiring each prompt to repeat it).
-        def _append_anti_risk_guardrails(task_text_raw: str) -> str:
-            try:
-                if not isinstance(task_text_raw, str) or not task_text_raw.strip():
-                    return task_text_raw
-
-                # Avoid duplicate injection if already present in task text.
-                marker = "[GLOBAL ANTI-RISK GUARDRAILS]"
-                if marker in task_text_raw:
-                    return task_text_raw
-
-                # Tab policy variant: authored on the node as `tabPolicy`.
-                # Accepts "strict_single_tab" (default — never switch_tab) or
-                # "allow_assigned_tab" (focus the assigned tab_id / chat_url).
-                _tab_policy = ""
-                if isinstance(inputs, dict):
-                    _tab_policy = str(
-                        (inputs.get("tabPolicy") or {}).get("content", "") or ""
-                    ).strip().lower()
-                if _tab_policy == "allow_assigned_tab":
-                    tab_guardrail = (
-                        "2) If an assigned `tab_id` is provided for this invocation, "
-                        "you may and should focus that assigned tab. Do not switch to unrelated stale tabs "
-                        "from previous sessions. If no assigned `tab_id` is available, navigate directly to "
-                        "the assigned URL.\n"
-                    )
-                else:
-                    tab_guardrail = (
-                        "2) Never use switch_tab. Always stay in the current active tab and use navigate "
-                        "to load any new URL. Do not switch to any stale tab from a previous run.\n"
-                    )
-
-                guardrail_text = (
-                    "\n\n[GLOBAL ANTI-RISK GUARDRAILS]\n"
-                    "1) Anti-bot handling: if the page shows any rate-limit, captcha, "
-                    "human-verification, access-denied, or unusual-traffic warning (in any language), "
-                    "perform at most one low-risk recovery attempt (for example: refresh once or navigate "
-                    "to site home then continue with the same intent). If still blocked, return "
-                    "blocked(reason=risk_control).\n"
-                    f"{tab_guardrail}"
-                    "3) Low-frequency behavior: avoid repeated clicks on the same element and "
-                    "unnecessary refresh loops. Retry the same failed action at most once.\n"
-                    "4) Fast convergence: if 2-3 consecutive actions produce no meaningful state change, "
-                    "stop and return blocked(reason=navigation_deadlock).\n"
-                    "5) Minimum-necessary actions: prefer direct navigation to target pages and extract "
-                    "required data with the shortest path. End as soon as success criteria are met.\n"
-                    "6) Cooldown policy: after blocked(reason=risk_control), treat the site as cooling down "
-                    "for this run and continue with alternative paths or downstream steps."
-                )
-                return f"{task_text_raw}{guardrail_text}"
-            except Exception:
-                return task_text_raw
-
-        # Skip web anti-risk guardrails for local-directory grounded nodes, otherwise
-        # these web-centric instructions may conflict with local-only extraction intent.
+        # Global anti-risk guardrails extracted to module level (commit 2).
+        # Skip for local-directory grounded nodes, otherwise these web-centric
+        # instructions may conflict with local-only extraction intent.
         if not _local_dir_grounded:
-            combined_task = _append_anti_risk_guardrails(combined_task)
+            combined_task = _append_anti_risk_guardrails(combined_task, inputs)
 
         # ── Suppress duplicate initial-URL navigation for reused sessions ──
         # browser-use auto-detects URLs in the task text and navigates to them
@@ -11955,6 +13814,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # print("final_system_prompt:", final_system_prompt)
         # print("final_user_prompt:", final_user_prompt)
         logger.debug("combined_task:", combined_task)
+        logger.info(
+            f"[BA._auto] preflight_done node={node_name} "
+            f"elapsed_ms={(_ba_auto_time.perf_counter()-_ba_auto_t0)*1000:.0f} "
+            f"provider={provider} task_len={len(task_instructions or '')}"
+        )
         if provider in ("browser-use", "crawl4ai"):
             # Check if we're in cloud mode (hybrid_cloud or full_cloud)
             # In cloud mode, mainwin is not required
@@ -12051,161 +13915,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as e:
                     logger.warning(f"[BROWSER_GUARDRAIL] Failed to start timer: {e}")
             
-            try:
-                # Execute browser automation with optional hard timeout
-                if use_hard_timeout:
-                    import asyncio
-                    log_msg = f"[BROWSER_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
-                    logger.info(log_msg)
-                    send_skill_editor_log("log", log_msg)
-                    try:
-                        async def _run_with_hard_timeout():
-                            return await asyncio.wait_for(
-                                _run_browser_use(combined_task, mainwin, state, agent_id),
-                                timeout=effective_timeout
-                            )
-                        if _event_monitor_configs:
-                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
-                            _browser_scope_key = _resolve_browser_scope_key(state)
-                            _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
-                            logger.info(
-                                f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
-                                f"{_worker_suffix} "
-                                f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
-                                f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
-                                f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
-                            )
-                            info = run_async_in_persistent_worker_thread(
-                                _run_with_hard_timeout,
-                                worker_name=f"browser-use-persistent-{_worker_suffix}",
-                            ) or {}
-                        else:
-                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                            info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
-                    except asyncio.TimeoutError:
-                        error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
-                        logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
-                        send_skill_editor_log("error", error_msg)
-                        # Record failure if task available
-                        try:
-                            task = state.get('_managed_task')
-                            if task is None and runtime and hasattr(runtime, 'context'):
-                                task = runtime.context.get('task') or runtime.context.get('managed_task')
-                            if task and hasattr(task, 'record_failure'):
-                                task.record_failure()
-                        except Exception:
-                            pass
-                        info = {"error": error_msg, "timed_out": True}
-                else:
-                    if _event_monitor_configs:
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
-                        _browser_scope_key = _resolve_browser_scope_key(state)
-                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
-                        logger.info(
-                            f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
-                            f"{_worker_suffix} "
-                            f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
-                            f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
-                            f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
-                        )
-                        info = run_async_in_persistent_worker_thread(
-                            lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
-                            worker_name=f"browser-use-persistent-{_worker_suffix}",
-                        ) or {}
-                    else:
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                        info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
-                
-                # Cancel guardrail timer on success
-                if correlation_id:
-                    try:
-                        task = state.get('_managed_task')
-                        if task is None and runtime and hasattr(runtime, 'context'):
-                            task = runtime.context.get('task') or runtime.context.get('managed_task')
-                        if task:
-                            resolve_async_operation(task, correlation_id, result={"status": "completed"})
-                            log_msg = f"[BROWSER_GUARDRAIL] Cancelled timer {correlation_id} (browser automation completed)"
-                            logger.info(log_msg)
-                    except Exception as e:
-                        logger.warning(f"[BROWSER_GUARDRAIL] Failed to cancel timer: {e}")
-                        
-            except Exception as e:
-                # Cancel guardrail timer on error too
-                if correlation_id:
-                    try:
-                        task = state.get('_managed_task')
-                        if task is None and runtime and hasattr(runtime, 'context'):
-                            task = runtime.context.get('task') or runtime.context.get('managed_task')
-                        if task:
-                            resolve_async_operation(task, correlation_id, error=str(e))
-                    except Exception:
-                        pass
-                
-                # Log error and push to frontend
-                import traceback as _traceback
-                _err_text = str(e).strip() or repr(e)
-                _err_type = type(e).__name__
-                _tb = _traceback.format_exc()
-                error_msg = f"browser-use run failed: {_err_text}"
-                _err_text_l = _err_text.lower()
-                _tb_l = (_tb or "").lower()
-                _is_nonfatal_watchdog_noise = (
-                    "root cdp client not initialized" in _err_text_l
-                    and ("watchdog" in _err_text_l or "watchdog" in _tb_l)
-                )
-
-                if _is_nonfatal_watchdog_noise:
-                    logger.warning(
-                        f"[BrowserAutomation] Non-fatal watchdog noise suppressed: {error_msg}"
-                    )
-                    logger.debug(f"[BrowserAutomation] suppressed traceback:\n{_tb}")
-                    send_skill_editor_log(
-                        "warning",
-                        "⚠️ [BrowserAutomation] Suppressed non-fatal watchdog teardown noise",
-                    )
-                    info = {
-                        "status": "warning",
-                        "warning_type": "non_fatal_watchdog_noise",
-                        "warning": error_msg,
-                    }
-                else:
-                    logger.error(f"[BrowserAutomation] {error_msg}")
-                    logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
-                    logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
-                    send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
-                    
-                    info = {
-                        "error": error_msg,
-                        "error_type": _err_type,
-                        "error_repr": repr(e),
-                        "traceback": _tb,
-                    }
-            state.setdefault("tool_result", {})
-            tr = state.get("tool_result")
-            if not isinstance(tr, dict):
-                tr = {}
-                state["tool_result"] = tr
-            tr[node_name] = {
-                "provider": provider,
-                "task": task_instructions,
-                "systemPrompt": final_system_prompt,
-                **info,
-            }
-
-            # Optionally interrupt if downstream needs human check
-            if wait_for_done and info.get("error"):
-                interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
-
-            try:
-                state["n_steps"] = int(state.get("n_steps", 0) or 0) + 1
-            except Exception:
-                state["n_steps"] = 1
-            # Truncate info for history to avoid huge screenshot_base64 in logs
-            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-            info_for_history = truncate_screenshot_for_logging(info)
-            add_to_history(state, ActionMessage(content=f"action: {provider} {task_instructions}; result: {info_for_history}"))
-
-            return state
+            logger.info(
+                f"[BA._auto] dispatch node={node_name} "
+                f"elapsed_ms={(_ba_auto_time.perf_counter()-_ba_auto_t0)*1000:.0f} "
+                f"cloud={is_cloud_mode} hard_timeout={use_hard_timeout} "
+                f"effective_timeout={effective_timeout} "
+                f"has_monitors={bool(_event_monitor_configs)} agent_id={agent_id!r}"
+            )
+            info = _execute_browser_use_run(
+                state=state,
+                runtime=runtime,
+                combined_task=combined_task,
+                mainwin=mainwin,
+                agent_id=agent_id,
+                use_hard_timeout=use_hard_timeout,
+                effective_timeout=effective_timeout,
+                correlation_id=correlation_id,
+            )
+            return _finalize_automation_result(
+                state=state,
+                info=info,
+                provider=provider,
+                task_instructions=task_instructions,
+                final_system_prompt=final_system_prompt,
+                action=action,
+                wait_for_done=wait_for_done,
+            )
 
         # Fallback: record intent for other providers
         intents = state.setdefault("metadata", {}).setdefault("automation_intents", [])

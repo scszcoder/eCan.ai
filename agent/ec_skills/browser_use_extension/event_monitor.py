@@ -1979,10 +1979,30 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 if item_key in added_lookup:
                     added_items.append(item)
 
-        # For chat monitors, filter out the agent's own replies so the
+        # For chat-thread monitors, filter out the agent's own replies so the
         # monitor only fires for genuine customer messages (prevents self-
         # triggering when the agent types a response into the same chat).
-        if cfg.label == "chat_message_added" and added_items:
+        #
+        # This filter is *opt-in on the extractor config*: it engages only
+        # when the `fields` dict declares a `from` field (i.e. the extractor
+        # actually reads a sender marker from each item) AND the monitor
+        # carries the `chat_message_added` label (thread-pane convention).
+        # Chat-LIST monitors — which watch a conversation index rather than
+        # a message thread — do not have a per-item sender and therefore
+        # must not be subjected to this filter.  Previously the check was
+        # keyed only on the label, so any chat-list monitor that inherited
+        # the conventional `chat_message_added` label would have every
+        # item silently dropped (`item.get("from")` returned `""` and the
+        # customer-only list collapsed to `[]`).
+        _extractor_fields = extractor_cfg.get("fields") if isinstance(extractor_cfg, dict) else None
+        _extractor_declares_from = (
+            isinstance(_extractor_fields, dict) and "from" in _extractor_fields
+        )
+        if (
+            cfg.label == "chat_message_added"
+            and added_items
+            and _extractor_declares_from
+        ):
             customer_only = [
                 item for item in added_items
                 if str(item.get("from") or "").lower() == "customer"
@@ -1994,6 +2014,50 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"from chat_message_added (agent self-reply)"
                 )
                 added_items = customer_only
+                added_keys = [
+                    str(item.get(key_field) or item.get("identity_key") or "").strip()
+                    for item in added_items
+                ] if key_field or key_fields else added_keys[:len(added_items)]
+
+        # Generic opt-in content filter: `filters.require_nonempty_fields`.
+        #
+        # When present in the extractor config, drop any item whose listed
+        # fields are all empty/null/zero.  This is the primary knob for
+        # chat-LIST monitors that want to fire only on actionable customer
+        # activity (e.g. declare `["unread_badge"]` to suppress re-fires
+        # triggered by AI smart-cs auto-replies, system welcome messages,
+        # or the agent's own reply all of which mutate `last_message` in
+        # the row identity but do not represent work for the bot to do).
+        #
+        # A field is considered "non-empty" when it is truthy AND its
+        # stringified form is not `""`, `"0"`, `"false"`, or `"null"`.
+        # This matches how platforms render absent badges (`""` or `"0"`).
+        _filter_cfg = extractor_cfg.get("filters") if isinstance(extractor_cfg, dict) else None
+        _required_nonempty = (
+            _filter_cfg.get("require_nonempty_fields")
+            if isinstance(_filter_cfg, dict)
+            else None
+        )
+        if added_items and isinstance(_required_nonempty, list) and _required_nonempty:
+            def _is_nonempty(value: Any) -> bool:
+                if value is None or value is False:
+                    return False
+                s = str(value).strip().lower()
+                return bool(s) and s not in ("0", "false", "null", "none")
+
+            _required = [str(f) for f in _required_nonempty if f]
+            _passed = [
+                item for item in added_items
+                if all(_is_nonempty(item.get(f)) for f in _required)
+            ]
+            _dropped = len(added_items) - len(_passed)
+            if _dropped:
+                logger.info(
+                    f"[EventMonitor] Filtered {_dropped} item(s) whose "
+                    f"required_nonempty_fields={_required} were empty "
+                    f"(label='{cfg.label}')"
+                )
+                added_items = _passed
                 added_keys = [
                     str(item.get(key_field) or item.get("identity_key") or "").strip()
                     for item in added_items
