@@ -99,6 +99,89 @@ def _classify_queue_event(msg: Any) -> str:
         return ""
 
 
+def _describe_queue_msg(msg: Any) -> str:
+    """Return a short human-readable summary of a queued request for diagnostics.
+
+    Format: 'evt=<event_type> chat=<chatId> from=<senderId> preview=<first 60 chars>'.
+    Best-effort, never raises. Used by [QUEUE-TRACE] logs.
+
+    Handles multiple request shapes:
+      - A2A executor dict: {"params": {"message": {"parts":[{"text":...}], "metadata":{...}}, "metadata":{...}}}
+      - event_monitor dict: {"sub_type": "新消息", "data": {...}, "context": {...}}
+      - legacy SendTaskRequest Pydantic / dict with params.parts[...]
+    """
+    def _get(obj, key, default=None):
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _scan_for_text(parts_list):
+        try:
+            for p in parts_list or []:
+                # Part may be dict or Pydantic
+                root = _get(p, "root", None)
+                txt = _get(root, "text", None) if root is not None else None
+                if not txt:
+                    txt = _get(p, "text", None)
+                if txt:
+                    return str(txt)[:60]
+        except Exception:
+            return ""
+        return ""
+
+    try:
+        evt = _classify_queue_event(msg) or "?"
+        chat_id = ""
+        sender_id = ""
+        sub_type = ""
+        preview = ""
+        # --- event_monitor browser_event dict shape ---
+        if isinstance(msg, dict) and msg.get("sub_type") is not None:
+            sub_type = str(msg.get("sub_type") or "")
+            ctx = msg.get("context") or {}
+            chat_id = str(ctx.get("chatId", "") or "")
+        # --- A2A executor dict shape ---
+        params = _get(msg, "params", None)
+        if params is not None:
+            outer_meta = _get(params, "metadata", None) or {}
+            message = _get(params, "message", None)
+            msg_meta = _get(message, "metadata", None) or {}
+            parts = _get(message, "parts", None) or _get(params, "parts", None) or []
+            chat_id = chat_id or str(_get(outer_meta, "chatId", "") or _get(msg_meta, "chatId", "") or "")
+            sender_id = str(
+                _get(outer_meta, "senderId", "")
+                or _get(msg_meta, "senderId", "")
+                or _get(msg_meta, "sender_id", "")
+                or ""
+            )
+            if not preview:
+                preview = _scan_for_text(parts)
+        # --- fallback: look at top-level parts or human_text ---
+        if isinstance(msg, dict) and not preview:
+            data = msg.get("data") or {}
+            preview = str(data.get("human_text") or data.get("text") or "")[:60]
+        extra = f" sub={sub_type}" if sub_type else ""
+        return f"evt={evt}{extra} chat={chat_id or '-'} from={sender_id or '-'} preview={preview!r}"
+    except Exception as _e:
+        return f"evt=?(describe_error={_e})"
+
+
+def _snapshot_queue(q: Queue, limit: int = 10) -> str:
+    """Return a compact snapshot of the first `limit` queued items (thread-safe)."""
+    try:
+        with q.mutex:
+            items = list(q.queue)
+        depth = len(items)
+        head = items[:limit]
+        summaries = [f"#{i}:{_describe_queue_msg(m)}" for i, m in enumerate(head)]
+        more = f" (+{depth - len(head)} more)" if depth > len(head) else ""
+        return f"depth={depth} [{' | '.join(summaries)}]{more}"
+    except Exception as _e:
+        return f"snapshot_error={_e}"
+
+
 def _priority_dequeue(q: Queue, timeout: float) -> Any:
     """Dequeue one item, preferring chat_message over browser_event.
 
@@ -110,6 +193,15 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
     """
     msg = q.get(timeout=timeout)
     evt = _classify_queue_event(msg)
+    # [QUEUE-TRACE] Record every pop so we can reconstruct the full consumption
+    # order post-mortem. The remaining snapshot reveals what was left behind.
+    try:
+        logger.info(
+            f"[QUEUE-TRACE] dequeue popped: {_describe_queue_msg(msg)} | "
+            f"remaining={_snapshot_queue(q, limit=10)}"
+        )
+    except Exception:
+        pass
     if evt not in _PRIORITY_LOW_EVENT_TYPES:
         return msg
     try:
@@ -120,7 +212,8 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
                     q.queue[i] = msg
                     logger.info(
                         f"[QUEUE] Priority promotion: promoted '{peek_evt}' ahead of "
-                        f"'{evt}' (queue_depth={len(q.queue)})"
+                        f"'{evt}' (queue_depth={len(q.queue)}); promoted_msg="
+                        f"{_describe_queue_msg(peek_msg)} demoted_msg={_describe_queue_msg(msg)}"
                     )
                     return peek_msg
     except Exception as _prio_err:
@@ -1884,18 +1977,38 @@ class TaskRunner(Generic[Context]):
                         if _dd_ok:
                             logger.info(
                                 f"[QUEUE] Direct delivery succeeded for task={target_task.name}, "
-                                f"skipping queue"
+                                f"skipping queue (msg={_describe_queue_msg(request)})"
                             )
                             return
+                        else:
+                            # [QUEUE-TRACE] Make it clear the direct-delivery shortcut did NOT
+                            # fire so we can distinguish this from a missing chat_message later.
+                            logger.info(
+                                f"[QUEUE-TRACE] direct-delivery skipped (returned False): "
+                                f"task={target_task.name} msg={_describe_queue_msg(request)}"
+                            )
                     except Exception as _dd_err:
-                        logger.debug(
-                            f"[QUEUE] Direct delivery failed (non-fatal, will queue): {_dd_err}"
+                        logger.info(
+                            f"[QUEUE-TRACE] direct-delivery raised (non-fatal, will queue): "
+                            f"{_dd_err} msg={_describe_queue_msg(request)}"
                         )
 
                 try:
                     _tag_queue_event_type(request, event_type)
                     target_task.queue.put_nowait(request)
-                    logger.info(f"[QUEUE] Message queued for task={target_task.name}")
+                    # [QUEUE-TRACE] Dump full queue state right after enqueue so we can
+                    # tell whether a subsequently-"lost" chat_message ever actually
+                    # landed in the task queue. Include task state so we can correlate
+                    # with the dequeue-skip-when-working branch below.
+                    try:
+                        _ts_state = getattr(getattr(target_task, "status", None), "state", None)
+                        logger.info(
+                            f"[QUEUE] Message queued for task={target_task.name} "
+                            f"enqueued={_describe_queue_msg(request)} task_state={_ts_state!r} "
+                            f"queue={_snapshot_queue(target_task.queue, limit=10)}"
+                        )
+                    except Exception:
+                        logger.info(f"[QUEUE] Message queued for task={target_task.name}")
 
                     # Ensure the target task's execution loop is alive.
                     # _resolve_event_routing may return a stale task whose loop has already
@@ -2554,6 +2667,24 @@ class TaskRunner(Generic[Context]):
             # so the next dequeue can actually be processed.
             _cur_state = getattr(getattr(current_task, "status", None), "state", None)
             if _cur_state == TaskState.working:
+                # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
+                # the most likely place a chat_message sits stranded: task is still
+                # working so we do not touch the queue. Throttle to avoid spam (~1/s).
+                try:
+                    _qd = current_task.queue.qsize() if getattr(current_task, "queue", None) else 0
+                    if _qd > 0:
+                        _last_log_t = getattr(self, "_last_busy_skip_log_t", {})
+                        import time as _t_busy
+                        _now = _t_busy.time()
+                        if _now - _last_log_t.get(current_task.id, 0.0) > 1.0:
+                            logger.info(
+                                f"[QUEUE-TRACE] dequeue SKIPPED (task state=working): "
+                                f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
+                            )
+                            _last_log_t[current_task.id] = _now
+                            self._last_busy_skip_log_t = _last_log_t
+                except Exception:
+                    pass
                 if self._stop_event.wait(timeout=0.5):
                     return None, None, False
                 return current_task, None, False
@@ -2690,6 +2821,18 @@ class TaskRunner(Generic[Context]):
         # First log: function entry
         _entry_state = task.status.state
         logger.info(f"[SUBMIT][{_call_id}] ENTER _submit_task_execution for '{task.name}', state={_entry_state!r}")
+        # [QUEUE-TRACE] What msg are we about to submit? If this is None it means a
+        # schedule/auto kickoff; if it is a dict it is the popped queue item.
+        try:
+            if msg is None:
+                logger.info(f"[QUEUE-TRACE] SUBMIT entry msg=None task={task.name} trigger={trigger_type}")
+            else:
+                logger.info(
+                    f"[QUEUE-TRACE] SUBMIT entry task={task.name} trigger={trigger_type} "
+                    f"msg={_describe_queue_msg(msg)}"
+                )
+        except Exception:
+            pass
         
         # ── Interrupt guard: do NOT re-submit a task that is parked waiting for human input ──
         # When a skill hits a pend_event / __interrupt__, it is parked and emits status="paused".
@@ -2720,6 +2863,21 @@ class TaskRunner(Generic[Context]):
         # causing unpredictable interference. The event is already in task.queue
         # and will be picked up on the next pend_event cycle.
         if _is_working and not _has_real_message:
+            # [QUEUE-TRACE] This path DROPS the popped msg on the floor (no re-queue).
+            # If msg has event data but was not classified as a "real message"
+            # (e.g. A2A Pydantic model without __trigger_source__ tag), this is a
+            # silent chat-message drop point.
+            try:
+                _msg_kind = type(msg).__name__ if msg is not None else "None"
+                _tgsrc = msg.get("__trigger_source__", "") if isinstance(msg, dict) else getattr(msg, "__trigger_source__", "")
+                _auto = msg.get("__auto_kickoff__", False) if isinstance(msg, dict) else getattr(msg, "__auto_kickoff__", False)
+                logger.warning(
+                    f"[QUEUE-TRACE] DROP at SUBMIT guard: task={task.name} msg_kind={_msg_kind} "
+                    f"trigger_source={_tgsrc!r} auto_kickoff={_auto!r} "
+                    f"described={_describe_queue_msg(msg) if msg is not None else '(None)'}"
+                )
+            except Exception:
+                pass
             logger.warning(
                 f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r} "
                 f"(already working, event will be processed in next cycle)"
