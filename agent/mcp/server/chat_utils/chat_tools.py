@@ -17,10 +17,11 @@ References:
 - my_twin_chatter_skill.py: parrot function (lines 131-142)
 """
 
+import hashlib
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import mcp.types as types
 from mcp.types import TextContent
@@ -41,6 +42,107 @@ _sender_dispatch_state: Dict[str, Dict[str, Any]] = {}
 _last_discovery_ts: float = 0.0
 
 _DISPATCH_WINDOW_SEC = 30  # reset tracking after this many seconds of inactivity
+
+# Per-(sender, recipient, customer, content-hash) response dedup.  Prevents
+# the responder LLM from sending the *exact same* reply twice in a single
+# step — without blocking the front-desk from dispatching legitimate new
+# customer messages for the same customer. Key components:
+#   - sender        : distinguishes different agents
+#   - recipient     : front-desk→responder and responder→front-desk don't collide
+#   - customer      : per-customer scoping
+#   - content hash  : only an identical message text is considered a duplicate
+# Window kept short (in-single-step scope) so fast typing conversations pass.
+_send_chat_response_dedup: Dict[str, float] = {}
+_SEND_CHAT_RESPONSE_DEDUP_S = 3  # seconds
+
+# Per-(recipient, customer) QA-response pending lock.  Stops parallel
+# over-dispatch where multiple QA workers (or the front-desk's leftover
+# LLM) all produce an answer for the same customer turn and route it to
+# the same typing agent, which then types each answer in sequence and
+# makes later turns appear to "reply to the wrong question" (observed
+# 20:48:19 → 20:49:14 cascade on customer A where 4 QAs each answered
+# 怎么退换货 and the last arrived after the customer had already sent
+# 发什么快递).  Set when any `response_text`-bearing payload hits
+# send_chat, cleared by HOT-PATH-B after it successfully types into
+# Feige.  A TTL safety cap unblocks the lock if the responder crashes
+# before clearing it.
+#
+# TTL tuning 2026-04-22: lowered from 120s → 30s after customer C stall
+# (HOT-PATH-B never ran for 客户C because the chat_message for 客户C was
+# dropped between submit and pend_event resume due to graph-state bleed;
+# the 120s lock then blocked 客户C's follow-up "有实物图吗？" until TTL
+# expired 2 minutes later).  HOT-PATH-B typically clears the lock in
+# <5 s; 30 s is ample safety margin and strictly preferable to stalling
+# a customer reply for 2 minutes.  The content-hash stale-check below
+# (mark_qa_response_pending) provides a second line of defence when a
+# NEW customer turn arrives before the previous lock has expired.
+_qa_response_pending_lock: Dict[str, Tuple[float, str]] = {}  # key → (ts, content_hash)
+_QA_RESPONSE_PENDING_TTL_S = 30.0  # safety cap
+
+
+def _qa_pending_key(recipient_id: str, customer_id: str) -> str:
+    return f"{(recipient_id or '').strip()}|{(customer_id or '').strip()}"
+
+
+def mark_qa_response_pending(
+    recipient_id: str, customer_id: str, content_hash: str = ""
+) -> None:
+    """Record that *recipient_id* has a QA answer in flight for *customer_id*.
+
+    ``content_hash`` (optional) is a short digest of the response_text so a
+    subsequent send_chat with a *different* response can detect that the
+    previous turn has logically been answered (even if HOT-PATH-B never
+    cleared the lock) and replace the lock rather than deadlock.
+    """
+    k = _qa_pending_key(recipient_id, customer_id)
+    if k.strip("|"):
+        _qa_response_pending_lock[k] = (time.time(), content_hash or "")
+
+
+def clear_qa_response_pending(recipient_id: str, customer_id: str) -> None:
+    """Release the pending lock (called by HOT-PATH-B after typing)."""
+    k = _qa_pending_key(recipient_id, customer_id)
+    _qa_response_pending_lock.pop(k, None)
+
+
+def _check_qa_response_pending(
+    recipient_id: str, customer_id: str, incoming_content_hash: str = ""
+) -> float:
+    """Return age (s) of an active pending lock, or 0.0 if none/expired.
+
+    If ``incoming_content_hash`` is provided and differs from the stored
+    hash, the existing lock is considered STALE (its logical turn has
+    already been answered or abandoned) and is cleared — the caller
+    will then re-mark for the new turn.  This prevents a lost HOT-PATH-B
+    run from stalling every subsequent reply for the same customer
+    until TTL expires.
+    """
+    k = _qa_pending_key(recipient_id, customer_id)
+    entry = _qa_response_pending_lock.get(k)
+    if entry is None:
+        return 0.0
+    ts, stored_hash = entry
+    age = time.time() - ts
+    if age > _QA_RESPONSE_PENDING_TTL_S:
+        _qa_response_pending_lock.pop(k, None)
+        return 0.0
+    # Content-hash stale detection: a NEW response for the same
+    # (recipient, customer) with different content means the previous
+    # turn is logically over.  Clear and let the caller re-mark.
+    if (
+        incoming_content_hash
+        and stored_hash
+        and incoming_content_hash != stored_hash
+    ):
+        logger.info(
+            f"[send_chat] QA-PENDING STALE-REPLACE: releasing lock for "
+            f"recipient={recipient_id!r} customer={customer_id!r} "
+            f"(age={age:.1f}s, stored_hash={stored_hash} != "
+            f"incoming_hash={incoming_content_hash}); prior turn assumed complete."
+        )
+        _qa_response_pending_lock.pop(k, None)
+        return 0.0
+    return age
 
 
 def _get_dispatch_state(sender_id: str) -> Dict[str, Any]:
@@ -412,6 +514,116 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
         resolved_sender_id = getattr(getattr(sender_agent, "card", None), "id", "") or sender_agent_id
         resolved_recipient_id = getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id
+
+        # ── Dedup: skip if same sender already sent for this customer recently ──
+        # Prevents the responder LLM from sending multiple replies for the
+        # same customer in a single step (duplicate tool calls).
+        try:
+            _msg_obj = None
+            if isinstance(message_text, str):
+                try:
+                    _msg_obj = json.loads(message_text)
+                except Exception:
+                    pass
+            if isinstance(_msg_obj, dict):
+                _sc_cust = str(
+                    _msg_obj.get("customer_id") or _msg_obj.get("customer_name") or ""
+                ).strip()
+                # Normalize: strip message-preview suffix ("sc|有紫色款吗？" → "sc")
+                if "|" in _sc_cust:
+                    _prefix = _sc_cust.split("|", 1)[0].strip()
+                    if _prefix:
+                        _sc_cust = _prefix
+                if _sc_cust:
+                    # ── QA-response pending-lock guard ──
+                    # Only applies to payloads carrying `response_text` —
+                    # i.e. QA workers answering a customer turn (NOT the
+                    # front-desk's assignment payloads, which carry
+                    # session_id/chat_url instead).  If another answer is
+                    # already in flight to this recipient for this customer,
+                    # suppress so the typing agent handles exactly one reply
+                    # per customer turn.
+                    _sc_has_response = bool(
+                        str(_msg_obj.get("response_text") or "").strip()
+                    )
+                    # Compute content hash up-front so the QA-pending
+                    # stale-replace check can use it.  If the new
+                    # response content differs from the content that
+                    # acquired the existing lock, the previous turn is
+                    # logically over (HOT-PATH-B may have crashed or
+                    # the event was lost in graph-state bleed) and the
+                    # lock is released inside _check_qa_response_pending.
+                    _sc_content_hash = hashlib.md5(
+                        (message_text or "").encode("utf-8", errors="replace")
+                    ).hexdigest()[:12]
+                    if _sc_has_response:
+                        _sc_pending_age = _check_qa_response_pending(
+                            resolved_recipient_id,
+                            _sc_cust,
+                            incoming_content_hash=_sc_content_hash,
+                        )
+                        if _sc_pending_age > 0:
+                            logger.info(
+                                f"[send_chat] QA-PENDING SKIP: another answer already "
+                                f"in flight to recipient={resolved_recipient_id} "
+                                f"for customer '{_sc_cust}' "
+                                f"(pending {_sc_pending_age:.1f}s, "
+                                f"ttl={_QA_RESPONSE_PENDING_TTL_S}s). "
+                                f"Suppressing duplicate from sender={resolved_sender_id}."
+                            )
+                            return {
+                                "success": True,
+                                "message_id": "",
+                                "chat_id": chat_id,
+                                "recipient": resolved_recipient_id,
+                                "timestamp": int(time.time() * 1000),
+                                "dedup": True,
+                                "dedup_reason": "qa_response_pending",
+                                "note": (
+                                    f"Another answer for customer '{_sc_cust}' is "
+                                    f"already in flight to this recipient; suppressed."
+                                ),
+                            }
+                        # No lock (or previous lock was released as stale).
+                        # Acquire it with the current response's content
+                        # hash so a future differing-content send can
+                        # detect staleness without waiting for TTL.
+                        mark_qa_response_pending(
+                            resolved_recipient_id, _sc_cust, _sc_content_hash
+                        )
+                    _sc_dedup_key = (
+                        f"{resolved_sender_id}|{resolved_recipient_id}|"
+                        f"{_sc_cust}|{_sc_content_hash}"
+                    )
+                    _sc_now = time.time()
+                    _sc_last = _send_chat_response_dedup.get(_sc_dedup_key)
+                    if _sc_last is not None and (_sc_now - _sc_last) < _SEND_CHAT_RESPONSE_DEDUP_S:
+                        logger.info(
+                            f"[send_chat] DEDUP: skipping exact-duplicate response for "
+                            f"customer '{_sc_cust}' sender={resolved_sender_id} "
+                            f"recipient={resolved_recipient_id} hash={_sc_content_hash} "
+                            f"(last sent {_sc_now - _sc_last:.1f}s ago, "
+                            f"window={_SEND_CHAT_RESPONSE_DEDUP_S}s)"
+                        )
+                        return {
+                            "success": True,
+                            "message_id": "",
+                            "chat_id": chat_id,
+                            "recipient": resolved_recipient_id,
+                            "timestamp": int(_sc_now * 1000),
+                            "dedup": True,
+                            "note": f"Duplicate response for '{_sc_cust}' suppressed"
+                        }
+                    _send_chat_response_dedup[_sc_dedup_key] = _sc_now
+                    # Prune old entries
+                    _sc_stale = [
+                        k for k, t in _send_chat_response_dedup.items()
+                        if _sc_now - t > _SEND_CHAT_RESPONSE_DEDUP_S * 3
+                    ]
+                    for k in _sc_stale:
+                        _send_chat_response_dedup.pop(k, None)
+        except Exception as _dedup_err:
+            logger.debug(f"[send_chat] Response dedup check failed (non-fatal): {_dedup_err}")
 
         # ── General-purpose auto-distribution ──
         # When a sender targets the same recipient multiple times in quick

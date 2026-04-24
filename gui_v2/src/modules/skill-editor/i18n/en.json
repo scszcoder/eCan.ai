@@ -770,7 +770,23 @@
         "accumulate": "Accumulate all rounds"
       },
       "actionableField": "Actionable Field",
-      "actionableFieldPlaceholder": "e.g. pending_timer (per-item field whose non-empty value marks the item as actionable / needing work this round)"
+      "actionableFieldPlaceholder": "e.g. pending_timer (per-item field whose non-empty value marks the item as actionable / needing work this round)",
+      "hotPathSection": "Hot-Path Optimization",
+      "hotPathSectionDesc": "Skip the LLM for deterministic operations. Configure action sequences triggered by event type and payload fields.",
+      "hotPathActions": "Hot-Path Actions (JSON)",
+      "autoDispatch": "Auto-Dispatch Config (JSON)",
+      "nodeBehaviorSection": "Node Behavior",
+      "nodeBehaviorSectionDesc": "Data-driven configuration that replaces per-skill hardcoded behavior. Leave blank for generic defaults; fill in to enable skill-specific flows (e.g. rt_chat_bot, customer_front_desk).",
+      "assignment": "Assignment Config (JSON)",
+      "preDispatch": "Pre-Dispatch Config (JSON)",
+      "stepPatches": "Step Patches (JSON)",
+      "siteAdapter": "Site Adapter (JSON)",
+      "siteAdapterDesc": "Shared selector/policy data for hook-based site adapters. Required by the verify_active_session Tier-0 crosstalk guard.",
+      "hookBundles": "Hook Bundles (JSON)",
+      "hookBundlesDesc": "External hook bundles to load. Array of {path, enabled?, config?}. path can be an in-tree name (e.g. 'feige_chat'), absolute path, or 'pkg:<name>'.",
+      "tabPolicy": "Tab Policy",
+      "tabPolicyStrict": "strict_single_tab (default — never switch_tab)",
+      "tabPolicyAllowAssigned": "allow_assigned_tab (permit focusing the assigned tab_id)"
     },
     "mcp": {
       "name": "MCP",

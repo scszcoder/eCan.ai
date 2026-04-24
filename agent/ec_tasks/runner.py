@@ -63,6 +63,163 @@ DEV_EVENT_POLL_INTERVAL_SEC = float(os.getenv("DEV_EVENT_POLL_INTERVAL_SEC", "0.
 # Falls back to this global default (also configurable via env var).
 DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
 
+# ── Queue event-type tagging & priority dequeue (Change 1a) ──
+# HOT-PATH optimization: when both chat_message and browser_event are queued
+# for the same task, chat_message must win. It carries the response_text from
+# the Q&A agent; if a stale browser_event resumes the pend_event first, the
+# chat_message sits unprocessed and the 15s response-time budget is blown.
+# We tag event_type on the raw request at enqueue, then scan the queue on
+# dequeue to promote chat_message ahead of browser_event.
+_EVT_TYPE_ATTR = "__ec_queue_event_type__"
+_PRIORITY_LOW_EVENT_TYPES = {"browser_event"}
+_PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_message"}
+
+
+def _tag_queue_event_type(request: Any, event_type: str) -> None:
+    """Stamp event_type onto the request so the dequeue side can classify it."""
+    try:
+        if isinstance(request, dict):
+            request[_EVT_TYPE_ATTR] = event_type
+        else:
+            try:
+                setattr(request, _EVT_TYPE_ATTR, event_type)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _classify_queue_event(msg: Any) -> str:
+    """Return the event_type tag we attached, or '' if unknown."""
+    try:
+        if isinstance(msg, dict):
+            return str(msg.get(_EVT_TYPE_ATTR, "") or "")
+        return str(getattr(msg, _EVT_TYPE_ATTR, "") or "")
+    except Exception:
+        return ""
+
+
+def _describe_queue_msg(msg: Any) -> str:
+    """Return a short human-readable summary of a queued request for diagnostics.
+
+    Format: 'evt=<event_type> chat=<chatId> from=<senderId> preview=<first 60 chars>'.
+    Best-effort, never raises. Used by [QUEUE-TRACE] logs.
+
+    Handles multiple request shapes:
+      - A2A executor dict: {"params": {"message": {"parts":[{"text":...}], "metadata":{...}}, "metadata":{...}}}
+      - event_monitor dict: {"sub_type": "新消息", "data": {...}, "context": {...}}
+      - legacy SendTaskRequest Pydantic / dict with params.parts[...]
+    """
+    def _get(obj, key, default=None):
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _scan_for_text(parts_list):
+        try:
+            for p in parts_list or []:
+                # Part may be dict or Pydantic
+                root = _get(p, "root", None)
+                txt = _get(root, "text", None) if root is not None else None
+                if not txt:
+                    txt = _get(p, "text", None)
+                if txt:
+                    return str(txt)[:60]
+        except Exception:
+            return ""
+        return ""
+
+    try:
+        evt = _classify_queue_event(msg) or "?"
+        chat_id = ""
+        sender_id = ""
+        sub_type = ""
+        preview = ""
+        # --- event_monitor browser_event dict shape ---
+        if isinstance(msg, dict) and msg.get("sub_type") is not None:
+            sub_type = str(msg.get("sub_type") or "")
+            ctx = msg.get("context") or {}
+            chat_id = str(ctx.get("chatId", "") or "")
+        # --- A2A executor dict shape ---
+        params = _get(msg, "params", None)
+        if params is not None:
+            outer_meta = _get(params, "metadata", None) or {}
+            message = _get(params, "message", None)
+            msg_meta = _get(message, "metadata", None) or {}
+            parts = _get(message, "parts", None) or _get(params, "parts", None) or []
+            chat_id = chat_id or str(_get(outer_meta, "chatId", "") or _get(msg_meta, "chatId", "") or "")
+            sender_id = str(
+                _get(outer_meta, "senderId", "")
+                or _get(msg_meta, "senderId", "")
+                or _get(msg_meta, "sender_id", "")
+                or ""
+            )
+            if not preview:
+                preview = _scan_for_text(parts)
+        # --- fallback: look at top-level parts or human_text ---
+        if isinstance(msg, dict) and not preview:
+            data = msg.get("data") or {}
+            preview = str(data.get("human_text") or data.get("text") or "")[:60]
+        extra = f" sub={sub_type}" if sub_type else ""
+        return f"evt={evt}{extra} chat={chat_id or '-'} from={sender_id or '-'} preview={preview!r}"
+    except Exception as _e:
+        return f"evt=?(describe_error={_e})"
+
+
+def _snapshot_queue(q: Queue, limit: int = 10) -> str:
+    """Return a compact snapshot of the first `limit` queued items (thread-safe)."""
+    try:
+        with q.mutex:
+            items = list(q.queue)
+        depth = len(items)
+        head = items[:limit]
+        summaries = [f"#{i}:{_describe_queue_msg(m)}" for i, m in enumerate(head)]
+        more = f" (+{depth - len(head)} more)" if depth > len(head) else ""
+        return f"depth={depth} [{' | '.join(summaries)}]{more}"
+    except Exception as _e:
+        return f"snapshot_error={_e}"
+
+
+def _priority_dequeue(q: Queue, timeout: float) -> Any:
+    """Dequeue one item, preferring chat_message over browser_event.
+
+    Blocks up to `timeout` on the initial get (same semantics as q.get).
+    After the first get returns a browser_event, peek at the remaining
+    queued items and — if a higher-priority event is waiting behind it —
+    swap so the caller receives the higher-priority one. The browser_event
+    stays in the queue for the next iteration.
+    """
+    msg = q.get(timeout=timeout)
+    evt = _classify_queue_event(msg)
+    # [QUEUE-TRACE] Record every pop so we can reconstruct the full consumption
+    # order post-mortem. The remaining snapshot reveals what was left behind.
+    try:
+        logger.info(
+            f"[QUEUE-TRACE] dequeue popped: {_describe_queue_msg(msg)} | "
+            f"remaining={_snapshot_queue(q, limit=10)}"
+        )
+    except Exception:
+        pass
+    if evt not in _PRIORITY_LOW_EVENT_TYPES:
+        return msg
+    try:
+        with q.mutex:
+            for i, peek_msg in enumerate(q.queue):
+                peek_evt = _classify_queue_event(peek_msg)
+                if peek_evt in _PRIORITY_HIGH_EVENT_TYPES:
+                    q.queue[i] = msg
+                    logger.info(
+                        f"[QUEUE] Priority promotion: promoted '{peek_evt}' ahead of "
+                        f"'{evt}' (queue_depth={len(q.queue)}); promoted_msg="
+                        f"{_describe_queue_msg(peek_msg)} demoted_msg={_describe_queue_msg(msg)}"
+                    )
+                    return peek_msg
+    except Exception as _prio_err:
+        logger.debug(f"[QUEUE] Priority scan failed (non-fatal): {_prio_err}")
+    return msg
+
 
 class TaskRunnerRegistry:
     """Global registry for TaskRunner instances to allow coordinated shutdown."""
@@ -1808,10 +1965,50 @@ class TaskRunner(Generic[Context]):
                 if not hasattr(target_task, "queue") or target_task.queue is None:
                     logger.error(f"[QUEUE] Target task has no queue: {target_task.name}")
                     return
-                
+
+                # ── Direct delivery fast-path ──
+                # When a chat_message carrying a structured response arrives for a
+                # task whose browser session has feige tools, deliver the reply
+                # directly (open_session + send_message) instead of queuing it for
+                # the LLM.  This cuts ~30s of queue wait + LLM round-trip.
+                if event_type == "chat_message":
+                    try:
+                        _dd_ok = self._try_direct_feige_delivery(target_task, request)
+                        if _dd_ok:
+                            logger.info(
+                                f"[QUEUE] Direct delivery succeeded for task={target_task.name}, "
+                                f"skipping queue (msg={_describe_queue_msg(request)})"
+                            )
+                            return
+                        else:
+                            # [QUEUE-TRACE] Make it clear the direct-delivery shortcut did NOT
+                            # fire so we can distinguish this from a missing chat_message later.
+                            logger.info(
+                                f"[QUEUE-TRACE] direct-delivery skipped (returned False): "
+                                f"task={target_task.name} msg={_describe_queue_msg(request)}"
+                            )
+                    except Exception as _dd_err:
+                        logger.info(
+                            f"[QUEUE-TRACE] direct-delivery raised (non-fatal, will queue): "
+                            f"{_dd_err} msg={_describe_queue_msg(request)}"
+                        )
+
                 try:
+                    _tag_queue_event_type(request, event_type)
                     target_task.queue.put_nowait(request)
-                    logger.info(f"[QUEUE] Message queued for task={target_task.name}")
+                    # [QUEUE-TRACE] Dump full queue state right after enqueue so we can
+                    # tell whether a subsequently-"lost" chat_message ever actually
+                    # landed in the task queue. Include task state so we can correlate
+                    # with the dequeue-skip-when-working branch below.
+                    try:
+                        _ts_state = getattr(getattr(target_task, "status", None), "state", None)
+                        logger.info(
+                            f"[QUEUE] Message queued for task={target_task.name} "
+                            f"enqueued={_describe_queue_msg(request)} task_state={_ts_state!r} "
+                            f"queue={_snapshot_queue(target_task.queue, limit=10)}"
+                        )
+                    except Exception:
+                        logger.info(f"[QUEUE] Message queued for task={target_task.name}")
 
                     # Ensure the target task's execution loop is alive.
                     # _resolve_event_routing may return a stale task whose loop has already
@@ -1825,6 +2022,7 @@ class TaskRunner(Generic[Context]):
                     fallback_task = self._ensure_chatter_task(request=request, event_type=event_type, source=source)
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:
+                            _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
                             return
@@ -1868,15 +2066,150 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
     
+    def _try_direct_feige_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
+        """
+        Attempt to deliver a chat_message response directly via feige tools,
+        bypassing the LLM queue.  Returns True if the reply was sent successfully.
+
+        This is the "direct delivery" fast-path: when a responder agent sends
+        a structured {response_text, customer_name} payload back to the front
+        desk, we call feige_open_session + feige_send_message on the cached
+        browser session immediately, cutting ~30s of queue + LLM latency.
+        """
+        import json as _json
+        import asyncio as _asyncio
+
+        # 1. Extract response_text and customer_name from the request payload
+        _human_text = ""
+        try:
+            from agent.ec_tasks.resume import normalize_event
+            _evt = normalize_event("chat_message", request, src="direct_delivery")
+            _human_text = (_evt.get("data") or {}).get("human_text", "")
+        except Exception:
+            pass
+        if not _human_text:
+            return False
+
+        try:
+            _parsed = _json.loads(_human_text)
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(_parsed, dict):
+            return False
+
+        _response_text = str(_parsed.get("response_text", "")).strip()
+        _customer_name = str(
+            _parsed.get("customer_name") or _parsed.get("customer_id") or ""
+        ).strip()
+        if not _response_text or not _customer_name:
+            return False
+
+        # 2. Find a cached browser session with feige tools
+        try:
+            from agent.ec_skills.build_node import _cached_browser_sessions
+        except ImportError:
+            return False
+
+        _session = None
+        for _key, _sess in _cached_browser_sessions.items():
+            if _sess is not None:
+                _session = _sess
+                break
+        if _session is None:
+            return False
+
+        # 3. Look up feige_open_session + feige_send_message tools
+        try:
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                custom_controller as _ctrl,
+            )
+            _actions = _ctrl.registry.registry.actions
+        except Exception:
+            return False
+
+        _open_fn = None
+        _send_fn = None
+        for _name, _act in _actions.items():
+            if _name.endswith("_open_session"):
+                _open_fn = (_name, _act)
+            elif _name.endswith("_send_message"):
+                _send_fn = (_name, _act)
+        if not _open_fn or not _send_fn:
+            return False
+
+        # 4. Execute open_session + send_message
+        _open_name, _open_act = _open_fn
+        _send_name, _send_act = _send_fn
+
+        async def _do_direct_delivery():
+            _open_params = _open_act.param_model(customer_name=_customer_name)
+            _open_result = await _open_act.function(
+                params=_open_params, browser_session=_session
+            )
+            _open_ok = _open_result and not getattr(_open_result, "error", None)
+            logger.info(
+                f"[DIRECT-DELIVERY] {_open_name} → "
+                f"{'OK' if _open_ok else 'FAIL'}: "
+                f"{getattr(_open_result, 'extracted_content', '') or getattr(_open_result, 'error', '')}"
+            )
+            if not _open_ok:
+                return False
+
+            await _asyncio.sleep(0.5)
+            _send_params = _send_act.param_model(text=_response_text)
+            _send_result = await _send_act.function(
+                params=_send_params, browser_session=_session
+            )
+            _send_ok = _send_result and not getattr(_send_result, "error", None)
+            logger.info(
+                f"[DIRECT-DELIVERY] {_send_name} → "
+                f"{'OK' if _send_ok else 'FAIL'}: "
+                f"{getattr(_send_result, 'extracted_content', '') or getattr(_send_result, 'error', '')}"
+            )
+            return _send_ok
+
+        # NOTE: Direct delivery from sync_task_wait_in_line is unreliable
+        # because the browser session's CDP connection is bound to the main
+        # event loop, which may be blocked by the A2A executor calling us
+        # synchronously.  The configurable hotPathActions in build_node.py
+        # handles direct delivery in the correct async context instead.
+        # This code path is kept as a last-resort attempt for callers
+        # that run from a separate thread (e.g., channel bridges).
+        try:
+            _loop = _asyncio.get_running_loop()
+            if _loop.is_running():
+                # We're in the event loop thread — can't block here.
+                # Let the message fall through to the queue; the Phase-2
+                # hot-path in build_node.py will handle direct delivery.
+                logger.debug(
+                    f"[DIRECT-DELIVERY] Skipping: event loop is running "
+                    f"(will use Phase-2 hot-path in build_node instead), "
+                    f"task={target_task.name}"
+                )
+                return False
+        except RuntimeError:
+            pass  # No running loop — safe to create one
+
+        try:
+            _result = _asyncio.run(_do_direct_delivery())
+            if _result:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Reply sent to {_customer_name} "
+                    f"(bypassed queue+LLM), task={target_task.name}"
+                )
+            return bool(_result)
+        except Exception:
+            return False
+
     def _route_async_callback(self, request: Any) -> bool:
         """
         Route an async callback event to the correct task.
-        
+
         Uses the correlation_id to find the target task.
-        
+
         Args:
             request: The callback request (dict with correlation_id, result, error)
-            
+
         Returns:
             True if routed successfully, False otherwise
         """
@@ -2334,12 +2667,30 @@ class TaskRunner(Generic[Context]):
             # so the next dequeue can actually be processed.
             _cur_state = getattr(getattr(current_task, "status", None), "state", None)
             if _cur_state == TaskState.working:
+                # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
+                # the most likely place a chat_message sits stranded: task is still
+                # working so we do not touch the queue. Throttle to avoid spam (~1/s).
+                try:
+                    _qd = current_task.queue.qsize() if getattr(current_task, "queue", None) else 0
+                    if _qd > 0:
+                        _last_log_t = getattr(self, "_last_busy_skip_log_t", {})
+                        import time as _t_busy
+                        _now = _t_busy.time()
+                        if _now - _last_log_t.get(current_task.id, 0.0) > 1.0:
+                            logger.info(
+                                f"[QUEUE-TRACE] dequeue SKIPPED (task state=working): "
+                                f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
+                            )
+                            _last_log_t[current_task.id] = _now
+                            self._last_busy_skip_log_t = _last_log_t
+                except Exception:
+                    pass
                 if self._stop_event.wait(timeout=0.5):
                     return None, None, False
                 return current_task, None, False
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
-                msg = current_task.queue.get(timeout=timeout)
+                msg = _priority_dequeue(current_task.queue, timeout=timeout)
 
                 # Tag the message with trigger source
                 if isinstance(msg, dict):
@@ -2470,6 +2821,18 @@ class TaskRunner(Generic[Context]):
         # First log: function entry
         _entry_state = task.status.state
         logger.info(f"[SUBMIT][{_call_id}] ENTER _submit_task_execution for '{task.name}', state={_entry_state!r}")
+        # [QUEUE-TRACE] What msg are we about to submit? If this is None it means a
+        # schedule/auto kickoff; if it is a dict it is the popped queue item.
+        try:
+            if msg is None:
+                logger.info(f"[QUEUE-TRACE] SUBMIT entry msg=None task={task.name} trigger={trigger_type}")
+            else:
+                logger.info(
+                    f"[QUEUE-TRACE] SUBMIT entry task={task.name} trigger={trigger_type} "
+                    f"msg={_describe_queue_msg(msg)}"
+                )
+        except Exception:
+            pass
         
         # ── Interrupt guard: do NOT re-submit a task that is parked waiting for human input ──
         # When a skill hits a pend_event / __interrupt__, it is parked and emits status="paused".
@@ -2500,6 +2863,21 @@ class TaskRunner(Generic[Context]):
         # causing unpredictable interference. The event is already in task.queue
         # and will be picked up on the next pend_event cycle.
         if _is_working and not _has_real_message:
+            # [QUEUE-TRACE] This path DROPS the popped msg on the floor (no re-queue).
+            # If msg has event data but was not classified as a "real message"
+            # (e.g. A2A Pydantic model without __trigger_source__ tag), this is a
+            # silent chat-message drop point.
+            try:
+                _msg_kind = type(msg).__name__ if msg is not None else "None"
+                _tgsrc = msg.get("__trigger_source__", "") if isinstance(msg, dict) else getattr(msg, "__trigger_source__", "")
+                _auto = msg.get("__auto_kickoff__", False) if isinstance(msg, dict) else getattr(msg, "__auto_kickoff__", False)
+                logger.warning(
+                    f"[QUEUE-TRACE] DROP at SUBMIT guard: task={task.name} msg_kind={_msg_kind} "
+                    f"trigger_source={_tgsrc!r} auto_kickoff={_auto!r} "
+                    f"described={_describe_queue_msg(msg) if msg is not None else '(None)'}"
+                )
+            except Exception:
+                pass
             logger.warning(
                 f"[SUBMIT][{_call_id}] ⛔ GUARD TRIGGERED — blocking '{task.name}' with state={_task_state!r} "
                 f"(already working, event will be processed in next cycle)"

@@ -32,10 +32,740 @@ from langchain_deepseek import ChatDeepSeek
 # from gui.ipc.w2p_handlers import prompt_handler
 from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
-
-from typing import Any, Literal, cast, overload
+from typing import Any, Awaitable, Callable, Literal, cast, overload
+from dataclasses import dataclass
 
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
+
+
+# ==================== Browser-Use Node Lifecycle Hooks ====================
+#
+# Site-specific business-case patterns (e.g. Feige's front-desk +
+# Q&A-worker-team fan-out) that wrap ``browser_automation`` register
+# themselves here as async callables invoked before the browser-use
+# agent runs.  If any hook returns a non-None state dict, the LLM
+# invocation is skipped and that state dict is returned from the node.
+# Hooks are invoked in registration order.
+#
+# Site bundles (e.g. ``hooks/external/feige_chat``) register their
+# hook at import time; this module imports the bundle near the end of
+# the file so the registry is populated before any node executes.
+# ``build_node`` itself has no knowledge of what any hook does — it
+# only invokes them.
+
+# Early-phase hooks run BEFORE the browser-use agent is constructed.
+# Used for fast-paths that can decide to short-circuit the whole node
+# based on the incoming event alone (e.g. Feige's HOT-PATH-B typing a
+# pre-computed reply into Feige without invoking the LLM or the full
+# browser-use agent lifecycle).  ``agent`` is always None at this phase.
+_before_browser_session_setup_hooks: list[
+    Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
+] = []
+
+
+def register_before_browser_session_setup_hook(
+    hook: Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]],
+) -> None:
+    """Register *hook* to be invoked BEFORE the browser-use agent is
+    constructed (early phase).  Use this for fast-paths that can decide
+    on the incoming event alone without needing the LLM or a fully
+    set-up browser-use agent.
+
+    Hook signature: ``hook(agent, state, inputs, hook_ctx)``.  ``agent``
+    is always ``None`` at this phase — acquire a browser session via
+    ``hook_ctx.get_or_create_browser_session`` if needed.  Returning a
+    non-None state dict short-circuits the whole node; returning
+    ``None`` lets the next early hook run (or the late phase, if no
+    more early hooks).  Registration is idempotent.
+    """
+    if hook not in _before_browser_session_setup_hooks:
+        _before_browser_session_setup_hooks.append(hook)
+
+
+# Late-phase hooks run AFTER the browser-use agent is constructed and
+# its browser session is ready.  Use this for patterns that need the
+# live agent / browser session (e.g. Feige's PreDispatch customer-
+# message fan-out that reads the sidebar DOM via agent.browser_session).
+_before_browser_use_run_hooks: list[
+    Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
+] = []
+
+
+def register_before_browser_use_run_hook(
+    hook: Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]],
+) -> None:
+    """Register *hook* to be invoked before the browser-use agent runs
+    (late phase).
+
+    Hook signature: ``hook(agent, state, inputs, hook_ctx)``.  Returning
+    a non-None state dict short-circuits the LLM; returning ``None``
+    lets the next hook run (or the LLM, if no more hooks).  Registration
+    is idempotent: adding the same callable twice is a no-op.
+    """
+    if hook not in _before_browser_use_run_hooks:
+        _before_browser_use_run_hooks.append(hook)
+
+
+@dataclass
+class BrowserUseHookContext:
+    """Data + helpers passed to ``before_browser_use_run`` hooks.
+
+    Site-specific state (e.g. Feige's dispatch dicts) lives in the
+    hook module itself, not here.  This context carries only the
+    generic helpers / shared state that ``build_node`` owns and that
+    hook implementations (+ their delegated helpers) need.
+    """
+    # Identifiers.
+    node_name: str
+    calling_agent_id: str
+    mainwin: Any
+    # Closure-scoped helpers from ``_run_browser_use`` (can't be
+    # module-level because they capture per-invocation locals).
+    resolve_scope_key: Callable[[dict], str]
+    extract_runtime_invocation_input: Callable[[dict | None], str]
+    # Module-level helpers (safe to call anywhere).
+    parse_json_input: Callable[[dict, str], Any]
+    send_log: Callable[[str, str], None]
+    normalize_customer_id: Callable[[str], str]
+    normalize_reply_text: Callable[[str], str]
+    safe_format_dict: type
+    # Shared state dicts (front-desk fan-out + HOT-PATH-B caches).
+    # Still owned by ``build_node`` module scope for now; Phase 5B
+    # will relocate them together with HOT-PATH-B into the
+    # ``feige_chat.front_desk`` module.
+    cached_browser_sessions: dict
+    frontdesk_dispatch_state_by_agent: dict
+    customer_last_dispatched_msg_id: dict
+    auto_dispatch_last_agent_reply: dict
+    # Inflight-lock trio (prevents double-dispatch of the same customer
+    # turn across scopes).
+    is_customer_dispatch_inflight: Callable[[str], float]
+    mark_customer_dispatch_inflight: Callable[[str], None]
+    clear_customer_dispatch_inflight: Callable[[str], None]
+    inflight_ttl_s: float
+    # Template renderer for action args (resolves ``{{field}}`` / 
+    # ``{{a || b}}`` placeholders from the event payload).  Used by
+    # HOT-PATH-B to build tool-call arguments.
+    resolve_template: Callable[[str, dict], str]
+    # Closure that creates / retrieves the cached browser session for
+    # this node invocation.  Exposed so early-phase hooks (which run
+    # before the browser-use agent is constructed) can still acquire
+    # a live session.  Signature: ``(mainwin, state=..., calling_agent_id=...)``.
+    get_or_create_browser_session: Callable[..., Awaitable[Any]]
+    # HOT-PATH-B dedup primitives — used by Feige's early hook to
+    # suppress replay loops when send_response_back's fallback path
+    # re-fires the same chat_message.
+    hp_b_was_recently_sent: Callable[[str, str], float]
+    hp_b_mark_sent: Callable[[str, str], None]
+    hp_b_dedup_ttl_s: float
+
+
+# ==================== Node Input Helpers ====================
+
+class _SafeFormatDict(dict):
+    """dict subclass for str.format_map() that returns "" for missing keys.
+
+    Used when rendering user-authored templates where a referenced field
+    may legitimately be empty or undefined.
+    """
+    def __missing__(self, key):
+        return ""
+
+
+def _parse_json_input(inputs: dict, key: str):
+    """Read inputs[key].content and decode it as JSON.
+
+    Accepts either a JSON string (the common Flowgram shape for textarea
+    inputs) or a pre-parsed dict/list.  Returns ``None`` when absent or
+    invalid so callers can use ``isinstance()`` checks without try/except.
+    """
+    raw = (inputs.get(key) or {}).get("content") if isinstance(inputs, dict) else None
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except Exception as err:
+            logger.warning(f"[NodeInputs] Failed to parse '{key}' as JSON (non-fatal): {err}")
+            return None
+    return None
+
+
+# ==================== Hot-Path Template Resolution ====================
+
+def _resolve_template(template: str, payload: dict) -> str:
+    """Resolve ``{{field}}`` or ``{{field1 || field2}}`` placeholders from *payload*.
+
+    - ``{{customer_name}}`` → ``payload["customer_name"]``
+    - ``{{customer_id || identity_key || customer_name}}`` → first non-empty value
+    - Non-template strings (no ``{{``/``}}``) are returned as-is.
+    """
+    if not isinstance(template, str):
+        return str(template) if template is not None else ""
+    if not (template.startswith("{{") and template.endswith("}}")):
+        return template
+    inner = template[2:-2].strip()
+    candidates = [c.strip() for c in inner.split("||")]
+    for field_name in candidates:
+        val = payload.get(field_name)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+# ==================== Customer ID Normalization ====================
+
+def _normalize_customer_id(raw_id: str) -> str:
+    """Normalize a customer ID by stripping the message-preview suffix.
+
+    DOM extractor identity keys often look like ``"sc|有紫色款吗？"`` where
+    the part after ``|`` is the latest message preview.  This changes every
+    time a new message arrives, which breaks dedup and affinity caches.
+
+    This function returns just the stable portion (everything before the
+    first ``|``).  If there is no ``|`` or the result would be empty, the
+    original string is returned stripped.
+    """
+    if not raw_id:
+        return ""
+    s = str(raw_id).strip()
+    if "|" in s:
+        prefix = s.split("|", 1)[0].strip()
+        if prefix:
+            return prefix
+    return s
+
+
+# ==================== Auto-Dispatch Helper ====================
+
+# Round-robin index per node_name, module-level so it persists across invocations.
+_auto_dispatch_rr_index: dict[str, int] = {}
+
+# Affinity table: customer_id → agent_id.  Persists across invocations so
+# returning customers are routed to the same agent that handled them before.
+# Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
+_auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
+
+# ── Identity-key dispatch dedup ──────────────────────────────────────
+# Tracks identity_key → dispatched_at. identity_key is the DOM's own stable
+# key (e.g. 'sc|有绿色款吗？' = '<customer>|<message preview>'). When the
+# customer sends a new message, the key changes; when the agent replies, the
+# key disappears from the DOM snapshot and the Fix-A caller prunes it — so a
+# subsequent identical question by the same customer re-fires naturally. The
+# safety TTL below is only garbage-collection for stranded entries; it is
+# NOT part of the dedup decision.
+_dispatched_identity_keys: dict[str, float] = {}  # identity_key → ts
+_DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
+# Short hard cooldown (seconds) after HOT-PATH-B delivery.
+# Suppresses the immediate burst of DOM-echo events right after delivery.
+_auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
+_AUTO_DISPATCH_COOLDOWN_S = 10.0  # seconds — just enough to skip the post-delivery event burst
+# Last reply text HOT-PATH-B typed for each customer, keyed by normalised
+# customer id.  Used by PreDispatch as a "stale last_message" guard:
+# when Feige's sidebar preview still echoes our own outgoing text because
+# the customer's freshest bubble hasn't refreshed the preview row yet,
+# we'd otherwise hand the Q&A worker a stale last_message and get an
+# answer to the previous turn.  Compare and skip to wait for the real diff.
+_auto_dispatch_last_agent_reply: dict[str, str] = {}  # cust → reply text (normalised)
+
+
+# HOT-PATH-B recent-send dedup cache keyed by (normalised customer_id,
+# sha1(response_text)) → timestamp.  Prevents replay loops when the
+# same (customer, reply) pair re-enters HOT-PATH-B due to a stale
+# pend_event_node resume (e.g. the `send_response_back` fallback path
+# re-fires the same chat_message after `Chat not found: 客户B`
+# errors — observed 2026-04-22 11:51 with 8+ identical HOT-PATH-B
+# entries within ~6 s).  TTL keeps the cache bounded; after TTL
+# expires a genuinely identical new reply can be re-sent.
+_hp_b_recent_sends: dict[tuple[str, str], float] = {}
+_HP_B_DEDUP_TTL_S = 15.0
+
+
+def _hp_b_reply_fingerprint(customer: str, reply_text: str) -> tuple[str, str]:
+    """Build a stable (customer, reply-hash) key for HOT-PATH-B dedup."""
+    import hashlib as _hp_b_hl
+    cust = _normalize_customer_id(customer or "")
+    rtxt = _normalize_reply_text(reply_text or "")
+    h = _hp_b_hl.sha1(rtxt.encode("utf-8", errors="ignore")).hexdigest()[:16] if rtxt else ""
+    return (cust, h)
+
+
+def _hp_b_was_recently_sent(customer: str, reply_text: str) -> float:
+    """Return age (s) of a recent identical send, or 0.0 if none/expired."""
+    key = _hp_b_reply_fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return 0.0
+    import time as _hp_b_time
+    ts = _hp_b_recent_sends.get(key)
+    if ts is None:
+        return 0.0
+    age = _hp_b_time.time() - ts
+    if age > _HP_B_DEDUP_TTL_S:
+        _hp_b_recent_sends.pop(key, None)
+        return 0.0
+    return age
+
+
+def _hp_b_mark_sent(customer: str, reply_text: str) -> None:
+    key = _hp_b_reply_fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return
+    import time as _hp_b_time
+    _hp_b_recent_sends[key] = _hp_b_time.time()
+    # Opportunistic GC to keep the dict bounded under long runs.
+    if len(_hp_b_recent_sends) > 256:
+        now = _hp_b_time.time()
+        for k in list(_hp_b_recent_sends.keys()):
+            if now - _hp_b_recent_sends[k] > _HP_B_DEDUP_TTL_S:
+                _hp_b_recent_sends.pop(k, None)
+
+
+
+def _normalize_reply_text(text: str) -> str:
+    """Normalise a reply for DOM-echo comparison.
+
+    Feige's sidebar preview may trim or collapse whitespace when it
+    renders the `last_message` row, so we compare whitespace-collapsed,
+    stripped versions.  We also limit the comparison to the first 120
+    chars because the sidebar sometimes truncates long replies with an
+    ellipsis — a prefix match is sufficient to recognise our own echo.
+    """
+    if not text:
+        return ""
+    s = re.sub(r"\s+", " ", str(text)).strip()
+    return s[:120]
+
+
+def _get_agent_load(agent_id: str, mainwin) -> int:
+    """Return the number of non-done tasks queued for *agent_id*.
+
+    This lets load-aware strategies favour agents with shorter queues.
+    Returns 0 if the agent's runner is not accessible (safe default).
+    """
+    try:
+        for agent in (mainwin.agents or []):
+            card = getattr(agent, "card", None)
+            if card and getattr(card, "id", "") == agent_id:
+                runner = getattr(agent, "runner", None)
+                if runner:
+                    return sum(
+                        1 for st in runner._task_states.values()
+                        if not st.get("_done", False)
+                    )
+                return 0
+        return 0
+    except Exception:
+        return 0
+
+
+# ==================== Item Filter Evaluator ====================
+
+def _evaluate_item_filter(
+    item: dict,
+    filter_cfg: dict | None,
+    *,
+    resolved: dict | None = None,
+    customer_id: str | None = None,
+    inflight_check=None,
+    now: float | None = None,
+) -> tuple[bool, str]:
+    """Check an actionable item against a data-driven filter config.
+
+    Returns ``(keep, reason)``. ``reason`` is "" when keeping, otherwise a
+    short tag like ``"required_field_missing:customer_name"`` or
+    ``"exclude:customer_name:equals:您好"``.
+
+    Config schema (all keys optional):
+
+        {
+          "required_fields": ["customer_name", ...],
+          "exclude_patterns": [
+            {"field": "customer_name", "equals": "您好"},
+            {"field": "customer_name", "contains": "通知"},
+            {"field": "customer_name", "prefix": "系统"},
+            {"field": "customer_name", "regex": "^店铺"}
+          ],
+          "exclude_self_echo": {
+            "enabled": true
+          },
+          "inflight": {
+            "enabled": true,
+            "allow_new_message": true,
+            "message_fields": ["last_message", "latest_message"]
+          },
+          "cooldown": {
+            "enabled": true,
+            "window_s": 10
+          }
+        }
+
+    The three stateful checks (self_echo, inflight, cooldown) each require
+    different item data. ``exclude_self_echo`` reads the DOM's
+    ``identity_key`` and checks ``_dispatched_identity_keys`` — no TTL.
+    ``cooldown`` reads ``_auto_dispatch_cooldown`` by customer_id. In-flight
+    is evaluated via a caller-supplied ``inflight_check(customer_id) -> age``
+    callback so this helper stays free of browser-extension imports.
+    """
+    if now is None:
+        now = time.time()
+    cfg = filter_cfg or {}
+    resolved = resolved or {}
+
+    # 1. Required fields — must resolve to non-empty in resolved or item.
+    for rf in (cfg.get("required_fields") or []):
+        v = resolved.get(rf) or str(item.get(rf, "") or "").strip()
+        if not v:
+            return False, f"required_field_missing:{rf}"
+
+    # 2. Exclude patterns — drop on first match.
+    for pat in (cfg.get("exclude_patterns") or []):
+        if not isinstance(pat, dict):
+            continue
+        field = pat.get("field")
+        if not field:
+            continue
+        val = str(resolved.get(field) or item.get(field, "") or "").strip()
+        if not val:
+            continue
+        for op in ("equals", "contains", "prefix", "regex"):
+            if op not in pat:
+                continue
+            literal = str(pat[op])
+            try:
+                if op == "equals":
+                    matched = (val == literal)
+                elif op == "contains":
+                    matched = (literal in val)
+                elif op == "prefix":
+                    matched = val.startswith(literal)
+                else:  # regex
+                    matched = bool(re.search(literal, val))
+            except Exception:
+                matched = False
+            if matched:
+                return False, f"exclude:{field}:{op}:{literal[:30]}"
+
+    se_cfg = cfg.get("exclude_self_echo") or {}
+    il_cfg = cfg.get("inflight") or {}
+    cd_cfg = cfg.get("cooldown") or {}
+    # msg_text powers inflight's allow_new_message gate.
+    msg_fields = il_cfg.get("message_fields") or ["last_message", "latest_message"]
+    msg_text = ""
+    for mf in msg_fields:
+        v = resolved.get(mf) or item.get(mf) or ""
+        if isinstance(v, str) and v.strip():
+            msg_text = v.strip()[:80]
+            break
+
+    cust_id = customer_id or ""
+
+    # 3. Identity-key dedup — skip items whose DOM identity_key has already
+    #    been dispatched. When the customer sends a new message, identity_key
+    #    changes; when the agent replies, the old identity_key disappears
+    #    from the DOM snapshot and the caller prunes our record of it. So an
+    #    identical repeat question by the same customer re-fires naturally.
+    if se_cfg.get("enabled"):
+        ident = str(item.get("identity_key") or "").strip()
+        if ident and ident in _dispatched_identity_keys:
+            logger.info(
+                f"[filter] identity_key dedup: cust={cust_id!r}, "
+                f"identity_key={ident!r}, "
+                f"age={now - _dispatched_identity_keys[ident]:.1f}s"
+            )
+            return False, "already_dispatched"
+
+    # 4. In-flight — suppress items whose customer already has a dispatch
+    #    in flight, unless allow_new_message is set and there is new text.
+    if il_cfg.get("enabled") and cust_id and inflight_check:
+        try:
+            age = float(inflight_check(cust_id) or 0.0)
+        except Exception:
+            age = 0.0
+        if age > 0.0:
+            if il_cfg.get("allow_new_message", True) and msg_text:
+                pass  # new user message; let it through
+            else:
+                return False, f"inflight:{age:.0f}s"
+
+    # 5. Cooldown — short hard window after HOT-PATH-B delivery.
+    if cd_cfg.get("enabled") and cust_id:
+        window = float(cd_cfg.get("window_s") or _AUTO_DISPATCH_COOLDOWN_S)
+        cd_ts = _auto_dispatch_cooldown.get(cust_id, 0.0)
+        if cd_ts and (now - cd_ts) < window:
+            return False, f"cooldown:{now - cd_ts:.0f}s"
+
+    return True, ""
+
+
+async def _try_auto_dispatch(
+    config: dict,
+    actionable: list,
+    all_agents: list,
+    caller_id: str,
+    mainwin: object,
+    node_name: str,
+    evt_type: str,
+) -> dict | None:
+    """Attempt configurable auto-dispatch of actionable items to agents.
+
+    Returns a ``state`` dict (with ``hot_path_type: "auto_dispatch"``) if at
+    least one item was dispatched, otherwise ``None`` so the caller falls
+    through to the LLM.
+
+    *config* schema::
+
+        {
+          "trigger": {"event_type": "browser_event", "require_actionable": true},
+          "agent_selection": {
+            "strategy": "round_robin",
+            "filter_by_tasks": ["客户应答"],
+            "affinity_ttl_s": 1800
+          },
+          "payload_template": {"key": "{{field || fallback}}"},
+          "item_filter": {"required_fields": ["field1", "field2"]},
+          "dispatch": {"tool": "send_chat", "dedup": true, "per_item": true}
+        }
+
+    Agent selection strategies
+    -------------------------
+    ``first_available``
+        Pick the candidate with the fewest pending tasks (load-aware).
+        Ties broken by list order.
+
+    ``round_robin``
+        Rotate through candidates.  With ``per_item: true`` each actionable
+        item advances the index, spreading items across agents evenly.
+
+    Affinity / sticky routing
+    -------------------------
+    Before any strategy runs, the dispatcher checks whether the customer
+    (derived from the resolved ``customer_id`` or ``customer_name``) was
+    previously assigned to one of the current candidates.  If so — and the
+    assignment is fresher than ``affinity_ttl_s`` (default 30 min) — the
+    same agent is reused.  This keeps an ongoing conversation on one agent.
+    """
+    import time as _ad_time
+
+    # ── 1. Trigger check ──
+    trigger = config.get("trigger") or {}
+    required_evt = trigger.get("event_type", "")
+    if required_evt and required_evt != evt_type:
+        return None
+    if trigger.get("require_actionable", True) and not actionable:
+        return None
+
+    # ── 2. Build candidate pool ──
+    sel = config.get("agent_selection") or {}
+    strategy = sel.get("strategy", "first_available")
+    filter_tasks = sel.get("filter_by_tasks") or []
+    affinity_ttl = float(sel.get("affinity_ttl_s", 1800))
+
+    # Exclude disabled agents — they never launch tasks.
+    candidates = [
+        a for a in all_agents
+        if a.get("status", "active") != "disabled"
+    ]
+    if filter_tasks:
+        _filter_patterns = [str(p) for p in filter_tasks if str(p).strip()]
+
+        def _agent_task_matches(agent_entry: dict) -> bool:
+            _tasks = [str(t) for t in (agent_entry.get("tasks") or [])]
+            for _pat in _filter_patterns:
+                for _t in _tasks:
+                    if _pat in _t:
+                        return True
+            return False
+
+        candidates = [a for a in candidates if _agent_task_matches(a)]
+    if not candidates:
+        logger.info(
+            f"[AUTO-DISPATCH] No candidate agents after filter "
+            f"(filter_by_tasks={filter_tasks}, all_agent_tasks="
+            f"{[a.get('tasks', []) for a in all_agents]}), node={node_name}"
+        )
+        return None
+
+    candidate_ids = {a["id"] for a in candidates}
+
+    # ── 3. Payload template & item filter ──
+    payload_tpl = config.get("payload_template") or {}
+    if not payload_tpl:
+        # Default: emit a canonical {customer_id, customer_name, latest_message}
+        # payload so downstream responders always have usable data even when
+        # the author didn't specify a template. Field fallbacks cover the
+        # common DOM-extractor shapes (customer_name + last_message).
+        payload_tpl = {
+            "customer_id": "{{customer_id || identity_key || customer_name}}",
+            "customer_name": "{{customer_name || name}}",
+            "latest_message": "{{latest_message || last_message || message}}",
+        }
+    # Hot-path-A hardcodes self-echo + cooldown because they guard the
+    # HOT-PATH-B delivery burst; callers can still override message_fields
+    # / ttl / window via the authored item_filter.
+    _user_filter = dict(config.get("item_filter") or {})
+    _user_filter.setdefault("exclude_self_echo", {"enabled": True})
+    _user_filter.setdefault("cooldown", {
+        "enabled": True,
+        "window_s": _AUTO_DISPATCH_COOLDOWN_S,
+    })
+    item_filter_cfg = _user_filter
+    dispatch_cfg = config.get("dispatch") or {}
+    use_dedup = dispatch_cfg.get("dedup", True)
+
+    from agent.mcp.server.chat_utils.chat_tools import send_chat as _auto_send_chat
+
+    # ── 4. Agent-picker with affinity → strategy fallback ──
+    _rr_idx = _auto_dispatch_rr_index.get(node_name, 0)
+    now = _ad_time.time()
+
+    # Lazy-load per-agent load counts (computed once per dispatch batch).
+    _load_cache: dict[str, int] = {}
+
+    def _agent_load(aid: str) -> int:
+        if aid not in _load_cache:
+            _load_cache[aid] = _get_agent_load(aid, mainwin)
+        return _load_cache[aid]
+
+    def _pick_agent(customer_id: str) -> dict:
+        nonlocal _rr_idx
+
+        # ── Affinity check: reuse previous agent if still valid ──
+        if customer_id:
+            entry = _auto_dispatch_affinity.get(customer_id)
+            if entry:
+                prev_agent_id, ts = entry
+                if (now - ts) < affinity_ttl and prev_agent_id in candidate_ids:
+                    for c in candidates:
+                        if c["id"] == prev_agent_id:
+                            return c
+
+        # ── Strategy fallback ──
+        if strategy == "round_robin":
+            agent = candidates[_rr_idx % len(candidates)]
+            _rr_idx += 1
+            return agent
+
+        # first_available: pick candidate with lowest pending-task count
+        return min(candidates, key=lambda c: _agent_load(c["id"]))
+
+    dispatched = 0
+    for item in actionable:
+        # Resolve template fields
+        resolved = {}
+        for key, tpl in payload_tpl.items():
+            resolved[key] = _resolve_template(tpl, item)
+
+        cust_id = _normalize_customer_id(
+            resolved.get("customer_id")
+            or resolved.get("customer_name")
+            or ""
+        )
+
+        keep, reason = _evaluate_item_filter(
+            item,
+            item_filter_cfg,
+            resolved=resolved,
+            customer_id=cust_id,
+            now=now,
+        )
+        if not keep:
+            logger.info(
+                f"[AUTO-DISPATCH] filter drop '{cust_id or '?'}' "
+                f"reason={reason}, node={node_name}"
+            )
+            continue
+
+        target_agent = _pick_agent(cust_id)
+        target_agent_id = target_agent.get("id", "")
+        target_agent_name = target_agent.get("name", target_agent_id)
+
+        message_str = json.dumps(resolved, ensure_ascii=False)
+        send_config = {
+            "sender_agent_id": caller_id,
+            "recipient_agent_id": target_agent_id,
+            "message": message_str,
+        }
+
+        result = _auto_send_chat(mainwin, send_config)
+        if result.get("success"):
+            dispatched += 1
+
+            # Update affinity: this customer → this agent.
+            if cust_id:
+                _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
+
+            # Record identity_key so repeat dispatch attempts while the same
+            # customer message is still in the DOM are suppressed. The caller
+            # prunes this entry when the key disappears from the snapshot
+            # (customer sent a new message or agent replied), so a legitimate
+            # repeat of the same question re-fires naturally.
+            _ident = str(item.get("identity_key") or "").strip()
+            if _ident:
+                _dispatched_identity_keys[_ident] = now
+
+            # Record in Fix A caches
+            if use_dedup:
+                try:
+                    from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                        _send_chat_customer_last,
+                        _send_chat_dedup_cache,
+                    )
+                    if cust_id:
+                        _send_chat_customer_last[cust_id] = now
+                        dedup_key = f"{target_agent_id}|{cust_id}"
+                        _send_chat_dedup_cache[dedup_key] = now
+                except Exception:
+                    pass
+
+            logger.info(
+                f"[AUTO-DISPATCH] sent '{resolved.get('customer_name', '?')}' "
+                f"→ {target_agent_name} (load={_agent_load(target_agent_id)}) "
+                f"msg='{message_str[:80]}', node={node_name}"
+            )
+        else:
+            logger.warning(
+                f"[AUTO-DISPATCH] failed for item: {result.get('error', '?')}, "
+                f"node={node_name}"
+            )
+
+    # Persist round-robin index across calls
+    _auto_dispatch_rr_index[node_name] = _rr_idx
+
+    # Prune stale affinity entries (older than 2× TTL)
+    _stale = [k for k, (_, ts) in _auto_dispatch_affinity.items() if now - ts > affinity_ttl * 2]
+    for k in _stale:
+        _auto_dispatch_affinity.pop(k, None)
+
+    # Prune stale cooldown entries
+    _stale_cd = [k for k, ts in _auto_dispatch_cooldown.items() if now - ts > _AUTO_DISPATCH_COOLDOWN_S * 2]
+    for k in _stale_cd:
+        _auto_dispatch_cooldown.pop(k, None)
+    # Safety gc for identity-key records (DOM-diff pruning is the primary path)
+    _stale_ident = [k for k, ts in _dispatched_identity_keys.items() if now - ts > _DISPATCHED_IDENTITY_SAFETY_TTL_S]
+    for k in _stale_ident:
+        _dispatched_identity_keys.pop(k, None)
+
+    if dispatched > 0:
+        logger.info(
+            f"[AUTO-DISPATCH] {dispatched}/{len(actionable)} items dispatched, "
+            f"skipping LLM Phase 1, node={node_name}"
+        )
+        return {
+            "result": {
+                "llm_result": {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "auto_dispatch",
+                }
+            }
+        }
+    return None
 
 
 # ==================== Lambda Proxy Helpers ====================
@@ -3703,6 +4433,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         logger.info(log_msg)
         send_skill_editor_log("info", log_msg)
 
+    def _get_llm_manager_singleton():
+        """Return the cached LLM manager singleton, avoiding repeated JSON parsing."""
+        if "singleton" in _LLM_MANAGER_CACHE:
+            return _LLM_MANAGER_CACHE["singleton"]
+        try:
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            mgr = get_llm_manager()
+            _LLM_MANAGER_CACHE["singleton"] = mgr
+            return mgr
+        except Exception as e:
+            logger.debug(f"[build_llm_node] get_llm_manager() failed: {e}")
+            return None
+
     # --- MCP tool input helpers (schema-aware) ---
 
     def _get_tool_schema_by_name(tool_name: str):
@@ -4431,6 +5174,28 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         # Also auto-inject sender_agent_id for send_chat (same runtime agent_id).
                         if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
                             _target['sender_agent_id'] = _ctx_agent_id
+                        # Auto-inject recipient_agent_id for send_chat replies:
+                        # when the LLM leaves it blank (or omits it entirely), fill from
+                        # the last chat_message event's senderId so reply-to routing works.
+                        if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('recipient_agent_id'):
+                            if not _target.get('recipient_agent_name'):
+                                _evt_sender = ''
+                                for _evt in reversed(state.get('events') or []):
+                                    _ec = _evt.get('context') if isinstance(_evt, dict) else None
+                                    if isinstance(_ec, dict) and _ec.get('senderId'):
+                                        _evt_sender = str(_ec['senderId'])
+                                        break
+                                if not _evt_sender:
+                                    # Fallback: check prompt_refs["events"] compact form
+                                    _pr_events = (state.get('prompt_refs') or {}).get('events', '')
+                                    if isinstance(_pr_events, str) and 'senderId' in _pr_events:
+                                        try:
+                                            _evt_sender = json.loads(_pr_events).get('senderId', '')
+                                        except Exception:
+                                            pass
+                                if _evt_sender and _evt_sender != _ctx_agent_id:
+                                    _target['recipient_agent_id'] = _evt_sender
+                                    logger.info(f"[MCP Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender}")
             except Exception:
                 pass
 
@@ -4784,6 +5549,38 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _ti = _merge_inputs(_ti, _ci)
                 if _tr_root:
                     _ti = _coerce_all_inputs(_ti, _tr_root)
+                # Auto-inject agent_id / sender_agent_id / recipient_agent_id
+                # (mirrors the single-tool auto-inject at line ~4423)
+                try:
+                    _ctx_agent_id_mt = (state.get('attributes') or {}).get('agent_id', '')
+                    if _ctx_agent_id_mt:
+                        for _tgt_mt in (_ti, _ti.get('input') if isinstance(_ti, dict) else None):
+                            if not isinstance(_tgt_mt, dict):
+                                continue
+                            if 'agent_id' in _tgt_mt and not _tgt_mt.get('agent_id'):
+                                _tgt_mt['agent_id'] = _ctx_agent_id_mt
+                            if 'sender_agent_id' in _tgt_mt and not _tgt_mt.get('sender_agent_id'):
+                                _tgt_mt['sender_agent_id'] = _ctx_agent_id_mt
+                            if 'sender_agent_id' in _tgt_mt and not _tgt_mt.get('recipient_agent_id'):
+                                if not _tgt_mt.get('recipient_agent_name'):
+                                    _evt_sender_mt = ''
+                                    for _evt_mt in reversed(state.get('events') or []):
+                                        _ec_mt = _evt_mt.get('context') if isinstance(_evt_mt, dict) else None
+                                        if isinstance(_ec_mt, dict) and _ec_mt.get('senderId'):
+                                            _evt_sender_mt = str(_ec_mt['senderId'])
+                                            break
+                                    if not _evt_sender_mt:
+                                        _pr_events_mt = (state.get('prompt_refs') or {}).get('events', '')
+                                        if isinstance(_pr_events_mt, str) and 'senderId' in _pr_events_mt:
+                                            try:
+                                                _evt_sender_mt = json.loads(_pr_events_mt).get('senderId', '')
+                                            except Exception:
+                                                pass
+                                    if _evt_sender_mt and _evt_sender_mt != _ctx_agent_id_mt:
+                                        _tgt_mt['recipient_agent_id'] = _evt_sender_mt
+                                        logger.info(f"[MCP Multi-Tool Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender_mt} for tool={_tn}")
+                except Exception:
+                    pass
                 _tool_calls_to_run.append((_tn, _ti, _pipe_to, _alias))
 
             if not _tool_calls_to_run:
@@ -6007,6 +6804,505 @@ _passive_steps_processed: set[str] = set()
 # Key: browser_session id, Value: PassiveAgent instance
 _cached_passive_agents: dict[int, "PassiveAgent"] = {}
 
+# Module-level guard: scopes that have already done the first-invocation skip.
+# Must be module-level (not closure-level) so it persists across skill rebuilds
+# when the runner re-submits after a failure.
+_first_invocation_done: set[str] = set()
+
+# Module-level PreDispatch state, shared across all BrowserSession instances
+# (and their "scopes" like node:... / chat:<customer>). Keyed by
+# (calling_agent_id, node_name, dispatch_state_attr). Without this, the per-
+# BrowserSession dispatch_state caused duplicate assignments whenever Mary
+# resumed under a different scope (empty state, so the assigned_sessions dedup
+# was bypassed).
+_frontdesk_dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
+
+# Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
+# customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
+# or scope=chat:<customer> (a QA worker whose EventMonitor happens to fire
+# first after the front-desk's runner drops off between rounds).  Without a
+# shared lock, both would dispatch the *same* customer turn to different
+# QA workers in parallel.  First PreDispatch to dispatch acquires the lock;
+# subsequent PreDispatches skip that customer until:
+#   * HOT-PATH-B finishes typing the reply and calls the clear helper, OR
+#   * the TTL elapses (safety net if the responder crashes).
+# The lock is per-customer, so multi-customer simultaneity is unaffected —
+# customer A's lock never blocks dispatching customer B.
+_customer_dispatch_inflight: dict[str, float] = {}
+_CUSTOMER_DISPATCH_INFLIGHT_TTL_S = 30.0
+
+# Per-customer record of the LAST customer bubble msg_id that PreDispatch
+# successfully dispatched.  Replaces the text-based dom-echo guard with a
+# strict identity check on Feige's own `data-id` attribute: if the thread
+# scrape still returns the same msg_id we've already dispatched, the
+# customer has not sent anything new (regardless of what the sidebar
+# preview echoes), so we skip without burning an LLM step.  When the
+# customer sends a new bubble, the msg_id changes and the guard releases.
+_customer_last_dispatched_msg_id: dict[str, str] = {}
+
+
+def _is_customer_dispatch_inflight(customer_key: str) -> float:
+    """Return age (s) of an active inflight lock, or 0.0 if none/expired."""
+    if not customer_key:
+        return 0.0
+    import time as _cdi_time
+    ts = _customer_dispatch_inflight.get(customer_key)
+    if ts is None:
+        return 0.0
+    age = _cdi_time.time() - ts
+    if age > _CUSTOMER_DISPATCH_INFLIGHT_TTL_S:
+        _customer_dispatch_inflight.pop(customer_key, None)
+        return 0.0
+    return age
+
+
+def _mark_customer_dispatch_inflight(customer_key: str) -> None:
+    if not customer_key:
+        return
+    import time as _cdi_time
+    _customer_dispatch_inflight[customer_key] = _cdi_time.time()
+
+
+def _clear_customer_dispatch_inflight(customer_key: str) -> None:
+    if not customer_key:
+        return
+    _customer_dispatch_inflight.pop(customer_key, None)
+
+
+# ── Feige active-session race guard ─────────────────────────────────────────
+# State + implementation live in the ``feige_chat.typing_lock`` bundle;
+# HOT-PATH-B and the ``feige_chat.pre_dispatch_enrich`` plugin acquire /
+# check the typing-lock holder directly from the owning bundle; build_node
+# no longer aliases it.  We keep this bare package import so that
+# ``feige_chat/__init__.py`` executes (which calls ``front_desk.register()``
+# and wires both the early HOT-PATH-B and late PreDispatch lifecycle hooks).
+#
+# To add a new business case, drop a bundle under
+# ``hooks/external/<site>/`` with a ``register()`` called from its
+# ``__init__.py``, then add a sibling import here.
+import agent.ec_skills.browser_use_extension.hooks.external.feige_chat  # noqa: F401
+
+
+# ── Upstream-output compaction ────────────────────────────────────────────
+# Walk `state["tool_result"]` and build a compact JSON summary for injection
+# into the browser-automation task prompt.  Drops noise keys, truncates
+# oversized payloads, and applies generic detail-page heuristics to avoid
+# feeding the LLM a bloated blob.
+#
+# Extracted from `_auto` on 2026-04-22 (was ~327 lines of nested helpers
+# inside the build function).  Pure: reads state, returns a string.
+# `current_node_name` is excluded from the output to prevent self-feedback
+# loops on retries.
+def _compact_tool_result_for_prompt(state: dict, current_node_name: str) -> str:
+    import json
+    import re
+    from urllib.parse import urlsplit, parse_qs
+
+    tr = state.get("tool_result") if isinstance(state, dict) else None
+    if not isinstance(tr, dict):
+        return "{}"
+
+    # Keys we want to preserve verbatim when present in any node output.
+    keep_keys = {
+        "status", "reason", "price_range", "links",
+        "downloaded_images", "download_count", "image_urls", "image_descriptions",
+        "listing_url", "title", "description", "price",
+        "product_keyword", "brand", "model", "category", "condition",
+        "original_images", "products", "highlights_summary", "target_audience",
+        "notes", "is_free_shipping", "is_used", "features", "listing_images",
+        "search_keyword",
+    }
+
+    # Generic noise keys to avoid prompt bloat and scenario-specific internals.
+    drop_keys = {
+        "provider", "task", "systemPrompt", "history", "prompts", "prompt_refs",
+        "messages", "threads", "events", "attachments", "http_response",
+        "cli_input", "cli_results", "attributes",
+    }
+
+    def _extract_links(*texts):
+        links = []
+        for txt in texts:
+            if not txt:
+                continue
+            s = str(txt)
+            links.extend(re.findall(r'https?://[^\s\]\"\'\)]+', s))
+            for m in re.findall(r'//[^\s\]\"\'\)]+', s):
+                links.append(f"https:{m}")
+        dedup = []
+        seen = set()
+        for u in links:
+            if u in seen:
+                continue
+            seen.add(u)
+            dedup.append(u)
+        return dedup
+
+    def _extract_json_object_from_text(text):
+        """Best-effort JSON object extractor for node outputs.
+        Supports plain JSON and fenced code blocks."""
+        if not isinstance(text, str):
+            return None
+        s = text.strip()
+        if not s:
+            return None
+        if s.startswith("```"):
+            s = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", s)
+            s = re.sub(r"\n?```$", "", s).strip()
+        for candidate in (s,):
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        m = re.search(r"\{[\s\S]*\}", s)
+        if m:
+            block = m.group(0)
+            try:
+                parsed = json.loads(block)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return None
+        return None
+
+    def _merge_keep_keys_from_dict(dst: dict, src: dict):
+        if not isinstance(src, dict):
+            return
+        for k in keep_keys:
+            v = src.get(k)
+            if v in (None, "", [], {}):
+                continue
+            dst[k] = v
+
+    def _is_small_scalar(v):
+        return isinstance(v, (str, int, float, bool)) and len(str(v)) <= 200
+
+    def _is_small_scalar_list(v):
+        return (
+            isinstance(v, list)
+            and len(v) <= 20
+            and all(_is_small_scalar(i) for i in v)
+        )
+
+    def _merge_generic_fields_from_dict(dst: dict, src: dict, depth: int = 0):
+        """Scenario-agnostic field extraction: keep compact, actionable keys
+        from arbitrary JSON-like outputs."""
+        if not isinstance(src, dict) or depth > 1:
+            return
+        for k, v in src.items():
+            if not isinstance(k, str):
+                continue
+            kl = k.lower()
+            if (
+                k in drop_keys
+                or kl.startswith("_")
+                or any(tok in kl for tok in ("prompt", "history", "message", "thread", "event", "attachment", "screenshot", "dom", "html", "markdown"))
+            ):
+                continue
+            if v in (None, "", [], {}):
+                continue
+            if k in dst:
+                continue
+            if _is_small_scalar(v) or _is_small_scalar_list(v):
+                dst[k] = v
+                continue
+            if isinstance(v, dict) and len(v) <= 20:
+                if all(_is_small_scalar(sv) for sv in v.values()):
+                    dst[k] = v
+                _merge_generic_fields_from_dict(dst, v, depth + 1)
+
+    def _is_actionable_detail_link(url: str) -> bool:
+        """Generic heuristic to keep likely detail pages, drop home/search/list pages."""
+        try:
+            s = str(url or "").strip()
+            if not s.startswith(("http://", "https://")):
+                return False
+            p = urlsplit(s)
+            if not p.netloc:
+                return False
+            path = (p.path or "").strip().lower()
+            query = (p.query or "").lower()
+            query_map = parse_qs(p.query or "", keep_blank_values=True)
+            if path in ("", "/"):
+                return False
+            text = f"{path}?{query}"
+            if any(k in text for k in ("/search", "search?", "keyword=", "query=", "q=", "wd=", "/list", "list?")):
+                return False
+            id_keys = ("id", "itemid", "item_id", "sku", "sku_id", "productid", "product_id", "pid")
+            if any(k in query_map and any(str(v).strip() for v in query_map.get(k, [])) for k in id_keys):
+                return True
+            if re.search(r"\d{5,}", path):
+                return True
+            segments = [seg for seg in path.split("/") if seg]
+            if len(segments) >= 2 and segments[-1] not in ("home", "index", "category", "categories", "catalog", "list", "search"):
+                return True
+            return False
+        except Exception:
+            return False
+
+    compact = {}
+    for _nid, _val in tr.items():
+        # Exclude current node output to avoid self-feedback loops on retries.
+        if _nid == current_node_name:
+            continue
+        if not isinstance(_val, dict):
+            continue
+        row = {}
+
+        # 1) Direct extraction from node output dict.
+        _merge_keep_keys_from_dict(row, _val)
+        _merge_generic_fields_from_dict(row, _val)
+
+        # 2) Generic extraction from nested dict/string payloads.
+        candidate_payloads = [
+            _val.get("final"), _val.get("result"), _val.get("llm_result"),
+            _val.get("response"), _val.get("output"), _val.get("text"),
+            _val.get("history"),
+        ]
+        for payload in candidate_payloads:
+            if isinstance(payload, dict):
+                _merge_keep_keys_from_dict(row, payload)
+                _merge_generic_fields_from_dict(row, payload)
+                nested = payload.get("result")
+                if isinstance(nested, dict):
+                    _merge_keep_keys_from_dict(row, nested)
+                    _merge_generic_fields_from_dict(row, nested)
+            elif isinstance(payload, str):
+                parsed = _extract_json_object_from_text(payload)
+                if isinstance(parsed, dict):
+                    _merge_keep_keys_from_dict(row, parsed)
+                    _merge_generic_fields_from_dict(row, parsed)
+                    nested = parsed.get("result")
+                    if isinstance(nested, dict):
+                        _merge_keep_keys_from_dict(row, nested)
+                        _merge_generic_fields_from_dict(row, nested)
+
+        # Extract links from products array for backward compat.
+        if "products" in row and "links" not in row:
+            prods = row.get("products")
+            if isinstance(prods, list):
+                prod_links = [p.get("link") for p in prods if isinstance(p, dict) and p.get("link")]
+                if prod_links:
+                    row["links"] = prod_links
+
+        # Normalize and filter links with generic detail-page heuristics.
+        if "links" in row:
+            raw_links = row.get("links")
+            if isinstance(raw_links, str):
+                raw_links = [raw_links]
+            if isinstance(raw_links, list):
+                filtered_links = []
+                seen_links = set()
+                for u in raw_links:
+                    su = str(u or "").strip()
+                    if not su or su in seen_links:
+                        continue
+                    seen_links.add(su)
+                    if _is_actionable_detail_link(su):
+                        filtered_links.append(su)
+                if filtered_links:
+                    row["links"] = filtered_links
+                else:
+                    row.pop("links", None)
+
+        if "links" not in row:
+            links = _extract_links(_val.get("final"), _val.get("error"), _val.get("task"))
+            if links:
+                links = [u for u in links if _is_actionable_detail_link(u)]
+                if links:
+                    row["links"] = links[:8]
+
+        # Skip rows that only contain status/reason with no actionable payload.
+        actionable_keys = set(row.keys()) - {"status", "reason"}
+        if not actionable_keys:
+            continue
+
+        if row:
+            compact[_nid] = row
+
+    payload = json.dumps(compact, ensure_ascii=False)
+    try:
+        key_summary = {
+            nid: sorted(list(val.keys()))[:15]
+            for nid, val in compact.items()
+            if isinstance(val, dict)
+        }
+        logger.info(
+            f"[UpstreamCompact] node={current_node_name} "
+            f"upstream_nodes={list(compact.keys())} "
+            f"key_summary={key_summary} "
+            f"payload_chars={len(payload)}"
+        )
+    except Exception:
+        pass
+    if len(payload) > 12000:
+        payload = payload[:12000] + "...(truncated)"
+    return payload
+
+
+# ── Pure helpers extracted from _auto (commit 2, 2026-04-22) ─────────────
+# Keeping them module-level makes the prompt-mutation pipeline readable at
+# a glance and enables unit testing without building a full browser node.
+
+def _parse_required_vars_marker(task_text_raw: str) -> list[str]:
+    """Extract variable names from a `[REQUIRED_VARS:v1,v2,...]` marker.
+
+    Returns a de-duplicated list preserving declaration order, or an empty
+    list when the marker is absent or unparsable.
+    """
+    import re as _re
+    try:
+        m = _re.search(r"\[REQUIRED_VARS:([^\]]+)\]", str(task_text_raw or ""))
+        if not m:
+            return []
+        raw = m.group(1)
+        vars_list = [v.strip() for v in raw.split(",") if v.strip()]
+        seen: set[str] = set()
+        out: list[str] = []
+        for v in vars_list:
+            if v in seen:
+                continue
+            seen.add(v)
+            out.append(v)
+        return out
+    except Exception:
+        return []
+
+
+def _resolve_local_dir_from_prompt_var(task_text_raw: str, context: dict) -> tuple[str, str]:
+    """Resolve the `[LOCAL_DIR_VAR:name]` marker against the format context.
+
+    Returns `(var_name, resolved_path)`.  When the marker is present but
+    the variable is missing/empty, returns `(var_name, "")` so callers can
+    distinguish "no marker" from "marker but no value".
+    """
+    import re as _re
+    try:
+        marker_match = _re.search(r"\[LOCAL_DIR_VAR:([a-zA-Z_][a-zA-Z0-9_]*)\]", str(task_text_raw or ""))
+        if not marker_match:
+            return "", ""
+        var_name = marker_match.group(1).strip()
+        if not var_name:
+            return "", ""
+        value = (context or {}).get(var_name)
+        if isinstance(value, str) and value.strip():
+            return var_name, value.strip()
+        return var_name, ""
+    except Exception:
+        return "", ""
+
+
+def _build_local_dir_snapshot(dir_path: str) -> str:
+    """Return a compact JSON snapshot of a local directory.
+
+    The snapshot contains:
+      - absolute path, existence flag, file count
+      - first 60 filenames (sorted)
+      - first 2400-byte prefix of up to 3 small text files
+    Intended for injection into an LLM prompt so the browser-automation
+    agent can ground extraction on local files without navigating the web.
+    """
+    import json as _json
+    import os as _os
+    try:
+        if not dir_path:
+            return ""
+        abs_dir = _os.path.abspath(_os.path.expanduser(dir_path))
+        payload: dict = {
+            "dir_path": abs_dir,
+            "exists": _os.path.isdir(abs_dir),
+            "file_count": 0,
+            "sample_files": [],
+            "text_snippets": {},
+        }
+        if not payload["exists"]:
+            payload["error"] = "directory_not_found"
+            return _json.dumps(payload, ensure_ascii=False)
+
+        names = sorted(_os.listdir(abs_dir))
+        payload["file_count"] = len(names)
+        payload["sample_files"] = names[:60]
+
+        text_exts = {".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".log"}
+        picked = 0
+        for name in names:
+            if picked >= 3:
+                break
+            fpath = _os.path.join(abs_dir, name)
+            if not _os.path.isfile(fpath):
+                continue
+            ext = _os.path.splitext(name)[1].lower()
+            if ext not in text_exts:
+                continue
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                    snippet = f.read(2400)
+                if snippet.strip():
+                    payload["text_snippets"][name] = snippet
+                    picked += 1
+            except Exception:
+                continue
+        return _json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        return _json.dumps({"error": f"snapshot_failed: {e}"}, ensure_ascii=False)
+
+
+def _append_anti_risk_guardrails(task_text_raw: str, inputs: dict | None = None) -> str:
+    """Append a shared anti-risk guardrail block to a browser task prompt.
+
+    Idempotent: returns `task_text_raw` unchanged when the marker
+    `[GLOBAL ANTI-RISK GUARDRAILS]` is already present.  The `inputs` dict
+    (the node's `inputsValues`) is consulted for a `tabPolicy` override.
+    """
+    try:
+        if not isinstance(task_text_raw, str) or not task_text_raw.strip():
+            return task_text_raw
+
+        marker = "[GLOBAL ANTI-RISK GUARDRAILS]"
+        if marker in task_text_raw:
+            return task_text_raw
+
+        _tab_policy = ""
+        if isinstance(inputs, dict):
+            _tab_policy = str(
+                (inputs.get("tabPolicy") or {}).get("content", "") or ""
+            ).strip().lower()
+        if _tab_policy == "allow_assigned_tab":
+            tab_guardrail = (
+                "2) If an assigned `tab_id` is provided for this invocation, "
+                "you may and should focus that assigned tab. Do not switch to unrelated stale tabs "
+                "from previous sessions. If no assigned `tab_id` is available, navigate directly to "
+                "the assigned URL.\n"
+            )
+        else:
+            tab_guardrail = (
+                "2) Never use switch_tab. Always stay in the current active tab and use navigate "
+                "to load any new URL. Do not switch to any stale tab from a previous run.\n"
+            )
+
+        guardrail_text = (
+            "\n\n[GLOBAL ANTI-RISK GUARDRAILS]\n"
+            "1) Anti-bot handling: if the page shows any rate-limit, captcha, "
+            "human-verification, access-denied, or unusual-traffic warning (in any language), "
+            "perform at most one low-risk recovery attempt (for example: refresh once or navigate "
+            "to site home then continue with the same intent). If still blocked, return "
+            "blocked(reason=risk_control).\n"
+            f"{tab_guardrail}"
+            "3) Low-frequency behavior: avoid repeated clicks on the same element and "
+            "unnecessary refresh loops. Retry the same failed action at most once.\n"
+            "4) Fast convergence: if 2-3 consecutive actions produce no meaningful state change, "
+            "stop and return blocked(reason=navigation_deadlock).\n"
+            "5) Minimum-necessary actions: prefer direct navigation to target pages and extract "
+            "required data with the shortest path. End as soon as success criteria are met.\n"
+            "6) Cooldown policy: after blocked(reason=risk_control), treat the site as cooling down "
+            "for this run and continue with alternative paths or downstream steps."
+        )
+        return f"{task_text_raw}{guardrail_text}"
+    except Exception:
+        return task_text_raw
+
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
@@ -7159,6 +8455,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
         nonlocal _last_known_focus_target_ids
+        # Entry trace — pairs with [BA._auto] worker_call start/done so we
+        # can see whether the hang is in the thread-hop itself or inside
+        # the coroutine body.
+        import time as _rbu_time
+        _rbu_t0 = _rbu_time.perf_counter()
+        try:
+            _rbu_thread_name = threading.current_thread().name
+        except Exception:
+            _rbu_thread_name = "?"
+        logger.info(
+            f"[BA._run_browser_use] enter node={node_name} thread={_rbu_thread_name} "
+            f"calling_agent_id={calling_agent_id!r} task_len={len(task or '')}"
+        )
         try:
             import asyncio
             from browser_use import Agent as BUAgent
@@ -7296,15 +8605,68 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # snapshot without needing to call a list tool.
                         try:
                             _evt_items = None
+                            _evt_items_src = ""
+                            # Path 0 (preferred): live EventMonitor snapshot. The
+                            # state.attributes.browser_event body is frozen at the
+                            # last pend_event resume — if this node has been running
+                            # for a while, the DOM has since moved on. Read the
+                            # monitor's current last_items directly so filters like
+                            # Fix A see fresh data.
+                            try:
+                                from agent.ec_skills.browser_use_extension.event_monitor import (
+                                    _active_monitor_sets as _ams,
+                                )
+                                # Prefer a monitor whose label matches _evt_label,
+                                # but fall back to any monitor with a non-empty
+                                # last_items snapshot. _evt_label is frequently
+                                # empty for chat_message-triggered runs, and
+                                # requiring an exact match was silently skipping
+                                # the live path in practice.
+                                _live_items = None
+                                _live_src_label = ""
+                                _fallback_items = None
+                                _fallback_label = ""
+                                for _mset in _ams.values():
+                                    for _mon in getattr(_mset, "monitors", []) or []:
+                                        _mcfg = getattr(_mon, "config", None)
+                                        _mlabel = getattr(_mcfg, "label", "") if _mcfg else ""
+                                        _mstate = getattr(_mon, "state", None)
+                                        if not isinstance(_mstate, dict):
+                                            continue
+                                        _cand = _mstate.get("last_items") or []
+                                        if not (isinstance(_cand, list) and _cand):
+                                            continue
+                                        if _evt_label and _mlabel == _evt_label:
+                                            _live_items = list(_cand)
+                                            _live_src_label = _mlabel
+                                            break
+                                        if _fallback_items is None:
+                                            _fallback_items = list(_cand)
+                                            _fallback_label = _mlabel
+                                    if _live_items:
+                                        break
+                                if not _live_items and _fallback_items:
+                                    _live_items = _fallback_items
+                                    _live_src_label = _fallback_label or "(no-label)"
+                                if _live_items:
+                                    _evt_items = _live_items
+                                    _evt_items_src = f"live_monitor[{_live_src_label}]"
+                            except Exception as _live_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] live monitor snapshot lookup failed: {_live_err}"
+                                )
                             # Path 1: context.params.body (legacy)
-                            _evt_body = _evt_ctx.get("params", {})
-                            if isinstance(_evt_body, dict):
-                                _evt_body_str = _evt_body.get("body", "")
-                                if isinstance(_evt_body_str, str) and _evt_body_str:
-                                    _evt_body_parsed = json.loads(_evt_body_str)
-                                    _evt_items = _evt_body_parsed.get("items", [])
+                            if not _evt_items:
+                                _evt_body = _evt_ctx.get("params", {})
+                                if isinstance(_evt_body, dict):
+                                    _evt_body_str = _evt_body.get("body", "")
+                                    if isinstance(_evt_body_str, str) and _evt_body_str:
+                                        _evt_body_parsed = json.loads(_evt_body_str)
+                                        _evt_items = _evt_body_parsed.get("items", [])
+                                        if _evt_items:
+                                            _evt_items_src = "context.params.body"
                             # Path 2: state["attributes"]["browser_event"]["body"]["items"]
-                            # (resume.py stores it at attributes.browser_event)
+                            # (resume.py stores it at attributes.browser_event) — stalest path.
                             if not _evt_items and isinstance(state, dict):
                                 _be_data = (
                                     state.get("browser_event")  # top-level (resume_payload)
@@ -7314,6 +8676,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     _be_body = _be_data.get("body", {})
                                     if isinstance(_be_body, dict):
                                         _evt_items = _be_body.get("items", [])
+                                        if _evt_items:
+                                            _evt_items_src = "state.attributes.browser_event"
+                            if _evt_items and _evt_items_src:
+                                logger.info(
+                                    f"[BrowserAutomation] actionable_items source="
+                                    f"{_evt_items_src} ({len(_evt_items)} item(s)), "
+                                    f"node={node_name}"
+                                )
                             if isinstance(_evt_items, list) and _evt_items:
                                 # Strip heavy fields (avatars, URLs) but keep
                                 # everything else — no domain-specific filtering.
@@ -7335,37 +8705,98 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             it for it in _compact_items
                                             if str(it.get(actionable_field, "")).strip()
                                         ]
-                                        # Fix A: filter out customers with an in-flight
-                                        # dispatch (any recipient) so the DOM's still-stuck
-                                        # pending_timer doesn't loop the LLM into
-                                        # re-dispatching while Phase-2 reply is pending.
-                                        _actionable = []
-                                        _filtered_inflight = []
+                                        # Fix A: apply the data-driven item_filter (authored
+                                        # on the browser_automation node as autoDispatch.item_filter)
+                                        # via the shared evaluator, with Fix A's defaults
+                                        # (inflight + self_echo + cooldown) pre-enabled so the
+                                        # DOM's still-stuck pending_timer doesn't loop the LLM
+                                        # into re-dispatching while Phase-2 reply is pending.
                                         try:
                                             from agent.ec_skills.browser_use_extension.extension_tools_service import (
                                                 customer_recently_dispatched as _cust_recent,
                                             )
                                         except Exception:
                                             _cust_recent = lambda _c: 0.0  # noqa: E731
+                                        _fix_a_now = time.time()
+
+                                        # Pull user-authored filter off autoDispatch (may be
+                                        # missing on nodes without the blob; evaluator is
+                                        # tolerant to an empty cfg).
+                                        _fix_a_user_filter: dict = {}
+                                        try:
+                                            _fa_raw = (inputs.get("autoDispatch") or {}).get("content")
+                                            if isinstance(_fa_raw, str) and _fa_raw.strip():
+                                                _fa_parsed = json.loads(_fa_raw)
+                                                if isinstance(_fa_parsed, dict):
+                                                    _fif = _fa_parsed.get("item_filter")
+                                                    if isinstance(_fif, dict):
+                                                        _fix_a_user_filter = dict(_fif)
+                                            elif isinstance(_fa_raw, dict):
+                                                _fif = _fa_raw.get("item_filter")
+                                                if isinstance(_fif, dict):
+                                                    _fix_a_user_filter = dict(_fif)
+                                        except Exception as _fa_err:
+                                            logger.debug(
+                                                f"[BrowserAutomation] Fix A: could not parse "
+                                                f"autoDispatch.item_filter ({_fa_err}); using defaults"
+                                            )
+
+                                        _fix_a_user_filter.setdefault("inflight", {
+                                            "enabled": True,
+                                            "allow_new_message": True,
+                                            "message_fields": ["last_message", "latest_message"],
+                                        })
+                                        _fix_a_user_filter.setdefault("exclude_self_echo", {"enabled": True})
+                                        _fix_a_user_filter.setdefault("cooldown", {
+                                            "enabled": True,
+                                            "window_s": _AUTO_DISPATCH_COOLDOWN_S,
+                                        })
+
+                                        # Prune identity_key records for entries no longer in the
+                                        # DOM snapshot — the customer either sent a new message
+                                        # (key changed) or the agent replied (key disappeared).
+                                        # This keeps the dedup set aligned with live state so a
+                                        # repeat of an identical earlier question is not silently
+                                        # suppressed forever.
+                                        _live_ident_keys = {
+                                            str(_it.get("identity_key") or "").strip()
+                                            for _it in _compact_items
+                                            if _it.get("identity_key")
+                                        }
+                                        _stale_live = [
+                                            _k for _k in _dispatched_identity_keys
+                                            if _k and _k not in _live_ident_keys
+                                        ]
+                                        for _k in _stale_live:
+                                            _dispatched_identity_keys.pop(_k, None)
+
+                                        _actionable = []
+                                        _filtered_inflight: list[tuple[str, str]] = []
                                         for _it in _actionable_raw:
-                                            _cust_id = str(
+                                            _cust_id = _normalize_customer_id(
                                                 _it.get("customer_id")
                                                 or _it.get("customer_name")
                                                 or _it.get("name")
                                                 or ""
-                                            ).strip()
-                                            _age = _cust_recent(_cust_id) if _cust_id else 0.0
-                                            if _age > 0.0:
-                                                _filtered_inflight.append((_cust_id, _age))
-                                            else:
+                                            )
+                                            _keep, _reason = _evaluate_item_filter(
+                                                _it,
+                                                _fix_a_user_filter,
+                                                customer_id=_cust_id,
+                                                inflight_check=_cust_recent,
+                                                now=_fix_a_now,
+                                            )
+                                            if _keep:
                                                 _actionable.append(_it)
+                                            else:
+                                                _filtered_inflight.append((_cust_id or "?", _reason))
                                         if _filtered_inflight:
                                             logger.info(
                                                 f"[BrowserAutomation] Fix A: filtered {len(_filtered_inflight)} "
-                                                f"actionable entry/entries with in-flight dispatch "
+                                                f"actionable entry/entries "
                                                 f"(kept {len(_actionable)} of {len(_actionable_raw)}): "
                                                 + ", ".join(
-                                                    f"{c}({a:.0f}s ago)" for c, a in _filtered_inflight
+                                                    f"{c}({r})" for c, r in _filtered_inflight
                                                 )
                                                 + f" node={node_name}"
                                             )
@@ -7423,9 +8854,87 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 "7. **Do NOT rotate to a different recipient agent to bypass DEDUP.** DEDUP is a correct signal that work for this customer is already in flight with the originally-assigned respondent. Rotating to another agent (客服小王, 客服小张, etc.) to \"satisfy must-dispatch\" creates duplicate customer replies and is FORBIDDEN.\n"
                                                 "8. Calling `done(success=True)` while `actionable_items` is non-empty and neither a real dispatch NOR a DEDUP/already-sent response has occurred this round is a PROTOCOL VIOLATION.\n"
                                                 "9. If `actionable_items` is empty, call `done(success=True)` immediately — no work to do.\n"
-                                                "10. **Never use placeholder or template strings as real tool arguments.** If you do not have a concrete agent UUID in hand this round (message history was wiped, so prior-round `bu_select_agents` results are gone unless persisted in skill memory), call `bu_select_agents(filter_task_name=\"客户应答\")` FIRST to get real IDs. Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `{{last.bu_select_agents[0]}}`, `{{...}}`, or any other example/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
-                                                "---\n\n"
+                                                "10. **Never use placeholder or template strings as real tool arguments.** "
+                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `<example_agent_id>`, or any other placeholder/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. Use ONLY the real agent IDs from the Pre-resolved agent_list above. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
                                             )
+                                            # ── Inject pre-resolved agent list ──
+                                            # Look up service/responder agents and
+                                            # inject them directly so the LLM skips
+                                            # the bu_select_agents tool call (~8-10s).
+                                            try:
+                                                from agent.mcp.server.chat_utils.chat_tools import list_chat_agents as _list_agents_fn
+                                                _caller_id = str(calling_agent_id or "").strip()
+                                                if _caller_id and mainwin:
+                                                    _agents_result = _list_agents_fn(mainwin, {"exclude_self": _caller_id})
+                                                    _all_agents = [
+                                                        a for a in _agents_result.get("agents", [])
+                                                        if a.get("status", "active") != "disabled"
+                                                    ]
+                                                    if _all_agents:
+                                                        _agent_lines = []
+                                                        for _ag in _all_agents:
+                                                            _tasks_str = ", ".join(_ag.get("tasks", [])) or "none"
+                                                            _agent_lines.append(
+                                                                f"- {_ag['name']} (ID: {_ag['id']}, tasks: {_tasks_str})"
+                                                            )
+                                                        _override_block += (
+                                                            "### Pre-resolved `agent_list` (skip `bu_select_agents`)\n\n"
+                                                            "The following agents are available for dispatch. "
+                                                            "Use these IDs directly — do NOT call `bu_select_agents`, it is unnecessary.\n\n"
+                                                            + "\n".join(_agent_lines)
+                                                            + "\n\n---\n\n"
+                                                        )
+                                                        # Also mark discovery so
+                                                        # send_chat dispatch gate passes
+                                                        from agent.mcp.server.chat_utils.chat_tools import _mark_discovery
+                                                        _mark_discovery(_caller_id, _all_agents)
+                                                        logger.info(
+                                                            f"[BrowserAutomation] Injected pre-resolved agent_list "
+                                                            f"({len(_all_agents)} agents) into override block, "
+                                                            f"node={node_name}"
+                                                        )
+                                            except Exception as _agent_inject_err:
+                                                logger.debug(
+                                                    f"[BrowserAutomation] Failed to inject agent_list "
+                                                    f"(non-fatal): {_agent_inject_err}"
+                                                )
+                                            _override_block += "---\n\n"
+
+                                            # ── Configurable auto-dispatch ──
+                                            # If the node has an autoDispatch config, try to
+                                            # dispatch actionable items directly to agents
+                                            # without invoking the browser-use LLM.
+                                            try:
+                                                _ad_raw = (inputs.get("autoDispatch") or {}).get("content")
+                                                _ad_cfg = None
+                                                if isinstance(_ad_raw, str) and _ad_raw.strip():
+                                                    _ad_cfg = json.loads(_ad_raw)
+                                                elif isinstance(_ad_raw, dict):
+                                                    _ad_cfg = _ad_raw
+                                                if (
+                                                    _ad_cfg
+                                                    and _all_agents
+                                                    and _caller_id
+                                                    and mainwin
+                                                ):
+                                                    _ad_state = await _try_auto_dispatch(
+                                                        config=_ad_cfg,
+                                                        actionable=_actionable,
+                                                        all_agents=_all_agents,
+                                                        caller_id=_caller_id,
+                                                        mainwin=mainwin,
+                                                        node_name=node_name,
+                                                        evt_type=_evt_type,
+                                                    )
+                                                    if _ad_state is not None:
+                                                        state.update(_ad_state)
+                                                        return state
+                                            except Exception as _ad_err:
+                                                logger.debug(
+                                                    f"[AUTO-DISPATCH] config-driven dispatch failed "
+                                                    f"(non-fatal, falling back to LLM): {_ad_err}"
+                                                )
+
                                     else:
                                         _items_json = json.dumps(
                                             _compact_items, ensure_ascii=False, indent=2
@@ -7464,6 +8973,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     _chat_customer_name = _cm_parsed.get("customer_name", "")
                         except (json.JSONDecodeError, Exception):
                             pass
+
                         if _chat_response_text:
                             # Escape quotes in response_text to avoid breaking
                             # the tool-call syntax shown to the browser-use LLM.
@@ -7502,201 +9012,123 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     f"(node={node_name}, override_len={len(_override_block)})"
                 )
 
-            # HOT-PATH flag — the actual hot-path runs after browser session
-            # setup (post-setup HOT-PATH near agent.run) where the CDP
-            # connection is live.  See "Post-setup HOT-PATH" block below.
-            _hot_path_done = False
-
-            # ── Hot-path: configurable action templates (Option B) ──
-            # Allows users to define custom hot-path triggers and action sequences
-            # in the node editor.  Currently default-bypassed; enable by setting
-            # hotPathActions in the node config.
-            # Config format:
-            #   hotPathActions: [
-            #     {
-            #       "trigger": {"event_type": "chat_message", "has_fields": ["response_text"]},
-            #       "actions": [
-            #         {"tool": "feige_open_session", "args": {"customer_name": "{{customer_name}}"}},
-            #         {"tool": "feige_send_message", "args": {"text": "{{response_text}}"}}
-            #       ]
-            #     }
-            #   ]
-            if not _hot_path_done:
-                try:
-                    _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
-                    _hp_b_actions_list = None
-                    if isinstance(_hp_b_raw, str) and _hp_b_raw.strip():
-                        _hp_b_actions_list = json.loads(_hp_b_raw)
-                    elif isinstance(_hp_b_raw, list):
-                        _hp_b_actions_list = _hp_b_raw
-                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
-                        # Determine current event type and payload fields
-                        _hp_b_evt_type = ""
-                        _hp_b_payload = {}
-                        if isinstance(state, dict):
-                            _hp_b_pr = state.get("prompt_refs")
-                            if isinstance(_hp_b_pr, dict):
-                                _hp_b_evt_str = _hp_b_pr.get("events", "")
-                                if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
-                                    _hp_b_evt = json.loads(_hp_b_evt_str)
-                                    _hp_b_evt_type = _hp_b_evt.get("event_type", "")
-                            _hp_b_input = state.get("input", "")
-                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
-                                _hp_b_parsed = json.loads(_hp_b_input)
-                                if isinstance(_hp_b_parsed, dict):
-                                    _hp_b_payload = _hp_b_parsed
-
-                        for _hp_b_rule in _hp_b_actions_list:
-                            if not isinstance(_hp_b_rule, dict):
-                                continue
-                            _hp_b_trigger = _hp_b_rule.get("trigger", {})
-                            # Check trigger conditions
-                            if _hp_b_trigger.get("event_type") and _hp_b_trigger["event_type"] != _hp_b_evt_type:
-                                continue
-                            _hp_b_required = _hp_b_trigger.get("has_fields", [])
-                            if not all(f in _hp_b_payload for f in _hp_b_required):
-                                continue
-                            # Trigger matched — execute action sequence
-                            _hp_b_action_seq = _hp_b_rule.get("actions", [])
-                            if not _hp_b_action_seq:
-                                continue
-                            logger.info(
-                                f"[BrowserAutomation] HOT-PATH-B: trigger matched "
-                                f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
-                                f"executing {len(_hp_b_action_seq)} actions"
-                            )
-                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
-                            _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
-                            _hp_b_session = await _get_or_create_browser_session(
-                                mainwin, state=state, calling_agent_id=calling_agent_id
-                            )
-                            if not _hp_b_session:
-                                logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
-                                break
-                            _hp_b_all_ok = True
-                            import asyncio as _hp_b_asyncio
-                            for _hp_b_act in _hp_b_action_seq:
-                                _hp_b_tool_name = _hp_b_act.get("tool", "")
-                                _hp_b_args_tpl = _hp_b_act.get("args", {})
-                                # Resolve {{field}} placeholders from payload
-                                _hp_b_args = {}
-                                for _ak, _av in _hp_b_args_tpl.items():
-                                    if isinstance(_av, str) and _av.startswith("{{") and _av.endswith("}}"):
-                                        _field = _av[2:-2].strip()
-                                        _hp_b_args[_ak] = str(_hp_b_payload.get(_field, ""))
-                                    else:
-                                        _hp_b_args[_ak] = _av
-                                _hp_b_act_obj = _hp_b_actions_reg.get(_hp_b_tool_name)
-                                if not _hp_b_act_obj:
-                                    logger.warning(f"[BrowserAutomation] HOT-PATH-B: tool '{_hp_b_tool_name}' not found")
-                                    _hp_b_all_ok = False
-                                    break
-                                _hp_b_param_model = _hp_b_act_obj.param_model
-                                _hp_b_params = _hp_b_param_model(**_hp_b_args)
-                                # Call with browser_session if the function expects it
-                                import inspect as _hp_b_inspect
-                                _hp_b_sig = _hp_b_inspect.signature(_hp_b_act_obj.function)
-                                if "browser_session" in _hp_b_sig.parameters:
-                                    _hp_b_result = await _hp_b_act_obj.function(
-                                        params=_hp_b_params, browser_session=_hp_b_session
-                                    )
-                                else:
-                                    _hp_b_result = await _hp_b_act_obj.function(params=_hp_b_params)
-                                _hp_b_ok = _hp_b_result and not getattr(_hp_b_result, "error", None)
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH-B: {_hp_b_tool_name} → "
-                                    f"{'OK' if _hp_b_ok else 'FAIL'}"
-                                )
-                                if not _hp_b_ok:
-                                    _hp_b_all_ok = False
-                                    break
-                                await _hp_b_asyncio.sleep(0.3)
-                            if _hp_b_all_ok:
-                                state.setdefault("result", {})["llm_result"] = {
-                                    "all_done": False, "work_done": False,
-                                    "hot_path": True, "hot_path_type": "configurable",
-                                }
-                                logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={node_name}")
-                                return state
-                            break  # Only try first matching rule
-                except Exception as _hp_b_err:
-                    logger.debug(f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}")
-
-            if skill_name == "rt_chat_bot":
-                assignment_scope = _extract_assignment_scope(runtime_input)
-                assignment_session_id = str(
-                    assignment_scope.get("session_id")
-                    or assignment_scope.get("sessionId")
-                    or (state.get("chat_id") if isinstance(state, dict) else "")
-                    or ""
-                ).strip()
-                assignment_tab_id = str(
-                    assignment_scope.get("tab_id") or assignment_scope.get("tabId") or ""
-                ).strip()
-                assignment_chat_url = str(
-                    assignment_scope.get("chat_url") or assignment_scope.get("chatUrl") or ""
-                ).strip()
-                assignment_customer_name = str(
-                    assignment_scope.get("customer_name") or assignment_scope.get("customerName") or ""
-                ).strip()
-
-                # ── Short-circuit: no assignment → skip browser entirely ──
-                # Base tasks (feige_chat_1/2/3) may receive stray browser events
-                # but have no customer assignment. Starting a browser session would
-                # waste resources and cause CDP contention.  Return immediately.
-                if not assignment_session_id and not assignment_chat_url:
-                    logger.info(
-                        f"[BrowserAutomation] rt_chat_bot node has no assignment "
-                        f"(no session_id, no chat_url) — skipping browser. "
-                        f"node={node_name}, runtime_input={runtime_input[:200] if runtime_input else 'empty'}"
-                    )
-                    return {
-                        "result": {"llm_result": {"all_done": False, "work_done": False}},
-                    }
-
-                scope_contract_lines = [
-                    "## Runtime Scope Contract (STRICT — follow exactly)",
-                    "",
-                    "You are a customer-service chat agent. Assignment is already done.",
-                    "You MUST complete this task in EXACTLY 2 steps. No more.",
-                    "",
-                ]
-                if assignment_session_id:
-                    scope_contract_lines.append(f"Assigned session_id: {assignment_session_id}")
-                if assignment_tab_id:
-                    scope_contract_lines.append(f"Assigned tab_id: {assignment_tab_id}")
-                if assignment_chat_url:
-                    scope_contract_lines.append(f"Assigned chat_url: {assignment_chat_url}")
-                if assignment_customer_name:
-                    scope_contract_lines.append(f"Assigned customer_name: {assignment_customer_name}")
-                scope_contract_lines.extend([
-                    "",
-                    "### Step 1: Read the page",
-                    "- If you are not on the assigned chat tab, navigate to it.",
-                    "- Read the latest customer message from the chat messages area.",
-                    "- Decide your reply.",
-                    "",
-                    "### Step 2: Reply and finish",
-                    "- Type your reply into the chat input field.",
-                    "- Click Send (or press Enter).",
-                    "- Immediately call done() with success=true.",
-                    "- Do NOT take another step to verify the send worked.",
-                    "",
-                    "### FORBIDDEN (will waste time and cause errors):",
-                    "- Do NOT call bu_send_chat, bu_list_session_monitors, bu_get_session_monitor_snapshot, or bu_upsert_session_monitor.",
-                    "- Do NOT assign or re-assign sessions.",
-                    "- Do NOT navigate to any page other than the assigned chat.",
-                    "- Do NOT re-type or re-send if you already typed and sent.",
-                    "- Do NOT take a 3rd step. After step 2, you MUST call done().",
-                    "- Do NOT verify, check, or validate that your message appeared.",
-                    "",
-                    "Your ONLY job: read customer message → type reply → send → done().",
-                ])
-                task = f"{task}\n\n" + "\n".join(scope_contract_lines)
-                logger.info(
-                    f"[BrowserAutomation] Applied customer-service runtime scope contract "
-                    f"(session_id={assignment_session_id or 'unknown'}, tab_id={assignment_tab_id or 'none'})"
+            # ── Invoke early-phase before-session-setup hooks ──────
+            # Early hooks run BEFORE the (expensive) browser-use agent
+            # is constructed, so a Feige-style fast-path (HOT-PATH-B:
+            # chat_message arrives with a pre-computed reply, type it
+            # into Feige directly, short-circuit the LLM) doesn’t pay
+            # for agent setup it will throw away.  Hooks acquire a
+            # browser session via `hook_ctx.get_or_create_browser_session`.
+            # First hook to return a non-None state dict short-circuits
+            # the whole node; returning `None` lets the late phase run.
+            if _before_browser_session_setup_hooks:
+                _early_hook_ctx = BrowserUseHookContext(
+                    node_name=str(node_name or ""),
+                    calling_agent_id=str(calling_agent_id or ""),
+                    mainwin=mainwin,
+                    resolve_scope_key=_resolve_browser_scope_key,
+                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                    parse_json_input=_parse_json_input,
+                    send_log=send_skill_editor_log,
+                    normalize_customer_id=_normalize_customer_id,
+                    normalize_reply_text=_normalize_reply_text,
+                    safe_format_dict=_SafeFormatDict,
+                    cached_browser_sessions=_cached_browser_sessions,
+                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
+                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
+                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
+                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
+                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
+                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
+                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
+                    resolve_template=_resolve_template,
+                    get_or_create_browser_session=_get_or_create_browser_session,
+                    hp_b_was_recently_sent=_hp_b_was_recently_sent,
+                    hp_b_mark_sent=_hp_b_mark_sent,
+                    hp_b_dedup_ttl_s=_HP_B_DEDUP_TTL_S,
                 )
+                for _early_hook in _before_browser_session_setup_hooks:
+                    _early_result = await _early_hook(
+                        None, state, inputs, _early_hook_ctx
+                    )
+                    if _early_result is not None:
+                        return _early_result
+
+            # ── Assignment scope (always extracted — safe no-op when runtime_input
+            # is not JSON).  Downstream focus-preflight and per-step refocus read
+            # these variables; keeping them defined unconditionally removes the
+            # previous skill-specific gate around both extraction and use.
+            assignment_scope = _extract_assignment_scope(runtime_input)
+            assignment_session_id = str(
+                assignment_scope.get("session_id")
+                or assignment_scope.get("sessionId")
+                or (state.get("chat_id") if isinstance(state, dict) else "")
+                or ""
+            ).strip()
+            assignment_tab_id = str(
+                assignment_scope.get("tab_id") or assignment_scope.get("tabId") or ""
+            ).strip()
+            assignment_chat_url = str(
+                assignment_scope.get("chat_url") or assignment_scope.get("chatUrl") or ""
+            ).strip()
+            assignment_customer_name = str(
+                assignment_scope.get("customer_name") or assignment_scope.get("customerName") or ""
+            ).strip()
+
+            # ── Data-driven assignment gate + scope-contract injection ──
+            # Replaces the previous `if skill_name == "rt_chat_bot":` block.
+            # Config shape (authored on the node editor as JSON):
+            #   {
+            #     "enabled": true,
+            #     "require_any_of": ["session_id", "chat_url"],
+            #     "on_missing": "skip_node",   // or "proceed"
+            #     "scope_contract_template": "## Runtime Scope Contract ...\\n..."
+            #   }
+            # Template placeholders: {session_id}, {tab_id}, {chat_url},
+            # {customer_name}.  Missing keys render as empty strings.
+            _asg_cfg = _parse_json_input(inputs, "assignment")
+            if isinstance(_asg_cfg, dict) and _asg_cfg.get("enabled", True):
+                _require_any = [str(f) for f in (_asg_cfg.get("require_any_of") or [])]
+                if _require_any:
+                    _scope_values = {
+                        "session_id": assignment_session_id,
+                        "tab_id": assignment_tab_id,
+                        "chat_url": assignment_chat_url,
+                        "customer_name": assignment_customer_name,
+                    }
+                    _present = any(str(_scope_values.get(f) or "").strip() for f in _require_any)
+                    if not _present:
+                        _on_missing = str(_asg_cfg.get("on_missing") or "skip_node").strip()
+                        if _on_missing == "skip_node":
+                            logger.info(
+                                f"[BrowserAutomation] assignment gate: require_any_of={_require_any} "
+                                f"not present — skipping browser run. node={node_name}, "
+                                f"runtime_input={(runtime_input or '')[:200]}"
+                            )
+                            return {
+                                "result": {"llm_result": {"all_done": False, "work_done": False}},
+                            }
+
+                _tpl = _asg_cfg.get("scope_contract_template")
+                if isinstance(_tpl, str) and _tpl.strip():
+                    try:
+                        _rendered = _tpl.format_map(_SafeFormatDict({
+                            "session_id": assignment_session_id,
+                            "tab_id": assignment_tab_id,
+                            "chat_url": assignment_chat_url,
+                            "customer_name": assignment_customer_name,
+                        }))
+                        task = f"{task}\n\n{_rendered}"
+                        logger.info(
+                            f"[BrowserAutomation] Applied scope contract "
+                            f"(session_id={assignment_session_id or 'unknown'}, "
+                            f"tab_id={assignment_tab_id or 'none'}), node={node_name}"
+                        )
+                    except Exception as _render_err:
+                        logger.warning(
+                            f"[BrowserAutomation] Scope contract render failed "
+                            f"(non-fatal): {_render_err}"
+                        )
 
             _browser_scope_key = _resolve_browser_scope_key(state)
             _cached_browser_session = _cached_browser_sessions.get(_browser_scope_key)
@@ -7719,323 +9151,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if match:
                         return match.group(0)
                 return None
-
-            async def _maybe_run_frontdesk_dispatch_fastpath(agent_obj) -> dict | None:
-                if skill_name != "customer_front_desk":
-                    return None
-                browser_session = getattr(agent_obj, "browser_session", None)
-                if not browser_session:
-                    logger.info("[BrowserAutomation] Front-desk fast-path skipped: no browser session on agent")
-                    return None
-
-                try:
-                    from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
-                    from agent.mcp.server.chat_utils.chat_tools import send_chat
-
-                    scope_key = _resolve_browser_scope_key(state)
-                    candidate_sessions = []
-                    for _candidate in (
-                        browser_session,
-                        _cached_browser_sessions.get(scope_key),
-                    ):
-                        if _candidate and _candidate not in candidate_sessions:
-                            candidate_sessions.append(_candidate)
-
-                    control_state = None
-                    active_monitor_set = None
-                    chosen_session = None
-                    for _candidate in candidate_sessions:
-                        capability = get_event_monitor_capability(_candidate, create=False)
-                        _active_monitor_set = capability.get_active_monitor_set() if capability else None
-                        if not _active_monitor_set:
-                            continue
-                        for _monitor in list(getattr(_active_monitor_set, "monitors", []) or []):
-                            _state = getattr(_monitor, "state", None)
-                            _cfg = (_state or {}).get("config") if isinstance(_state, dict) else None
-                            if str(getattr(_cfg, "label", "") or "").strip() != "conversation_became_active":
-                                continue
-                            control_state = _state
-                            active_monitor_set = _active_monitor_set
-                            chosen_session = _candidate
-                            break
-                        if control_state:
-                            break
-
-                    if not active_monitor_set or not control_state:
-                        logger.info(
-                            f"[BrowserAutomation] Front-desk fast-path skipped: no active control monitor "
-                            f"(scope={scope_key}, candidates={len(candidate_sessions)})"
-                        )
-                        return None
-
-                    status = str(control_state.get("last_status") or "").strip().lower()
-                    current_url = str(control_state.get("last_current_url") or "").strip()
-                    if status not in {"ok", "empty", "no_match"} or "/control" not in current_url:
-                        logger.info(
-                            f"[BrowserAutomation] Front-desk fast-path skipped: control monitor not ready "
-                            f"(status={status}, current_url={current_url})"
-                        )
-                        return None
-
-                    raw_items = control_state.get("last_items") or []
-                    if not isinstance(raw_items, list):
-                        raw_items = []
-                    logger.info(
-                        f"[BrowserAutomation] Front-desk fast-path candidate items: "
-                        f"count={len(raw_items)} scope={scope_key} chosen_session_obj={id(chosen_session) if chosen_session else 'none'}"
-                    )
-
-                    dispatch_state = getattr(chosen_session, "_ecan_frontdesk_dispatch_state", None)
-                    if not isinstance(dispatch_state, dict):
-                        dispatch_state = {
-                            "opened_tabs": {},
-                            "assigned_sessions": {},
-                        }
-                        setattr(chosen_session, "_ecan_frontdesk_dispatch_state", dispatch_state)
-
-                    # Prevent concurrent fast-path invocations from racing
-                    _fp_lock = dispatch_state.get("_lock")
-                    if _fp_lock is None:
-                        import threading as _fp_threading
-                        _fp_lock = _fp_threading.Lock()
-                        dispatch_state["_lock"] = _fp_lock
-                    if not _fp_lock.acquire(blocking=False):
-                        logger.info("[BrowserAutomation] Front-desk fast-path skipped: another invocation already running")
-                        # Abort this LLM run — another fast-path is handling it
-                        setattr(chosen_session, "_ecan_frontdesk_dispatched_all", True)
-                        return {"final": json.dumps({"all_done": True, "message": "Fast-path handled by another invocation"}), "history": "frontdesk_fastpath:dedup"}
-
-                    opened_tabs = dispatch_state.setdefault("opened_tabs", {})
-                    assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
-
-                    sm = getattr(chosen_session, "session_manager", None)
-                    all_targets = sm.get_all_targets() if sm else {}
-
-                    def _find_target_id_for_url(target_url: str) -> str:
-                        for tid, target in (all_targets or {}).items():
-                            if getattr(target, "target_type", "") not in ("page", "tab"):
-                                continue
-                            if str(getattr(target, "url", "") or "").strip() == target_url:
-                                return str(tid or "")
-                        return ""
-
-                    actionable = []
-                    for item in raw_items:
-                        if not isinstance(item, dict):
-                            continue
-                        session_id = str(
-                            item.get("session")
-                            or item.get("session_id")
-                            or item.get("customer_id")
-                            or ""
-                        ).strip()
-                        if not session_id:
-                            continue
-                        customer_name = str(
-                            item.get("customer_name")
-                            or item.get("name")
-                            or item.get("customer")
-                            or ""
-                        ).strip()
-                        chat_url = str(item.get("chat_url") or "").strip() or f"http://127.0.0.1:9877/chat?session={session_id}"
-                        actionable.append({
-                            "customer_id": session_id,
-                            "session_id": session_id,
-                            "customer_name": customer_name,
-                            "chat_url": chat_url,
-                        })
-
-                    if not actionable:
-                        payload = {
-                            "all_done": True,
-                            "work_result": {
-                                "frontdesk_fastpath": True,
-                                "visible_session_count": 0,
-                                "opened_count": 0,
-                                "assigned_count": 0,
-                                "last_action_succeeded": True,
-                                "no_customers": True,
-                            },
-                            "message": "Front desk fast-path: no visible customer sessions on control page.",
-                        }
-                        logger.info("[BrowserAutomation] Front-desk fast-path completed: no visible sessions")
-                        if _fp_lock.locked():
-                            _fp_lock.release()
-                        return {"final": json.dumps(payload, ensure_ascii=False), "history": "frontdesk_fastpath:no_customers"}
-
-                    opened_rows = []
-                    assigned_rows = []
-                    failure_rows = []
-                    sender_agent_id = str(calling_agent_id or "").strip()
-                    if not sender_agent_id:
-                        logger.info("[BrowserAutomation] Front-desk fast-path skipped: missing runtime sender agent id")
-                        if _fp_lock.locked():
-                            _fp_lock.release()
-                        return None
-
-                    # Discover service agents dynamically (round-robin, no hardcoded IDs).
-                    # Cache the filtered agent list and round-robin index in dispatch_state
-                    # so it persists across fast-path invocations.
-                    from agent.mcp.server.chat_utils.chat_tools import list_chat_agents as _list_chat_agents
-                    if "service_agents" not in dispatch_state or not dispatch_state["service_agents"]:
-                        _all_agents_result = _list_chat_agents(
-                            mainwin,
-                            {"exclude_self": sender_agent_id},
-                        )
-                        _all_agents = _all_agents_result.get("agents", [])
-                        # Filter to agents whose task names contain the service-agent keyword.
-                        # The front-desk prompt instructs: filter to tasks containing 'feige_chat'.
-                        # As a fallback also accept skill names containing 'rt_chat_bot'.
-                        _service_agents = [
-                            a for a in _all_agents
-                            if any("feige_chat" in str(t).lower() for t in a.get("tasks", []))
-                            or any("rt_chat_bot" in str(s).lower() for s in a.get("skills", []))
-                        ]
-                        if not _service_agents:
-                            # Broadest fallback: exclude the sender itself
-                            _service_agents = [a for a in _all_agents if a.get("id") != sender_agent_id]
-                        dispatch_state["service_agents"] = [a["id"] for a in _service_agents]
-                        dispatch_state.setdefault("rr_index", 0)
-                        logger.info(
-                            f"[BrowserAutomation] Front-desk fast-path discovered {len(_service_agents)} service agents: "
-                            f"{[a['id'][-8:] for a in _service_agents]}"
-                        )
-
-                    service_agent_ids = dispatch_state.get("service_agents") or []
-                    if not service_agent_ids:
-                        failure_rows.append("no service agents available")
-                    else:
-                        for item in actionable:
-                            session_id = item["session_id"]
-                            chat_url = item["chat_url"]
-
-                            # Open a dedicated tab for this session if not already open.
-                            # This is instant (deterministic CDP, no LLM cost) and gives each
-                            # service agent a pre-loaded tab so they don't waste LLM steps navigating.
-                            # Each session gets its own unique tab → no sharing between agents.
-                            tab_id = opened_tabs.get(session_id) or ""
-                            if not tab_id:
-                                try:
-                                    # Check if a tab is already open at this URL.
-                                    tab_id = _find_target_id_for_url(chat_url) or ""
-                                    if not tab_id:
-                                        from browser_use.browser.events import NavigateToUrlEvent as _NavEvt
-                                        await chosen_session.event_bus.dispatch(_NavEvt(url=chat_url, new_tab=True))
-                                        await asyncio.sleep(0.8)
-                                        # Refresh targets and find the newly opened tab.
-                                        sm2 = getattr(chosen_session, "session_manager", None)
-                                        all_targets2 = sm2.get_all_targets() if sm2 else {}
-                                        for tid2, tgt2 in (all_targets2 or {}).items():
-                                            if getattr(tgt2, "target_type", "") not in ("page", "tab"):
-                                                continue
-                                            if str(getattr(tgt2, "url", "") or "").strip().rstrip("/") == chat_url.rstrip("/"):
-                                                tab_id = str(tid2)
-                                                break
-                                    if tab_id:
-                                        opened_tabs[session_id] = tab_id
-                                        logger.info(
-                                            f"[BrowserAutomation] Front-desk fast-path opened tab "
-                                            f"tab_id=...{tab_id[-6:]} for session={session_id}"
-                                        )
-                                except Exception as _open_err:
-                                    logger.warning(
-                                        f"[BrowserAutomation] Front-desk fast-path failed to open tab "
-                                        f"for session={session_id}: {_open_err}"
-                                    )
-                            opened_rows.append(session_id)
-
-                            if assigned_sessions.get(session_id):
-                                continue
-
-                            # Pick next service agent in round-robin order.
-                            rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
-                            recipient_agent_id = service_agent_ids[rr_idx]
-                            dispatch_state["rr_index"] = rr_idx + 1
-
-                            # Include tab_id so the service agent can focus the pre-opened tab
-                            # immediately without LLM-driven navigation (fast + no token cost).
-                            assignment_payload = {
-                                "customer_id": item["customer_id"],
-                                "session_id": session_id,
-                                "chat_url": chat_url,
-                            }
-                            if tab_id:
-                                assignment_payload["tab_id"] = tab_id
-                            if item.get("customer_name"):
-                                assignment_payload["customer_name"] = item["customer_name"]
-
-                            send_result = send_chat(
-                                mainwin,
-                                {
-                                    "sender_agent_id": sender_agent_id,
-                                    "recipient_agent_id": recipient_agent_id,
-                                    "chat_id": session_id,
-                                    "message": json.dumps(assignment_payload, ensure_ascii=False),
-                                    "message_type": "text",
-                                    "async_send": False,
-                                },
-                            )
-                            if send_result.get("success"):
-                                assigned_sessions[session_id] = {
-                                    "recipient_agent_id": recipient_agent_id,
-                                    "message_id": str(send_result.get("message_id") or ""),
-                                    "timestamp": int(send_result.get("timestamp") or 0),
-                                }
-                                assigned_rows.append(
-                                    f"{session_id}->{recipient_agent_id[-6:]} msg={str(send_result.get('message_id') or '')[:8]}"
-                                )
-                            else:
-                                failure_rows.append(
-                                    f"{session_id}: assignment failed: {send_result.get('error', 'unknown error')}"
-                                )
-
-                    if not opened_rows and not assigned_rows and not failure_rows:
-                        if _fp_lock.locked():
-                            _fp_lock.release()
-                        return None
-
-                    payload = {
-                        "all_done": True,
-                        "work_result": {
-                            "frontdesk_fastpath": True,
-                            "visible_session_count": len(actionable),
-                            "opened_count": len(opened_rows),
-                            "assigned_count": len(assigned_rows),
-                            "last_action_succeeded": not bool(failure_rows),
-                            "no_customers": False,
-                        },
-                        "opened_sessions": opened_rows,
-                        "assigned_sessions": assigned_rows,
-                        "failures": failure_rows,
-                        "message": (
-                            "Front desk fast-path completed"
-                            if not failure_rows
-                            else "Front desk fast-path completed with failures"
-                        ),
-                    }
-                    logger.info(
-                        f"[BrowserAutomation] Front-desk fast-path completed: "
-                        f"visible={len(actionable)} opened={len(opened_rows)} "
-                        f"assigned={len(assigned_rows)} failures={len(failure_rows)}"
-                    )
-                    # Signal any concurrently-running LLM invocation (from the first
-                    # auto-triggered entry) to stop — it would just duplicate work.
-                    if assigned_rows or (not failure_rows and assigned_sessions):
-                        setattr(chosen_session, "_ecan_frontdesk_dispatched_all", True)
-                    if _fp_lock.locked():
-                        _fp_lock.release()
-                    return {
-                        "final": json.dumps(payload, ensure_ascii=False),
-                        "history": "frontdesk_fastpath",
-                    }
-                except Exception as _frontdesk_fastpath_err:
-                    logger.warning(f"[BrowserAutomation] Front-desk fast-path failed: {_frontdesk_fastpath_err}")
-                    try:
-                        if _fp_lock.locked():
-                            _fp_lock.release()
-                    except Exception:
-                        pass
-                    return None
 
             # Determine run mode based on node editor setting (run_environment_setting)
             # Options: full_local, passive_local, hybrid_cloud, full_cloud
@@ -8360,20 +9475,44 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     return {"error": str(err_msg)}
 
             # Prefer privacy-aware wrapper if available; fall back to vanilla Agent.
-            # Use PrivacyAgent only if privacy_strategy is not 'none'
+            # Use PrivacyAgent when:
+            #   * privacy_strategy != 'none' (classic privacy path), OR
+            #   * the node opted into the hook system (hookBundles / siteAdapter
+            #     is configured, or EC_BROWSER_USE_HOOKS_ENABLED=1).  The hook
+            #     dispatcher is implemented inside PrivacyAgent, so hooks need
+            #     this wrapper even when privacy processing is disabled.
+            _node_hook_bundles_raw = (inputs.get("hookBundles") or {}).get("content")
+            _node_site_adapter_raw = (inputs.get("siteAdapter") or {}).get("content")
+            _hooks_env_flag = os.environ.get(
+                "EC_BROWSER_USE_HOOKS_ENABLED", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            _node_wants_hooks = bool(
+                _hooks_env_flag
+                or (isinstance(_node_hook_bundles_raw, str) and _node_hook_bundles_raw.strip())
+                or (isinstance(_node_site_adapter_raw, str) and _node_site_adapter_raw.strip())
+            )
+
             AgentClass = BUAgent
-            use_privacy_agent = privacy_strategy_setting != 'none'
-            
+            use_privacy_agent = (privacy_strategy_setting != 'none') or _node_wants_hooks
+
             if use_privacy_agent:
                 try:
                     from agent.ec_skills.browser_use_extension.privacy_agent import PrivacyAgent
                     AgentClass = PrivacyAgent
-                    logger.info(f"[BrowserAutomation] Using PrivacyAgent for browser-use (strategy={privacy_strategy_setting})")
+                    if privacy_strategy_setting == 'none' and _node_wants_hooks:
+                        logger.info(
+                            f"[BrowserAutomation] Upgrading to PrivacyAgent for hook support "
+                            f"(privacy=none, hooks_env={_hooks_env_flag}, "
+                            f"bundles={bool(_node_hook_bundles_raw)}, "
+                            f"site_adapter={bool(_node_site_adapter_raw)})"
+                        )
+                    else:
+                        logger.info(f"[BrowserAutomation] Using PrivacyAgent for browser-use (strategy={privacy_strategy_setting})")
                 except Exception as _privacy_import_exc:
                     logger.info(f"[BrowserAutomation] PrivacyAgent not available, using browser_use.Agent ({_privacy_import_exc})")
                     use_privacy_agent = False
             else:
-                logger.info("[BrowserAutomation] Privacy strategy is 'none', using standard browser_use.Agent")
+                logger.info("[BrowserAutomation] Privacy strategy is 'none' and no hook bundles configured, using standard browser_use.Agent")
 
             # Import LLM creation utilities
             from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
@@ -9190,7 +10329,95 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(f"[BrowserAutomation] Cloud LLM enabled for PrivacyAgent (agent_id={cloud_agent_id})")
                 except Exception as _cloud_kwargs_exc:
                     logger.warning(f"[BrowserAutomation] Failed to configure cloud LLM mode: {_cloud_kwargs_exc}")
-            
+
+            # ── Hook system wiring (PR 6/7/10) ──────────────────────────
+            # Opt-in, strictly additive.  The PrivacyAgent gains three hook-
+            # related kwargs; each defaults to "off".  A node keeps its
+            # legacy behaviour unless the author sets at least one of:
+            #   * hookBundles   (JSON array)  → external bundle specs
+            #   * siteAdapter   (JSON object) → shared selector/policy data
+            # An environment variable ``EC_BROWSER_USE_HOOKS_ENABLED`` flips
+            # the built-in Tier-0 safety hooks on for every browser-automation
+            # node — use it for canarying; per-node override via a future
+            # "hooksEnabled" field can layer on top later.
+            if use_privacy_agent:
+                try:
+                    _hook_bundles_raw = (inputs.get("hookBundles") or {}).get("content")
+                    _hook_bundles_parsed = None
+                    if isinstance(_hook_bundles_raw, str) and _hook_bundles_raw.strip():
+                        _hook_bundles_parsed = json.loads(_hook_bundles_raw)
+                    if _hook_bundles_parsed:
+                        if not isinstance(_hook_bundles_parsed, list):
+                            raise ValueError(
+                                f"hookBundles must be a JSON array, got "
+                                f"{type(_hook_bundles_parsed).__name__}"
+                            )
+                        agent_kwargs["hook_bundles"] = _hook_bundles_parsed
+                        logger.info(
+                            f"[BrowserAutomation] Hook bundles configured: "
+                            f"{len(_hook_bundles_parsed)} spec(s)"
+                        )
+                except Exception as _hb_err:
+                    logger.warning(
+                        f"[BrowserAutomation] Failed to parse hookBundles; "
+                        f"continuing without external hooks: {_hb_err}"
+                    )
+
+                try:
+                    _site_adapter_raw = (inputs.get("siteAdapter") or {}).get("content")
+                    _site_adapter_parsed = None
+                    if isinstance(_site_adapter_raw, str) and _site_adapter_raw.strip():
+                        _site_adapter_parsed = json.loads(_site_adapter_raw)
+                    if _site_adapter_parsed:
+                        if not isinstance(_site_adapter_parsed, dict):
+                            raise ValueError(
+                                f"siteAdapter must be a JSON object, got "
+                                f"{type(_site_adapter_parsed).__name__}"
+                            )
+                        agent_kwargs["site_adapter"] = _site_adapter_parsed
+                        logger.info(
+                            f"[BrowserAutomation] site_adapter configured "
+                            f"(name={_site_adapter_parsed.get('name')!r})"
+                        )
+                except Exception as _sa_err:
+                    logger.warning(
+                        f"[BrowserAutomation] Failed to parse siteAdapter; "
+                        f"continuing without it: {_sa_err}"
+                    )
+
+                # Canary flag for Tier-0 built-in hooks.  Intentionally
+                # env-driven so operators can flip it without editing the
+                # skill file.  When either the env var OR node has supplied
+                # hook_bundles / site_adapter, we assume the operator wants
+                # the built-in safety rails turned on.
+                _hooks_env_flag = os.environ.get(
+                    "EC_BROWSER_USE_HOOKS_ENABLED", ""
+                ).strip().lower() in {"1", "true", "yes", "on"}
+                _hooks_opted_in = bool(
+                    _hooks_env_flag
+                    or agent_kwargs.get("hook_bundles")
+                    or agent_kwargs.get("site_adapter")
+                )
+                if _hooks_opted_in:
+                    agent_kwargs["hooks_enabled"] = True
+                    logger.info(
+                        f"[BrowserAutomation] PrivacyAgent hooks_enabled=True "
+                        f"(env={_hooks_env_flag}, bundles="
+                        f"{bool(agent_kwargs.get('hook_bundles'))}, "
+                        f"site_adapter={bool(agent_kwargs.get('site_adapter'))})"
+                    )
+
+                # If we auto-upgraded to PrivacyAgent solely for hook support
+                # (privacy_strategy='none'), keep privacy filtering OFF so the
+                # user's explicit setting is honoured.  The hook dispatcher
+                # works independently of the filter pipeline.
+                if privacy_strategy_setting == 'none':
+                    agent_kwargs["privacy_enabled"] = False
+                    logger.info(
+                        "[BrowserAutomation] privacy_enabled=False "
+                        "(hook-only PrivacyAgent upgrade)"
+                    )
+
             # Browser session creation logic:
             # - "new chromium": browser-use creates its own browser (no BrowserManager needed)
             # - Other types: connect to existing browser via CDP (requires BrowserManager)
@@ -9200,6 +10427,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
                 _bu_scope_key = _resolve_browser_scope_key(state)
                 _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
+                # Invalidate the cache if:
+                #  (a) the agent class changed (BUAgent ↔ PrivacyAgent), OR
+                #  (b) this run wants hooks but the cached PrivacyAgent was
+                #      built before hook kwargs reached agent_kwargs.
+                _want_hooks = bool(agent_kwargs.get("hooks_enabled"))
+                _cached_has_hooks = bool(getattr(_cached_bu_agent, "hooks_enabled", False))
+                if _cached_bu_agent is not None and (
+                    type(_cached_bu_agent) is not AgentClass
+                    or (_want_hooks and not _cached_has_hooks)
+                ):
+                    logger.info(
+                        f"[BrowserAutomation] Evicting cached agent "
+                        f"(class={type(_cached_bu_agent).__name__}→{AgentClass.__name__}, "
+                        f"cached_hooks={_cached_has_hooks}, want_hooks={_want_hooks}, "
+                        f"scope={_bu_scope_key})"
+                    )
+                    _cached_bu_agents.pop(_bu_scope_key, None)
+                    _cached_bu_agent = None
                 if _cached_bu_agent is not None:
                     _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
                     agent = _cached_bu_agent
@@ -9302,6 +10547,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
                         valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
 
+                        # Entry-log: record the state we're about to act on so that if
+                        # the preflight hangs or fails we can tell which branch we took
+                        # and which targets were available.
+                        try:
+                            logger.info(
+                                f"[BrowserAutomation] Focus preflight entry: "
+                                f"target_count={len(page_target_ids)}, "
+                                f"cur_focus_valid={valid_cur_focus}, "
+                                f"last_focus_valid={valid_last_focus}, "
+                                f"assignment_tab_id={(assignment_tab_id or '')[-6:] or 'none'}, "
+                                f"skill={skill_name}, node={node_name}"
+                            )
+                        except Exception:
+                            pass
+
                         def _resolve_target_id_for_assignment(
                             preferred_tab_id: str,
                             preferred_chat_url: str,
@@ -9365,7 +10625,51 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
                                 )
                             _last_known_focus_target_id = target_focus
-                            await browser_session.get_browser_state_summary(include_screenshot=False)
+                            # Defensive preflight: get_browser_state_summary has been
+                            # observed to hang indefinitely (no internal timeout),
+                            # causing the whole browser_automation run to die. Wrap
+                            # with wait_for(3s) + one retry; on final failure log the
+                            # target state and SKIP — the next get_browser_state_summary
+                            # below will refresh the cache anyway.
+                            _preflight_ok = False
+                            for _preflight_attempt in range(2):
+                                try:
+                                    await asyncio.wait_for(
+                                        browser_session.get_browser_state_summary(include_screenshot=False),
+                                        timeout=3.0,
+                                    )
+                                    _preflight_ok = True
+                                    break
+                                except asyncio.TimeoutError:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight state-summary TIMEOUT "
+                                        f"after 3s (attempt {_preflight_attempt + 1}/2), "
+                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
+                                        f"target_count={len(page_target_ids)}, "
+                                        f"skill={skill_name}, node={node_name}"
+                                    )
+                                except Exception as _pf_inner_err:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight state-summary error "
+                                        f"(attempt {_preflight_attempt + 1}/2): {_pf_inner_err}"
+                                    )
+                            if not _preflight_ok:
+                                try:
+                                    _pf_cdp = getattr(browser_session, 'cdp_url', '') or ''
+                                    _pf_target = sm.get_target(target_focus) if sm else None
+                                    _pf_url = getattr(_pf_target, 'url', '') if _pf_target else ''
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
+                                        f"refresh after 2 failed attempts. Proceeding with run. "
+                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
+                                        f"url={_pf_url}, cdp={_pf_cdp}, "
+                                        f"skill={skill_name}, node={node_name}"
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
+                                        f"refresh after 2 failed attempts (state snapshot unavailable)"
+                                    )
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
                         raise
@@ -9376,32 +10680,51 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if target_focus:
                         await browser_session.get_browser_state_summary(include_screenshot=False)
 
-                    # Handle rt_chat_bot chat URL: if an assignment_chat_url is known, check whether
-                    # the focused tab already has it loaded; if not, navigate to it.
+                    # Assignment URL navigation: if the node's `assignment` config
+                    # names a URL-bearing field (default "chat_url") and that
+                    # scope field is present, ensure the focused tab is loaded
+                    # there before the LLM runs.  When this path is used, skip
+                    # the generic _extract_preferred_start_url fallback — the two
+                    # are alternative ways to anchor the starting URL.
                     _tab_already_at_correct_url = False
-                    if skill_name == "rt_chat_bot" and assignment_chat_url and target_focus:
+                    _asg_nav_field = "chat_url"
+                    if isinstance(_asg_cfg, dict) and _asg_cfg.get("enabled", True):
+                        _asg_nav_field = str(_asg_cfg.get("navigate_field") or "chat_url").strip() or "chat_url"
+                    _asg_nav_url_map = {
+                        "chat_url": assignment_chat_url,
+                        "session_id": assignment_session_id,
+                        "tab_id": assignment_tab_id,
+                        "customer_name": assignment_customer_name,
+                    }
+                    _asg_nav_url = str(_asg_nav_url_map.get(_asg_nav_field) or "").strip()
+                    _assignment_nav_used = False
+                    if _asg_nav_url and target_focus:
                         latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
                         focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
                         focused_url = str(getattr(focused_target, 'url', '') or '').strip()
-                        if focused_url.rstrip("/") != assignment_chat_url.rstrip("/"):
+                        if focused_url.rstrip("/") != _asg_nav_url.rstrip("/"):
                             await browser_session.event_bus.dispatch(
-                                NavigateToUrlEvent(url=assignment_chat_url, new_tab=False)
+                                NavigateToUrlEvent(url=_asg_nav_url, new_tab=False)
                             )
                             logger.info(
-                                f"[BrowserAutomation] Focus preflight navigated to chat_url: {assignment_chat_url}"
+                                f"[BrowserAutomation] Focus preflight navigated to assignment "
+                                f"{_asg_nav_field}: {_asg_nav_url}"
                             )
                             await asyncio.sleep(1.0)
                             await browser_session.get_browser_state_summary(include_screenshot=False)
                         else:
                             logger.info(
-                                f"[BrowserAutomation] Focus preflight: tab already at chat_url, no navigation needed: "
-                                f"{assignment_chat_url}"
+                                f"[BrowserAutomation] Focus preflight: tab already at assignment "
+                                f"{_asg_nav_field}, no navigation needed: {_asg_nav_url}"
                             )
                             _tab_already_at_correct_url = True
+                        _assignment_nav_used = True
 
-                    # Handle preferred_start_url: for non-rt_chat_bot skills, ensure the focused
-                    # tab lands on the configured control panel URL before agent.run() starts.
-                    preferred_start_url = None if skill_name == "rt_chat_bot" else _extract_preferred_start_url(task, state)
+                    # Generic preferred_start_url fallback — only runs when no
+                    # assignment URL was consumed above.
+                    preferred_start_url = (
+                        None if _assignment_nav_used else _extract_preferred_start_url(task, state)
+                    )
                     if preferred_start_url and sm:
                         latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
                         all_targets = sm.get_all_targets() if sm else {}
@@ -9440,6 +10763,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # re-init overhead and the ~860 MB allocation spike).
                     _bu_scope_key = _resolve_browser_scope_key(state)
                     _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
+                    # Invalidate the cache if:
+                    #  (a) the agent class changed between runs (BUAgent ↔
+                    #      PrivacyAgent), OR
+                    #  (b) this run wants hooks enabled but the cached agent
+                    #      was built before hook kwargs reached agent_kwargs
+                    #      (stale pre-wiring instance).
+                    _want_hooks = bool(agent_kwargs.get("hooks_enabled"))
+                    _cached_has_hooks = bool(getattr(_cached_bu_agent, "hooks_enabled", False))
+                    if _cached_bu_agent is not None and (
+                        type(_cached_bu_agent) is not AgentClass
+                        or (_want_hooks and not _cached_has_hooks)
+                    ):
+                        logger.info(
+                            f"[BrowserAutomation] Evicting cached agent "
+                            f"(class={type(_cached_bu_agent).__name__}→{AgentClass.__name__}, "
+                            f"cached_hooks={_cached_has_hooks}, want_hooks={_want_hooks}, "
+                            f"scope={_bu_scope_key})"
+                        )
+                        _cached_bu_agents.pop(_bu_scope_key, None)
+                        _cached_bu_agent = None
                     if _cached_bu_agent is not None:
                         _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
                         # Re-bind the session in case it was recreated by the preflight above.
@@ -9653,132 +10996,93 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as _em_start_err:
                     logger.warning(f"[BrowserAutomation] Failed to start event monitors: {_em_start_err}")
 
-            _frontdesk_fastpath_result = await _maybe_run_frontdesk_dispatch_fastpath(agent)
-            if _frontdesk_fastpath_result is not None:
-                return _frontdesk_fastpath_result
+            # ── First-invocation short-circuit ──
+            # On auto-launch the browser_automation node runs before any
+            # event has fired.  Without event context the LLM has no
+            # actionable items, no pre-resolved agent list, and no
+            # override block — it loops aimlessly.  The EventMonitor is
+            # now started (see above), so we skip the LLM entirely and
+            # return a "done" state so the graph flows to pend_event,
+            # which picks up the first real browser_event within seconds.
+            # Guard: only fire once per scope so the loop doesn't repeat
+            # the skip if pend_event retries before an event arrives.
+            _fi_scope = _browser_scope_key or node_name
+            if not _evt_type and _event_monitor_configs:
+                logger.info(
+                    f"[BrowserAutomation] First-invocation check: "
+                    f"scope={_fi_scope}, already_done={_fi_scope in _first_invocation_done}, "
+                    f"done_set={_first_invocation_done}"
+                )
+            if (
+                not _evt_type
+                and _event_monitor_configs
+                and _fi_scope not in _first_invocation_done
+            ):
+                _first_invocation_done.add(_fi_scope)
+                logger.info(
+                    f"[BrowserAutomation] First-invocation short-circuit: "
+                    f"no triggering event but {len(_event_monitor_configs)} "
+                    f"event monitor(s) configured — skipping LLM, flowing "
+                    f"to pend_event immediately (node={node_name}, "
+                    f"scope={_fi_scope})"
+                )
+                send_skill_editor_log(
+                    "log",
+                    f"[BrowserAutomation] First invocation: no event → "
+                    f"skipping LLM, entering event loop"
+                )
+                state["result"] = {
+                    "llm_result": {
+                        "all_done": False,
+                        "work_done": False,
+                        "hot_path": True,
+                        "hot_path_type": "first_invocation_skip",
+                    }
+                }
+                return state
 
-            # ── HOT-PATH: chat_message reply bypass ──
-            # When a chat_message arrives with a structured {response_text,
-            # customer_name} payload, skip the LLM entirely and call the
-            # registered chat adapter tools directly (e.g. *_open_session →
-            # *_send_message).  This cuts Phase-2 latency from ~15s (LLM think
-            # + multi-step) to ~2s (two direct tool calls).
-            #
-            # Placed here (after browser session setup) so the CDP connection
-            # is live and the feige tools can execute JS on the page.
-            if not _hot_path_done and _evt_type != "browser_event":
-                try:
-                    _hp2_response_text = ""
-                    _hp2_customer_name = ""
-                    if isinstance(state, dict):
-                        _hp2_raw = _extract_runtime_invocation_input(state)
-                        if _hp2_raw:
-                            try:
-                                _hp2_parsed = json.loads(_hp2_raw)
-                                if isinstance(_hp2_parsed, dict):
-                                    _hp2_response_text = str(_hp2_parsed.get("response_text", "")).strip()
-                                    _hp2_customer_name = str(
-                                        _hp2_parsed.get("customer_name")
-                                        or _hp2_parsed.get("customer_id")
-                                        or ""
-                                    ).strip()
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                    if _hp2_response_text and _hp2_customer_name:
-                        _hp2_session = getattr(agent, "browser_session", None)
-                        if _hp2_session:
-                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp2_ctrl
-                            _hp2_actions = _hp2_ctrl.registry.registry.actions
-                            _hp2_open_fn = None
-                            _hp2_send_fn = None
-                            _hp2_open_name = ""
-                            _hp2_send_name = ""
-                            for _act_name, _act_obj in _hp2_actions.items():
-                                if _act_name.endswith("_open_session"):
-                                    _hp2_open_fn = _act_obj
-                                    _hp2_open_name = _act_name
-                                elif _act_name.endswith("_send_message"):
-                                    _hp2_send_fn = _act_obj
-                                    _hp2_send_name = _act_name
-                            if _hp2_open_fn and _hp2_send_fn:
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH: retrying with live session. "
-                                    f"customer={_hp2_customer_name}, "
-                                    f"tools={_hp2_open_name}+{_hp2_send_name}, node={node_name}"
-                                )
-                                send_skill_editor_log(
-                                    "log",
-                                    f"[BrowserAutomation] HOT-PATH: direct reply to "
-                                    f"{_hp2_customer_name} (skipping LLM)"
-                                )
-                                _hp2_open_params = _hp2_open_fn.param_model(customer_name=_hp2_customer_name)
-                                _hp2_send_params = _hp2_send_fn.param_model(text=_hp2_response_text)
-                                # Call open_session
-                                _hp2_open_result = await _hp2_open_fn.function(
-                                    params=_hp2_open_params, browser_session=_hp2_session
-                                )
-                                _hp2_open_ok = (
-                                    _hp2_open_result
-                                    and not getattr(_hp2_open_result, "error", None)
-                                )
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH: {_hp2_open_name} → "
-                                    f"{'OK' if _hp2_open_ok else 'FAIL'}: "
-                                    f"{getattr(_hp2_open_result, 'extracted_content', '') or getattr(_hp2_open_result, 'error', '')}"
-                                )
-                                if _hp2_open_ok:
-                                    await asyncio.sleep(0.5)
-                                    _hp2_send_result = await _hp2_send_fn.function(
-                                        params=_hp2_send_params, browser_session=_hp2_session
-                                    )
-                                    _hp2_send_ok = (
-                                        _hp2_send_result
-                                        and not getattr(_hp2_send_result, "error", None)
-                                    )
-                                    logger.info(
-                                        f"[BrowserAutomation] HOT-PATH: {_hp2_send_name} → "
-                                        f"{'OK' if _hp2_send_ok else 'FAIL'}: "
-                                        f"{getattr(_hp2_send_result, 'extracted_content', '') or getattr(_hp2_send_result, 'error', '')}"
-                                    )
-                                    if _hp2_send_ok:
-                                        _hot_path_done = True
-                                        state.setdefault("result", {})["llm_result"] = {
-                                            "all_done": False,
-                                            "work_done": False,
-                                            "hot_path": True,
-                                            "action": f"{_hp2_open_name}+{_hp2_send_name}",
-                                            "customer": _hp2_customer_name,
-                                        }
-                                        # Clear response data to prevent duplicate sends
-                                        state["input"] = ""
-                                        if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
-                                            state["messages"][4] = ""
-                                        try:
-                                            _hp2_attrs = state.get("attributes")
-                                            if isinstance(_hp2_attrs, dict):
-                                                _hp2_attrs.pop("params", None)
-                                        except Exception:
-                                            pass
-                                        logger.info(
-                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                            f"{_hp2_customer_name} (~1s, LLM bypassed), node={node_name}"
-                                        )
-                                        send_skill_editor_log(
-                                            "log",
-                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                            f"{_hp2_customer_name} (LLM bypassed)"
-                                        )
-                                        return state
-                                if not _hot_path_done:
-                                    logger.warning(
-                                        f"[BrowserAutomation] HOT-PATH: tool call failed, "
-                                        f"falling back to LLM. node={node_name}"
-                                    )
-                except Exception as _hp2_err:
-                    logger.warning(
-                        f"[BrowserAutomation] HOT-PATH: failed (non-fatal, "
-                        f"falling back to LLM): {_hp2_err}"
+            # ── Invoke registered before-browser-use-run hooks ──────
+            # Each hook gets a BrowserUseHookContext exposing the
+            # closure-scoped helpers (resolve_scope_key,
+            # extract_runtime_invocation_input) + module-level state
+            # dicts.  The first hook to return a non-None state dict
+            # short-circuits the LLM.  Site-specific patterns (e.g.
+            # feige_chat.front_desk's PreDispatch fan-out) register
+            # themselves via ``register_before_browser_use_run_hook``
+            # at module-import time; build_node itself has no knowledge
+            # of what any registered hook does.
+            if _before_browser_use_run_hooks:
+                _bur_hook_ctx = BrowserUseHookContext(
+                    node_name=str(node_name or ""),
+                    calling_agent_id=str(calling_agent_id or ""),
+                    mainwin=mainwin,
+                    resolve_scope_key=_resolve_browser_scope_key,
+                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                    parse_json_input=_parse_json_input,
+                    send_log=send_skill_editor_log,
+                    normalize_customer_id=_normalize_customer_id,
+                    normalize_reply_text=_normalize_reply_text,
+                    safe_format_dict=_SafeFormatDict,
+                    cached_browser_sessions=_cached_browser_sessions,
+                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
+                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
+                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
+                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
+                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
+                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
+                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
+                    resolve_template=_resolve_template,
+                    get_or_create_browser_session=_get_or_create_browser_session,
+                    hp_b_was_recently_sent=_hp_b_was_recently_sent,
+                    hp_b_mark_sent=_hp_b_mark_sent,
+                    hp_b_dedup_ttl_s=_HP_B_DEDUP_TTL_S,
+                )
+                for _bur_hook in _before_browser_use_run_hooks:
+                    _bur_hook_result = await _bur_hook(
+                        agent, state, inputs, _bur_hook_ctx
                     )
+                    if _bur_hook_result is not None:
+                        return _bur_hook_result
 
             # Register current agent instance so extension tools (e.g. list_files)
             # can auto-authorize discovered file paths for later read_long_content/read_file calls.
@@ -9826,35 +11130,46 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 agent_class_name = agent.__class__.__name__
 
                 # Resolve the target tab ID to keep focused across steps.
-                # IMPORTANT: per-step refocus is only enabled for rt_chat_bot by default.
-                # For research/executor flows, forcing refocus each step can bounce
-                # the agent back to the original search tab and cause repeated clicks.
-                # To enable for other skills: add `enable_step_refocus: true` in the
-                # node's inputsValues, or add the skill name to the condition below.
-                _step_focus_target = None
-                _enable_step_refocus = (
-                    inputs.get("enable_step_refocus", {}).get("content", "")
-                    if isinstance(inputs, dict) else ""
+                # Per-step refocus is opt-in via `stepPatches.refocus_assigned_tab`
+                # (or the legacy `enable_step_refocus` input).  For research/
+                # executor flows, forcing refocus each step can bounce the agent
+                # back to the original search tab and cause repeated clicks — so
+                # the default is off.
+                _step_patches_cfg = _parse_json_input(inputs, "stepPatches") or {}
+                if not isinstance(_step_patches_cfg, dict):
+                    _step_patches_cfg = {}
+                _refocus_enabled = bool(_step_patches_cfg.get("refocus_assigned_tab", False))
+                _abort_when_pre_dispatched = bool(_step_patches_cfg.get("abort_when_pre_dispatched", False))
+                _pre_dispatch_flag_attr = str(
+                    _step_patches_cfg.get("pre_dispatch_flag_attr") or "_ecan_frontdesk_dispatched_all"
                 )
-                if (_enable_step_refocus.lower() == "true"
-                        or skill_name == "rt_chat_bot") and hasattr(agent, 'step'):
+
+                # Back-compat: legacy standalone `enable_step_refocus` input.
+                if not _refocus_enabled and isinstance(inputs, dict):
+                    _legacy_refocus = str(
+                        (inputs.get("enable_step_refocus") or {}).get("content", "") or ""
+                    ).strip().lower()
+                    if _legacy_refocus == "true":
+                        _refocus_enabled = True
+
+                _step_focus_target = None
+                if _refocus_enabled and hasattr(agent, 'step'):
                     _step_focus_target = (
                         locals().get("assignment_target_focus")
                         or _last_known_focus_target_id
                         or None
                     )
 
-                # Patch agent.step for:
-                # - rt_chat_bot: per-step tab refocus (safety net)
-                # - customer_front_desk: abort if fast-path already dispatched
-                # - any skill with cancellation_event
-                # NOTE: No cross-agent step lock needed — each agent now has its own
-                # independent CDP connection (no shared session_manager/event_bus).
-                _needs_step_patch = (
-                    (cancellation_event and hasattr(agent, 'step'))
-                    or (skill_name == "rt_chat_bot" and hasattr(agent, 'step'))
-                    or (skill_name == "customer_front_desk" and hasattr(agent, 'step'))
-                    or (node_dom_focus_selector and hasattr(agent, 'step'))
+                # Patch agent.step when any step-level hook is needed:
+                # - cancellation_event: cooperative stop support
+                # - refocus_assigned_tab: per-step tab refocus safety net
+                # - abort_when_pre_dispatched: abort stale LLM run after preDispatch
+                # - dom_focus_selector: DOM pruning around the LLM snapshot
+                _needs_step_patch = bool(hasattr(agent, 'step')) and (
+                    bool(cancellation_event)
+                    or _refocus_enabled
+                    or _abort_when_pre_dispatched
+                    or bool(node_dom_focus_selector)
                 )
 
                 # Always pass cancellation_event to agent.run() so stop button works
@@ -9884,20 +11199,22 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _patch_cancel = cancellation_event
                     _patch_focus = _step_focus_target
                     _patch_bs = getattr(agent, 'browser_session', None) if _step_focus_target else None
-                    _patch_skill = skill_name
+                    _patch_abort_pre = _abort_when_pre_dispatched
+                    _patch_pre_attr = _pre_dispatch_flag_attr
                     _patch_dom_focus = node_dom_focus_selector  # CSS selectors for DOM pruning
 
                     async def _step_with_cancel(*a, **kw):
-                        # Front desk: abort if fast-path already dispatched all assignments
-                        # (this invocation is a stale auto-triggered LLM run).
-                        if _patch_skill == "customer_front_desk":
+                        # preDispatch abort guard: if an earlier deterministic
+                        # dispatch (see `preDispatch` config) already handled all
+                        # work, this LLM invocation is stale — cancel it.
+                        if _patch_abort_pre:
                             _bs_check = getattr(agent, 'browser_session', None)
-                            if _bs_check and getattr(_bs_check, '_ecan_frontdesk_dispatched_all', False):
+                            if _bs_check and getattr(_bs_check, _patch_pre_attr, False):
                                 logger.info(
-                                    "[BrowserAutomation] Front-desk LLM step aborted: "
-                                    "fast-path already dispatched all assignments"
+                                    f"[BrowserAutomation] LLM step aborted: "
+                                    f"preDispatch already completed (flag={_patch_pre_attr})"
                                 )
-                                raise asyncio.CancelledError("Front desk work completed by fast-path")
+                                raise asyncio.CancelledError("Work completed by preDispatch")
 
                         # Per-step tab refocus: re-acquire focus on the assigned tab.
                         # With independent sessions this is a safety net — each session
@@ -9997,8 +11314,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         _patch_labels.append("cancellation")
                     if _step_focus_target:
                         _patch_labels.append(f"tab refocus (target=...{_step_focus_target[-4:]})")
-                    if _patch_skill == "customer_front_desk":
-                        _patch_labels.append("fast-path abort guard")
+                    if _patch_abort_pre:
+                        _patch_labels.append(f"preDispatch abort guard (flag={_patch_pre_attr})")
                     if _patch_dom_focus:
                         _patch_labels.append(f"DOM focus ({_patch_dom_focus})")
                     logger.info(
@@ -10151,7 +11468,303 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _err_text = str(e).strip() or repr(e)
             raise RuntimeError(f"Browser automation failed: {_err_text}") from e
 
+    # ── Inner helpers for _auto (commit 3, 2026-04-22) ────────────────────
+    # Declared here so they close over `_run_browser_use`,
+    # `_resolve_browser_scope_key`, `_event_monitor_configs`, `skill_name`,
+    # `node_name`, `owner`, and the other build-scope closures.  Keeps
+    # `_auto`'s linear flow compact without plumbing 10+ params into
+    # module-level helpers.
+
+    def _execute_browser_use_run(
+        *,
+        state: dict,
+        runtime,
+        combined_task: str,
+        mainwin,
+        agent_id: str | None,
+        use_hard_timeout: bool,
+        effective_timeout: float,
+        correlation_id,
+    ) -> dict:
+        """Run `_run_browser_use` in the appropriate worker loop.
+
+        Handles hard/soft timeout, persistent vs per-call worker selection,
+        guardrail-timer cancellation on success, and exception-to-info
+        conversion (including suppression of non-fatal watchdog teardown
+        noise).  Always returns an `info` dict — never raises.
+        """
+        import time as _exbu_time
+        info: dict = {}
+        try:
+            if use_hard_timeout:
+                import asyncio
+                log_msg = f"[BROWSER_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+                try:
+                    async def _run_with_hard_timeout():
+                        return await asyncio.wait_for(
+                            _run_browser_use(combined_task, mainwin, state, agent_id),
+                            timeout=effective_timeout
+                        )
+                    if _event_monitor_configs:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                        _browser_scope_key = _resolve_browser_scope_key(state)
+                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
+                        logger.info(
+                            f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                            f"{_worker_suffix} "
+                            f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
+                            f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
+                            f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
+                        )
+                        info = run_async_in_persistent_worker_thread(
+                            _run_with_hard_timeout,
+                            worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        ) or {}
+                    else:
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                        info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
+                except asyncio.TimeoutError:
+                    error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
+                    logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
+                    send_skill_editor_log("error", error_msg)
+                    try:
+                        task = state.get('_managed_task')
+                        if task is None and runtime and hasattr(runtime, 'context'):
+                            task = runtime.context.get('task') or runtime.context.get('managed_task')
+                        if task and hasattr(task, 'record_failure'):
+                            task.record_failure()
+                    except Exception:
+                        pass
+                    info = {"error": error_msg, "timed_out": True}
+            else:
+                if _event_monitor_configs:
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
+                    _browser_scope_key = _resolve_browser_scope_key(state)
+                    _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
+                    logger.info(
+                        f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
+                        f"{_worker_suffix} "
+                        f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
+                        f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
+                        f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
+                    )
+                    _worker_t0 = _exbu_time.perf_counter()
+                    logger.info(
+                        f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}"
+                    )
+                    info = run_async_in_persistent_worker_thread(
+                        lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
+                        worker_name=f"browser-use-persistent-{_worker_suffix}",
+                    ) or {}
+                    logger.info(
+                        f"[BA._auto] worker_call done node={node_name} kind=persistent "
+                        f"elapsed_ms={(_exbu_time.perf_counter()-_worker_t0)*1000:.0f} "
+                        f"info_keys={list(info.keys()) if isinstance(info, dict) else type(info).__name__}"
+                    )
+                else:
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                    _worker_t0 = _exbu_time.perf_counter()
+                    logger.info(f"[BA._auto] worker_call start node={node_name} kind=per_call")
+                    info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
+                    logger.info(
+                        f"[BA._auto] worker_call done node={node_name} kind=per_call "
+                        f"elapsed_ms={(_exbu_time.perf_counter()-_worker_t0)*1000:.0f} "
+                        f"info_keys={list(info.keys()) if isinstance(info, dict) else type(info).__name__}"
+                    )
+
+            # Cancel guardrail timer on success
+            if correlation_id:
+                try:
+                    task = state.get('_managed_task')
+                    if task is None and runtime and hasattr(runtime, 'context'):
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    if task:
+                        resolve_async_operation(task, correlation_id, result={"status": "completed"})
+                        logger.info(f"[BROWSER_GUARDRAIL] Cancelled timer {correlation_id} (browser automation completed)")
+                except Exception as e:
+                    logger.warning(f"[BROWSER_GUARDRAIL] Failed to cancel timer: {e}")
+
+        except Exception as e:
+            # Cancel guardrail timer on error too
+            if correlation_id:
+                try:
+                    task = state.get('_managed_task')
+                    if task is None and runtime and hasattr(runtime, 'context'):
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    if task:
+                        resolve_async_operation(task, correlation_id, error=str(e))
+                except Exception:
+                    pass
+
+            import traceback as _traceback
+            _err_text = str(e).strip() or repr(e)
+            _err_type = type(e).__name__
+            _tb = _traceback.format_exc()
+            error_msg = f"browser-use run failed: {_err_text}"
+            _err_text_l = _err_text.lower()
+            _tb_l = (_tb or "").lower()
+            _is_nonfatal_watchdog_noise = (
+                "root cdp client not initialized" in _err_text_l
+                and ("watchdog" in _err_text_l or "watchdog" in _tb_l)
+            )
+            if _is_nonfatal_watchdog_noise:
+                logger.warning(f"[BrowserAutomation] Non-fatal watchdog noise suppressed: {error_msg}")
+                logger.debug(f"[BrowserAutomation] suppressed traceback:\n{_tb}")
+                send_skill_editor_log(
+                    "warning",
+                    "⚠️ [BrowserAutomation] Suppressed non-fatal watchdog teardown noise",
+                )
+                info = {
+                    "status": "warning",
+                    "warning_type": "non_fatal_watchdog_noise",
+                    "warning": error_msg,
+                }
+            else:
+                logger.error(f"[BrowserAutomation] {error_msg}")
+                logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
+                logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
+                send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
+                info = {
+                    "error": error_msg,
+                    "error_type": _err_type,
+                    "error_repr": repr(e),
+                    "traceback": _tb,
+                }
+        return info
+
+    def _apply_required_vars_preflight(state: dict, combined_task: str, format_context: dict) -> bool:
+        """Fail-fast check for missing `[REQUIRED_VARS:...]` placeholders.
+
+        When one or more declared variables are missing or empty in
+        `format_context`, this writes a blocked payload into
+        `state["tool_result"][node_name]`, appends a history entry and
+        returns ``True``.  Otherwise returns ``False`` and leaves state
+        unchanged.  Swallows unexpected errors (treated as non-blocking).
+        """
+        try:
+            _required_vars = _parse_required_vars_marker(combined_task)
+            if not _required_vars:
+                return False
+
+            _missing_vars: list[str] = []
+            _missing_details: list[str] = []
+            _placeholders_in_text = set(re.findall(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}", str(combined_task or "")))
+            for _v in _required_vars:
+                _val = (format_context or {}).get(_v)
+                if _val is None or str(_val).strip() == "":
+                    _missing_vars.append(_v)
+                    if _v not in _placeholders_in_text:
+                        _missing_details.append(
+                            f"  - '{_v}': placeholder {{{{{_v}}}}} not found in prompt text. "
+                            f"The resolver only processes variables that appear as {{{{name}}}} "
+                            f"in the prompt body. Fix: add '| {_v} | {{{{{_v}}}}} |' to the "
+                            f"input parameters table in the prompt."
+                        )
+                    else:
+                        _missing_details.append(
+                            f"  - '{_v}': placeholder {{{{{_v}}}}} exists in prompt but resolved "
+                            f"to empty. Check that an upstream node outputs a field named '{_v}' "
+                            f"in its JSON result, or that init_params defines it."
+                        )
+
+            if not _missing_vars:
+                return False
+
+            _diag_lines = "\n".join(_missing_details)
+            _blocked_payload = {
+                "status": "blocked",
+                "reason": "missing_required_inputs",
+                "missing_fields": _missing_vars,
+                "node": node_name,
+                "notes": f"Missing required variables: {', '.join(_missing_vars)}",
+                "diagnosis": _diag_lines.strip(),
+            }
+            state.setdefault("tool_result", {})
+            if isinstance(state.get("tool_result"), dict):
+                state["tool_result"][node_name] = _blocked_payload
+            state["result"] = _blocked_payload
+            add_to_history(
+                state,
+                ActionMessage(
+                    content=(
+                        f"action: browser-use preflight; "
+                        f"result: blocked(reason=missing_required_inputs, "
+                        f"missing={_missing_vars})"
+                    )
+                ),
+            )
+            send_skill_editor_log(
+                "warning",
+                f"[BrowserAutomation] Preflight BLOCKED — node='{node_name}' "
+                f"missing vars: {_missing_vars}\n"
+                f"Diagnosis per variable:\n{_diag_lines}\n"
+                f"Placeholders found in prompt text: {sorted(_placeholders_in_text)}",
+            )
+            return True
+        except Exception:
+            return False
+
+    def _finalize_automation_result(
+        *,
+        state: dict,
+        info: dict,
+        provider: str,
+        task_instructions: str,
+        final_system_prompt: str,
+        action: str,
+        wait_for_done: bool,
+    ) -> dict:
+        """Persist the browser-automation run result into state.
+
+        Writes `tool_result[node_name]`, increments `n_steps`, optionally
+        raises an interrupt for human check, and appends a truncated
+        history entry.  Returns the (mutated) state.
+        """
+        state.setdefault("tool_result", {})
+        tr = state.get("tool_result")
+        if not isinstance(tr, dict):
+            tr = {}
+            state["tool_result"] = tr
+        tr[node_name] = {
+            "provider": provider,
+            "task": task_instructions,
+            "systemPrompt": final_system_prompt,
+            **info,
+        }
+
+        if wait_for_done and info.get("error"):
+            interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
+
+        try:
+            state["n_steps"] = int(state.get("n_steps", 0) or 0) + 1
+        except Exception:
+            state["n_steps"] = 1
+
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+        info_for_history = truncate_screenshot_for_logging(info)
+        add_to_history(state, ActionMessage(content=f"action: {provider} {task_instructions}; result: {info_for_history}"))
+
+        return state
+
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
+        # ── Entry trace (diagnostic) ──
+        # Added 2026-04-22 after repeated hangs observed between the node
+        # entry wrapper log and the first HOT-PATH-B / PreDispatch log.
+        # These info-level checkpoints make the hang location visible
+        # without requiring a debugger attach.
+        import time as _ba_auto_time
+        _ba_auto_t0 = _ba_auto_time.perf_counter()
+        try:
+            _ba_auto_thread_name = threading.current_thread().name
+        except Exception:
+            _ba_auto_thread_name = "?"
+        logger.info(
+            f"[BA._auto] enter node={node_name} thread={_ba_auto_thread_name} "
+            f"state_keys={list(state.keys()) if isinstance(state, dict) else type(state).__name__}"
+        )
+
         # Use the pre-resolved prompts from build time (when cloud context was available)
         # instead of calling _resolve_prompt_templates again at runtime
         active_system_prompt = resolved_system_prompt
@@ -10189,322 +11802,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             continue
                         prompt_refs[_key] = _val
 
-                def _compact_upstream_outputs_for_prompt(_state: dict) -> str:
-                    import json
-                    import re
-                    from urllib.parse import urlsplit, parse_qs
-
-                    tr = _state.get("tool_result")
-                    if not isinstance(tr, dict):
-                        return "{}"
-
-                    keep_keys = {
-                        "status",
-                        "reason",
-                        "price_range",
-                        "links",
-                        "downloaded_images",
-                        "download_count",
-                        "image_urls",
-                        "image_descriptions",
-                        "listing_url",
-                        "title",
-                        "description",
-                        "price",
-                        "product_keyword",
-                        "brand",
-                        "model",
-                        "category",
-                        "condition",
-                        "original_images",
-                        "products",
-                        "highlights_summary",
-                        "target_audience",
-                        "notes",
-                        "is_free_shipping",
-                        "is_used",
-                        "features",
-                        "listing_images",
-                        "search_keyword",
-                    }
-
-                    # Generic noise keys to avoid prompt bloat and scenario-specific internals.
-                    drop_keys = {
-                        "provider",
-                        "task",
-                        "systemPrompt",
-                        "history",
-                        "prompts",
-                        "prompt_refs",
-                        "messages",
-                        "threads",
-                        "events",
-                        "attachments",
-                        "http_response",
-                        "cli_input",
-                        "cli_results",
-                        "attributes",
-                    }
-
-                    def _extract_links(*texts):
-                        links = []
-                        for txt in texts:
-                            if not txt:
-                                continue
-                            s = str(txt)
-                            links.extend(re.findall(r'https?://[^\s\]\"\'\)]+', s))
-                            for m in re.findall(r'//[^\s\]\"\'\)]+', s):
-                                links.append(f"https:{m}")
-                        dedup = []
-                        seen = set()
-                        for u in links:
-                            if u in seen:
-                                continue
-                            seen.add(u)
-                            dedup.append(u)
-                        return dedup
-
-                    def _extract_json_object_from_text(text):
-                        """
-                        Best-effort JSON object extractor for node outputs.
-                        Supports plain JSON and fenced code blocks.
-                        """
-                        if not isinstance(text, str):
-                            return None
-                        s = text.strip()
-                        if not s:
-                            return None
-
-                        # Strip fenced code block wrappers when present.
-                        if s.startswith("```"):
-                            s = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", s)
-                            s = re.sub(r"\n?```$", "", s).strip()
-
-                        # Fast path: whole string is a JSON object/array.
-                        for candidate in (s,):
-                            try:
-                                parsed = json.loads(candidate)
-                                if isinstance(parsed, dict):
-                                    return parsed
-                            except Exception:
-                                pass
-
-                        # Fallback: capture the largest {...} block.
-                        m = re.search(r"\{[\s\S]*\}", s)
-                        if m:
-                            block = m.group(0)
-                            try:
-                                parsed = json.loads(block)
-                                if isinstance(parsed, dict):
-                                    return parsed
-                            except Exception:
-                                return None
-                        return None
-
-                    def _merge_keep_keys_from_dict(dst: dict, src: dict):
-                        if not isinstance(src, dict):
-                            return
-                        for k in keep_keys:
-                            v = src.get(k)
-                            if v in (None, "", [], {}):
-                                continue
-                            dst[k] = v
-
-                    def _is_small_scalar(v):
-                        return isinstance(v, (str, int, float, bool)) and len(str(v)) <= 200
-
-                    def _is_small_scalar_list(v):
-                        return (
-                            isinstance(v, list)
-                            and len(v) <= 20
-                            and all(_is_small_scalar(i) for i in v)
-                        )
-
-                    def _merge_generic_fields_from_dict(dst: dict, src: dict, depth: int = 0):
-                        """
-                        Scenario-agnostic field extraction:
-                        keep compact, actionable keys from arbitrary JSON-like outputs.
-                        """
-                        if not isinstance(src, dict) or depth > 1:
-                            return
-                        for k, v in src.items():
-                            if not isinstance(k, str):
-                                continue
-                            kl = k.lower()
-                            if (
-                                k in drop_keys
-                                or kl.startswith("_")
-                                or any(tok in kl for tok in ("prompt", "history", "message", "thread", "event", "attachment", "screenshot", "dom", "html", "markdown"))
-                            ):
-                                continue
-                            if v in (None, "", [], {}):
-                                continue
-
-                            # Preserve explicit keep_keys precedence.
-                            if k in dst:
-                                continue
-
-                            if _is_small_scalar(v) or _is_small_scalar_list(v):
-                                dst[k] = v
-                                continue
-
-                            # Keep compact nested dicts with scalar values only.
-                            if isinstance(v, dict) and len(v) <= 20:
-                                if all(_is_small_scalar(sv) for sv in v.values()):
-                                    dst[k] = v
-                                # Also recurse one level to collect commonly useful nested keys.
-                                _merge_generic_fields_from_dict(dst, v, depth + 1)
-
-                    def _is_actionable_detail_link(url: str) -> bool:
-                        """Generic heuristic to keep likely detail pages, drop home/search/list pages."""
-                        try:
-                            s = str(url or "").strip()
-                            if not s.startswith(("http://", "https://")):
-                                return False
-                            p = urlsplit(s)
-                            if not p.netloc:
-                                return False
-
-                            path = (p.path or "").strip().lower()
-                            query = (p.query or "").lower()
-                            query_map = parse_qs(p.query or "", keep_blank_values=True)
-
-                            # Home/landing pages are not actionable detail links.
-                            if path in ("", "/"):
-                                return False
-
-                            # Drop obvious search/listing URLs.
-                            text = f"{path}?{query}"
-                            if any(k in text for k in ("/search", "search?", "keyword=", "query=", "q=", "wd=", "/list", "list?")):
-                                return False
-
-                            # Keep links with common detail id parameters.
-                            id_keys = ("id", "itemid", "item_id", "sku", "sku_id", "productid", "product_id", "pid")
-                            if any(k in query_map and any(str(v).strip() for v in query_map.get(k, [])) for k in id_keys):
-                                return True
-
-                            # Keep paths that look like detail pages (have a long numeric token).
-                            if re.search(r"\d{5,}", path):
-                                return True
-
-                            # Keep deeper paths unless they look like generic landing sections.
-                            segments = [seg for seg in path.split("/") if seg]
-                            if len(segments) >= 2 and segments[-1] not in ("home", "index", "category", "categories", "catalog", "list", "search"):
-                                return True
-
-                            return False
-                        except Exception:
-                            return False
-
-                    compact = {}
-                    for _nid, _val in tr.items():
-                        # Exclude current node output to avoid self-feedback loops on retries.
-                        # Example: download_images retry should not consume prior
-                        # {"download_images": {"status":"blocked", ...}} as upstream input.
-                        if _nid == node_name:
-                            continue
-                        if not isinstance(_val, dict):
-                            continue
-                        row = {}
-
-                        # 1) Direct extraction from node output dict.
-                        _merge_keep_keys_from_dict(row, _val)
-                        _merge_generic_fields_from_dict(row, _val)
-
-                        # 2) Generic extraction from nested dict/string payloads.
-                        #    This keeps behavior generic across browser/llm nodes.
-                        candidate_payloads = [
-                            _val.get("final"),
-                            _val.get("result"),
-                            _val.get("llm_result"),
-                            _val.get("response"),
-                            _val.get("output"),
-                            _val.get("text"),
-                            _val.get("history"),
-                        ]
-                        for payload in candidate_payloads:
-                            if isinstance(payload, dict):
-                                _merge_keep_keys_from_dict(row, payload)
-                                _merge_generic_fields_from_dict(row, payload)
-                                nested = payload.get("result")
-                                if isinstance(nested, dict):
-                                    _merge_keep_keys_from_dict(row, nested)
-                                    _merge_generic_fields_from_dict(row, nested)
-                            elif isinstance(payload, str):
-                                parsed = _extract_json_object_from_text(payload)
-                                if isinstance(parsed, dict):
-                                    _merge_keep_keys_from_dict(row, parsed)
-                                    _merge_generic_fields_from_dict(row, parsed)
-                                    nested = parsed.get("result")
-                                    if isinstance(nested, dict):
-                                        _merge_keep_keys_from_dict(row, nested)
-                                        _merge_generic_fields_from_dict(row, nested)
-
-                        # Extract links from products array for backward compat.
-                        if "products" in row and "links" not in row:
-                            prods = row.get("products")
-                            if isinstance(prods, list):
-                                prod_links = [p.get("link") for p in prods if isinstance(p, dict) and p.get("link")]
-                                if prod_links:
-                                    row["links"] = prod_links
-
-                        # Normalize and filter links with generic detail-page heuristics.
-                        if "links" in row:
-                            raw_links = row.get("links")
-                            if isinstance(raw_links, str):
-                                raw_links = [raw_links]
-                            if isinstance(raw_links, list):
-                                filtered_links = []
-                                seen_links = set()
-                                for u in raw_links:
-                                    su = str(u or "").strip()
-                                    if not su or su in seen_links:
-                                        continue
-                                    seen_links.add(su)
-                                    if _is_actionable_detail_link(su):
-                                        filtered_links.append(su)
-                                if filtered_links:
-                                    row["links"] = filtered_links
-                                else:
-                                    row.pop("links", None)
-
-                        if "links" not in row:
-                            links = _extract_links(_val.get("final"), _val.get("error"), _val.get("task"))
-                            if links:
-                                links = [u for u in links if _is_actionable_detail_link(u)]
-                                if links:
-                                    row["links"] = links[:8]
-
-                        # Skip rows that only contain status/reason with no actionable payload.
-                        actionable_keys = set(row.keys()) - {"status", "reason"}
-                        if not actionable_keys:
-                            continue
-
-                        if row:
-                            compact[_nid] = row
-
-                    payload = json.dumps(compact, ensure_ascii=False)
-                    try:
-                        key_summary = {
-                            nid: sorted(list(val.keys()))[:15]
-                            for nid, val in compact.items()
-                            if isinstance(val, dict)
-                        }
-                        logger.info(
-                            f"[UpstreamCompact] node={node_name} "
-                            f"upstream_nodes={list(compact.keys())} "
-                            f"key_summary={key_summary} "
-                            f"payload_chars={len(payload)}"
-                        )
-                    except Exception:
-                        pass
-                    if len(payload) > 12000:
-                        payload = payload[:12000] + "...(truncated)"
-                    return payload
-
                 # Prevent prompt bloat when upstream_outputs is requested.
+                # Logic extracted to module-level `_compact_tool_result_for_prompt`.
                 if "upstream_outputs" in variables:
-                    prompt_refs["upstream_outputs"] = _compact_upstream_outputs_for_prompt(state)
+                    prompt_refs["upstream_outputs"] = _compact_tool_result_for_prompt(state, node_name)
         except Exception as _inject_prompt_ref_err:
             logger.debug(f"[BrowserAutomation] Failed injecting node inputsValues into prompt_refs: {_inject_prompt_ref_err}")
 
@@ -10603,149 +11904,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
         # Fast preflight: fail early on missing required prompt variables
         # (marker-driven, avoids an expensive LLM/browser round-trip).
-        def _parse_required_vars_marker(task_text_raw: str) -> list[str]:
-            try:
-                m = re.search(r"\[REQUIRED_VARS:([^\]]+)\]", str(task_text_raw or ""))
-                if not m:
-                    return []
-                raw = m.group(1)
-                vars_list = [v.strip() for v in raw.split(",") if v.strip()]
-                # Keep stable order and dedupe
-                seen = set()
-                out = []
-                for v in vars_list:
-                    if v in seen:
-                        continue
-                    seen.add(v)
-                    out.append(v)
-                return out
-            except Exception:
-                return []
-
-        try:
-            _required_vars = _parse_required_vars_marker(combined_task)
-            if _required_vars:
-                _missing_vars = []
-                _missing_details: list[str] = []
-                # Scan the raw prompt text for {{var}} placeholders so we can
-                # give a precise diagnosis when a variable is missing.
-                _placeholders_in_text = set(re.findall(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}", str(combined_task or "")))
-                for _v in _required_vars:
-                    _val = (format_context or {}).get(_v)
-                    if _val is None or str(_val).strip() == "":
-                        _missing_vars.append(_v)
-                        if _v not in _placeholders_in_text:
-                            # Variable name never appears as {{var}} in the prompt text.
-                            # The resolver only scans {{...}} placeholders, so this variable
-                            # was never looked up from upstream outputs at all.
-                            _missing_details.append(
-                                f"  - '{_v}': placeholder {{{{{_v}}}}} not found in prompt text. "
-                                f"The resolver only processes variables that appear as {{{{name}}}} "
-                                f"in the prompt body. Fix: add '| {_v} | {{{{{_v}}}}} |' to the "
-                                f"input parameters table in the prompt."
-                            )
-                        else:
-                            _missing_details.append(
-                                f"  - '{_v}': placeholder {{{{{_v}}}}} exists in prompt but resolved "
-                                f"to empty. Check that an upstream node outputs a field named '{_v}' "
-                                f"in its JSON result, or that init_params defines it."
-                            )
-                if _missing_vars:
-                    _diag_lines = "\n".join(_missing_details)
-                    _blocked_payload = {
-                        "status": "blocked",
-                        "reason": "missing_required_inputs",
-                        "missing_fields": _missing_vars,
-                        "node": node_name,
-                        "notes": f"Missing required variables: {', '.join(_missing_vars)}",
-                        "diagnosis": _diag_lines.strip(),
-                    }
-                    state.setdefault("tool_result", {})
-                    if isinstance(state.get("tool_result"), dict):
-                        state["tool_result"][node_name] = _blocked_payload
-                    state["result"] = _blocked_payload
-                    add_to_history(
-                        state,
-                        ActionMessage(
-                            content=(
-                                f"action: browser-use preflight; "
-                                f"result: blocked(reason=missing_required_inputs, "
-                                f"missing={_missing_vars})"
-                            )
-                        ),
-                    )
-                    send_skill_editor_log(
-                        "warning",
-                        f"[BrowserAutomation] Preflight BLOCKED — node='{node_name}' "
-                        f"missing vars: {_missing_vars}\n"
-                        f"Diagnosis per variable:\n{_diag_lines}\n"
-                        f"Placeholders found in prompt text: {sorted(_placeholders_in_text)}",
-                    )
-                    return state
-        except Exception:
-            pass
+        # Extracted to _apply_required_vars_preflight (commit 3 cleanup).
+        _preflight_blocked = _apply_required_vars_preflight(state, combined_task, format_context)
+        if _preflight_blocked:
+            return state
 
         # Deterministic local-directory grounding for local-analysis prompts.
         # Variable name is defined by prompt marker, e.g. [LOCAL_DIR_VAR:local_dir].
-        def _resolve_local_dir_from_prompt_var(task_text_raw: str, context: dict) -> tuple[str, str]:
-            try:
-                marker_match = re.search(r"\[LOCAL_DIR_VAR:([a-zA-Z_][a-zA-Z0-9_]*)\]", str(task_text_raw or ""))
-                if not marker_match:
-                    return "", ""
-                var_name = marker_match.group(1).strip()
-                if not var_name:
-                    return "", ""
-                value = (context or {}).get(var_name)
-                if isinstance(value, str) and value.strip():
-                    return var_name, value.strip()
-                return var_name, ""
-            except Exception:
-                return "", ""
-
-        def _build_local_dir_snapshot(dir_path: str) -> str:
-            try:
-                if not dir_path:
-                    return ""
-                abs_dir = os.path.abspath(os.path.expanduser(dir_path))
-                payload: dict[str, Any] = {
-                    "dir_path": abs_dir,
-                    "exists": os.path.isdir(abs_dir),
-                    "file_count": 0,
-                    "sample_files": [],
-                    "text_snippets": {},
-                }
-                if not payload["exists"]:
-                    payload["error"] = "directory_not_found"
-                    return json.dumps(payload, ensure_ascii=False)
-
-                names = sorted(os.listdir(abs_dir))
-                payload["file_count"] = len(names)
-                payload["sample_files"] = names[:60]
-
-                text_exts = {".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".log"}
-                picked = 0
-                for name in names:
-                    if picked >= 3:
-                        break
-                    fpath = os.path.join(abs_dir, name)
-                    if not os.path.isfile(fpath):
-                        continue
-                    ext = os.path.splitext(name)[1].lower()
-                    if ext not in text_exts:
-                        continue
-                    try:
-                        # Read only small prefix to avoid prompt bloat
-                        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                            snippet = f.read(2400)
-                        if snippet.strip():
-                            payload["text_snippets"][name] = snippet
-                            picked += 1
-                    except Exception:
-                        continue
-                return json.dumps(payload, ensure_ascii=False)
-            except Exception as e:
-                return json.dumps({"error": f"snapshot_failed: {e}"}, ensure_ascii=False)
-
+        # _resolve_local_dir_from_prompt_var and _build_local_dir_snapshot
+        # extracted to module level (commit 2).
         _local_dir_grounded = False
         try:
             _enable_local_dir_grounding = "[LOCAL_DIR_GROUNDING:ON]" in str(combined_task or "")
@@ -10777,87 +11944,41 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception:
             pass
 
-        # Global anti-risk guardrails for browser automation.
-        # This keeps prompts user-friendly while enforcing a consistent low-risk behavior
-        # across different skills/sites (instead of requiring each prompt to repeat it).
-        def _append_anti_risk_guardrails(task_text_raw: str) -> str:
-            try:
-                if not isinstance(task_text_raw, str) or not task_text_raw.strip():
-                    return task_text_raw
-
-                # Avoid duplicate injection if already present in task text.
-                marker = "[GLOBAL ANTI-RISK GUARDRAILS]"
-                if marker in task_text_raw:
-                    return task_text_raw
-
-                if skill_name == "rt_chat_bot":
-                    tab_guardrail = (
-                        "2) If an assigned `tab_id` is provided for this customer-service invocation, "
-                        "you may and should focus that assigned tab. Do not switch to unrelated stale tabs "
-                        "from previous sessions. If no assigned `tab_id` is available, navigate directly to "
-                        "the assigned `chat_url`.\n"
-                    )
-                else:
-                    tab_guardrail = (
-                        "2) Never use switch_tab. Always stay in the current active tab and use navigate "
-                        "to load any new URL. Do not switch to any stale tab from a previous run.\n"
-                    )
-
-                guardrail_text = (
-                    "\n\n[GLOBAL ANTI-RISK GUARDRAILS]\n"
-                    "1) Anti-bot handling: if the page shows any rate-limit, captcha, "
-                    "human-verification, access-denied, or unusual-traffic warning (in any language), "
-                    "perform at most one low-risk recovery attempt (for example: refresh once or navigate "
-                    "to site home then continue with the same intent). If still blocked, return "
-                    "blocked(reason=risk_control).\n"
-                    f"{tab_guardrail}"
-                    "3) Low-frequency behavior: avoid repeated clicks on the same element and "
-                    "unnecessary refresh loops. Retry the same failed action at most once.\n"
-                    "4) Fast convergence: if 2-3 consecutive actions produce no meaningful state change, "
-                    "stop and return blocked(reason=navigation_deadlock).\n"
-                    "5) Minimum-necessary actions: prefer direct navigation to target pages and extract "
-                    "required data with the shortest path. End as soon as success criteria are met.\n"
-                    "6) Cooldown policy: after blocked(reason=risk_control), treat the site as cooling down "
-                    "for this run and continue with alternative paths or downstream steps."
-                )
-                return f"{task_text_raw}{guardrail_text}"
-            except Exception:
-                return task_text_raw
-
-        # Skip web anti-risk guardrails for local-directory grounded nodes, otherwise
-        # these web-centric instructions may conflict with local-only extraction intent.
+        # Global anti-risk guardrails extracted to module level (commit 2).
+        # Skip for local-directory grounded nodes, otherwise these web-centric
+        # instructions may conflict with local-only extraction intent.
         if not _local_dir_grounded:
-            combined_task = _append_anti_risk_guardrails(combined_task)
+            combined_task = _append_anti_risk_guardrails(combined_task, inputs)
 
         # ── Suppress duplicate initial-URL navigation for reused sessions ──
         # browser-use auto-detects URLs in the task text and navigates to them
         # on agent startup.  When a persistent browser session already has the
-        # target tab open, this creates a duplicate tab.  Strip the chat_url
-        # from the task text when we know the session will be reused.
+        # target tab open, this creates a duplicate tab.  If the node's
+        # `assignment.strip_url_regex` is set, strip matching bare URLs from the
+        # task text so browser-use doesn't reopen them.
         try:
-            if skill_name == "rt_chat_bot":
+            _strip_regex_src = ""
+            _strip_replacement = "[assigned chat tab already open]"
+            if isinstance(_asg_cfg, dict):
+                _strip_regex_src = str(_asg_cfg.get("strip_url_regex") or "").strip()
+                _strip_replacement = str(
+                    _asg_cfg.get("strip_url_replacement") or _strip_replacement
+                )
+            if _strip_regex_src:
                 _browser_scope_key_check = _resolve_browser_scope_key(state)
                 _existing_session = _cached_browser_sessions.get(_browser_scope_key_check)
-                # Use _is_session_started (not _is_session_alive) to avoid cross-thread
-                # asyncio attribute reads that may incorrectly report the event bus as dead.
                 _session_usable = _existing_session is not None and _is_session_started(_existing_session)
                 logger.debug(
                     f"[BrowserAutomation] URL strip check: scope={_browser_scope_key_check} "
                     f"cached={'yes' if _existing_session else 'no'} started={_session_usable}"
                 )
                 if _session_usable:
-                    # Session is cached & started → strip bare chat URLs to avoid
-                    # browser-use auto-opening a duplicate tab.  Keep URLs inside
-                    # JSON payloads (they have surrounding quotes) and inside
-                    # markdown/instruction text (preceded by backtick or colon).
                     import re as _re_strip
-                    _chat_url_pattern = _re_strip.compile(
-                        r'(?<!["\':`,\\])https?://127\.0\.0\.1:9877/chat\?session=\S+'
-                    )
-                    _stripped = _chat_url_pattern.sub('[assigned chat tab already open]', combined_task)
+                    _chat_url_pattern = _re_strip.compile(_strip_regex_src)
+                    _stripped = _chat_url_pattern.sub(_strip_replacement, combined_task)
                     if _stripped != combined_task:
                         logger.info(
-                            f"[BrowserAutomation] Stripped bare chat URL from task to prevent "
+                            f"[BrowserAutomation] Stripped matching URL(s) from task to prevent "
                             f"duplicate tab (session reused, scope={_browser_scope_key_check})"
                         )
                         combined_task = _stripped
@@ -10867,6 +11988,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # print("final_system_prompt:", final_system_prompt)
         # print("final_user_prompt:", final_user_prompt)
         logger.debug("combined_task:", combined_task)
+        logger.info(
+            f"[BA._auto] preflight_done node={node_name} "
+            f"elapsed_ms={(_ba_auto_time.perf_counter()-_ba_auto_t0)*1000:.0f} "
+            f"provider={provider} task_len={len(task_instructions or '')}"
+        )
         if provider in ("browser-use", "crawl4ai"):
             # Check if we're in cloud mode (hybrid_cloud or full_cloud)
             # In cloud mode, mainwin is not required
@@ -10963,161 +12089,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as e:
                     logger.warning(f"[BROWSER_GUARDRAIL] Failed to start timer: {e}")
             
-            try:
-                # Execute browser automation with optional hard timeout
-                if use_hard_timeout:
-                    import asyncio
-                    log_msg = f"[BROWSER_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
-                    logger.info(log_msg)
-                    send_skill_editor_log("log", log_msg)
-                    try:
-                        async def _run_with_hard_timeout():
-                            return await asyncio.wait_for(
-                                _run_browser_use(combined_task, mainwin, state, agent_id),
-                                timeout=effective_timeout
-                            )
-                        if _event_monitor_configs:
-                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
-                            _browser_scope_key = _resolve_browser_scope_key(state)
-                            _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
-                            logger.info(
-                                f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
-                                f"{_worker_suffix} "
-                                f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
-                                f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
-                                f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
-                            )
-                            info = run_async_in_persistent_worker_thread(
-                                _run_with_hard_timeout,
-                                worker_name=f"browser-use-persistent-{_worker_suffix}",
-                            ) or {}
-                        else:
-                            from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                            info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
-                    except asyncio.TimeoutError:
-                        error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
-                        logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
-                        send_skill_editor_log("error", error_msg)
-                        # Record failure if task available
-                        try:
-                            task = state.get('_managed_task')
-                            if task is None and runtime and hasattr(runtime, 'context'):
-                                task = runtime.context.get('task') or runtime.context.get('managed_task')
-                            if task and hasattr(task, 'record_failure'):
-                                task.record_failure()
-                        except Exception:
-                            pass
-                        info = {"error": error_msg, "timed_out": True}
-                else:
-                    if _event_monitor_configs:
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
-                        _browser_scope_key = _resolve_browser_scope_key(state)
-                        _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
-                        logger.info(
-                            f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
-                            f"{_worker_suffix} "
-                            f"(skill={skill_name}, node={node_name}, scope={_browser_scope_key}, "
-                            f"task_id={(state.get('attributes') or {}).get('task_id') if isinstance(state, dict) else ''}, "
-                            f"chat_id={state.get('chat_id') if isinstance(state, dict) else ''})"
-                        )
-                        info = run_async_in_persistent_worker_thread(
-                            lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
-                            worker_name=f"browser-use-persistent-{_worker_suffix}",
-                        ) or {}
-                    else:
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
-                        info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
-                
-                # Cancel guardrail timer on success
-                if correlation_id:
-                    try:
-                        task = state.get('_managed_task')
-                        if task is None and runtime and hasattr(runtime, 'context'):
-                            task = runtime.context.get('task') or runtime.context.get('managed_task')
-                        if task:
-                            resolve_async_operation(task, correlation_id, result={"status": "completed"})
-                            log_msg = f"[BROWSER_GUARDRAIL] Cancelled timer {correlation_id} (browser automation completed)"
-                            logger.info(log_msg)
-                    except Exception as e:
-                        logger.warning(f"[BROWSER_GUARDRAIL] Failed to cancel timer: {e}")
-                        
-            except Exception as e:
-                # Cancel guardrail timer on error too
-                if correlation_id:
-                    try:
-                        task = state.get('_managed_task')
-                        if task is None and runtime and hasattr(runtime, 'context'):
-                            task = runtime.context.get('task') or runtime.context.get('managed_task')
-                        if task:
-                            resolve_async_operation(task, correlation_id, error=str(e))
-                    except Exception:
-                        pass
-                
-                # Log error and push to frontend
-                import traceback as _traceback
-                _err_text = str(e).strip() or repr(e)
-                _err_type = type(e).__name__
-                _tb = _traceback.format_exc()
-                error_msg = f"browser-use run failed: {_err_text}"
-                _err_text_l = _err_text.lower()
-                _tb_l = (_tb or "").lower()
-                _is_nonfatal_watchdog_noise = (
-                    "root cdp client not initialized" in _err_text_l
-                    and ("watchdog" in _err_text_l or "watchdog" in _tb_l)
-                )
-
-                if _is_nonfatal_watchdog_noise:
-                    logger.warning(
-                        f"[BrowserAutomation] Non-fatal watchdog noise suppressed: {error_msg}"
-                    )
-                    logger.debug(f"[BrowserAutomation] suppressed traceback:\n{_tb}")
-                    send_skill_editor_log(
-                        "warning",
-                        "⚠️ [BrowserAutomation] Suppressed non-fatal watchdog teardown noise",
-                    )
-                    info = {
-                        "status": "warning",
-                        "warning_type": "non_fatal_watchdog_noise",
-                        "warning": error_msg,
-                    }
-                else:
-                    logger.error(f"[BrowserAutomation] {error_msg}")
-                    logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
-                    logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
-                    send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
-                    
-                    info = {
-                        "error": error_msg,
-                        "error_type": _err_type,
-                        "error_repr": repr(e),
-                        "traceback": _tb,
-                    }
-            state.setdefault("tool_result", {})
-            tr = state.get("tool_result")
-            if not isinstance(tr, dict):
-                tr = {}
-                state["tool_result"] = tr
-            tr[node_name] = {
-                "provider": provider,
-                "task": task_instructions,
-                "systemPrompt": final_system_prompt,
-                **info,
-            }
-
-            # Optionally interrupt if downstream needs human check
-            if wait_for_done and info.get("error"):
-                interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
-
-            try:
-                state["n_steps"] = int(state.get("n_steps", 0) or 0) + 1
-            except Exception:
-                state["n_steps"] = 1
-            # Truncate info for history to avoid huge screenshot_base64 in logs
-            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
-            info_for_history = truncate_screenshot_for_logging(info)
-            add_to_history(state, ActionMessage(content=f"action: {provider} {task_instructions}; result: {info_for_history}"))
-
-            return state
+            logger.info(
+                f"[BA._auto] dispatch node={node_name} "
+                f"elapsed_ms={(_ba_auto_time.perf_counter()-_ba_auto_t0)*1000:.0f} "
+                f"cloud={is_cloud_mode} hard_timeout={use_hard_timeout} "
+                f"effective_timeout={effective_timeout} "
+                f"has_monitors={bool(_event_monitor_configs)} agent_id={agent_id!r}"
+            )
+            info = _execute_browser_use_run(
+                state=state,
+                runtime=runtime,
+                combined_task=combined_task,
+                mainwin=mainwin,
+                agent_id=agent_id,
+                use_hard_timeout=use_hard_timeout,
+                effective_timeout=effective_timeout,
+                correlation_id=correlation_id,
+            )
+            return _finalize_automation_result(
+                state=state,
+                info=info,
+                provider=provider,
+                task_instructions=task_instructions,
+                final_system_prompt=final_system_prompt,
+                action=action,
+                wait_for_done=wait_for_done,
+            )
 
         # Fallback: record intent for other providers
         intents = state.setdefault("metadata", {}).setdefault("automation_intents", [])

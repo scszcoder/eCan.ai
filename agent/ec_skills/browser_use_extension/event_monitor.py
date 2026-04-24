@@ -460,35 +460,83 @@ def _monitor_url_matches(actual_url: str, pattern: str) -> bool:
 
 
 async def _ensure_monitor_cdp_ready(session: Any, mutation_state: Dict[str, Any], label: str) -> bool:
-    """Best-effort ensure the BrowserSession has an initialized root CDP client."""
+    """Best-effort ensure the BrowserSession has an initialized root CDP client.
+
+    Back-off and surface-once guard: after _CDP_UNREACHABLE_THRESHOLD consecutive
+    failures we emit a single ERROR with a clear operator hint, then retry at
+    _CDP_UNREACHABLE_BACKOFF_S intervals and stay quiet (DEBUG) until CDP
+    recovers — at which point we log a matching INFO recovery line.
+    """
+    _CDP_UNREACHABLE_THRESHOLD = 3
+    _CDP_UNREACHABLE_BACKOFF_S = 10.0
+    _CDP_HEALTHY_INTERVAL_S = 1.0
+
+    cdp_root = getattr(session, "_cdp_client_root", None)
+    session_manager = getattr(session, "session_manager", None)
+    if cdp_root is not None and session_manager is not None:
+        if mutation_state.get("_cdp_unreachable_surfaced"):
+            logger.info(
+                f"[EventMonitor] CDP recovered for monitor '{label}' after "
+                f"{mutation_state.get('_cdp_ready_fail_count', 0)} failed attempts"
+            )
+        mutation_state["_cdp_ready_fail_count"] = 0
+        mutation_state["_cdp_unreachable_surfaced"] = False
+        return True
+
+    now = time.time()
+    last_attempt = float(mutation_state.get("_cdp_ready_last_attempt", 0.0) or 0.0)
+    surfaced = bool(mutation_state.get("_cdp_unreachable_surfaced"))
+    min_interval = _CDP_UNREACHABLE_BACKOFF_S if surfaced else _CDP_HEALTHY_INTERVAL_S
+    if now - last_attempt < min_interval:
+        return False
+    mutation_state["_cdp_ready_last_attempt"] = now
+
+    fail_count = int(mutation_state.get("_cdp_ready_fail_count", 0) or 0)
+    start_exc: Optional[BaseException] = None
     try:
-        cdp_root = getattr(session, "_cdp_client_root", None)
-        session_manager = getattr(session, "session_manager", None)
-        if cdp_root is not None and session_manager is not None:
-            return True
-
-        now = time.time()
-        last_attempt = float(mutation_state.get("_cdp_ready_last_attempt", 0.0) or 0.0)
-        if now - last_attempt < 1.0:
-            return False
-        mutation_state["_cdp_ready_last_attempt"] = now
-
-        logger.info(
-            f"[EventMonitor] CDP not ready for monitor '{label}', attempting BrowserSession.start() "
-            f"(root={cdp_root is not None}, session_manager={session_manager is not None})"
-        )
+        if not surfaced:
+            logger.info(
+                f"[EventMonitor] CDP not ready for monitor '{label}', attempting BrowserSession.start() "
+                f"(root={cdp_root is not None}, session_manager={session_manager is not None})"
+            )
         if hasattr(session, "start"):
             await session.start()
-
-        cdp_root = getattr(session, "_cdp_client_root", None)
-        session_manager = getattr(session, "session_manager", None)
-        ready = cdp_root is not None and session_manager is not None
-        if ready:
-            logger.info(f"[EventMonitor] CDP became ready for monitor '{label}'")
-        return ready
     except Exception as exc:
-        logger.debug(f"[EventMonitor] ensure_monitor_cdp_ready failed for '{label}': {exc}")
-        return False
+        start_exc = exc
+
+    cdp_root = getattr(session, "_cdp_client_root", None)
+    session_manager = getattr(session, "session_manager", None)
+    ready = cdp_root is not None and session_manager is not None
+    if ready:
+        if surfaced:
+            logger.info(
+                f"[EventMonitor] CDP recovered for monitor '{label}' after "
+                f"{fail_count} failed attempts"
+            )
+        mutation_state["_cdp_ready_fail_count"] = 0
+        mutation_state["_cdp_unreachable_surfaced"] = False
+        return True
+
+    fail_count += 1
+    mutation_state["_cdp_ready_fail_count"] = fail_count
+
+    if fail_count >= _CDP_UNREACHABLE_THRESHOLD and not surfaced:
+        mutation_state["_cdp_unreachable_surfaced"] = True
+        exc_hint = f" (last error: {start_exc!r})" if start_exc is not None else ""
+        logger.error(
+            f"[EventMonitor] CDP unreachable for monitor '{label}' after "
+            f"{fail_count} attempts — Chrome remote-debugging port appears to be "
+            f"down. Check that Chrome is running and was launched with "
+            f"--remote-debugging-port. Retrying every "
+            f"{_CDP_UNREACHABLE_BACKOFF_S:.0f}s; further failures will be silent "
+            f"until recovery.{exc_hint}"
+        )
+    elif start_exc is not None:
+        logger.debug(
+            f"[EventMonitor] ensure_monitor_cdp_ready failed for '{label}' "
+            f"(attempt {fail_count}): {start_exc!r}"
+        )
+    return False
 
 
 def _resolve_monitor_target_id(session: Any, cfg: EventMonitorConfig, extractor_cfg: Dict[str, Any]) -> str:
@@ -1931,10 +1979,30 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 if item_key in added_lookup:
                     added_items.append(item)
 
-        # For chat monitors, filter out the agent's own replies so the
+        # For chat-thread monitors, filter out the agent's own replies so the
         # monitor only fires for genuine customer messages (prevents self-
         # triggering when the agent types a response into the same chat).
-        if cfg.label == "chat_message_added" and added_items:
+        #
+        # This filter is *opt-in on the extractor config*: it engages only
+        # when the `fields` dict declares a `from` field (i.e. the extractor
+        # actually reads a sender marker from each item) AND the monitor
+        # carries the `chat_message_added` label (thread-pane convention).
+        # Chat-LIST monitors — which watch a conversation index rather than
+        # a message thread — do not have a per-item sender and therefore
+        # must not be subjected to this filter.  Previously the check was
+        # keyed only on the label, so any chat-list monitor that inherited
+        # the conventional `chat_message_added` label would have every
+        # item silently dropped (`item.get("from")` returned `""` and the
+        # customer-only list collapsed to `[]`).
+        _extractor_fields = extractor_cfg.get("fields") if isinstance(extractor_cfg, dict) else None
+        _extractor_declares_from = (
+            isinstance(_extractor_fields, dict) and "from" in _extractor_fields
+        )
+        if (
+            cfg.label == "chat_message_added"
+            and added_items
+            and _extractor_declares_from
+        ):
             customer_only = [
                 item for item in added_items
                 if str(item.get("from") or "").lower() == "customer"
@@ -1946,6 +2014,50 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"from chat_message_added (agent self-reply)"
                 )
                 added_items = customer_only
+                added_keys = [
+                    str(item.get(key_field) or item.get("identity_key") or "").strip()
+                    for item in added_items
+                ] if key_field or key_fields else added_keys[:len(added_items)]
+
+        # Generic opt-in content filter: `filters.require_nonempty_fields`.
+        #
+        # When present in the extractor config, drop any item whose listed
+        # fields are all empty/null/zero.  This is the primary knob for
+        # chat-LIST monitors that want to fire only on actionable customer
+        # activity (e.g. declare `["unread_badge"]` to suppress re-fires
+        # triggered by AI smart-cs auto-replies, system welcome messages,
+        # or the agent's own reply all of which mutate `last_message` in
+        # the row identity but do not represent work for the bot to do).
+        #
+        # A field is considered "non-empty" when it is truthy AND its
+        # stringified form is not `""`, `"0"`, `"false"`, or `"null"`.
+        # This matches how platforms render absent badges (`""` or `"0"`).
+        _filter_cfg = extractor_cfg.get("filters") if isinstance(extractor_cfg, dict) else None
+        _required_nonempty = (
+            _filter_cfg.get("require_nonempty_fields")
+            if isinstance(_filter_cfg, dict)
+            else None
+        )
+        if added_items and isinstance(_required_nonempty, list) and _required_nonempty:
+            def _is_nonempty(value: Any) -> bool:
+                if value is None or value is False:
+                    return False
+                s = str(value).strip().lower()
+                return bool(s) and s not in ("0", "false", "null", "none")
+
+            _required = [str(f) for f in _required_nonempty if f]
+            _passed = [
+                item for item in added_items
+                if all(_is_nonempty(item.get(f)) for f in _required)
+            ]
+            _dropped = len(added_items) - len(_passed)
+            if _dropped:
+                logger.info(
+                    f"[EventMonitor] Filtered {_dropped} item(s) whose "
+                    f"required_nonempty_fields={_required} were empty "
+                    f"(label='{cfg.label}')"
+                )
+                added_items = _passed
                 added_keys = [
                     str(item.get(key_field) or item.get("identity_key") or "").strip()
                     for item in added_items

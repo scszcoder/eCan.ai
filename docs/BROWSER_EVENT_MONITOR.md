@@ -1209,3 +1209,255 @@ These fields replace the raw `cdpFilterExpr` JSON editor for common cases. The f
   - [chat_tools.py](agent/mcp/server/chat_utils/chat_tools.py)
 - token tracking:
   - [token_tracker.py](agent/ec_skills/token_tracker.py)
+- condition evaluator (cycle-detection fix):
+  - [flowgram2langgraph.py](agent/ec_skills/flowgram2langgraph.py)
+
+---
+
+## 24. Auto-Dispatch (LLM-Free Agent Routing)
+
+Added 2026-04-19.
+
+Auto-dispatch is a configurable mechanism that routes actionable items from browser events directly to agents **without invoking the LLM**. It replaces the LLM's "Phase 1" decision (which agent should handle which customer) with a deterministic, sub-second dispatch.
+
+### 24.1 When it fires
+
+Auto-dispatch runs inside the browser automation node, after the event monitor delivers a `browser_event` with actionable items, but **before** the browser-use LLM agent is invoked. If auto-dispatch handles the event, the LLM is skipped entirely for that iteration.
+
+```
+browser_event arrives (with actionable_items)
+  ↓
+auto-dispatch config present?  ──no──→  LLM handles everything (legacy path)
+  ↓ yes
+trigger matches? ──no──→  LLM handles everything
+  ↓ yes
+candidates available? ──no──→  LLM handles everything
+  ↓ yes
+dispatch items to agents ──→ return immediately (hot_path_type: "auto_dispatch")
+```
+
+### 24.2 Configuration
+
+Stored in `data.inputsValues.autoDispatch.content` as a JSON object:
+
+```json
+{
+  "trigger": {
+    "event_type": "browser_event",
+    "require_actionable": true
+  },
+  "agent_selection": {
+    "strategy": "first_available",
+    "filter_by_tasks": ["客户应答"],
+    "affinity_ttl_s": 1800
+  },
+  "payload_template": {
+    "customer_id": "{{customer_id || identity_key || customer_name}}",
+    "customer_name": "{{customer_name || name}}",
+    "latest_message": "{{last_message || latest_message}}"
+  },
+  "item_filter": {
+    "required_fields": ["customer_name", "last_message"]
+  },
+  "dispatch": {
+    "tool": "send_chat",
+    "dedup": true,
+    "per_item": true
+  }
+}
+```
+
+All fields are optional with sensible defaults. Only `trigger.event_type` is needed for a minimal config.
+
+If `payload_template` is omitted (or empty), the dispatcher falls back to a canonical default:
+
+```json
+{
+  "customer_id": "{{customer_id || identity_key || customer_name}}",
+  "customer_name": "{{customer_name || name}}",
+  "latest_message": "{{latest_message || last_message || message}}"
+}
+```
+
+This guarantees downstream responder skills always receive a non-empty JSON payload with the fields they expect, regardless of what the DOM extractor happens to name its columns. Override `payload_template` only if your responder expects a different shape.
+
+### 24.3 Template resolution
+
+Payload templates use `{{field}}` placeholders resolved from each actionable item's data. The `||` operator provides fallback fields:
+
+```
+{{customer_id || identity_key || customer_name}}
+```
+
+Tries `customer_id` first, then `identity_key`, then `customer_name`. Uses the first non-empty value. Non-template strings (no `{{`/`}}`) pass through as-is.
+
+Implementation: `_resolve_template()` in `build_node.py:43`.
+
+### 24.4 Agent selection strategies
+
+#### `first_available` (default — load-aware)
+
+Picks the candidate with the **fewest pending tasks**. Ties broken by list order.
+
+Load is measured by querying each agent's `runner._task_states` and counting entries where `_done` is `False`. This is cached once per dispatch batch to avoid repeated lookups.
+
+```
+candidate A: 3 pending tasks
+candidate B: 1 pending task   ← selected
+candidate C: 2 pending tasks
+```
+
+#### `round_robin`
+
+Rotates through candidates. When `per_item: true`, each actionable item advances the index independently, so a batch of 3 items dispatches to 3 different agents (if 3+ candidates exist).
+
+The round-robin index is stored per `node_name` in a module-level dict and persists across invocations within the same process.
+
+### 24.5 Affinity / sticky routing
+
+Before any strategy runs, the dispatcher checks whether the customer was **previously assigned** to one of the current candidates. If so — and the assignment is fresher than `affinity_ttl_s` (default 1800s / 30 min) — the same agent is reused. This keeps an ongoing conversation on one agent.
+
+```
+customer "Alice" → agent B (first dispatch)
+customer "Alice" → agent B (affinity hit, even if agent C has lower load)
+  ... 35 min later ...
+customer "Alice" → agent C (affinity expired, strategy picks lowest load)
+```
+
+The affinity table (`_auto_dispatch_affinity`) is module-level and survives across invocations. Stale entries (older than 2× TTL) are pruned after each dispatch batch.
+
+The customer identity key is derived from the resolved `customer_id` or `customer_name` template field.
+
+### 24.6 Candidate filtering
+
+Candidates are filtered in two stages:
+
+1. **Disabled agents excluded** — agents with `status == "disabled"` are never candidates.
+2. **Task filter** — if `filter_by_tasks` is set, only agents whose `tasks` list intersects the filter are candidates. This implements basic capability matching (e.g., only agents assigned the "客户应答" task can receive customer chats).
+
+If no candidates remain after filtering, auto-dispatch returns `None` and the LLM handles the event.
+
+### 24.7 Dedup integration
+
+When `dispatch.dedup` is `true` (default), each successful dispatch records the customer in the existing dedup caches (`_send_chat_dedup_cache` and `_send_chat_customer_last` in `extension_tools_service.py`). This prevents the same customer from being dispatched again within the dedup window (60s / 45s respectively).
+
+### 24.8 Log markers
+
+```
+[AUTO-DISPATCH] sent 'Alice' → responder_1 (load=2) msg='{"customer_id":...}', node=browser_1
+[AUTO-DISPATCH] 3/3 items dispatched, skipping LLM Phase 1, node=browser_1
+[AUTO-DISPATCH] No candidate agents after filter (filter_by_tasks=['客户应答']), node=browser_1
+```
+
+### 24.9 Example: 飞鸽 customer service
+
+For the Douyin 飞鸽 (Feige) customer service workflow:
+
+- **Front-desk agent** runs a browser automation node with a DOM mutation event monitor watching the conversation list.
+- When new customers appear, the event monitor emits a `browser_event` with actionable items (customers needing a reply).
+- **autoDispatch** routes each customer to a responder agent using `first_available` (load-aware) strategy.
+- **hotPathActions** (Section 21.2) on the responder agent delivers the reply back to the customer without LLM.
+
+Combined, the two hot paths eliminate both LLM calls in the dispatch→reply loop:
+
+```
+browser_event (new customer)
+  ↓ autoDispatch (no LLM) — ~50ms
+responder agent receives task
+  ↓ LLM generates reply text — ~3-8s
+responder returns reply
+  ↓ hotPathActions (no LLM) — ~1s
+reply delivered to customer
+
+Total: ~4-9s  (vs ~40s without hot paths)
+```
+
+---
+
+## 25. Condition Evaluator Stability (Cycle Detection)
+
+Added 2026-04-19.
+
+### 25.1 Problem
+
+The LangGraph condition evaluator in `flowgram2langgraph.py` uses `_unwrap_message_json()` to preprocess state before evaluating conditional edge expressions like `not state["result"]["llm_result"]["all_done"]`.
+
+This function recursively traverses the state dict to extract JSON from markdown code blocks in message fields. However, LangGraph state can contain **shared sub-objects** — multiple top-level keys referencing the same inner dict (e.g., `state["result"]` and `state["tool_result"]` pointing to the same object). Without cycle detection, these shared references caused the same objects to be visited exponentially many times, exceeding Python's recursion limit (~3000).
+
+The actual nesting depth was only 6-8 levels, but 18-45 shared-object "cycles" per evaluation caused the blowup.
+
+### 25.2 Impact
+
+When `_unwrap_message_json` hit the recursion limit, `_safe_eval_expr` caught the exception and returned `False`. For the expression `not state["result"]["llm_result"]["all_done"]`, returning `False` made the graph believe `all_done=True` — **prematurely terminating the loop** before reaching `pend_event`. The browser automation node never waited for events, breaking the entire real-time monitoring flow.
+
+### 25.3 Fix
+
+Three guards were added to `_unwrap_message_json()`:
+
+1. **`_seen_ids` set** — tracks `id(obj)` of every visited container (dict or list). If an object has already been visited, it is returned as-is without recursing.
+2. **Depth limit** (`_depth > 30`) — hard cap that returns the object unchanged.
+3. **Diagnostic counters** — `_max_depth_hit`, `_cycles_broken`, and container count are logged after each evaluation for observability.
+
+```python
+_seen_ids = set()
+_max_depth_hit = [0]
+_cycles_broken = [0]
+
+def _unwrap_message_json(obj, _depth=0):
+    if _depth > 30:
+        return obj
+    obj_id = id(obj)
+    if isinstance(obj, (dict, list)):
+        if obj_id in _seen_ids:
+            _cycles_broken[0] += 1
+            return obj
+        _seen_ids.add(obj_id)
+    # ... normal traversal ...
+```
+
+### 25.4 Verification
+
+After deployment, logs confirm zero condition-eval failures with typical stats:
+
+```
+[condition-eval] _unwrap stats: max_depth=7, cycles_broken=23, containers_visited=184
+```
+
+The fix is transparent — existing behavior is preserved for acyclic state, and shared objects are simply visited once.
+
+---
+
+## 26. Disabled Agent Filtering
+
+Added 2026-04-19.
+
+### 26.1 Problem
+
+`list_chat_agents()` / `_get_all_agents()` in `chat_tools.py` returns **all** agents including disabled ones. When auto-dispatch (or the LLM) selected a disabled agent as the dispatch target, messages were queued but never consumed — the disabled agent has no running task runner.
+
+### 26.2 Fix
+
+Two filters were added:
+
+1. **In `_try_auto_dispatch`** (line 160-163): candidates exclude agents with `status == "disabled"`.
+2. **In the pre-resolved agent list** injected into state (line ~7678): the `_all_agents` list that the LLM sees is also filtered, so even the LLM fallback path won't target disabled agents.
+
+```python
+_all_agents = [
+    a for a in _agents_result.get("agents", [])
+    if a.get("status", "active") != "disabled"
+]
+```
+
+---
+
+## 27. Files of Interest (Addendum)
+
+- auto-dispatch + template resolver + agent load helper:
+  - [build_node.py](agent/ec_skills/build_node.py) (lines 43-310)
+- condition evaluator cycle detection:
+  - [flowgram2langgraph.py](agent/ec_skills/flowgram2langgraph.py) (lines ~197-250)
+- dedup caches (used by auto-dispatch):
+  - [extension_tools_service.py](agent/ec_skills/browser_use_extension/extension_tools_service.py)
+- agent listing (disabled filter upstream):
+  - [chat_tools.py](agent/mcp/server/chat_utils/chat_tools.py)
