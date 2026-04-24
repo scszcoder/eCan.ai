@@ -780,6 +780,10 @@
       "assignment": "Assignment Config (JSON)",
       "preDispatch": "Pre-Dispatch Config (JSON)",
       "stepPatches": "Step Patches (JSON)",
+      "siteAdapter": "Site Adapter (JSON)",
+      "siteAdapterDesc": "Shared selector/policy data for hook-based site adapters. Required by the verify_active_session Tier-0 crosstalk guard.",
+      "hookBundles": "Hook Bundles (JSON)",
+      "hookBundlesDesc": "External hook bundles to load. Array of {path, enabled?, config?}. path can be an in-tree name (e.g. 'feige_chat'), absolute path, or 'pkg:<name>'.",
       "tabPolicy": "Tab Policy",
       "tabPolicyStrict": "strict_single_tab (default — never switch_tab)",
       "tabPolicyAllowAssigned": "allow_assigned_tab (permit focusing the assigned tab_id)"
