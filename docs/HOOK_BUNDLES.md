@@ -9,6 +9,19 @@ and strictly additive — existing skills continue to work unchanged.
 > rename it, edit the manifest, point your node at it via the **Hook
 > Bundles (JSON)** field.  No redeploy required.
 
+> **Two hook systems coexist in this repo.**  The one described in this
+> document (`HookDispatcher`, `hook.yaml`, stages like `on_pre_action` /
+> `on_event_normalized`, signed bundles, runtime lanes) fires **inside
+> the browser-use agent loop** — it intercepts individual events,
+> actions, and per-step page state.  A *separate* lightweight system
+> (`register_before_prompt_build_hook` / `register_before_browser_use_run_hook`
+> / `register_before_browser_session_setup_hook`) wraps the entire
+> browser-automation node and is documented in
+> [`BUILD_NODE_LIFECYCLE_HOOKS.md`](./BUILD_NODE_LIFECYCLE_HOOKS.md).
+> A single bundle directory (e.g. `feige_chat`) can — and does — serve
+> both systems; they solve non-overlapping problems.  Pick the right
+> layer for your use case before authoring.
+
 - [Concepts](#concepts)
 - [Bundle layout](#bundle-layout)
 - [Writing a hook](#writing-a-hook)

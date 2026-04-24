@@ -58,10 +58,10 @@ logger = logging.getLogger("eCan")
 # shared util module is a trivial delete.
 # ---------------------------------------------------------------------------
 
-def _normalize_customer_id(raw_id: str) -> str:
+def _normalize_dispatch_identity_key(raw_id: str) -> str:
     """Strip the message-preview suffix (``"sc|..."``) from a customer id.
 
-    Mirrors ``build_node._normalize_customer_id`` exactly.  See that doc
+    Mirrors ``build_node._normalize_dispatch_identity_key`` exactly.  See that doc
     for the rationale (DOM extractor identity keys carry a mutable
     preview tail that breaks dedup / affinity caches).
     """
@@ -363,9 +363,9 @@ def verify_customer_match(verify_result: dict, expected_name: str) -> tuple[bool
     """
     if not isinstance(verify_result, dict):
         return False, f"verify-result-not-dict: {type(verify_result).__name__}"
-    sidebar = _normalize_customer_id(str(verify_result.get("sidebar_name") or "").strip())
-    header = _normalize_customer_id(str(verify_result.get("header_name") or "").strip())
-    expected = _normalize_customer_id(str(expected_name or "").strip())
+    sidebar = _normalize_dispatch_identity_key(str(verify_result.get("sidebar_name") or "").strip())
+    header = _normalize_dispatch_identity_key(str(verify_result.get("header_name") or "").strip())
+    expected = _normalize_dispatch_identity_key(str(expected_name or "").strip())
     method = str(verify_result.get("sidebar_method") or "unknown")
     if not expected:
         return False, "expected-empty"
@@ -820,7 +820,7 @@ async def scrape_latest_customer_bubble(
     if typing_holder_getter is not None:
         try:
             _st_holder = typing_holder_getter()
-            _st_cust_key = _normalize_customer_id(customer_name)
+            _st_cust_key = _normalize_dispatch_identity_key(customer_name)
             if _st_holder and _st_holder != _st_cust_key:
                 logger.info(
                     f"[BrowserAutomation] scrape-latest-customer: yield — another "

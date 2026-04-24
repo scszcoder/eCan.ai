@@ -17,3 +17,13 @@ if not _FD_HOOK_REGISTERED:
     from . import front_desk as _front_desk
     _front_desk.register()
     _FD_HOOK_REGISTERED = True
+
+# Register the actionable-items prompt-build hook (Phase 7, 2026-04-24).
+# Owns the front-desk pattern's filter + protocol-override + agent_list
+# injection + auto-dispatch short-circuit, previously inline in
+# ``build_node._run_browser_use``.
+_AI_HOOK_REGISTERED = globals().get("_AI_HOOK_REGISTERED", False)
+if not _AI_HOOK_REGISTERED:
+    from . import actionable_items as _actionable_items
+    _actionable_items.register()
+    _AI_HOOK_REGISTERED = True
