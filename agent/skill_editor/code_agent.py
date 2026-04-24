@@ -565,8 +565,8 @@ You MUST respond with valid JSON containing the flowgram.
             "shopName": {{"type": "constant", "content": "ebay"}},
             "customShopName": {{"type": "constant", "content": ""}},
             "modelProvider": {{"type": "constant", "content": "OpenAI"}},
-            "modelName": {{"type": "constant", "content": "gpt-4o"}},
-            "temperature": {{"type": "constant", "content": 0.3}},
+            "modelName": {{"type": "constant", "content": "gpt-5.5"}},
+            "temperature": {{"type": "constant", "content": 0.7}},
             "useThinking": {{"type": "constant", "content": false}},
             "profile": {{"type": "constant", "content": ""}},
             "systemPrompt": {{"type": "template", "content": "You are a browser automation agent."}},
@@ -583,7 +583,7 @@ You MUST respond with valid JSON containing the flowgram.
           "title": "Process with AI",
           "inputsValues": {{
             "modelProvider": {{"type": "constant", "content": "OpenAI"}},
-            "modelName": {{"type": "constant", "content": "gpt-4o-mini"}},
+            "modelName": {{"type": "constant", "content": "gpt-5-nano"}},
             "temperature": {{"type": "constant", "content": 0.5}},
             "useThinking": {{"type": "constant", "content": false}},
             "systemPrompt": {{"type": "template", "content": "You are a helpful assistant."}},
@@ -1858,7 +1858,7 @@ Continue the JSON output (do not include any text before the continuation):"""
                 "modelProvider": "",
                 "modelName": "",
                 "apiHost": "",
-                "temperature": 0.3,
+                "temperature": 0.7,  # 0.7 是更适合通用对话的默认值
                 "useThinking": False,
             }
             try:

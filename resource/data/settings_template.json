@@ -60,7 +60,7 @@
   "lambda_proxy_endpoint": "",
 
   "default_llm": "openai",
-  "default_llm_model": "gpt-5",
+  "default_llm_model": "gpt-5.5",
   
   "default_embedding": "openai",
   "default_embedding_model": "text-embedding-3-small",

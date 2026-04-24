@@ -20,12 +20,36 @@
         "OPENAI_API_KEY"
       ],
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-5.4",
+      "default_model": "gpt-5.5",
       "description": "OpenAI official public model lineup from platform docs",
       "documentation_url": "https://platform.openai.com/docs/models",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "gpt-5.5",
+          "display_name": "GPT-5.5",
+          "model_id": "gpt-5.5",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Latest flagship model - our smartest model yet, fully retrained agentic model for complex multi-step tasks"
+        },
+        {
+          "name": "gpt-5.5-pro",
+          "display_name": "GPT-5.5 Pro",
+          "model_id": "gpt-5.5-pro",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.02,
+          "description": "Pro version with enhanced capabilities for professional work"
+        },
         {
           "name": "gpt-5.4",
           "display_name": "GPT-5.4",
@@ -167,12 +191,25 @@
         "ANTHROPIC_API_KEY"
       ],
       "base_url": "https://api.anthropic.com",
-      "default_model": "claude-opus-4-6",
+      "default_model": "claude-opus-4-7",
       "description": "Anthropic official public Claude lineup",
       "documentation_url": "https://docs.anthropic.com/",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "claude-opus-4-7",
+          "display_name": "Claude Opus 4.7",
+          "model_id": "claude-opus-4-7",
+          "default_temperature": 0.7,
+          "max_tokens": 200000,
+          "max_output_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.005,
+          "description": "Latest flagship Claude model - most capable GA model with 1M context, adaptive thinking"
+        },
         {
           "name": "claude-opus-4-6",
           "display_name": "Claude Opus 4.6",
@@ -183,7 +220,7 @@
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.015,
-          "description": "Latest flagship Claude model"
+          "description": "Previous flagship Claude model"
         },
         {
           "name": "claude-sonnet-4-6",
@@ -196,18 +233,6 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.003,
           "description": "Latest frontier mid-tier Claude model"
-        },
-        {
-          "name": "claude-sonnet-4-5",
-          "display_name": "Claude Sonnet 4.5",
-          "model_id": "claude-sonnet-4-5",
-          "default_temperature": 0.7,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "Balanced intelligence and speed"
         },
         {
           "name": "claude-haiku-4-5",
@@ -332,12 +357,38 @@
         "DEEPSEEK_API_KEY"
       ],
       "base_url": "https://api.deepseek.com",
-      "default_model": "deepseek-chat",
+      "default_model": "deepseek-v4-pro",
       "description": "DeepSeek official API model list",
       "documentation_url": "https://api-docs.deepseek.com/api/list-models",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "deepseek-v4-pro",
+          "display_name": "DeepSeek-V4-Pro",
+          "model_id": "deepseek-v4-pro",
+          "default_temperature": 0.6,
+          "max_tokens": 128000,
+          "max_output_tokens": 384000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.00174,
+          "description": "Latest 1.6T MoE flagship - 49B active params, 1M context, #3 on code leaderboard"
+        },
+        {
+          "name": "deepseek-v4-flash",
+          "display_name": "DeepSeek-V4-Flash",
+          "model_id": "deepseek-v4-flash",
+          "default_temperature": 0.6,
+          "max_tokens": 128000,
+          "max_output_tokens": 384000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.00028,
+          "description": "Fast 284B MoE model - 13B active params, 1M context, dual reasoning modes"
+        },
         {
           "name": "deepseek-chat",
           "display_name": "DeepSeek-V3.2",
@@ -348,7 +399,7 @@
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.00014,
-          "description": "Official DeepSeek chat model alias"
+          "description": "Official DeepSeek chat model alias (deprecated July 2026)"
         },
         {
           "name": "deepseek-reasoner",
@@ -360,7 +411,7 @@
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.00055,
-          "description": "Official DeepSeek reasoning model alias"
+          "description": "Official DeepSeek reasoning model alias (deprecated July 2026)"
         }
       ]
     },
@@ -387,12 +438,36 @@
         "DASHSCOPE_API_KEY"
       ],
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "default_model": "qwen3-max",
+      "default_model": "qwen3.6-plus",
       "description": "Alibaba Cloud Model Studio official Qwen lineup via OpenAI-compatible docs",
       "documentation_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "qwen3.6-plus",
+          "display_name": "Qwen3.6-Plus",
+          "model_id": "qwen3.6-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.02,
+          "description": "Latest flagship - 1M context, always-on CoT, multimodal, 78.8% SWE-bench"
+        },
+        {
+          "name": "qwen3.6-flash",
+          "display_name": "Qwen3.6-Flash",
+          "model_id": "qwen3.6-flash",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.01,
+          "description": "Fast variant of Qwen3.6 with multimodal support"
+        },
         {
           "name": "qwen3-max",
           "display_name": "Qwen3-Max",
@@ -403,7 +478,7 @@
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.02,
-          "description": "Current flagship Qwen text model"
+          "description": "Previous flagship Qwen text model"
         },
         {
           "name": "qwen-plus",
@@ -717,12 +792,36 @@
         "AZURE_OPENAI_API_KEY"
       ],
       "base_url": "https://your-resource.openai.azure.com",
-      "default_model": "gpt-5.4",
+      "default_model": "gpt-5.5",
       "description": "Azure OpenAI service models reflected from Microsoft Learn updates",
       "documentation_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "gpt-5.5",
+          "display_name": "GPT-5.5 (Azure)",
+          "model_id": "gpt-5.5",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Latest GPT-5.5 model available on Azure"
+        },
+        {
+          "name": "gpt-5.5-pro",
+          "display_name": "GPT-5.5 Pro (Azure)",
+          "model_id": "gpt-5.5-pro",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.02,
+          "description": "Latest GPT-5.5 Pro model available on Azure"
+        },
         {
           "name": "gpt-5.4",
           "display_name": "GPT-5.4 (Azure)",
@@ -985,12 +1084,25 @@
         "AWS_SECRET_ACCESS_KEY"
       ],
       "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com",
-      "default_model": "anthropic.claude-opus-4-6-v1",
+      "default_model": "anthropic.claude-opus-4-7-v1",
       "description": "AWS Bedrock official model lineup",
       "documentation_url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "anthropic.claude-opus-4-7-v1",
+          "display_name": "Claude Opus 4.7 (Bedrock)",
+          "model_id": "anthropic.claude-opus-4-7-v1",
+          "default_temperature": 0.7,
+          "max_tokens": 200000,
+          "max_output_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.005,
+          "description": "Latest Claude Opus 4.7 on Bedrock - 1M context, adaptive thinking"
+        },
         {
           "name": "anthropic.claude-opus-4-6-v1",
           "display_name": "Claude Opus 4.6 (Bedrock)",
@@ -1001,7 +1113,7 @@
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.015,
-          "description": "Latest Claude Opus on Bedrock"
+          "description": "Previous Claude Opus on Bedrock"
         },
         {
           "name": "anthropic.claude-sonnet-4-6-v1",
@@ -1050,12 +1162,36 @@
         "ZHIPUAI_API_KEY"
       ],
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
-      "default_model": "glm-4.7",
+      "default_model": "glm-5.1",
       "description": "Zhipu AI official public GLM lineup",
       "documentation_url": "https://open.bigmodel.cn/dev/api",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
+        {
+          "name": "glm-5.1",
+          "display_name": "GLM-5.1",
+          "model_id": "glm-5.1",
+          "default_temperature": 0.7,
+          "max_tokens": 200000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.001,
+          "description": "Latest 754B MoE flagship - SOTA on SWE-Bench Pro, 8-hour autonomous execution"
+        },
+        {
+          "name": "glm-5",
+          "display_name": "GLM-5",
+          "model_id": "glm-5",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.001,
+          "description": "Previous GLM flagship model"
+        },
         {
           "name": "glm-4.7",
           "display_name": "GLM-4.7",
@@ -1066,7 +1202,7 @@
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.003,
-          "description": "Latest flagship GLM model shown on official open platform"
+          "description": "Previous flagship GLM model from bigmodel.cn"
         },
         {
           "name": "glm-4-plus",
