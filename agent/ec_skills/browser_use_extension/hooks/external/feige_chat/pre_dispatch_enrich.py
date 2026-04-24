@@ -105,16 +105,21 @@ async def _scrape_and_override_last_message(
     item: dict,
     customer_key: str,
     log_tag: str,
+    typing_holder_getter: Callable[[], str] | None = None,
 ) -> str:
     """Scrape the thread for the most recent customer bubble and, if
     successful, overwrite ``item['last_message']``.
 
     Returns the scraped ``msg_id`` (``""`` on scrape failure).  Mutates
     *item* in place when the scraped text differs from the sidebar
-    preview.
+    preview.  *typing_holder_getter*, when provided, is forwarded to
+    :func:`scrape_latest_customer_bubble` so its active-session race
+    guard fires if HOT-PATH-B is mid-reply to a different customer.
     """
     scraped = await scrape_latest_customer_bubble(
-        browser_session, str(item.get("customer_name") or "")
+        browser_session,
+        str(item.get("customer_name") or ""),
+        typing_holder_getter=typing_holder_getter,
     )
     if not scraped.get("scrape_ok"):
         logger.debug(
@@ -226,14 +231,18 @@ async def enrich_item(
     customer_last_dispatched_msg_id: dict,
     auto_dispatch_last_agent_reply: dict,
     normalize_reply_text: Callable[[str], str],
+    typing_holder_getter: Callable[[], str] | None = None,
 ) -> EnrichResult:
     """Plugin entry-point: enrich one dispatch candidate with Feige
     ground-truth data and apply all Feige-specific skip guards.
 
-    See module docstring for the three-stage pipeline.
+    See module docstring for the three-stage pipeline.  When
+    *typing_holder_getter* returns a non-empty key different from
+    *customer_key* the thread-scrape yields early to avoid stealing
+    the Feige active session from a concurrent HOT-PATH-B reply.
     """
     scraped_msg_id = await _scrape_and_override_last_message(
-        browser_session, item, customer_key, log_tag
+        browser_session, item, customer_key, log_tag, typing_holder_getter
     )
 
     # Stage 2: strict msg-id dedup (only meaningful when scrape gave us an id).
