@@ -75,7 +75,7 @@ from . import typing_lock
 from .dom_assets import (
     FEIGE_ACTIVE_CUSTOMER_JS,
     ensure_feige_tab_focused,
-    _normalize_customer_id,
+    _normalize_dispatch_identity_key,
 )
 
 logger = logging.getLogger("eCan")
@@ -495,7 +495,7 @@ async def _verify_active_customer(
             if isinstance(data, dict) and data.get("ok"):
                 active_last = str(data.get("active") or "").strip()
                 if expected_as_key:
-                    if _normalize_customer_id(active_last) == expected:
+                    if _normalize_dispatch_identity_key(active_last) == expected:
                         return True, active_last
                 else:
                     if active_last == str(expected).strip():

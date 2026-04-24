@@ -43,7 +43,7 @@ What this module does **not** own
   (`node_runtime.frontdesk_dispatch`) — see those modules.
 
 * The shared state dicts used by HOT-PATH-B + PreDispatch
-  (`_frontdesk_dispatch_state_by_agent`, `_auto_dispatch_last_agent_reply`,
+  (`_dispatch_state_by_agent`, `_auto_dispatch_last_agent_reply`,
   etc.) — still owned by `build_node` module scope and injected
   via `BrowserUseHookContext`.  Deferred to a later phase.
 """
@@ -59,6 +59,7 @@ from agent.ec_skills.node_runtime.frontdesk_dispatch import (
     DispatchContext,
     run as _run_frontdesk_dispatch,
 )
+from . import dispatch_state as _ds
 from . import typing_lock as _typing_lock
 
 logger = logging.getLogger("eCan")
@@ -288,7 +289,7 @@ async def before_session_setup_hook(
                     or ""
                 )
                 _hp_b_dedup_reply = _hp_b_payload.get("response_text") or ""
-                _hp_b_dedup_age = hook_ctx.hp_b_was_recently_sent(
+                _hp_b_dedup_age = _ds.was_recently_sent(
                     _hp_b_dedup_cust, _hp_b_dedup_reply
                 )
                 if _hp_b_dedup_age > 0:
@@ -297,15 +298,15 @@ async def before_session_setup_hook(
                         f"cust={_hp_b_dedup_cust!r} reply_len="
                         f"{len(_hp_b_dedup_reply)} (identical reply already "
                         f"sent {_hp_b_dedup_age:.1f}s ago, "
-                        f"ttl={hook_ctx.hp_b_dedup_ttl_s}s), node={hook_ctx.node_name}"
+                        f"ttl={_ds.DEDUP_TTL_S}s), node={hook_ctx.node_name}"
                     )
                     # Release the cross-scope inflight lock so the
                     # *next* genuine customer turn isn't blocked by
                     # the stale inflight record from the loop.
                     try:
-                        _hp_b_skip_cust = hook_ctx.normalize_customer_id(_hp_b_dedup_cust)
+                        _hp_b_skip_cust = hook_ctx.normalize_dispatch_identity_key(_hp_b_dedup_cust)
                         if _hp_b_skip_cust:
-                            hook_ctx.clear_customer_dispatch_inflight(_hp_b_skip_cust)
+                            hook_ctx.clear_dispatch_inflight(_hp_b_skip_cust)
                     except Exception:
                         pass
                     state.setdefault("result", {})["llm_result"] = {
@@ -325,16 +326,16 @@ async def before_session_setup_hook(
                 # contain it, so the equality guard will never match a
                 # genuine event against it.
                 try:
-                    _hp_b_pre_cust = hook_ctx.normalize_customer_id(
+                    _hp_b_pre_cust = hook_ctx.normalize_dispatch_identity_key(
                         _hp_b_payload.get("customer_name")
                         or _hp_b_payload.get("customer_id")
                         or ""
                     )
-                    _hp_b_pre_reply = hook_ctx.normalize_reply_text(
+                    _hp_b_pre_reply = _ds.normalize_reply_text(
                         _hp_b_payload.get("response_text") or ""
                     )
                     if _hp_b_pre_cust and _hp_b_pre_reply:
-                        hook_ctx.auto_dispatch_last_agent_reply[_hp_b_pre_cust] = _hp_b_pre_reply
+                        _ds.last_agent_reply_by_customer[_hp_b_pre_cust] = _hp_b_pre_reply
                         logger.info(
                             f"[BrowserAutomation] HOT-PATH-B: pre-recorded "
                             f"last_agent_reply for '{_hp_b_pre_cust}' "
@@ -367,7 +368,7 @@ async def before_session_setup_hook(
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.hot_path import (
                     execute as _hp_b_feige_execute,
                 )
-                _hp_b_typing_cust = hook_ctx.normalize_customer_id(
+                _hp_b_typing_cust = hook_ctx.normalize_dispatch_identity_key(
                     _hp_b_payload.get("customer_name")
                     or _hp_b_payload.get("customer_id")
                     or ""
@@ -399,7 +400,7 @@ async def before_session_setup_hook(
                     # send_response_back fallback path) is deduped
                     # by the guard at the top of HOT-PATH-B.
                     try:
-                        hook_ctx.hp_b_mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
+                        _ds.mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
                     except Exception:
                         pass
                     # Reply text was already pre-recorded before send
@@ -419,7 +420,7 @@ async def before_session_setup_hook(
                         from agent.mcp.server.chat_utils.chat_tools import (
                             clear_qa_response_pending as _hp_b_clear_pending,
                         )
-                        _hp_b_clr_cust = hook_ctx.normalize_customer_id(
+                        _hp_b_clr_cust = hook_ctx.normalize_dispatch_identity_key(
                             _hp_b_payload.get("customer_name")
                             or _hp_b_payload.get("customer_id")
                             or ""
@@ -445,16 +446,16 @@ async def before_session_setup_hook(
                     # PreDispatch that notices it.
                     try:
                         if _hp_b_clr_cust:
-                            hook_ctx.clear_customer_dispatch_inflight(_hp_b_clr_cust)
+                            hook_ctx.clear_dispatch_inflight(_hp_b_clr_cust)
                             logger.info(
                                 f"[BrowserAutomation] HOT-PATH-B: cleared "
-                                f"customer_dispatch_inflight lock for "
+                                f"dispatch_inflight lock for "
                                 f"cust={_hp_b_clr_cust!r}, node={hook_ctx.node_name}"
                             )
                     except Exception as _hp_b_cdi_err:
                         logger.debug(
                             f"[BrowserAutomation] HOT-PATH-B: "
-                            f"customer_dispatch_inflight clear failed: {_hp_b_cdi_err}"
+                            f"dispatch_inflight clear failed: {_hp_b_cdi_err}"
                         )
                     # Evict this customer from assigned_sessions so the next
                     # customer message for them re-dispatches. Without this, the
@@ -462,7 +463,7 @@ async def before_session_setup_hook(
                     # would permanently skip this customer after their first reply.
                     try:
                         # Prefer the shared module-level dispatch_state
-                        # (see hook_ctx.frontdesk_dispatch_state_by_agent). Fall back
+                        # (see hook_ctx.dispatch_state_by_agent). Fall back
                         # to the per-session attribute only if for some reason
                         # PreDispatch hasn't run yet.
                         _hp_b_shared_key = (
@@ -470,7 +471,7 @@ async def before_session_setup_hook(
                             str(hook_ctx.node_name or ""),
                             "_ecan_frontdesk_dispatch_state",
                         )
-                        _hp_b_ds = hook_ctx.frontdesk_dispatch_state_by_agent.get(_hp_b_shared_key)
+                        _hp_b_ds = hook_ctx.dispatch_state_by_agent.get(_hp_b_shared_key)
                         if not isinstance(_hp_b_ds, dict):
                             _hp_b_ds = getattr(_hp_b_session, "_ecan_frontdesk_dispatch_state", None)
                         if isinstance(_hp_b_ds, dict):
@@ -505,7 +506,7 @@ async def before_session_setup_hook(
                     # feige_open_session returning "Session not
                     # found" when Feige's SPA is transiently in a
                     # bad state).  Release the cross-scope
-                    # `_customer_dispatch_inflight` lock here —
+                    # `_dispatch_inflight` lock here —
                     # otherwise PreDispatch keeps skipping the
                     # next message for this customer for the full
                     # 120 s TTL (observed 2026-04-22 11:18:38 —
@@ -520,16 +521,16 @@ async def before_session_setup_hook(
                     # reply, not for PreDispatch to race with a
                     # half-consumed state.
                     try:
-                        _hp_b_fail_cust = hook_ctx.normalize_customer_id(
+                        _hp_b_fail_cust = hook_ctx.normalize_dispatch_identity_key(
                             _hp_b_payload.get("customer_name")
                             or _hp_b_payload.get("customer_id")
                             or ""
                         )
                         if _hp_b_fail_cust:
-                            hook_ctx.clear_customer_dispatch_inflight(_hp_b_fail_cust)
+                            hook_ctx.clear_dispatch_inflight(_hp_b_fail_cust)
                             logger.info(
                                 f"[BrowserAutomation] HOT-PATH-B: released "
-                                f"customer_dispatch_inflight after action-failure "
+                                f"dispatch_inflight after action-failure "
                                 f"for cust={_hp_b_fail_cust!r}, node={hook_ctx.node_name}"
                             )
                     except Exception as _hp_b_fail_cdi_err:
@@ -594,15 +595,15 @@ async def before_run_hook(
         mainwin=hook_ctx.mainwin,
         scope_key=hook_ctx.resolve_scope_key(state),
         cached_browser_sessions=hook_ctx.cached_browser_sessions,
-        frontdesk_dispatch_state_by_agent=hook_ctx.frontdesk_dispatch_state_by_agent,
-        customer_last_dispatched_msg_id=hook_ctx.customer_last_dispatched_msg_id,
-        auto_dispatch_last_agent_reply=hook_ctx.auto_dispatch_last_agent_reply,
-        is_customer_dispatch_inflight=hook_ctx.is_customer_dispatch_inflight,
-        mark_customer_dispatch_inflight=hook_ctx.mark_customer_dispatch_inflight,
-        clear_customer_dispatch_inflight=hook_ctx.clear_customer_dispatch_inflight,
+        dispatch_state_by_agent=hook_ctx.dispatch_state_by_agent,
+        customer_last_dispatched_msg_id=_ds.last_dispatched_msg_id_by_customer,
+        auto_dispatch_last_agent_reply=_ds.last_agent_reply_by_customer,
+        is_dispatch_inflight=hook_ctx.is_dispatch_inflight,
+        mark_dispatch_inflight=hook_ctx.mark_dispatch_inflight,
+        clear_dispatch_inflight=hook_ctx.clear_dispatch_inflight,
         inflight_ttl_s=hook_ctx.inflight_ttl_s,
-        normalize_customer_id=hook_ctx.normalize_customer_id,
-        normalize_reply_text=hook_ctx.normalize_reply_text,
+        normalize_dispatch_identity_key=hook_ctx.normalize_dispatch_identity_key,
+        normalize_reply_text=_ds.normalize_reply_text,
         safe_format_dict=hook_ctx.safe_format_dict,
         feige_typing_holder_getter=_typing_lock.holder,
     )

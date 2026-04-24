@@ -133,16 +133,16 @@ class DispatchContext:
     scope_key: str
     # Shared dicts owned by ``build_node`` module scope.
     cached_browser_sessions: dict  # scope_key → BrowserSession
-    frontdesk_dispatch_state_by_agent: dict  # mutated
+    dispatch_state_by_agent: dict  # mutated
     customer_last_dispatched_msg_id: dict  # mutated on success
     auto_dispatch_last_agent_reply: dict  # read-only (populated by HOT-PATH-B)
     # Inflight lock helpers (live in build_node; injected to avoid circular import).
-    is_customer_dispatch_inflight: Callable[[str], float]
-    mark_customer_dispatch_inflight: Callable[[str], None]
-    clear_customer_dispatch_inflight: Callable[[str], None]
+    is_dispatch_inflight: Callable[[str], float]
+    mark_dispatch_inflight: Callable[[str], None]
+    clear_dispatch_inflight: Callable[[str], None]
     inflight_ttl_s: float
     # Pure string helpers.
-    normalize_customer_id: Callable[[str], str]
+    normalize_dispatch_identity_key: Callable[[str], str]
     normalize_reply_text: Callable[[str], str]
     # str.format_map-compatible dict subclass that swallows missing keys.
     safe_format_dict: type
@@ -250,10 +250,10 @@ def _resolve_dispatch_state(
     an attribute so legacy attribute-based reads still work.
     """
     key = (str(ctx.calling_agent_id or ""), str(ctx.node_name or ""), cfg.state_attr)
-    state = ctx.frontdesk_dispatch_state_by_agent.get(key)
+    state = ctx.dispatch_state_by_agent.get(key)
     if not isinstance(state, dict):
         state = {"opened_tabs": {}, "assigned_sessions": {}}
-        ctx.frontdesk_dispatch_state_by_agent[key] = state
+        ctx.dispatch_state_by_agent[key] = state
     setattr(session, cfg.state_attr, state)
     return state
 
@@ -528,7 +528,7 @@ async def _dispatch_one_item(
     )
     opened_row = session_id
 
-    customer_key = ctx.normalize_customer_id(
+    customer_key = ctx.normalize_dispatch_identity_key(
         item.get("customer_name") or item.get("customer_id") or session_id or ""
     )
 
@@ -536,7 +536,7 @@ async def _dispatch_one_item(
     # for cross-agent dedup — per-dispatch_state.assigned_sessions is
     # not shared across scopes).
     try:
-        inflight_age = ctx.is_customer_dispatch_inflight(customer_key)
+        inflight_age = ctx.is_dispatch_inflight(customer_key)
         if inflight_age > 0:
             logger.info(
                 f"[BrowserAutomation] {log_tag} inflight skip "
@@ -582,7 +582,7 @@ async def _dispatch_one_item(
     # customer immediately.  Previously acquired AFTER success, which
     # left a 100-500 ms window for duplicate send_chat fires.
     try:
-        ctx.mark_customer_dispatch_inflight(customer_key)
+        ctx.mark_dispatch_inflight(customer_key)
         logger.debug(
             f"[BrowserAutomation] {log_tag} acquired inflight lock for "
             f"cust={customer_key!r} (recipient=...{recipient_agent_id[-6:]})"
@@ -599,7 +599,7 @@ async def _dispatch_one_item(
             f"[BrowserAutomation] {log_tag} send_chat import failed: {exc}"
         )
         try:
-            ctx.clear_customer_dispatch_inflight(customer_key)
+            ctx.clear_dispatch_inflight(customer_key)
         except Exception:
             pass
         return opened_row, "", f"{session_id}: send_chat import failed: {exc}"
@@ -632,7 +632,7 @@ async def _dispatch_one_item(
     # send_chat failed → release the inflight lock so this customer
     # isn't blocked for the full TTL on a no-op.
     try:
-        ctx.clear_customer_dispatch_inflight(customer_key)
+        ctx.clear_dispatch_inflight(customer_key)
     except Exception:
         pass
     return (

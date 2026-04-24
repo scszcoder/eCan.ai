@@ -82,6 +82,42 @@ def register_before_browser_session_setup_hook(
         _before_browser_session_setup_hooks.append(hook)
 
 
+# Prompt-build-phase hooks run AFTER DOM event items have been
+# extracted + compacted but BEFORE the task prompt / override block
+# are finalised and the browser-use agent is constructed.  Site
+# plugins use this to enrich the task prompt with business-case-
+# specific rules (e.g. Feige's front-desk actionable-items filter,
+# protocol-override block, and deterministic auto-dispatch short-
+# circuit).  ``build_node`` itself only performs a generic snapshot
+# injection when no prompt-build hook handles the round.
+_before_prompt_build_hooks: list[
+    Callable[[dict, dict, "BrowserUseHookContext", "PromptBuildContext"], Awaitable["PromptBuildResult | None"]]
+] = []
+
+
+def register_before_prompt_build_hook(
+    hook: Callable[[dict, dict, "BrowserUseHookContext", "PromptBuildContext"], Awaitable["PromptBuildResult | None"]],
+) -> None:
+    """Register *hook* to be invoked during task-prompt assembly
+    (prompt-build phase), after DOM event items have been extracted
+    and compacted.
+
+    Hook signature:
+        ``hook(state, inputs, hook_ctx, prompt_ctx) -> PromptBuildResult | None``
+
+    Returning ``None`` leaves the task / override text unchanged.
+    Returning a ``PromptBuildResult`` with ``short_circuit_state`` set
+    short-circuits the whole node (skips the LLM).  Otherwise the
+    result's ``task_hint_append`` is appended to the task hint and
+    ``override_prepend`` is prepended to the protocol override block.
+    If any hook appends non-empty text (or short-circuits), the
+    generic "compact_items snapshot" fallback injection is skipped.
+    Registration is idempotent.
+    """
+    if hook not in _before_prompt_build_hooks:
+        _before_prompt_build_hooks.append(hook)
+
+
 # Late-phase hooks run AFTER the browser-use agent is constructed and
 # its browser session is ready.  Use this for patterns that need the
 # live agent / browser session (e.g. Feige's PreDispatch customer-
@@ -126,38 +162,66 @@ class BrowserUseHookContext:
     # Module-level helpers (safe to call anywhere).
     parse_json_input: Callable[[dict, str], Any]
     send_log: Callable[[str, str], None]
-    normalize_customer_id: Callable[[str], str]
-    normalize_reply_text: Callable[[str], str]
+    normalize_dispatch_identity_key: Callable[[str], str]
     safe_format_dict: type
-    # Shared state dicts (front-desk fan-out + HOT-PATH-B caches).
-    # Still owned by ``build_node`` module scope for now; Phase 5B
-    # will relocate them together with HOT-PATH-B into the
-    # ``feige_chat.front_desk`` module.
+    # Generic shared state owned by ``build_node`` module scope.
     cached_browser_sessions: dict
-    frontdesk_dispatch_state_by_agent: dict
-    customer_last_dispatched_msg_id: dict
-    auto_dispatch_last_agent_reply: dict
-    # Inflight-lock trio (prevents double-dispatch of the same customer
-    # turn across scopes).
-    is_customer_dispatch_inflight: Callable[[str], float]
-    mark_customer_dispatch_inflight: Callable[[str], None]
-    clear_customer_dispatch_inflight: Callable[[str], None]
+    dispatch_state_by_agent: dict
+    # Inflight-lock trio (prevents double-dispatch of the same item
+    # across scopes).  Keyed by dispatch-identity-key (see
+    # ``normalize_dispatch_identity_key``).
+    is_dispatch_inflight: Callable[[str], float]
+    mark_dispatch_inflight: Callable[[str], None]
+    clear_dispatch_inflight: Callable[[str], None]
     inflight_ttl_s: float
-    # Template renderer for action args (resolves ``{{field}}`` / 
-    # ``{{a || b}}`` placeholders from the event payload).  Used by
-    # HOT-PATH-B to build tool-call arguments.
+    # Template renderer for placeholder substitution in action args.
+    # Resolves ``{{field}}`` / ``{{a || b}}`` against a payload dict.
     resolve_template: Callable[[str, dict], str]
     # Closure that creates / retrieves the cached browser session for
     # this node invocation.  Exposed so early-phase hooks (which run
     # before the browser-use agent is constructed) can still acquire
     # a live session.  Signature: ``(mainwin, state=..., calling_agent_id=...)``.
     get_or_create_browser_session: Callable[..., Awaitable[Any]]
-    # HOT-PATH-B dedup primitives — used by Feige's early hook to
-    # suppress replay loops when send_response_back's fallback path
-    # re-fires the same chat_message.
-    hp_b_was_recently_sent: Callable[[str, str], float]
-    hp_b_mark_sent: Callable[[str, str], None]
-    hp_b_dedup_ttl_s: float
+
+
+@dataclass
+class PromptBuildContext:
+    """Data passed to ``before_prompt_build`` hooks.
+
+    Snapshot of the DOM event + compacted items available at the
+    time the task prompt is being assembled.  Hooks read from this
+    and return a :class:`PromptBuildResult` describing how to mutate
+    the task text / override block, or short-circuit the node.
+    """
+    # DOM snapshot with heavy fields (avatars, URLs) stripped.
+    compact_items: list
+    # Subset of ``compact_items`` whose ``actionable_field`` is non-empty.
+    # Empty list when ``actionable_field`` is "" / unset.
+    actionable_raw: list
+    # The node-config field name used for actionable filtering (may be "").
+    actionable_field: str
+    # Triggering event type / label (e.g. "browser_event" / "" or
+    # "chat_message" / "...").
+    event_type: str
+    event_label: str
+
+
+@dataclass
+class PromptBuildResult:
+    """Return value from a ``before_prompt_build`` hook.
+
+    Any of the three effects can be requested in a single return:
+
+    * ``short_circuit_state`` — if set, node returns this dict instead
+      of running the LLM.  When set, the text mutations are ignored.
+    * ``task_hint_append`` — text appended to ``_new_msg_hint`` (which
+      becomes part of the task prompt).
+    * ``override_prepend`` — text prepended to the protocol override
+      block (which is glued onto the front of the task).
+    """
+    short_circuit_state: dict | None = None
+    task_hint_append: str = ""
+    override_prepend: str = ""
 
 
 # ==================== Node Input Helpers ====================
@@ -220,7 +284,7 @@ def _resolve_template(template: str, payload: dict) -> str:
 
 # ==================== Customer ID Normalization ====================
 
-def _normalize_customer_id(raw_id: str) -> str:
+def _normalize_dispatch_identity_key(raw_id: str) -> str:
     """Normalize a customer ID by stripping the message-preview suffix.
 
     DOM extractor identity keys often look like ``"sc|有紫色款吗？"`` where
@@ -239,533 +303,6 @@ def _normalize_customer_id(raw_id: str) -> str:
         if prefix:
             return prefix
     return s
-
-
-# ==================== Auto-Dispatch Helper ====================
-
-# Round-robin index per node_name, module-level so it persists across invocations.
-_auto_dispatch_rr_index: dict[str, int] = {}
-
-# Affinity table: customer_id → agent_id.  Persists across invocations so
-# returning customers are routed to the same agent that handled them before.
-# Entries are timestamped and expire after ``affinity_ttl_s`` (default 1800s).
-_auto_dispatch_affinity: dict[str, tuple[str, float]] = {}  # cust → (agent_id, ts)
-
-# ── Identity-key dispatch dedup ──────────────────────────────────────
-# Tracks identity_key → dispatched_at. identity_key is the DOM's own stable
-# key (e.g. 'sc|有绿色款吗？' = '<customer>|<message preview>'). When the
-# customer sends a new message, the key changes; when the agent replies, the
-# key disappears from the DOM snapshot and the Fix-A caller prunes it — so a
-# subsequent identical question by the same customer re-fires naturally. The
-# safety TTL below is only garbage-collection for stranded entries; it is
-# NOT part of the dedup decision.
-_dispatched_identity_keys: dict[str, float] = {}  # identity_key → ts
-_DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
-# Short hard cooldown (seconds) after HOT-PATH-B delivery.
-# Suppresses the immediate burst of DOM-echo events right after delivery.
-_auto_dispatch_cooldown: dict[str, float] = {}  # cust → ts
-_AUTO_DISPATCH_COOLDOWN_S = 10.0  # seconds — just enough to skip the post-delivery event burst
-# Last reply text HOT-PATH-B typed for each customer, keyed by normalised
-# customer id.  Used by PreDispatch as a "stale last_message" guard:
-# when Feige's sidebar preview still echoes our own outgoing text because
-# the customer's freshest bubble hasn't refreshed the preview row yet,
-# we'd otherwise hand the Q&A worker a stale last_message and get an
-# answer to the previous turn.  Compare and skip to wait for the real diff.
-_auto_dispatch_last_agent_reply: dict[str, str] = {}  # cust → reply text (normalised)
-
-
-# HOT-PATH-B recent-send dedup cache keyed by (normalised customer_id,
-# sha1(response_text)) → timestamp.  Prevents replay loops when the
-# same (customer, reply) pair re-enters HOT-PATH-B due to a stale
-# pend_event_node resume (e.g. the `send_response_back` fallback path
-# re-fires the same chat_message after `Chat not found: 客户B`
-# errors — observed 2026-04-22 11:51 with 8+ identical HOT-PATH-B
-# entries within ~6 s).  TTL keeps the cache bounded; after TTL
-# expires a genuinely identical new reply can be re-sent.
-_hp_b_recent_sends: dict[tuple[str, str], float] = {}
-_HP_B_DEDUP_TTL_S = 15.0
-
-
-def _hp_b_reply_fingerprint(customer: str, reply_text: str) -> tuple[str, str]:
-    """Build a stable (customer, reply-hash) key for HOT-PATH-B dedup."""
-    import hashlib as _hp_b_hl
-    cust = _normalize_customer_id(customer or "")
-    rtxt = _normalize_reply_text(reply_text or "")
-    h = _hp_b_hl.sha1(rtxt.encode("utf-8", errors="ignore")).hexdigest()[:16] if rtxt else ""
-    return (cust, h)
-
-
-def _hp_b_was_recently_sent(customer: str, reply_text: str) -> float:
-    """Return age (s) of a recent identical send, or 0.0 if none/expired."""
-    key = _hp_b_reply_fingerprint(customer, reply_text)
-    if not key[0] or not key[1]:
-        return 0.0
-    import time as _hp_b_time
-    ts = _hp_b_recent_sends.get(key)
-    if ts is None:
-        return 0.0
-    age = _hp_b_time.time() - ts
-    if age > _HP_B_DEDUP_TTL_S:
-        _hp_b_recent_sends.pop(key, None)
-        return 0.0
-    return age
-
-
-def _hp_b_mark_sent(customer: str, reply_text: str) -> None:
-    key = _hp_b_reply_fingerprint(customer, reply_text)
-    if not key[0] or not key[1]:
-        return
-    import time as _hp_b_time
-    _hp_b_recent_sends[key] = _hp_b_time.time()
-    # Opportunistic GC to keep the dict bounded under long runs.
-    if len(_hp_b_recent_sends) > 256:
-        now = _hp_b_time.time()
-        for k in list(_hp_b_recent_sends.keys()):
-            if now - _hp_b_recent_sends[k] > _HP_B_DEDUP_TTL_S:
-                _hp_b_recent_sends.pop(k, None)
-
-
-
-def _normalize_reply_text(text: str) -> str:
-    """Normalise a reply for DOM-echo comparison.
-
-    Feige's sidebar preview may trim or collapse whitespace when it
-    renders the `last_message` row, so we compare whitespace-collapsed,
-    stripped versions.  We also limit the comparison to the first 120
-    chars because the sidebar sometimes truncates long replies with an
-    ellipsis — a prefix match is sufficient to recognise our own echo.
-    """
-    if not text:
-        return ""
-    s = re.sub(r"\s+", " ", str(text)).strip()
-    return s[:120]
-
-
-def _get_agent_load(agent_id: str, mainwin) -> int:
-    """Return the number of non-done tasks queued for *agent_id*.
-
-    This lets load-aware strategies favour agents with shorter queues.
-    Returns 0 if the agent's runner is not accessible (safe default).
-    """
-    try:
-        for agent in (mainwin.agents or []):
-            card = getattr(agent, "card", None)
-            if card and getattr(card, "id", "") == agent_id:
-                runner = getattr(agent, "runner", None)
-                if runner:
-                    return sum(
-                        1 for st in runner._task_states.values()
-                        if not st.get("_done", False)
-                    )
-                return 0
-        return 0
-    except Exception:
-        return 0
-
-
-# ==================== Item Filter Evaluator ====================
-
-def _evaluate_item_filter(
-    item: dict,
-    filter_cfg: dict | None,
-    *,
-    resolved: dict | None = None,
-    customer_id: str | None = None,
-    inflight_check=None,
-    now: float | None = None,
-) -> tuple[bool, str]:
-    """Check an actionable item against a data-driven filter config.
-
-    Returns ``(keep, reason)``. ``reason`` is "" when keeping, otherwise a
-    short tag like ``"required_field_missing:customer_name"`` or
-    ``"exclude:customer_name:equals:您好"``.
-
-    Config schema (all keys optional):
-
-        {
-          "required_fields": ["customer_name", ...],
-          "exclude_patterns": [
-            {"field": "customer_name", "equals": "您好"},
-            {"field": "customer_name", "contains": "通知"},
-            {"field": "customer_name", "prefix": "系统"},
-            {"field": "customer_name", "regex": "^店铺"}
-          ],
-          "exclude_self_echo": {
-            "enabled": true
-          },
-          "inflight": {
-            "enabled": true,
-            "allow_new_message": true,
-            "message_fields": ["last_message", "latest_message"]
-          },
-          "cooldown": {
-            "enabled": true,
-            "window_s": 10
-          }
-        }
-
-    The three stateful checks (self_echo, inflight, cooldown) each require
-    different item data. ``exclude_self_echo`` reads the DOM's
-    ``identity_key`` and checks ``_dispatched_identity_keys`` — no TTL.
-    ``cooldown`` reads ``_auto_dispatch_cooldown`` by customer_id. In-flight
-    is evaluated via a caller-supplied ``inflight_check(customer_id) -> age``
-    callback so this helper stays free of browser-extension imports.
-    """
-    if now is None:
-        now = time.time()
-    cfg = filter_cfg or {}
-    resolved = resolved or {}
-
-    # 1. Required fields — must resolve to non-empty in resolved or item.
-    for rf in (cfg.get("required_fields") or []):
-        v = resolved.get(rf) or str(item.get(rf, "") or "").strip()
-        if not v:
-            return False, f"required_field_missing:{rf}"
-
-    # 2. Exclude patterns — drop on first match.
-    for pat in (cfg.get("exclude_patterns") or []):
-        if not isinstance(pat, dict):
-            continue
-        field = pat.get("field")
-        if not field:
-            continue
-        val = str(resolved.get(field) or item.get(field, "") or "").strip()
-        if not val:
-            continue
-        for op in ("equals", "contains", "prefix", "regex"):
-            if op not in pat:
-                continue
-            literal = str(pat[op])
-            try:
-                if op == "equals":
-                    matched = (val == literal)
-                elif op == "contains":
-                    matched = (literal in val)
-                elif op == "prefix":
-                    matched = val.startswith(literal)
-                else:  # regex
-                    matched = bool(re.search(literal, val))
-            except Exception:
-                matched = False
-            if matched:
-                return False, f"exclude:{field}:{op}:{literal[:30]}"
-
-    se_cfg = cfg.get("exclude_self_echo") or {}
-    il_cfg = cfg.get("inflight") or {}
-    cd_cfg = cfg.get("cooldown") or {}
-    # msg_text powers inflight's allow_new_message gate.
-    msg_fields = il_cfg.get("message_fields") or ["last_message", "latest_message"]
-    msg_text = ""
-    for mf in msg_fields:
-        v = resolved.get(mf) or item.get(mf) or ""
-        if isinstance(v, str) and v.strip():
-            msg_text = v.strip()[:80]
-            break
-
-    cust_id = customer_id or ""
-
-    # 3. Identity-key dedup — skip items whose DOM identity_key has already
-    #    been dispatched. When the customer sends a new message, identity_key
-    #    changes; when the agent replies, the old identity_key disappears
-    #    from the DOM snapshot and the caller prunes our record of it. So an
-    #    identical repeat question by the same customer re-fires naturally.
-    if se_cfg.get("enabled"):
-        ident = str(item.get("identity_key") or "").strip()
-        if ident and ident in _dispatched_identity_keys:
-            logger.info(
-                f"[filter] identity_key dedup: cust={cust_id!r}, "
-                f"identity_key={ident!r}, "
-                f"age={now - _dispatched_identity_keys[ident]:.1f}s"
-            )
-            return False, "already_dispatched"
-
-    # 4. In-flight — suppress items whose customer already has a dispatch
-    #    in flight, unless allow_new_message is set and there is new text.
-    if il_cfg.get("enabled") and cust_id and inflight_check:
-        try:
-            age = float(inflight_check(cust_id) or 0.0)
-        except Exception:
-            age = 0.0
-        if age > 0.0:
-            if il_cfg.get("allow_new_message", True) and msg_text:
-                pass  # new user message; let it through
-            else:
-                return False, f"inflight:{age:.0f}s"
-
-    # 5. Cooldown — short hard window after HOT-PATH-B delivery.
-    if cd_cfg.get("enabled") and cust_id:
-        window = float(cd_cfg.get("window_s") or _AUTO_DISPATCH_COOLDOWN_S)
-        cd_ts = _auto_dispatch_cooldown.get(cust_id, 0.0)
-        if cd_ts and (now - cd_ts) < window:
-            return False, f"cooldown:{now - cd_ts:.0f}s"
-
-    return True, ""
-
-
-async def _try_auto_dispatch(
-    config: dict,
-    actionable: list,
-    all_agents: list,
-    caller_id: str,
-    mainwin: object,
-    node_name: str,
-    evt_type: str,
-) -> dict | None:
-    """Attempt configurable auto-dispatch of actionable items to agents.
-
-    Returns a ``state`` dict (with ``hot_path_type: "auto_dispatch"``) if at
-    least one item was dispatched, otherwise ``None`` so the caller falls
-    through to the LLM.
-
-    *config* schema::
-
-        {
-          "trigger": {"event_type": "browser_event", "require_actionable": true},
-          "agent_selection": {
-            "strategy": "round_robin",
-            "filter_by_tasks": ["客户应答"],
-            "affinity_ttl_s": 1800
-          },
-          "payload_template": {"key": "{{field || fallback}}"},
-          "item_filter": {"required_fields": ["field1", "field2"]},
-          "dispatch": {"tool": "send_chat", "dedup": true, "per_item": true}
-        }
-
-    Agent selection strategies
-    -------------------------
-    ``first_available``
-        Pick the candidate with the fewest pending tasks (load-aware).
-        Ties broken by list order.
-
-    ``round_robin``
-        Rotate through candidates.  With ``per_item: true`` each actionable
-        item advances the index, spreading items across agents evenly.
-
-    Affinity / sticky routing
-    -------------------------
-    Before any strategy runs, the dispatcher checks whether the customer
-    (derived from the resolved ``customer_id`` or ``customer_name``) was
-    previously assigned to one of the current candidates.  If so — and the
-    assignment is fresher than ``affinity_ttl_s`` (default 30 min) — the
-    same agent is reused.  This keeps an ongoing conversation on one agent.
-    """
-    import time as _ad_time
-
-    # ── 1. Trigger check ──
-    trigger = config.get("trigger") or {}
-    required_evt = trigger.get("event_type", "")
-    if required_evt and required_evt != evt_type:
-        return None
-    if trigger.get("require_actionable", True) and not actionable:
-        return None
-
-    # ── 2. Build candidate pool ──
-    sel = config.get("agent_selection") or {}
-    strategy = sel.get("strategy", "first_available")
-    filter_tasks = sel.get("filter_by_tasks") or []
-    affinity_ttl = float(sel.get("affinity_ttl_s", 1800))
-
-    # Exclude disabled agents — they never launch tasks.
-    candidates = [
-        a for a in all_agents
-        if a.get("status", "active") != "disabled"
-    ]
-    if filter_tasks:
-        _filter_patterns = [str(p) for p in filter_tasks if str(p).strip()]
-
-        def _agent_task_matches(agent_entry: dict) -> bool:
-            _tasks = [str(t) for t in (agent_entry.get("tasks") or [])]
-            for _pat in _filter_patterns:
-                for _t in _tasks:
-                    if _pat in _t:
-                        return True
-            return False
-
-        candidates = [a for a in candidates if _agent_task_matches(a)]
-    if not candidates:
-        logger.info(
-            f"[AUTO-DISPATCH] No candidate agents after filter "
-            f"(filter_by_tasks={filter_tasks}, all_agent_tasks="
-            f"{[a.get('tasks', []) for a in all_agents]}), node={node_name}"
-        )
-        return None
-
-    candidate_ids = {a["id"] for a in candidates}
-
-    # ── 3. Payload template & item filter ──
-    payload_tpl = config.get("payload_template") or {}
-    if not payload_tpl:
-        # Default: emit a canonical {customer_id, customer_name, latest_message}
-        # payload so downstream responders always have usable data even when
-        # the author didn't specify a template. Field fallbacks cover the
-        # common DOM-extractor shapes (customer_name + last_message).
-        payload_tpl = {
-            "customer_id": "{{customer_id || identity_key || customer_name}}",
-            "customer_name": "{{customer_name || name}}",
-            "latest_message": "{{latest_message || last_message || message}}",
-        }
-    # Hot-path-A hardcodes self-echo + cooldown because they guard the
-    # HOT-PATH-B delivery burst; callers can still override message_fields
-    # / ttl / window via the authored item_filter.
-    _user_filter = dict(config.get("item_filter") or {})
-    _user_filter.setdefault("exclude_self_echo", {"enabled": True})
-    _user_filter.setdefault("cooldown", {
-        "enabled": True,
-        "window_s": _AUTO_DISPATCH_COOLDOWN_S,
-    })
-    item_filter_cfg = _user_filter
-    dispatch_cfg = config.get("dispatch") or {}
-    use_dedup = dispatch_cfg.get("dedup", True)
-
-    from agent.mcp.server.chat_utils.chat_tools import send_chat as _auto_send_chat
-
-    # ── 4. Agent-picker with affinity → strategy fallback ──
-    _rr_idx = _auto_dispatch_rr_index.get(node_name, 0)
-    now = _ad_time.time()
-
-    # Lazy-load per-agent load counts (computed once per dispatch batch).
-    _load_cache: dict[str, int] = {}
-
-    def _agent_load(aid: str) -> int:
-        if aid not in _load_cache:
-            _load_cache[aid] = _get_agent_load(aid, mainwin)
-        return _load_cache[aid]
-
-    def _pick_agent(customer_id: str) -> dict:
-        nonlocal _rr_idx
-
-        # ── Affinity check: reuse previous agent if still valid ──
-        if customer_id:
-            entry = _auto_dispatch_affinity.get(customer_id)
-            if entry:
-                prev_agent_id, ts = entry
-                if (now - ts) < affinity_ttl and prev_agent_id in candidate_ids:
-                    for c in candidates:
-                        if c["id"] == prev_agent_id:
-                            return c
-
-        # ── Strategy fallback ──
-        if strategy == "round_robin":
-            agent = candidates[_rr_idx % len(candidates)]
-            _rr_idx += 1
-            return agent
-
-        # first_available: pick candidate with lowest pending-task count
-        return min(candidates, key=lambda c: _agent_load(c["id"]))
-
-    dispatched = 0
-    for item in actionable:
-        # Resolve template fields
-        resolved = {}
-        for key, tpl in payload_tpl.items():
-            resolved[key] = _resolve_template(tpl, item)
-
-        cust_id = _normalize_customer_id(
-            resolved.get("customer_id")
-            or resolved.get("customer_name")
-            or ""
-        )
-
-        keep, reason = _evaluate_item_filter(
-            item,
-            item_filter_cfg,
-            resolved=resolved,
-            customer_id=cust_id,
-            now=now,
-        )
-        if not keep:
-            logger.info(
-                f"[AUTO-DISPATCH] filter drop '{cust_id or '?'}' "
-                f"reason={reason}, node={node_name}"
-            )
-            continue
-
-        target_agent = _pick_agent(cust_id)
-        target_agent_id = target_agent.get("id", "")
-        target_agent_name = target_agent.get("name", target_agent_id)
-
-        message_str = json.dumps(resolved, ensure_ascii=False)
-        send_config = {
-            "sender_agent_id": caller_id,
-            "recipient_agent_id": target_agent_id,
-            "message": message_str,
-        }
-
-        result = _auto_send_chat(mainwin, send_config)
-        if result.get("success"):
-            dispatched += 1
-
-            # Update affinity: this customer → this agent.
-            if cust_id:
-                _auto_dispatch_affinity[cust_id] = (target_agent_id, now)
-
-            # Record identity_key so repeat dispatch attempts while the same
-            # customer message is still in the DOM are suppressed. The caller
-            # prunes this entry when the key disappears from the snapshot
-            # (customer sent a new message or agent replied), so a legitimate
-            # repeat of the same question re-fires naturally.
-            _ident = str(item.get("identity_key") or "").strip()
-            if _ident:
-                _dispatched_identity_keys[_ident] = now
-
-            # Record in Fix A caches
-            if use_dedup:
-                try:
-                    from agent.ec_skills.browser_use_extension.extension_tools_service import (
-                        _send_chat_customer_last,
-                        _send_chat_dedup_cache,
-                    )
-                    if cust_id:
-                        _send_chat_customer_last[cust_id] = now
-                        dedup_key = f"{target_agent_id}|{cust_id}"
-                        _send_chat_dedup_cache[dedup_key] = now
-                except Exception:
-                    pass
-
-            logger.info(
-                f"[AUTO-DISPATCH] sent '{resolved.get('customer_name', '?')}' "
-                f"→ {target_agent_name} (load={_agent_load(target_agent_id)}) "
-                f"msg='{message_str[:80]}', node={node_name}"
-            )
-        else:
-            logger.warning(
-                f"[AUTO-DISPATCH] failed for item: {result.get('error', '?')}, "
-                f"node={node_name}"
-            )
-
-    # Persist round-robin index across calls
-    _auto_dispatch_rr_index[node_name] = _rr_idx
-
-    # Prune stale affinity entries (older than 2× TTL)
-    _stale = [k for k, (_, ts) in _auto_dispatch_affinity.items() if now - ts > affinity_ttl * 2]
-    for k in _stale:
-        _auto_dispatch_affinity.pop(k, None)
-
-    # Prune stale cooldown entries
-    _stale_cd = [k for k, ts in _auto_dispatch_cooldown.items() if now - ts > _AUTO_DISPATCH_COOLDOWN_S * 2]
-    for k in _stale_cd:
-        _auto_dispatch_cooldown.pop(k, None)
-    # Safety gc for identity-key records (DOM-diff pruning is the primary path)
-    _stale_ident = [k for k, ts in _dispatched_identity_keys.items() if now - ts > _DISPATCHED_IDENTITY_SAFETY_TTL_S]
-    for k in _stale_ident:
-        _dispatched_identity_keys.pop(k, None)
-
-    if dispatched > 0:
-        logger.info(
-            f"[AUTO-DISPATCH] {dispatched}/{len(actionable)} items dispatched, "
-            f"skipping LLM Phase 1, node={node_name}"
-        )
-        return {
-            "result": {
-                "llm_result": {
-                    "all_done": False,
-                    "work_done": False,
-                    "hot_path": True,
-                    "hot_path_type": "auto_dispatch",
-                }
-            }
-        }
-    return None
 
 
 # ==================== Lambda Proxy Helpers ====================
@@ -6815,7 +6352,7 @@ _first_invocation_done: set[str] = set()
 # BrowserSession dispatch_state caused duplicate assignments whenever Mary
 # resumed under a different scope (empty state, so the assigned_sessions dedup
 # was bypassed).
-_frontdesk_dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
+_dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 
 # Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
 # customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
@@ -6828,59 +6365,205 @@ _frontdesk_dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 #   * the TTL elapses (safety net if the responder crashes).
 # The lock is per-customer, so multi-customer simultaneity is unaffected —
 # customer A's lock never blocks dispatching customer B.
-_customer_dispatch_inflight: dict[str, float] = {}
-_CUSTOMER_DISPATCH_INFLIGHT_TTL_S = 30.0
-
-# Per-customer record of the LAST customer bubble msg_id that PreDispatch
-# successfully dispatched.  Replaces the text-based dom-echo guard with a
-# strict identity check on Feige's own `data-id` attribute: if the thread
-# scrape still returns the same msg_id we've already dispatched, the
-# customer has not sent anything new (regardless of what the sidebar
-# preview echoes), so we skip without burning an LLM step.  When the
-# customer sends a new bubble, the msg_id changes and the guard releases.
-_customer_last_dispatched_msg_id: dict[str, str] = {}
+_dispatch_inflight: dict[str, float] = {}
+_DISPATCH_INFLIGHT_TTL_S = 30.0
 
 
-def _is_customer_dispatch_inflight(customer_key: str) -> float:
+def _is_dispatch_inflight(customer_key: str) -> float:
     """Return age (s) of an active inflight lock, or 0.0 if none/expired."""
     if not customer_key:
         return 0.0
     import time as _cdi_time
-    ts = _customer_dispatch_inflight.get(customer_key)
+    ts = _dispatch_inflight.get(customer_key)
     if ts is None:
         return 0.0
     age = _cdi_time.time() - ts
-    if age > _CUSTOMER_DISPATCH_INFLIGHT_TTL_S:
-        _customer_dispatch_inflight.pop(customer_key, None)
+    if age > _DISPATCH_INFLIGHT_TTL_S:
+        _dispatch_inflight.pop(customer_key, None)
         return 0.0
     return age
 
 
-def _mark_customer_dispatch_inflight(customer_key: str) -> None:
+def _mark_dispatch_inflight(customer_key: str) -> None:
     if not customer_key:
         return
     import time as _cdi_time
-    _customer_dispatch_inflight[customer_key] = _cdi_time.time()
+    _dispatch_inflight[customer_key] = _cdi_time.time()
 
 
-def _clear_customer_dispatch_inflight(customer_key: str) -> None:
+def _clear_dispatch_inflight(customer_key: str) -> None:
     if not customer_key:
         return
-    _customer_dispatch_inflight.pop(customer_key, None)
+    _dispatch_inflight.pop(customer_key, None)
 
 
-# ── Feige active-session race guard ─────────────────────────────────────────
-# State + implementation live in the ``feige_chat.typing_lock`` bundle;
-# HOT-PATH-B and the ``feige_chat.pre_dispatch_enrich`` plugin acquire /
-# check the typing-lock holder directly from the owning bundle; build_node
-# no longer aliases it.  We keep this bare package import so that
-# ``feige_chat/__init__.py`` executes (which calls ``front_desk.register()``
-# and wires both the early HOT-PATH-B and late PreDispatch lifecycle hooks).
+# ── External lifecycle-hook bundle auto-discovery ───────────────────────────
+# Every bundle is imported once at module-load time so its
+# ``__init__.py`` has a chance to call the ``register_before_*_hook``
+# APIs above and wire itself into the three lifecycle-hook registries.
 #
-# To add a new business case, drop a bundle under
-# ``hooks/external/<site>/`` with a ``register()`` called from its
-# ``__init__.py``, then add a sibling import here.
-import agent.ec_skills.browser_use_extension.hooks.external.feige_chat  # noqa: F401
+# Three search locations (in order, first-wins on name collisions):
+#   1. In-tree:  ``agent/ec_skills/browser_use_extension/hooks/external/*/``
+#                (shipped with the app)
+#   2. User data home:  ``<app_info.appdata_path>/hooks/external/*/``
+#                (field-deployed users drop bundles here — no app edits)
+#   3. Extra:    paths listed in ``ECAN_EXTRA_HOOK_DIRS`` env var
+#                (OS-path-sep separated)
+#
+# Third-party contract: drop a directory under any of the three roots
+# containing an ``__init__.py`` that performs the ``register_*`` calls.
+# No edits to ``build_node.py`` required — the directory is discovered
+# on next process start.  A bundle whose import raises is logged and
+# skipped; other bundles still load.  Set
+# ``ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY=1`` to turn discovery off
+# entirely (useful for isolated tests or locked-down deployments).
+#
+# Reference implementation: ``feige_chat/`` (in-tree) — registers
+# HOT-PATH-B (early phase), the actionable-items prompt-build filter,
+# and PreDispatch (late phase).
+def _discover_external_hook_bundles() -> None:
+    """Discover + import every external lifecycle-hook bundle.
+
+    Three search locations (in order):
+
+    1. **In-tree** ``agent/ec_skills/browser_use_extension/hooks/external/*/``
+       — shipped with the app, imported as a regular Python subpackage.
+    2. **User data home** ``<app_info.appdata_path>/hooks/external/*/``
+       — field-deployed users drop bundles here without touching the
+       installed app.  Loaded via importlib under a synthesized
+       top-level package name ``ecan_user_hook__<bundle>`` so relative
+       imports inside the bundle still work.
+    3. **Extra dirs** listed in ``ECAN_EXTRA_HOOK_DIRS`` (OS-path-sep
+       separated: ``;`` on Windows, ``:`` elsewhere).  Same loading
+       mechanism as (2).
+
+    Ordering: in-tree → user home → extra dirs.  First-wins on name
+    collisions (a user bundle cannot shadow an in-tree bundle of the
+    same name — that case logs a warning and skips the shadowing copy).
+
+    Failure isolation: a broken bundle is logged at WARNING and
+    skipped; other bundles still load.
+
+    Disable entirely via ``ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY=1``.
+    """
+    import os as _eh_os
+    if _eh_os.environ.get("ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY", "").strip().lower() in ("1", "true", "yes", "on"):
+        logger.info("[build_node] External hook bundle discovery disabled via ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY")
+        return
+
+    _loaded: list[str] = []
+    _failed: list[tuple[str, str]] = []
+    _seen_names: set[str] = set()
+
+    # (1) In-tree subpackage discovery (regular import path).
+    import importlib
+    import pkgutil
+    try:
+        external_pkg = importlib.import_module(
+            "agent.ec_skills.browser_use_extension.hooks.external"
+        )
+        for _mod_info in pkgutil.iter_modules(
+            external_pkg.__path__, prefix=external_pkg.__name__ + "."
+        ):
+            if not _mod_info.ispkg:
+                continue
+            _short = _mod_info.name.rsplit(".", 1)[-1]
+            if _short.startswith("_") or _short in _seen_names:
+                continue
+            try:
+                importlib.import_module(_mod_info.name)
+                _seen_names.add(_short)
+                _loaded.append(f"{_short} (in-tree)")
+            except Exception as _bundle_err:
+                _failed.append((_short, str(_bundle_err)))
+                logger.warning(
+                    f"[build_node] External hook bundle '{_short}' (in-tree) failed to load "
+                    f"(skipped, other bundles continue): {_bundle_err}"
+                )
+    except Exception as _imp_err:
+        logger.warning(
+            f"[build_node] In-tree external hook package failed to import "
+            f"(continuing to user-home discovery): {_imp_err}"
+        )
+
+    # (2) + (3) Filesystem discovery under the user data home + extra dirs.
+    _extra_dirs: list[tuple[str, str]] = []  # (origin_label, abs_path)
+    try:
+        from config.app_info import app_info as _app_info
+        _appdata = getattr(_app_info, "appdata_path", "") or ""
+        if _appdata:
+            _extra_dirs.append(("user_home", _eh_os.path.join(_appdata, "hooks", "external")))
+    except Exception as _ai_err:
+        logger.debug(f"[build_node] Cannot resolve appdata_path for user hook discovery: {_ai_err}")
+
+    _env_extra = _eh_os.environ.get("ECAN_EXTRA_HOOK_DIRS", "").strip()
+    if _env_extra:
+        for _p in _env_extra.split(_eh_os.pathsep):
+            _p = _p.strip()
+            if _p:
+                _extra_dirs.append(("env", _eh_os.path.abspath(_p)))
+
+    for _origin, _root in _extra_dirs:
+        if not _eh_os.path.isdir(_root):
+            logger.debug(f"[build_node] Hook discovery: {_origin} path not found, skipping: {_root}")
+            continue
+        try:
+            _entries = sorted(_eh_os.listdir(_root))
+        except Exception as _ls_err:
+            logger.warning(f"[build_node] Cannot list {_origin} hook dir {_root!r}: {_ls_err}")
+            continue
+        for _name in _entries:
+            if _name.startswith("_") or _name.startswith("."):
+                continue
+            _bundle_dir = _eh_os.path.join(_root, _name)
+            if not _eh_os.path.isdir(_bundle_dir):
+                continue
+            _init_py = _eh_os.path.join(_bundle_dir, "__init__.py")
+            if not _eh_os.path.isfile(_init_py):
+                continue
+            if _name in _seen_names:
+                logger.warning(
+                    f"[build_node] External hook bundle '{_name}' ({_origin}) shadows "
+                    f"an already-loaded bundle at {_bundle_dir!r} — skipping "
+                    f"(first-wins policy, in-tree bundles always win)"
+                )
+                continue
+            try:
+                _pkg_name = f"ecan_user_hook__{_name}"
+                import importlib.util as _iu
+                import sys as _sys
+                _spec = _iu.spec_from_file_location(
+                    _pkg_name,
+                    _init_py,
+                    submodule_search_locations=[_bundle_dir],
+                )
+                if _spec is None or _spec.loader is None:
+                    raise ImportError(f"could not build import spec for {_init_py}")
+                _mod = _iu.module_from_spec(_spec)
+                _sys.modules[_pkg_name] = _mod
+                _spec.loader.exec_module(_mod)
+                _seen_names.add(_name)
+                _loaded.append(f"{_name} ({_origin}:{_bundle_dir})")
+            except Exception as _bundle_err:
+                _failed.append((_name, str(_bundle_err)))
+                logger.warning(
+                    f"[build_node] External hook bundle '{_name}' ({_origin}) at "
+                    f"{_bundle_dir!r} failed to load (skipped, other bundles continue): {_bundle_err}"
+                )
+
+    if _loaded:
+        logger.info(
+            f"[build_node] Loaded {len(_loaded)} external hook bundle(s): "
+            f"{', '.join(_loaded)}"
+        )
+    if _failed:
+        logger.warning(
+            f"[build_node] {len(_failed)} external hook bundle(s) skipped: "
+            f"{', '.join(n for n, _ in _failed)}"
+        )
+
+
+_discover_external_hook_bundles()
 
 
 # ── Upstream-output compaction ────────────────────────────────────────────
@@ -8700,260 +8383,93 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     if _ci:
                                         _compact_items.append(_ci)
                                 if _compact_items:
-                                    if actionable_field:
-                                        _actionable_raw = [
-                                            it for it in _compact_items
-                                            if str(it.get(actionable_field, "")).strip()
-                                        ]
-                                        # Fix A: apply the data-driven item_filter (authored
-                                        # on the browser_automation node as autoDispatch.item_filter)
-                                        # via the shared evaluator, with Fix A's defaults
-                                        # (inflight + self_echo + cooldown) pre-enabled so the
-                                        # DOM's still-stuck pending_timer doesn't loop the LLM
-                                        # into re-dispatching while Phase-2 reply is pending.
-                                        try:
-                                            from agent.ec_skills.browser_use_extension.extension_tools_service import (
-                                                customer_recently_dispatched as _cust_recent,
+                                    # ──────────────────────────────────────────────────────────────
+                                    # Compute actionable_raw once: the subset of compact_items
+                                    # whose configured ctionable_field is non-empty.  Empty when
+                                    # the node author didn’t opt into the actionable-items pattern.
+                                    _actionable_raw = (
+                                        [it for it in _compact_items
+                                         if str(it.get(actionable_field, "")).strip()]
+                                        if actionable_field else []
+                                    )
+                                    
+                                    # Invoke prompt-build hooks (Phase 7).  Site plugins register
+                                    # here to apply business-case-specific enrichment: filtering,
+                                    # protocol-override text, agent-list injection, deterministic
+                                    # short-circuit dispatch.  If any hook supplies non-empty text
+                                    # (or a short_circuit_state), the generic fallback injection
+                                    # below is skipped.
+                                    _pb_handled = False
+                                    if _before_prompt_build_hooks:
+                                        _pb_ctx = PromptBuildContext(
+                                            compact_items=list(_compact_items),
+                                            actionable_raw=list(_actionable_raw),
+                                            actionable_field=str(actionable_field or ""),
+                                            event_type=str(_evt_type or ""),
+                                            event_label=str(_evt_label or ""),
+                                        )
+                                        _pb_hook_ctx = BrowserUseHookContext(
+                                            node_name=str(node_name or ""),
+                                            calling_agent_id=str(calling_agent_id or ""),
+                                            mainwin=mainwin,
+                                            resolve_scope_key=_resolve_browser_scope_key,
+                                            extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                                            parse_json_input=_parse_json_input,
+                                            send_log=send_skill_editor_log,
+                                            normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
+                                            safe_format_dict=_SafeFormatDict,
+                                            cached_browser_sessions=_cached_browser_sessions,
+                                            dispatch_state_by_agent=_dispatch_state_by_agent,
+                                            is_dispatch_inflight=_is_dispatch_inflight,
+                                            mark_dispatch_inflight=_mark_dispatch_inflight,
+                                            clear_dispatch_inflight=_clear_dispatch_inflight,
+                                            inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
+                                            resolve_template=_resolve_template,
+                                            get_or_create_browser_session=_get_or_create_browser_session,
+                                        )
+                                        for _pb_hook in _before_prompt_build_hooks:
+                                            _pb_result = await _pb_hook(state, inputs, _pb_hook_ctx, _pb_ctx)
+                                            if _pb_result is None:
+                                                continue
+                                            if _pb_result.short_circuit_state is not None:
+                                                state.update(_pb_result.short_circuit_state)
+                                                return state
+                                            if _pb_result.task_hint_append:
+                                                _new_msg_hint += _pb_result.task_hint_append
+                                                _pb_handled = True
+                                            if _pb_result.override_prepend:
+                                                _override_block = _pb_result.override_prepend + _override_block
+                                                _pb_handled = True
+                                    
+                                    # Generic fallback injection: only runs when no prompt-build
+                                    # hook added text.  Shows the compact snapshot so the LLM has
+                                    # at least the raw DOM state to reason about.
+                                    if not _pb_handled:
+                                        if actionable_field:
+                                            _items_json = json.dumps(_actionable_raw, ensure_ascii=False, indent=2)
+                                            _new_msg_hint += (
+                                                f"\n\n### ctionable_items ({len(_actionable_raw)} of "
+                                                f"{len(_compact_items)}, filtered by {actionable_field} non-empty):"
+                                                f"\n```json\n{_items_json}\n```"
                                             )
-                                        except Exception:
-                                            _cust_recent = lambda _c: 0.0  # noqa: E731
-                                        _fix_a_now = time.time()
-
-                                        # Pull user-authored filter off autoDispatch (may be
-                                        # missing on nodes without the blob; evaluator is
-                                        # tolerant to an empty cfg).
-                                        _fix_a_user_filter: dict = {}
-                                        try:
-                                            _fa_raw = (inputs.get("autoDispatch") or {}).get("content")
-                                            if isinstance(_fa_raw, str) and _fa_raw.strip():
-                                                _fa_parsed = json.loads(_fa_raw)
-                                                if isinstance(_fa_parsed, dict):
-                                                    _fif = _fa_parsed.get("item_filter")
-                                                    if isinstance(_fif, dict):
-                                                        _fix_a_user_filter = dict(_fif)
-                                            elif isinstance(_fa_raw, dict):
-                                                _fif = _fa_raw.get("item_filter")
-                                                if isinstance(_fif, dict):
-                                                    _fix_a_user_filter = dict(_fif)
-                                        except Exception as _fa_err:
-                                            logger.debug(
-                                                f"[BrowserAutomation] Fix A: could not parse "
-                                                f"autoDispatch.item_filter ({_fa_err}); using defaults"
-                                            )
-
-                                        _fix_a_user_filter.setdefault("inflight", {
-                                            "enabled": True,
-                                            "allow_new_message": True,
-                                            "message_fields": ["last_message", "latest_message"],
-                                        })
-                                        _fix_a_user_filter.setdefault("exclude_self_echo", {"enabled": True})
-                                        _fix_a_user_filter.setdefault("cooldown", {
-                                            "enabled": True,
-                                            "window_s": _AUTO_DISPATCH_COOLDOWN_S,
-                                        })
-
-                                        # Prune identity_key records for entries no longer in the
-                                        # DOM snapshot — the customer either sent a new message
-                                        # (key changed) or the agent replied (key disappeared).
-                                        # This keeps the dedup set aligned with live state so a
-                                        # repeat of an identical earlier question is not silently
-                                        # suppressed forever.
-                                        _live_ident_keys = {
-                                            str(_it.get("identity_key") or "").strip()
-                                            for _it in _compact_items
-                                            if _it.get("identity_key")
-                                        }
-                                        _stale_live = [
-                                            _k for _k in _dispatched_identity_keys
-                                            if _k and _k not in _live_ident_keys
-                                        ]
-                                        for _k in _stale_live:
-                                            _dispatched_identity_keys.pop(_k, None)
-
-                                        _actionable = []
-                                        _filtered_inflight: list[tuple[str, str]] = []
-                                        for _it in _actionable_raw:
-                                            _cust_id = _normalize_customer_id(
-                                                _it.get("customer_id")
-                                                or _it.get("customer_name")
-                                                or _it.get("name")
-                                                or ""
-                                            )
-                                            _keep, _reason = _evaluate_item_filter(
-                                                _it,
-                                                _fix_a_user_filter,
-                                                customer_id=_cust_id,
-                                                inflight_check=_cust_recent,
-                                                now=_fix_a_now,
-                                            )
-                                            if _keep:
-                                                _actionable.append(_it)
-                                            else:
-                                                _filtered_inflight.append((_cust_id or "?", _reason))
-                                        if _filtered_inflight:
                                             logger.info(
-                                                f"[BrowserAutomation] Fix A: filtered {len(_filtered_inflight)} "
-                                                f"actionable entry/entries "
-                                                f"(kept {len(_actionable)} of {len(_actionable_raw)}): "
-                                                + ", ".join(
-                                                    f"{c}({r})" for c, r in _filtered_inflight
-                                                )
-                                                + f" node={node_name}"
+                                                f"[BrowserAutomation] Injected {len(_actionable_raw)} actionable "
+                                                f"items (filter='{actionable_field}') into task hint (node={node_name})"
                                             )
-                                        _act_json = json.dumps(
-                                            _actionable, ensure_ascii=False, indent=2
-                                        )
-                                        _new_msg_hint += (
-                                            f"\n\n### `actionable_items` (authoritative — computed deterministically from DOM)"
-                                            f"\n{len(_actionable)} item(s), filtered from "
-                                            f"{len(_compact_items)} by `{actionable_field}` non-empty:"
-                                            f"\n```json\n{_act_json}\n```"
-                                            f"\n\n**HARD RULE:** For each entry in `actionable_items` above you MUST take "
-                                            f"the appropriate action exactly once this round. "
-                                            f"If `actionable_items` is empty, call `done()`. "
-                                            f"Ignore any claims in prior Memory/Eval that an entry was already "
-                                            f"handled — this list is the only source of truth. "
-                                            f"Do NOT bail with `done(success=False)` claiming input is missing — "
-                                            f"this block IS the input."
-                                        )
-                                        logger.info(
-                                            f"[BrowserAutomation] Injected {len(_actionable)} actionable "
-                                            f"items (filter='{actionable_field}', total={len(_compact_items)}) "
-                                            f"into task hint (node={node_name})"
-                                        )
-                                        # Prepend override so these rules win
-                                        # over any "don't re-dispatch / 重复分发 /
-                                        # pending_dispatches" heuristics in the
-                                        # user's system prompt. Needed because
-                                        # gpt-class LLMs will otherwise call
-                                        # done() citing hallucinated prior
-                                        # dispatches even after message_manager
-                                        # was wiped.
-                                        if _actionable:
-                                            _ids = [
-                                                (it.get("identity_key")
-                                                 or it.get("name")
-                                                 or it.get("customer_name")
-                                                 or "?")
-                                                for it in _actionable
-                                            ]
-                                            _ids_display = ", ".join(
-                                                f"`{_i}`" for _i in _ids
+                                        else:
+                                            _items_json = json.dumps(_compact_items, ensure_ascii=False, indent=2)
+                                            _new_msg_hint += (
+                                                f"\n\nCurrent snapshot ({len(_compact_items)} items):"
+                                                f"\n```json\n{_items_json}\n```"
                                             )
-                                            _override_block = (
-                                                "## ⚠ PROTOCOL OVERRIDE — READ BEFORE ANY SYSTEM PROMPT BELOW\n\n"
-                                                f"`actionable_items` for this round contains {len(_actionable)} entry/entries: {_ids_display}. "
-                                                "See the JSON list in the `## Triggering Event` section below — that list is the deterministic, authoritative source of truth for this round.\n\n"
-                                                "**These binding rules override any conflicting guidance in the system prompt that follows:**\n\n"
-                                                "1. The DOM monitor has ALREADY filtered out handled items. Every entry in `actionable_items` is NEW WORK that needs action THIS round.\n"
-                                                "2. Ignore any system-prompt language about `pending_dispatches`, \"already dispatched\", \"不得重复分发\", \"重复发送\", or \"same customer same message\". Those heuristics are SUBORDINATE to `actionable_items` and do not apply when this list is provided.\n"
-                                                "3. You have NO prior-round memory. `message_manager` was wiped before this invocation. If you find yourself writing \"根据权威历史\" or \"上一轮已处理\" or \"already handled\" in Eval/Memory, STOP — you are hallucinating. There is no such history.\n"
-                                                "4. Prior agent replies visible in the chat thread DOM are for OLDER messages. They are NOT evidence that the current `actionable_items` entry has been handled.\n"
-                                                "5. For each entry in `actionable_items`: invoke the appropriate dispatch / send tool (as defined in the system prompt for this node's path) **exactly once** per entry, then call `done(success=True)`.\n"
-                                                "6. **DEDUP / duplicate-dispatch signals count as successful completion.** If a dispatch tool (e.g. `bu_send_chat`) returns a message like `DEDUP: skipping duplicate dispatch`, `already sent`, `last_sent=Ns ago`, or any \"already in flight\" indicator, treat that entry as DONE for this round. Call `done(success=True)` immediately — do NOT retry.\n"
-                                                "7. **Do NOT rotate to a different recipient agent to bypass DEDUP.** DEDUP is a correct signal that work for this customer is already in flight with the originally-assigned respondent. Rotating to another agent (客服小王, 客服小张, etc.) to \"satisfy must-dispatch\" creates duplicate customer replies and is FORBIDDEN.\n"
-                                                "8. Calling `done(success=True)` while `actionable_items` is non-empty and neither a real dispatch NOR a DEDUP/already-sent response has occurred this round is a PROTOCOL VIOLATION.\n"
-                                                "9. If `actionable_items` is empty, call `done(success=True)` immediately — no work to do.\n"
-                                                "10. **Never use placeholder or template strings as real tool arguments.** "
-                                                "Do NOT pass `agent_id_1`, `agent_id_2`, `<分配的代理ID>`, `<example_agent_id>`, or any other placeholder/template string as `recipient_agent_id` — those are illustrations in the system prompt, not real values. Use ONLY the real agent IDs from the Pre-resolved agent_list above. A dispatch with a fake ID silently fails and the customer gets no reply.\n\n"
+                                            _new_msg_hint += (
+                                                "\n\n**None of the above items have been dispatched in this round.** "
+                                                "You must process each actionable item from scratch."
                                             )
-                                            # ── Inject pre-resolved agent list ──
-                                            # Look up service/responder agents and
-                                            # inject them directly so the LLM skips
-                                            # the bu_select_agents tool call (~8-10s).
-                                            try:
-                                                from agent.mcp.server.chat_utils.chat_tools import list_chat_agents as _list_agents_fn
-                                                _caller_id = str(calling_agent_id or "").strip()
-                                                if _caller_id and mainwin:
-                                                    _agents_result = _list_agents_fn(mainwin, {"exclude_self": _caller_id})
-                                                    _all_agents = [
-                                                        a for a in _agents_result.get("agents", [])
-                                                        if a.get("status", "active") != "disabled"
-                                                    ]
-                                                    if _all_agents:
-                                                        _agent_lines = []
-                                                        for _ag in _all_agents:
-                                                            _tasks_str = ", ".join(_ag.get("tasks", [])) or "none"
-                                                            _agent_lines.append(
-                                                                f"- {_ag['name']} (ID: {_ag['id']}, tasks: {_tasks_str})"
-                                                            )
-                                                        _override_block += (
-                                                            "### Pre-resolved `agent_list` (skip `bu_select_agents`)\n\n"
-                                                            "The following agents are available for dispatch. "
-                                                            "Use these IDs directly — do NOT call `bu_select_agents`, it is unnecessary.\n\n"
-                                                            + "\n".join(_agent_lines)
-                                                            + "\n\n---\n\n"
-                                                        )
-                                                        # Also mark discovery so
-                                                        # send_chat dispatch gate passes
-                                                        from agent.mcp.server.chat_utils.chat_tools import _mark_discovery
-                                                        _mark_discovery(_caller_id, _all_agents)
-                                                        logger.info(
-                                                            f"[BrowserAutomation] Injected pre-resolved agent_list "
-                                                            f"({len(_all_agents)} agents) into override block, "
-                                                            f"node={node_name}"
-                                                        )
-                                            except Exception as _agent_inject_err:
-                                                logger.debug(
-                                                    f"[BrowserAutomation] Failed to inject agent_list "
-                                                    f"(non-fatal): {_agent_inject_err}"
-                                                )
-                                            _override_block += "---\n\n"
-
-                                            # ── Configurable auto-dispatch ──
-                                            # If the node has an autoDispatch config, try to
-                                            # dispatch actionable items directly to agents
-                                            # without invoking the browser-use LLM.
-                                            try:
-                                                _ad_raw = (inputs.get("autoDispatch") or {}).get("content")
-                                                _ad_cfg = None
-                                                if isinstance(_ad_raw, str) and _ad_raw.strip():
-                                                    _ad_cfg = json.loads(_ad_raw)
-                                                elif isinstance(_ad_raw, dict):
-                                                    _ad_cfg = _ad_raw
-                                                if (
-                                                    _ad_cfg
-                                                    and _all_agents
-                                                    and _caller_id
-                                                    and mainwin
-                                                ):
-                                                    _ad_state = await _try_auto_dispatch(
-                                                        config=_ad_cfg,
-                                                        actionable=_actionable,
-                                                        all_agents=_all_agents,
-                                                        caller_id=_caller_id,
-                                                        mainwin=mainwin,
-                                                        node_name=node_name,
-                                                        evt_type=_evt_type,
-                                                    )
-                                                    if _ad_state is not None:
-                                                        state.update(_ad_state)
-                                                        return state
-                                            except Exception as _ad_err:
-                                                logger.debug(
-                                                    f"[AUTO-DISPATCH] config-driven dispatch failed "
-                                                    f"(non-fatal, falling back to LLM): {_ad_err}"
-                                                )
-
-                                    else:
-                                        _items_json = json.dumps(
-                                            _compact_items, ensure_ascii=False, indent=2
-                                        )
-                                        _new_msg_hint += (
-                                            f"\n\nCurrent snapshot ({len(_compact_items)} items):"
-                                            f"\n```json\n{_items_json}\n```"
-                                        )
-                                        # Add explicit "none dispatched" note to
-                                        # prevent the LLM from falsely claiming
-                                        # items were already handled.
-                                        _new_msg_hint += (
-                                            "\n\n**None of the above items have been dispatched in this round.** "
-                                            "You must process each actionable item from scratch."
-                                        )
-                                        logger.info(
-                                            f"[BrowserAutomation] Injected {len(_compact_items)} "
-                                            f"event items into task hint (node={node_name})"
-                                        )
+                                            logger.info(
+                                                f"[BrowserAutomation] Injected {len(_compact_items)} "
+                                                f"event items into task hint (node={node_name})"
+                                            )
                         except Exception:
                             pass
                         _evt_lines.append(_new_msg_hint)
@@ -8975,18 +8491,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             pass
 
                         if _chat_response_text:
-                            # Escape quotes in response_text to avoid breaking
-                            # the tool-call syntax shown to the browser-use LLM.
-                            _safe_resp = _chat_response_text.replace('"', '\\"')
-                            _safe_cust = _chat_customer_name.replace('"', '\\"')
+                            # Surface the reply text + recipient so the LLM
+                            # has them at hand; delegate "how to deliver"
+                            # to the node's own system prompt (which is
+                            # user-configured per business case — this
+                            # generic node makes no assumption about the
+                            # delivery tool names).
                             _evt_lines.append(
-                                f"A **NEW** reply was generated by another agent for customer **{_chat_customer_name}**.\n\n"
-                                f"**You MUST execute these steps in order:**\n"
-                                f"1. Call `feige_open_session(customer_name=\"{_safe_cust}\")` to navigate to this customer's chat session\n"
-                                f"2. Call `feige_send_message(text=\"{_safe_resp}\")` to send the reply\n"
-                                f"3. Call `done()`\n\n"
-                                f"Do NOT skip this — even if you already sent a previous reply, this is a DIFFERENT message.\n"
-                                f"Do NOT call done() before completing steps 1 and 2."
+                                f"A **NEW** reply was generated by another agent for recipient **{_chat_customer_name}**.\n\n"
+                                f"**Reply text to deliver:**\n{_chat_response_text}\n\n"
+                                f"You MUST deliver this reply THIS round using the tools defined for this node's purpose "
+                                f"(see system prompt), then call `done()`.  Do NOT skip — even if a prior reply was "
+                                f"already sent, this is a DIFFERENT message.  Do NOT call `done()` before delivery."
                             )
                         else:
                             _evt_lines.append(
@@ -9030,22 +8546,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     extract_runtime_invocation_input=_extract_runtime_invocation_input,
                     parse_json_input=_parse_json_input,
                     send_log=send_skill_editor_log,
-                    normalize_customer_id=_normalize_customer_id,
-                    normalize_reply_text=_normalize_reply_text,
+                    normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
                     safe_format_dict=_SafeFormatDict,
                     cached_browser_sessions=_cached_browser_sessions,
-                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
-                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
-                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
-                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
-                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
-                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
-                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
+                    dispatch_state_by_agent=_dispatch_state_by_agent,
+                    is_dispatch_inflight=_is_dispatch_inflight,
+                    mark_dispatch_inflight=_mark_dispatch_inflight,
+                    clear_dispatch_inflight=_clear_dispatch_inflight,
+                    inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
                     resolve_template=_resolve_template,
                     get_or_create_browser_session=_get_or_create_browser_session,
-                    hp_b_was_recently_sent=_hp_b_was_recently_sent,
-                    hp_b_mark_sent=_hp_b_mark_sent,
-                    hp_b_dedup_ttl_s=_HP_B_DEDUP_TTL_S,
                 )
                 for _early_hook in _before_browser_session_setup_hooks:
                     _early_result = await _early_hook(
@@ -11060,22 +10570,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     extract_runtime_invocation_input=_extract_runtime_invocation_input,
                     parse_json_input=_parse_json_input,
                     send_log=send_skill_editor_log,
-                    normalize_customer_id=_normalize_customer_id,
-                    normalize_reply_text=_normalize_reply_text,
+                    normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
                     safe_format_dict=_SafeFormatDict,
                     cached_browser_sessions=_cached_browser_sessions,
-                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
-                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
-                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
-                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
-                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
-                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
-                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
+                    dispatch_state_by_agent=_dispatch_state_by_agent,
+                    is_dispatch_inflight=_is_dispatch_inflight,
+                    mark_dispatch_inflight=_mark_dispatch_inflight,
+                    clear_dispatch_inflight=_clear_dispatch_inflight,
+                    inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
                     resolve_template=_resolve_template,
                     get_or_create_browser_session=_get_or_create_browser_session,
-                    hp_b_was_recently_sent=_hp_b_was_recently_sent,
-                    hp_b_mark_sent=_hp_b_mark_sent,
-                    hp_b_dedup_ttl_s=_HP_B_DEDUP_TTL_S,
                 )
                 for _bur_hook in _before_browser_use_run_hooks:
                     _bur_hook_result = await _bur_hook(

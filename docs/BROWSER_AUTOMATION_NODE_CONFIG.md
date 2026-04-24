@@ -160,7 +160,132 @@ equivalent to `stepPatches: { "refocus_assigned_tab": true }`.
 
 ---
 
-## 4. `tabPolicy` — Tab Guardrail Text
+## 4. `actionableField` — Actionable-Item Filter Field
+
+A **string** input (not JSON) naming the DOM-item field whose non-empty
+presence marks an item as "actionable" for this round.  When set, the
+node extracts the subset of items whose `<actionableField>` is
+non-empty from the compacted DOM snapshot and exposes it to
+prompt-build hooks as `PromptBuildContext.actionable_raw`.
+
+### Example
+
+```
+last_message
+```
+
+### Behavior
+
+- If `actionableField` is empty / unset, `actionable_raw` is `[]` and no
+  site-plugin prompt-build hook activates the front-desk pattern.  The
+  node falls back to injecting the full compact-items snapshot into the
+  task hint.
+- If `actionableField` is set **and** a prompt-build hook consumes it
+  (e.g. `feige_chat.actionable_items`), the hook applies its own
+  filter + enrichment pipeline.  See
+  [`BUILD_NODE_LIFECYCLE_HOOKS.md`](./BUILD_NODE_LIFECYCLE_HOOKS.md#1-before_prompt_build-phase-7).
+- If `actionableField` is set but no prompt-build hook handles it, the
+  node injects a bare JSON list of the filtered actionable items into
+  the task hint (generic fallback).
+
+---
+
+## 5. `autoDispatch` — Data-Driven Worker-Pool Dispatcher
+
+JSON config consumed by the `feige_chat.actionable_items` prompt-build
+hook to **deterministically dispatch** actionable items to a pool of
+worker agents via `send_chat`, short-circuiting the LLM entirely when
+every actionable item is dispatched successfully.
+
+### Schema
+
+```json
+{
+  "trigger": {
+    "event_type": "browser_event",
+    "require_actionable": true
+  },
+  "agent_selection": {
+    "strategy": "round_robin",
+    "filter_by_tasks": ["客户应答"],
+    "affinity_ttl_s": 1800
+  },
+  "payload_template": {
+    "customer_id":    "{{customer_id || identity_key || customer_name}}",
+    "customer_name":  "{{customer_name || name}}",
+    "latest_message": "{{latest_message || last_message || message}}"
+  },
+  "item_filter": {
+    "required_fields": ["customer_name"],
+    "exclude_patterns": [
+      {"field": "customer_name", "equals": "您好"},
+      {"field": "customer_name", "prefix": "系统"}
+    ],
+    "exclude_self_echo": {"enabled": true},
+    "inflight": {
+      "enabled": true,
+      "allow_new_message": true,
+      "message_fields": ["last_message", "latest_message"]
+    },
+    "cooldown": {"enabled": true, "window_s": 10}
+  },
+  "dispatch": {"tool": "send_chat", "dedup": true, "per_item": true}
+}
+```
+
+### Top-level fields
+
+| Field | Purpose |
+|---|---|
+| `trigger.event_type` | Only run when the triggering event matches (empty = any). |
+| `trigger.require_actionable` | When `true` (default), skip if the filtered actionable list is empty. |
+| `agent_selection.strategy` | `"round_robin"` (rotate) or `"first_available"` (load-aware — pick candidate with fewest pending tasks). |
+| `agent_selection.filter_by_tasks` | Keep only agents whose `tasks` list contains any of these substrings (case-sensitive). |
+| `agent_selection.affinity_ttl_s` | Sticky-routing window: a returning customer is re-routed to the previously-assigned agent if fresher than this (default 1800s). |
+| `payload_template` | Map of output-field → `{{source || fallback}}` template.  Resolved per item; the resulting dict is JSON-serialised as the `send_chat` message body.  Defaults to `{customer_id, customer_name, latest_message}` if omitted. |
+| `item_filter` | Applied to each actionable item before dispatch — see sub-fields below. |
+| `dispatch.tool` | Currently only `"send_chat"` is supported (reserved for future). |
+| `dispatch.dedup` | When `true` (default), successful dispatches update the shared `extension_tools_service._send_chat_customer_last` / `_send_chat_dedup_cache` so the downstream `bu_send_chat` tool suppresses duplicate retries. |
+
+### `item_filter` fields
+
+| Field | Purpose |
+|---|---|
+| `required_fields` | Per-item fields that must resolve to non-empty. |
+| `exclude_patterns` | List of `{field, equals\|contains\|prefix\|regex: literal}`. First match drops the item. |
+| `exclude_self_echo.enabled` | Skip items whose DOM `identity_key` was already dispatched this session (pruned automatically when the key disappears from the DOM). |
+| `inflight.enabled` | Skip items whose customer has a dispatch currently in-flight (cross-scope lock). |
+| `inflight.allow_new_message` | When `true`, let items through if the sidebar preview carries a new message text despite the inflight lock. |
+| `inflight.message_fields` | Fields inspected for "new message" text (default `["last_message", "latest_message"]`). |
+| `cooldown.enabled` | Short hard post-delivery cooldown window per customer. |
+| `cooldown.window_s` | Window in seconds (default 10). |
+
+### Behavior summary
+
+1. The `actionable_items` prompt-build hook runs when `actionableField`
+   is set on the node.
+2. It applies `item_filter` to each actionable item (with Feige's
+   default inflight + self-echo + cooldown overrides pre-enabled).
+3. If the filtered list is non-empty:
+   - Builds the protocol-override block (10 binding rules).
+   - Injects a pre-resolved `agent_list` so the LLM skips
+     `bu_select_agents`.
+   - Calls the auto-dispatcher: for each item, pick an agent via
+     affinity → strategy, render the payload, call `send_chat`.
+4. If ≥1 item dispatched, the hook returns `PromptBuildResult(
+   short_circuit_state=...)` and the node skips the LLM entirely.
+5. If dispatch fails or `autoDispatch` is omitted, the hook returns the
+   enriched task/override text and the LLM handles the remaining items.
+
+### Required pairing
+
+`autoDispatch` has no effect unless `actionableField` is also set — the
+filter + protocol-override injection in the actionable-items hook is
+the gate that leads into auto-dispatch.
+
+---
+
+## 6. `tabPolicy` — Tab Guardrail Text
 
 Controls the per-step "tab discipline" paragraph injected into the LLM's task
 text.
