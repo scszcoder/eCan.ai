@@ -9,7 +9,13 @@ import pytest
 
 
 def pytest_configure(config):
-    """Override asyncio_mode to 'auto' for this test directory."""
+    """Set asyncio mode."""
     config.option.asyncio_mode = "auto"
-    # Suppress deprecation warning and align fixture loop scope with test scope
     config.option.asyncio_default_fixture_loop_scope = "function"
+
+
+def pytest_collection_modifyitems(config, items):
+    """Automatically mark cloud tests to skip unless explicitly requested."""
+    for item in items:
+        if "cloud" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="Cloud tests skipped by default. Run with --run-cloud to enable."))
