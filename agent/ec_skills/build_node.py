@@ -32,25 +32,132 @@ from langchain_deepseek import ChatDeepSeek
 # from gui.ipc.w2p_handlers import prompt_handler
 from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
-# Feige-site DOM assets — relocated to the ``feige_chat`` external hook
-# bundle (Phase 1+2 of the site-code-out-of-core-node cleanup).  These
-# legacy underscore-prefixed names are preserved as aliases so the
-# remaining HOT-PATH-B call sites in this module keep working verbatim.
-# Once Phase 4 replaces HOT-PATH-B with hook-bundle equivalents, these
-# aliases become dead code and can be deleted.
-from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-    FEIGE_ACTIVE_CUSTOMER_JS as _FEIGE_ACTIVE_CUSTOMER_JS,
-    FEIGE_LATEST_CUSTOMER_BUBBLE_JS as _FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
-    FEIGE_CLICK_SIDEBAR_ROW_JS as _FEIGE_CLICK_SIDEBAR_ROW_JS,
-    verify_customer_match as _feige_verify_customer_match,
-    ensure_feige_tab_focused as _ensure_feige_tab_focused,
-    scrape_latest_customer_bubble as _feige_scrape_latest_customer_bubble,
-)
-
-
-from typing import Any, Literal, cast, overload
+from typing import Any, Awaitable, Callable, Literal, cast, overload
+from dataclasses import dataclass
 
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
+
+
+# ==================== Browser-Use Node Lifecycle Hooks ====================
+#
+# Site-specific business-case patterns (e.g. Feige's front-desk +
+# Q&A-worker-team fan-out) that wrap ``browser_automation`` register
+# themselves here as async callables invoked before the browser-use
+# agent runs.  If any hook returns a non-None state dict, the LLM
+# invocation is skipped and that state dict is returned from the node.
+# Hooks are invoked in registration order.
+#
+# Site bundles (e.g. ``hooks/external/feige_chat``) register their
+# hook at import time; this module imports the bundle near the end of
+# the file so the registry is populated before any node executes.
+# ``build_node`` itself has no knowledge of what any hook does — it
+# only invokes them.
+
+# Early-phase hooks run BEFORE the browser-use agent is constructed.
+# Used for fast-paths that can decide to short-circuit the whole node
+# based on the incoming event alone (e.g. Feige's HOT-PATH-B typing a
+# pre-computed reply into Feige without invoking the LLM or the full
+# browser-use agent lifecycle).  ``agent`` is always None at this phase.
+_before_browser_session_setup_hooks: list[
+    Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
+] = []
+
+
+def register_before_browser_session_setup_hook(
+    hook: Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]],
+) -> None:
+    """Register *hook* to be invoked BEFORE the browser-use agent is
+    constructed (early phase).  Use this for fast-paths that can decide
+    on the incoming event alone without needing the LLM or a fully
+    set-up browser-use agent.
+
+    Hook signature: ``hook(agent, state, inputs, hook_ctx)``.  ``agent``
+    is always ``None`` at this phase — acquire a browser session via
+    ``hook_ctx.get_or_create_browser_session`` if needed.  Returning a
+    non-None state dict short-circuits the whole node; returning
+    ``None`` lets the next early hook run (or the late phase, if no
+    more early hooks).  Registration is idempotent.
+    """
+    if hook not in _before_browser_session_setup_hooks:
+        _before_browser_session_setup_hooks.append(hook)
+
+
+# Late-phase hooks run AFTER the browser-use agent is constructed and
+# its browser session is ready.  Use this for patterns that need the
+# live agent / browser session (e.g. Feige's PreDispatch customer-
+# message fan-out that reads the sidebar DOM via agent.browser_session).
+_before_browser_use_run_hooks: list[
+    Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
+] = []
+
+
+def register_before_browser_use_run_hook(
+    hook: Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]],
+) -> None:
+    """Register *hook* to be invoked before the browser-use agent runs
+    (late phase).
+
+    Hook signature: ``hook(agent, state, inputs, hook_ctx)``.  Returning
+    a non-None state dict short-circuits the LLM; returning ``None``
+    lets the next hook run (or the LLM, if no more hooks).  Registration
+    is idempotent: adding the same callable twice is a no-op.
+    """
+    if hook not in _before_browser_use_run_hooks:
+        _before_browser_use_run_hooks.append(hook)
+
+
+@dataclass
+class BrowserUseHookContext:
+    """Data + helpers passed to ``before_browser_use_run`` hooks.
+
+    Site-specific state (e.g. Feige's dispatch dicts) lives in the
+    hook module itself, not here.  This context carries only the
+    generic helpers / shared state that ``build_node`` owns and that
+    hook implementations (+ their delegated helpers) need.
+    """
+    # Identifiers.
+    node_name: str
+    calling_agent_id: str
+    mainwin: Any
+    # Closure-scoped helpers from ``_run_browser_use`` (can't be
+    # module-level because they capture per-invocation locals).
+    resolve_scope_key: Callable[[dict], str]
+    extract_runtime_invocation_input: Callable[[dict | None], str]
+    # Module-level helpers (safe to call anywhere).
+    parse_json_input: Callable[[dict, str], Any]
+    send_log: Callable[[str, str], None]
+    normalize_customer_id: Callable[[str], str]
+    normalize_reply_text: Callable[[str], str]
+    safe_format_dict: type
+    # Shared state dicts (front-desk fan-out + HOT-PATH-B caches).
+    # Still owned by ``build_node`` module scope for now; Phase 5B
+    # will relocate them together with HOT-PATH-B into the
+    # ``feige_chat.front_desk`` module.
+    cached_browser_sessions: dict
+    frontdesk_dispatch_state_by_agent: dict
+    customer_last_dispatched_msg_id: dict
+    auto_dispatch_last_agent_reply: dict
+    # Inflight-lock trio (prevents double-dispatch of the same customer
+    # turn across scopes).
+    is_customer_dispatch_inflight: Callable[[str], float]
+    mark_customer_dispatch_inflight: Callable[[str], None]
+    clear_customer_dispatch_inflight: Callable[[str], None]
+    inflight_ttl_s: float
+    # Template renderer for action args (resolves ``{{field}}`` / 
+    # ``{{a || b}}`` placeholders from the event payload).  Used by
+    # HOT-PATH-B to build tool-call arguments.
+    resolve_template: Callable[[str, dict], str]
+    # Closure that creates / retrieves the cached browser session for
+    # this node invocation.  Exposed so early-phase hooks (which run
+    # before the browser-use agent is constructed) can still acquire
+    # a live session.  Signature: ``(mainwin, state=..., calling_agent_id=...)``.
+    get_or_create_browser_session: Callable[..., Awaitable[Any]]
+    # HOT-PATH-B dedup primitives — used by Feige's early hook to
+    # suppress replay loops when send_response_back's fallback path
+    # re-fires the same chat_message.
+    hp_b_was_recently_sent: Callable[[str, str], float]
+    hp_b_mark_sent: Callable[[str, str], None]
+    hp_b_dedup_ttl_s: float
 
 
 # ==================== Node Input Helpers ====================
@@ -218,10 +325,6 @@ def _hp_b_mark_sent(customer: str, reply_text: str) -> None:
                 _hp_b_recent_sends.pop(k, None)
 
 
-# _FEIGE_ACTIVE_CUSTOMER_JS constant and _feige_verify_customer_match() relocated
-# to agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets
-# and re-exported under their legacy names at the top of this module.
-
 
 def _normalize_reply_text(text: str) -> str:
     """Normalise a reply for DOM-echo comparison.
@@ -236,29 +339,6 @@ def _normalize_reply_text(text: str) -> str:
         return ""
     s = re.sub(r"\s+", " ", str(text)).strip()
     return s[:120]
-
-
-# _FEIGE_LATEST_CUSTOMER_BUBBLE_JS, _FEIGE_CLICK_SIDEBAR_ROW_JS constants
-# relocated to feige_chat.dom_assets.  Re-exported at the top of this module.
-
-
-# _ensure_feige_tab_focused() body relocated to feige_chat.dom_assets and
-# aliased at the top of this module via ``from ... import
-# ensure_feige_tab_focused as _ensure_feige_tab_focused``.
-
-
-async def _scrape_latest_customer_bubble(browser_session, customer_name: str) -> dict:
-    """Thin wrapper over feige_chat.dom_assets.scrape_latest_customer_bubble
-    that curries the local ``_feige_typing_holder`` as the typing-lock
-    getter.  The relocated implementation performs the sidebar click,
-    bubble scrape, and Feige-tab focus; the typing-lock guard is kept
-    module-local because the lock state still lives in ``build_node.py``
-    (Phase 3 migration target)."""
-    return await _feige_scrape_latest_customer_bubble(
-        browser_session,
-        customer_name,
-        typing_holder_getter=_feige_typing_holder,
-    )
 
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
@@ -6789,38 +6869,18 @@ def _clear_customer_dispatch_inflight(customer_key: str) -> None:
     _customer_dispatch_inflight.pop(customer_key, None)
 
 
-# ── Feige active-session race guard (2026-04-22) ───────────────────────────
-# HOT-PATH-B's feige_open_session → feige_send_message pair and PreDispatch's
-# _scrape_latest_customer_bubble BOTH mutate the same global "active chat"
-# state in the Feige DOM by clicking sidebar rows.  Observed repro on 客户A:
-# HOT-PATH-B opened 客户A, verified active-customer=客户A, scheduled a 300 ms
-# inter-action delay; during that delay a parallel PreDispatch (running on a
-# different per-customer scope's persistent event loop) clicked 客户B and
-# then 客户C sidebar rows for its own scrape; HOT-PATH-B then typed customer
-# A's reply into 客户C's chat.  客户A ended up "answered" from the bot's POV
-# (locks cleared) but never actually replied to.
+# ── Feige active-session race guard ─────────────────────────────────────────
+# State + implementation live in the ``feige_chat.typing_lock`` bundle;
+# HOT-PATH-B and the ``feige_chat.pre_dispatch_enrich`` plugin acquire /
+# check the typing-lock holder directly from the owning bundle; build_node
+# no longer aliases it.  We keep this bare package import so that
+# ``feige_chat/__init__.py`` executes (which calls ``front_desk.register()``
+# and wires both the early HOT-PATH-B and late PreDispatch lifecycle hooks).
 #
-# To prevent this we track a single module-level "who is currently typing
-# into Feige" holder.  The holder is set by HOT-PATH-B right before
-# feige_open_session and released after feige_send_message completes (or on
-# any early break).  A TTL guards against stuck holders if HOT-PATH-B
-# crashes without releasing.  `_scrape_latest_customer_bubble` checks the
-# holder: if another customer is currently typing, it skips its sidebar
-# click and returns empty (caller falls back to the sidebar preview — that
-# single scrape-cycle is the worst-case cost of waiting).
-# Phase 3 relocation — state + implementation live in the feige_chat
-# hook bundle now.  These module-level thin aliases keep the old call
-# sites (``_try_acquire_feige_typing`` etc.) working verbatim while
-# sharing the same lock state with any bundle hook running inside the
-# PrivacyAgent loop.
-from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-    typing_lock as _feige_typing_lock,
-)
-
-_FEIGE_TYPING_LOCK_TTL_S = _feige_typing_lock.FEIGE_TYPING_LOCK_TTL_S
-_try_acquire_feige_typing = _feige_typing_lock.try_acquire
-_release_feige_typing = _feige_typing_lock.release
-_feige_typing_holder = _feige_typing_lock.holder
+# To add a new business case, drop a bundle under
+# ``hooks/external/<site>/`` with a ``register()`` called from its
+# ``__init__.py``, then add a sibling import here.
+import agent.ec_skills.browser_use_extension.hooks.external.feige_chat  # noqa: F401
 
 
 # ── Upstream-output compaction ────────────────────────────────────────────
@@ -8952,473 +9012,47 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     f"(node={node_name}, override_len={len(_override_block)})"
                 )
 
-            # HOT-PATH flag — the actual hot-path runs after browser session
-            # setup (post-setup HOT-PATH near agent.run) where the CDP
-            # connection is live.  See "Post-setup HOT-PATH" block below.
-            _hot_path_done = False
-
-            # ── Hot-path: configurable action templates (Option B) ──
-            # Allows users to define custom hot-path triggers and action sequences
-            # in the node editor.  Currently default-bypassed; enable by setting
-            # hotPathActions in the node config.
-            # Config format:
-            #   hotPathActions: [
-            #     {
-            #       "trigger": {"event_type": "chat_message", "has_fields": ["response_text"]},
-            #       "actions": [
-            #         {"tool": "feige_open_session", "args": {"customer_name": "{{customer_name}}"}},
-            #         {"tool": "feige_send_message", "args": {"text": "{{response_text}}"}}
-            #       ]
-            #     }
-            #   ]
-            if not _hot_path_done:
-                try:
-                    _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
-                    _hp_b_actions_list = None
-                    if isinstance(_hp_b_raw, str) and _hp_b_raw.strip():
-                        _hp_b_actions_list = json.loads(_hp_b_raw)
-                    elif isinstance(_hp_b_raw, list):
-                        _hp_b_actions_list = _hp_b_raw
-                    # Determine current event type and payload fields.
-                    # IMPORTANT (customer cross-talk fix 2026-04-22): We must read the
-                    # payload from the JUST-RESUMED event for THIS cycle, not from
-                    # state["input"] (stale) and not from state["events"][-1] alone
-                    # (which can contain an event from a different customer's cycle
-                    # when multiple chat_messages are interleaved on the same task's
-                    # shared graph state).
-                    #
-                    # Priority order for sourcing the payload:
-                    #   1. state["prompt_refs"]["events"] (AUTHORITATIVE — this is
-                    #      written by pend_event_node for THIS cycle's triggering
-                    #      event, and matches the "Injected triggering event
-                    #      context" log emitted just above)
-                    #   2. state["events"][-1].data.human_text (matches #1 in most
-                    #      cases; used when prompt_refs is missing)
-                    #   3. state["input"] (legacy fallback ONLY when the current
-                    #      event is itself a chat_message)
-                    #
-                    # Cross-check: if #1 and #2 disagree on customer_name, trust #1
-                    # and WARN — that is the cross-customer bleed scenario.
-                    _hp_b_evt_type = ""
-                    _hp_b_payload = {}
-                    _hp_b_payload_src = "none"
-                    _hp_b_payload_from_events_tail = {}
-                    if isinstance(state, dict):
-                        # --- 1. prompt_refs.events (authoritative per-cycle) ---
-                        _hp_b_pr = state.get("prompt_refs")
-                        if isinstance(_hp_b_pr, dict):
-                            _hp_b_evt_str = _hp_b_pr.get("events", "")
-                            if _hp_b_evt_str and isinstance(_hp_b_evt_str, str):
-                                try:
-                                    _hp_b_evt = json.loads(_hp_b_evt_str)
-                                    _hp_b_evt_type = _hp_b_evt.get("event_type", "") or _hp_b_evt_type
-                                    _hp_b_pr_ht = _hp_b_evt.get("human_text")
-                                    if isinstance(_hp_b_pr_ht, str) and _hp_b_pr_ht.strip():
-                                        try:
-                                            _hp_b_parsed = json.loads(_hp_b_pr_ht)
-                                            if isinstance(_hp_b_parsed, dict):
-                                                _hp_b_payload = _hp_b_parsed
-                                                _hp_b_payload_src = "prompt_refs.events.human_text"
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    pass
-                        # --- 2. state.events[-1] — also sample so we can detect
-                        # disagreement with #1 (cross-customer bleed warning). ---
-                        _hp_b_events_list = state.get("events") or []
-                        if isinstance(_hp_b_events_list, list) and _hp_b_events_list:
-                            _hp_b_last_evt = _hp_b_events_list[-1] if isinstance(_hp_b_events_list[-1], dict) else {}
-                            _hp_b_tail_type = _hp_b_last_evt.get("event_type", "")
-                            _hp_b_evt_data = _hp_b_last_evt.get("data") or {}
-                            _hp_b_raw_ht = _hp_b_evt_data.get("human_text") if isinstance(_hp_b_evt_data, dict) else None
-                            if isinstance(_hp_b_raw_ht, str) and _hp_b_raw_ht.strip():
-                                try:
-                                    _hp_b_tail_parsed = json.loads(_hp_b_raw_ht)
-                                    if isinstance(_hp_b_tail_parsed, dict):
-                                        _hp_b_payload_from_events_tail = _hp_b_tail_parsed
-                                        # Fill in only if prompt_refs.events was empty.
-                                        if not _hp_b_payload:
-                                            _hp_b_payload = _hp_b_tail_parsed
-                                            _hp_b_payload_src = "events[-1].data.human_text"
-                                            _hp_b_evt_type = _hp_b_tail_type or _hp_b_evt_type
-                                except Exception:
-                                    pass
-                        # --- 3. Legacy state.input fallback ---
-                        # Only trust state.input when the current cycle is itself a
-                        # chat_message AND we could not source a payload from #1/#2.
-                        # Otherwise the inherited value is from a previous customer.
-                        if not _hp_b_payload and _hp_b_evt_type == "chat_message":
-                            _hp_b_input = state.get("input", "")
-                            if isinstance(_hp_b_input, str) and _hp_b_input.strip():
-                                try:
-                                    _hp_b_parsed = json.loads(_hp_b_input)
-                                    if isinstance(_hp_b_parsed, dict):
-                                        _hp_b_payload = _hp_b_parsed
-                                        _hp_b_payload_src = "state.input[legacy-fallback]"
-                                except Exception:
-                                    pass
-                    # Cross-customer bleed detection: if prompt_refs.events (cycle
-                    # truth) disagrees with state.events[-1] (accumulated tail), WARN
-                    # loudly and trust prompt_refs. Previously we trusted tail first,
-                    # which caused HOT-PATH-B to type customer B's reply into customer
-                    # C's chat when their cycles interleaved on the shared task state.
-                    try:
-                        if (
-                            _hp_b_payload
-                            and _hp_b_payload_from_events_tail
-                            and _hp_b_payload is not _hp_b_payload_from_events_tail
-                        ):
-                            _cn_cur = (
-                                _hp_b_payload.get("customer_name")
-                                or _hp_b_payload.get("customer_id")
-                                or ""
-                            )
-                            _cn_tail = (
-                                _hp_b_payload_from_events_tail.get("customer_name")
-                                or _hp_b_payload_from_events_tail.get("customer_id")
-                                or ""
-                            )
-                            if _cn_cur and _cn_tail and _cn_cur != _cn_tail:
-                                logger.warning(
-                                    f"[BrowserAutomation] HOT-PATH-B: cycle/tail customer "
-                                    f"disagreement — cycle(prompt_refs)={_cn_cur!r} "
-                                    f"tail(events[-1])={_cn_tail!r}; trusting cycle. "
-                                    f"This indicates state.events accumulated from a "
-                                    f"prior customer's resume that is not the current "
-                                    f"cycle — defence-in-depth for graph-state bleed."
-                                )
-                    except Exception:
-                        pass
-                    # Cross-check: detect stale-state bleed. If state.input carries a
-                    # customer_name different from the per-cycle payload's, log a
-                    # WARN so we can track residual bleed after this fix.
-                    try:
-                        if _hp_b_payload and isinstance(state, dict):
-                            _hp_b_state_input = state.get("input", "")
-                            if isinstance(_hp_b_state_input, str) and _hp_b_state_input.strip():
-                                try:
-                                    _hp_b_si = json.loads(_hp_b_state_input)
-                                    if isinstance(_hp_b_si, dict):
-                                        _hp_b_cn_cur = (_hp_b_payload.get("customer_name") or _hp_b_payload.get("customer_id") or "")
-                                        _hp_b_cn_stale = (_hp_b_si.get("customer_name") or _hp_b_si.get("customer_id") or "")
-                                        if _hp_b_cn_cur and _hp_b_cn_stale and _hp_b_cn_cur != _hp_b_cn_stale:
-                                            logger.warning(
-                                                f"[BrowserAutomation] HOT-PATH-B: detected stale state.input bleed "
-                                                f"(cur_cycle_customer='{_hp_b_cn_cur}' src={_hp_b_payload_src} "
-                                                f"!= state.input_customer='{_hp_b_cn_stale}'); using cur_cycle payload"
-                                            )
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-                    # Entry-log so we can see HOT-PATH-B was considered and why it
-                    # did (not) fire.
-                    logger.info(
-                        f"[BrowserAutomation] HOT-PATH-B: entry "
-                        f"event_type={_hp_b_evt_type or 'none'}, "
-                        f"payload_keys={list(_hp_b_payload.keys()) if _hp_b_payload else []}, "
-                        f"payload_src={_hp_b_payload_src}, "
-                        f"payload_customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id') or '-'}, "
-                        f"rules_configured={len(_hp_b_actions_list) if isinstance(_hp_b_actions_list, list) else 0}, "
-                        f"node={node_name}"
+            # ── Invoke early-phase before-session-setup hooks ──────
+            # Early hooks run BEFORE the (expensive) browser-use agent
+            # is constructed, so a Feige-style fast-path (HOT-PATH-B:
+            # chat_message arrives with a pre-computed reply, type it
+            # into Feige directly, short-circuit the LLM) doesn’t pay
+            # for agent setup it will throw away.  Hooks acquire a
+            # browser session via `hook_ctx.get_or_create_browser_session`.
+            # First hook to return a non-None state dict short-circuits
+            # the whole node; returning `None` lets the late phase run.
+            if _before_browser_session_setup_hooks:
+                _early_hook_ctx = BrowserUseHookContext(
+                    node_name=str(node_name or ""),
+                    calling_agent_id=str(calling_agent_id or ""),
+                    mainwin=mainwin,
+                    resolve_scope_key=_resolve_browser_scope_key,
+                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                    parse_json_input=_parse_json_input,
+                    send_log=send_skill_editor_log,
+                    normalize_customer_id=_normalize_customer_id,
+                    normalize_reply_text=_normalize_reply_text,
+                    safe_format_dict=_SafeFormatDict,
+                    cached_browser_sessions=_cached_browser_sessions,
+                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
+                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
+                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
+                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
+                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
+                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
+                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
+                    resolve_template=_resolve_template,
+                    get_or_create_browser_session=_get_or_create_browser_session,
+                    hp_b_was_recently_sent=_hp_b_was_recently_sent,
+                    hp_b_mark_sent=_hp_b_mark_sent,
+                    hp_b_dedup_ttl_s=_HP_B_DEDUP_TTL_S,
+                )
+                for _early_hook in _before_browser_session_setup_hooks:
+                    _early_result = await _early_hook(
+                        None, state, inputs, _early_hook_ctx
                     )
-                    if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
-
-                        for _hp_b_rule in _hp_b_actions_list:
-                            if not isinstance(_hp_b_rule, dict):
-                                continue
-                            _hp_b_trigger = _hp_b_rule.get("trigger", {})
-                            # Check trigger conditions
-                            if _hp_b_trigger.get("event_type") and _hp_b_trigger["event_type"] != _hp_b_evt_type:
-                                continue
-                            _hp_b_required = _hp_b_trigger.get("has_fields", [])
-                            if not all(f in _hp_b_payload for f in _hp_b_required):
-                                continue
-                            # Trigger matched — execute action sequence
-                            _hp_b_action_seq = _hp_b_rule.get("actions", [])
-                            if not _hp_b_action_seq:
-                                continue
-                            logger.info(
-                                f"[BrowserAutomation] HOT-PATH-B: trigger matched "
-                                f"(event={_hp_b_evt_type}, rule={_hp_b_trigger}), "
-                                f"executing {len(_hp_b_action_seq)} actions"
-                            )
-                            # ── Replay dedup guard (fixes observed crosstalk loop) ──
-                            # 2026-04-22 11:51 run: HOT-PATH-B re-entered 8+ times with
-                            # an IDENTICAL payload ({customer_name:'客户B', response_text:...})
-                            # because send_response_back's fallback path keeps re-firing
-                            # the same chat_message after `Chat not found: 客户B` errors.
-                            # Each replay re-ran feige_open_session + feige_send_message,
-                            # and due to a brief focus race between cycles, some of those
-                            # sends landed in the wrong customer's chat pane (客户C got
-                            # 客户B's XXL answer).  Short-TTL dedup on (cust, reply-hash)
-                            # breaks the loop without blocking legitimate future replies.
-                            _hp_b_dedup_cust = (
-                                _hp_b_payload.get("customer_name")
-                                or _hp_b_payload.get("customer_id")
-                                or ""
-                            )
-                            _hp_b_dedup_reply = _hp_b_payload.get("response_text") or ""
-                            _hp_b_dedup_age = _hp_b_was_recently_sent(
-                                _hp_b_dedup_cust, _hp_b_dedup_reply
-                            )
-                            if _hp_b_dedup_age > 0:
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH-B: dedup skip "
-                                    f"cust={_hp_b_dedup_cust!r} reply_len="
-                                    f"{len(_hp_b_dedup_reply)} (identical reply already "
-                                    f"sent {_hp_b_dedup_age:.1f}s ago, "
-                                    f"ttl={_HP_B_DEDUP_TTL_S}s), node={node_name}"
-                                )
-                                # Release the cross-scope inflight lock so the
-                                # *next* genuine customer turn isn't blocked by
-                                # the stale inflight record from the loop.
-                                try:
-                                    _hp_b_skip_cust = _normalize_customer_id(_hp_b_dedup_cust)
-                                    if _hp_b_skip_cust:
-                                        _clear_customer_dispatch_inflight(_hp_b_skip_cust)
-                                except Exception:
-                                    pass
-                                state.setdefault("result", {})["llm_result"] = {
-                                    "all_done": False, "work_done": False,
-                                    "hot_path": True, "hot_path_type": "dedup_skip",
-                                }
-                                return state
-                            # ── Pre-record the outgoing reply text BEFORE send ──
-                            # The equality guard in PreDispatch compares the DOM's
-                            # sidebar `last_message` against this recorded text to
-                            # recognise our own DOM-echo events and skip them.  By
-                            # recording *before* feige_send_message runs, we close
-                            # the race window entirely: if a DOM diff fires while
-                            # typing is in flight, the recorded text is already
-                            # available for comparison.  If the send ultimately
-                            # fails, the recorded text is harmless — the DOM won't
-                            # contain it, so the equality guard will never match a
-                            # genuine event against it.
-                            try:
-                                _hp_b_pre_cust = _normalize_customer_id(
-                                    _hp_b_payload.get("customer_name")
-                                    or _hp_b_payload.get("customer_id")
-                                    or ""
-                                )
-                                _hp_b_pre_reply = _normalize_reply_text(
-                                    _hp_b_payload.get("response_text") or ""
-                                )
-                                if _hp_b_pre_cust and _hp_b_pre_reply:
-                                    _auto_dispatch_last_agent_reply[_hp_b_pre_cust] = _hp_b_pre_reply
-                                    logger.info(
-                                        f"[BrowserAutomation] HOT-PATH-B: pre-recorded "
-                                        f"last_agent_reply for '{_hp_b_pre_cust}' "
-                                        f"(len={len(_hp_b_pre_reply)}, before send), "
-                                        f"node={node_name}"
-                                    )
-                            except Exception as _hp_b_pre_err:
-                                logger.warning(
-                                    f"[BrowserAutomation] HOT-PATH-B: pre-record reply failed: {_hp_b_pre_err}"
-                                )
-                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp_b_ctrl
-                            _hp_b_actions_reg = _hp_b_ctrl.registry.registry.actions
-                            _hp_b_session = await _get_or_create_browser_session(
-                                mainwin, state=state, calling_agent_id=calling_agent_id
-                            )
-                            if not _hp_b_session:
-                                logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
-                                break
-                            # ── Delegate Feige DOM orchestration to the hook bundle ──
-                            # (Phase 4 B-refined cleanup, 2026-04-23.)  The
-                            # ~440 lines of pre-action tab focus, typing-lock
-                            # acquire, action-sequence execution with per-tool
-                            # verification (post-open active-customer check,
-                            # pre-send re-verify + re-open recovery), and
-                            # post-success tab restore now live in
-                            # ``feige_chat.hot_path.execute``.  Typing-lock
-                            # release is handled inside the executor's
-                            # ``finally`` for every exit path (success,
-                            # abort, exception).
-                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.hot_path import (
-                                execute as _hp_b_feige_execute,
-                            )
-                            _hp_b_typing_cust = _normalize_customer_id(
-                                _hp_b_payload.get("customer_name")
-                                or _hp_b_payload.get("customer_id")
-                                or ""
-                            )
-                            _hp_b_outcome = await _hp_b_feige_execute(
-                                browser_session=_hp_b_session,
-                                customer_key=_hp_b_typing_cust,
-                                action_seq=_hp_b_action_seq,
-                                payload=_hp_b_payload,
-                                actions_registry=_hp_b_actions_reg,
-                                resolve_template=_resolve_template,
-                                node_name=node_name,
-                            )
-                            _hp_b_all_ok = _hp_b_outcome.ok
-                            _hp_b_typing_acquired = _hp_b_outcome.typing_acquired
-                            logger.info(
-                                f"[BrowserAutomation] HOT-PATH-B: executor returned "
-                                f"ok={_hp_b_all_ok} reason={_hp_b_outcome.reason!r} "
-                                f"actions_attempted={_hp_b_outcome.actions_attempted} "
-                                f"last_tool_error={_hp_b_outcome.last_tool_error!r}, "
-                                f"node={node_name}"
-                            )
-
-                            # (Feige action-loop body moved to
-                            # ``feige_chat.hot_path.execute`` — see above.)
-                            if _hp_b_all_ok:
-                                # Mark this (cust, reply) as sent so any immediate
-                                # replay of the same chat_message (from
-                                # send_response_back fallback path) is deduped
-                                # by the guard at the top of HOT-PATH-B.
-                                try:
-                                    _hp_b_mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
-                                except Exception:
-                                    pass
-                                # Reply text was already pre-recorded before send
-                                # (see the `Pre-record the outgoing reply text BEFORE
-                                # send` block above). No timer-based cooldown is
-                                # needed — PreDispatch's equality guard uses the
-                                # pre-recorded text directly to recognise DOM echoes.
-
-                                # Release the QA-response pending lock so the next
-                                # *genuine* customer turn for this customer can be
-                                # dispatched again.  Acquired in
-                                # agent.mcp.server.chat_utils.chat_tools.send_chat
-                                # on the first response-bearing payload.  Keyed by
-                                # (recipient=this typing agent, customer).  Safe
-                                # no-op if the lock already expired via TTL.
-                                try:
-                                    from agent.mcp.server.chat_utils.chat_tools import (
-                                        clear_qa_response_pending as _hp_b_clear_pending,
-                                    )
-                                    _hp_b_clr_cust = _normalize_customer_id(
-                                        _hp_b_payload.get("customer_name")
-                                        or _hp_b_payload.get("customer_id")
-                                        or ""
-                                    )
-                                    if _hp_b_clr_cust and calling_agent_id:
-                                        _hp_b_clear_pending(str(calling_agent_id), _hp_b_clr_cust)
-                                        logger.info(
-                                            f"[BrowserAutomation] HOT-PATH-B: cleared "
-                                            f"qa_response_pending lock for "
-                                            f"recipient={calling_agent_id!r} "
-                                            f"cust={_hp_b_clr_cust!r}, node={node_name}"
-                                        )
-                                except Exception as _hp_b_clr_err:
-                                    logger.debug(
-                                        f"[BrowserAutomation] HOT-PATH-B: "
-                                        f"qa_response_pending clear failed: {_hp_b_clr_err}"
-                                    )
-
-                                # Release the cross-scope dispatch-inflight
-                                # lock so the next customer turn (or a
-                                # queued follow-up already visible in the
-                                # sidebar) can be dispatched by the first
-                                # PreDispatch that notices it.
-                                try:
-                                    if _hp_b_clr_cust:
-                                        _clear_customer_dispatch_inflight(_hp_b_clr_cust)
-                                        logger.info(
-                                            f"[BrowserAutomation] HOT-PATH-B: cleared "
-                                            f"customer_dispatch_inflight lock for "
-                                            f"cust={_hp_b_clr_cust!r}, node={node_name}"
-                                        )
-                                except Exception as _hp_b_cdi_err:
-                                    logger.debug(
-                                        f"[BrowserAutomation] HOT-PATH-B: "
-                                        f"customer_dispatch_inflight clear failed: {_hp_b_cdi_err}"
-                                    )
-                                # Evict this customer from assigned_sessions so the next
-                                # customer message for them re-dispatches. Without this, the
-                                # PreDispatch dedup guard (`if assigned_sessions.get(sid): continue`)
-                                # would permanently skip this customer after their first reply.
-                                try:
-                                    # Prefer the shared module-level dispatch_state
-                                    # (see _frontdesk_dispatch_state_by_agent). Fall back
-                                    # to the per-session attribute only if for some reason
-                                    # PreDispatch hasn't run yet.
-                                    _hp_b_shared_key = (
-                                        str(calling_agent_id or ""),
-                                        str(node_name or ""),
-                                        "_ecan_frontdesk_dispatch_state",
-                                    )
-                                    _hp_b_ds = _frontdesk_dispatch_state_by_agent.get(_hp_b_shared_key)
-                                    if not isinstance(_hp_b_ds, dict):
-                                        _hp_b_ds = getattr(_hp_b_session, "_ecan_frontdesk_dispatch_state", None)
-                                    if isinstance(_hp_b_ds, dict):
-                                        _hp_b_as = _hp_b_ds.get("assigned_sessions") or {}
-                                        _hp_b_raw_sid = (
-                                            _hp_b_payload.get("session_id")
-                                            or _hp_b_payload.get("customer_name")
-                                            or _hp_b_payload.get("customer_id")
-                                            or ""
-                                        )
-                                        if _hp_b_raw_sid and _hp_b_raw_sid in _hp_b_as:
-                                            _hp_b_as.pop(_hp_b_raw_sid, None)
-                                            logger.info(
-                                                f"[BrowserAutomation] HOT-PATH-B: evicted "
-                                                f"assigned_sessions[{_hp_b_raw_sid!r}] so next "
-                                                f"customer message will re-dispatch, node={node_name}"
-                                            )
-                                except Exception as _hp_b_evict_err:
-                                    logger.debug(
-                                        f"[BrowserAutomation] HOT-PATH-B: assigned_sessions eviction failed: {_hp_b_evict_err}"
-                                    )
-                                # (Tab restore + typing-lock release now
-                                # handled inside feige_chat.hot_path.execute.)
-                                state.setdefault("result", {})["llm_result"] = {
-                                    "all_done": False, "work_done": False,
-                                    "hot_path": True, "hot_path_type": "configurable",
-                                }
-                                logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={node_name}")
-                                return state
-                            else:
-                                # Any action in the sequence failed (e.g.
-                                # feige_open_session returning "Session not
-                                # found" when Feige's SPA is transiently in a
-                                # bad state).  Release the cross-scope
-                                # `_customer_dispatch_inflight` lock here —
-                                # otherwise PreDispatch keeps skipping the
-                                # next message for this customer for the full
-                                # 120 s TTL (observed 2026-04-22 11:18:38 —
-                                # customer A's question sat unanswered for
-                                # `1m 42s` with repeated
-                                # `PreDispatch inflight skip ... ttl=120.0s`).
-                                # We deliberately do NOT clear
-                                # `qa_response_pending` or evict
-                                # `assigned_sessions`: the QA worker already
-                                # generated a reply and we want the *next*
-                                # genuine customer turn to cause a fresh
-                                # reply, not for PreDispatch to race with a
-                                # half-consumed state.
-                                try:
-                                    _hp_b_fail_cust = _normalize_customer_id(
-                                        _hp_b_payload.get("customer_name")
-                                        or _hp_b_payload.get("customer_id")
-                                        or ""
-                                    )
-                                    if _hp_b_fail_cust:
-                                        _clear_customer_dispatch_inflight(_hp_b_fail_cust)
-                                        logger.info(
-                                            f"[BrowserAutomation] HOT-PATH-B: released "
-                                            f"customer_dispatch_inflight after action-failure "
-                                            f"for cust={_hp_b_fail_cust!r}, node={node_name}"
-                                        )
-                                except Exception as _hp_b_fail_cdi_err:
-                                    logger.debug(
-                                        f"[BrowserAutomation] HOT-PATH-B: inflight clear "
-                                        f"after failure: {_hp_b_fail_cdi_err}"
-                                    )
-                                # (Typing-lock release now handled inside
-                                # feige_chat.hot_path.execute's finally.)
-                            break  # Only try first matching rule
-                except Exception as _hp_b_err:
-                    logger.warning(
-                        f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
-                        exc_info=True,
-                    )
-                    # (Typing-lock release now handled inside
-                    # feige_chat.hot_path.execute's finally — no defensive
-                    # release needed here.)
+                    if _early_result is not None:
+                        return _early_result
 
             # ── Assignment scope (always extracted — safe no-op when runtime_input
             # is not JSON).  Downstream focus-preflight and per-step refocus read
@@ -9517,69 +9151,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if match:
                         return match.group(0)
                 return None
-
-            # ── PreDispatch fast-path (Phase-4 extracted 2026-04-23) ──
-            # All generic fan-out skeleton lives in
-            # ``agent.ec_skills.node_runtime.frontdesk_dispatch``.
-            # Feige-specific ground-truth enrichment (chat-thread scrape
-            # + msg-id dedup + dom-echo fallback) lives in the
-            # ``feige_chat.pre_dispatch_enrich`` plugin and is loaded
-            # by name when ``preDispatch.site_plugin`` is set.
-            from agent.ec_skills.node_runtime.frontdesk_dispatch import (
-                DispatchConfig as _FDDispatchConfig,
-                DispatchContext as _FDDispatchContext,
-                run as _run_frontdesk_dispatch,
-            )
-            # Back-compat default: the pre-refactor monolithic
-            # _maybe_run_frontdesk_dispatch_fastpath always invoked the
-            # Feige-specific enrichment (customer-bubble scrape, msg-id
-            # dedup, dom-echo fallback).  The generic skeleton made this
-            # opt-in via ``preDispatch.site_plugin``, which silently broke
-            # existing skill configs — causing an agent-reply echo loop
-            # where the LLM saw its own previous reply as "last_message"
-            # (2026-04-23 regression).  Default to ``feige_chat`` when
-            # the raw config omits the field; explicit empty string
-            # ``""`` still opts out.
-            _pd_raw = _parse_json_input(inputs, "preDispatch") or {}
-            if "site_plugin" not in _pd_raw:
-                _pd_raw["site_plugin"] = "feige_chat"
-            _pd_config = _FDDispatchConfig.from_raw(_pd_raw)
-            logger.info(
-                f"[BrowserAutomation] PreDispatch config: enabled={_pd_config.enabled}, "
-                f"source_monitor_label={_pd_config.source_monitor_label!r}, "
-                f"site_plugin={_pd_config.site_plugin!r}, node={node_name}"
-            )
-
-            async def _maybe_run_frontdesk_dispatch_fastpath(agent_obj) -> dict | None:
-                """Thin wrapper: build a DispatchContext and delegate to
-                ``node_runtime.frontdesk_dispatch.run``.  All per-stage
-                logic (monitor lookup, item extraction, tab opening,
-                recipient round-robin, per-item enrichment + send_chat,
-                result shaping) lives in that module.  This wrapper
-                only exists to inject the module-level / closure state
-                that ``build_node`` owns.
-                """
-                if not _pd_config.enabled:
-                    return None
-                _pd_ctx = _FDDispatchContext(
-                    state=state,
-                    calling_agent_id=str(calling_agent_id or ""),
-                    node_name=str(node_name or ""),
-                    mainwin=mainwin,
-                    scope_key=_resolve_browser_scope_key(state),
-                    cached_browser_sessions=_cached_browser_sessions,
-                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
-                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
-                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
-                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
-                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
-                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
-                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
-                    normalize_customer_id=_normalize_customer_id,
-                    normalize_reply_text=_normalize_reply_text,
-                    safe_format_dict=_SafeFormatDict,
-                )
-                return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent_obj)
 
             # Determine run mode based on node editor setting (run_environment_setting)
             # Options: full_local, passive_local, hybrid_cloud, full_cloud
@@ -11470,132 +11041,48 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 }
                 return state
 
-            _frontdesk_fastpath_result = await _maybe_run_frontdesk_dispatch_fastpath(agent)
-            if _frontdesk_fastpath_result is not None:
-                return _frontdesk_fastpath_result
-
-            # ── HOT-PATH: chat_message reply bypass ──
-            # When a chat_message arrives with a structured {response_text,
-            # customer_name} payload, skip the LLM entirely and call the
-            # registered chat adapter tools directly (e.g. *_open_session →
-            # *_send_message).  This cuts Phase-2 latency from ~15s (LLM think
-            # + multi-step) to ~2s (two direct tool calls).
-            #
-            # Placed here (after browser session setup) so the CDP connection
-            # is live and the feige tools can execute JS on the page.
-            if not _hot_path_done and _evt_type != "browser_event":
-                try:
-                    _hp2_response_text = ""
-                    _hp2_customer_name = ""
-                    if isinstance(state, dict):
-                        _hp2_raw = _extract_runtime_invocation_input(state)
-                        if _hp2_raw:
-                            try:
-                                _hp2_parsed = json.loads(_hp2_raw)
-                                if isinstance(_hp2_parsed, dict):
-                                    _hp2_response_text = str(_hp2_parsed.get("response_text", "")).strip()
-                                    _hp2_customer_name = str(
-                                        _hp2_parsed.get("customer_name")
-                                        or _hp2_parsed.get("customer_id")
-                                        or ""
-                                    ).strip()
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                    if _hp2_response_text and _hp2_customer_name:
-                        _hp2_session = getattr(agent, "browser_session", None)
-                        if _hp2_session:
-                            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller as _hp2_ctrl
-                            _hp2_actions = _hp2_ctrl.registry.registry.actions
-                            _hp2_open_fn = None
-                            _hp2_send_fn = None
-                            _hp2_open_name = ""
-                            _hp2_send_name = ""
-                            for _act_name, _act_obj in _hp2_actions.items():
-                                if _act_name.endswith("_open_session"):
-                                    _hp2_open_fn = _act_obj
-                                    _hp2_open_name = _act_name
-                                elif _act_name.endswith("_send_message"):
-                                    _hp2_send_fn = _act_obj
-                                    _hp2_send_name = _act_name
-                            if _hp2_open_fn and _hp2_send_fn:
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH: retrying with live session. "
-                                    f"customer={_hp2_customer_name}, "
-                                    f"tools={_hp2_open_name}+{_hp2_send_name}, node={node_name}"
-                                )
-                                send_skill_editor_log(
-                                    "log",
-                                    f"[BrowserAutomation] HOT-PATH: direct reply to "
-                                    f"{_hp2_customer_name} (skipping LLM)"
-                                )
-                                _hp2_open_params = _hp2_open_fn.param_model(customer_name=_hp2_customer_name)
-                                _hp2_send_params = _hp2_send_fn.param_model(text=_hp2_response_text)
-                                # Call open_session
-                                _hp2_open_result = await _hp2_open_fn.function(
-                                    params=_hp2_open_params, browser_session=_hp2_session
-                                )
-                                _hp2_open_ok = (
-                                    _hp2_open_result
-                                    and not getattr(_hp2_open_result, "error", None)
-                                )
-                                logger.info(
-                                    f"[BrowserAutomation] HOT-PATH: {_hp2_open_name} → "
-                                    f"{'OK' if _hp2_open_ok else 'FAIL'}: "
-                                    f"{getattr(_hp2_open_result, 'extracted_content', '') or getattr(_hp2_open_result, 'error', '')}"
-                                )
-                                if _hp2_open_ok:
-                                    await asyncio.sleep(0.5)
-                                    _hp2_send_result = await _hp2_send_fn.function(
-                                        params=_hp2_send_params, browser_session=_hp2_session
-                                    )
-                                    _hp2_send_ok = (
-                                        _hp2_send_result
-                                        and not getattr(_hp2_send_result, "error", None)
-                                    )
-                                    logger.info(
-                                        f"[BrowserAutomation] HOT-PATH: {_hp2_send_name} → "
-                                        f"{'OK' if _hp2_send_ok else 'FAIL'}: "
-                                        f"{getattr(_hp2_send_result, 'extracted_content', '') or getattr(_hp2_send_result, 'error', '')}"
-                                    )
-                                    if _hp2_send_ok:
-                                        _hot_path_done = True
-                                        state.setdefault("result", {})["llm_result"] = {
-                                            "all_done": False,
-                                            "work_done": False,
-                                            "hot_path": True,
-                                            "action": f"{_hp2_open_name}+{_hp2_send_name}",
-                                            "customer": _hp2_customer_name,
-                                        }
-                                        # Clear response data to prevent duplicate sends
-                                        state["input"] = ""
-                                        if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
-                                            state["messages"][4] = ""
-                                        try:
-                                            _hp2_attrs = state.get("attributes")
-                                            if isinstance(_hp2_attrs, dict):
-                                                _hp2_attrs.pop("params", None)
-                                        except Exception:
-                                            pass
-                                        logger.info(
-                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                            f"{_hp2_customer_name} (~1s, LLM bypassed), node={node_name}"
-                                        )
-                                        send_skill_editor_log(
-                                            "log",
-                                            f"[BrowserAutomation] HOT-PATH: reply sent to "
-                                            f"{_hp2_customer_name} (LLM bypassed)"
-                                        )
-                                        return state
-                                if not _hot_path_done:
-                                    logger.warning(
-                                        f"[BrowserAutomation] HOT-PATH: tool call failed, "
-                                        f"falling back to LLM. node={node_name}"
-                                    )
-                except Exception as _hp2_err:
-                    logger.warning(
-                        f"[BrowserAutomation] HOT-PATH: failed (non-fatal, "
-                        f"falling back to LLM): {_hp2_err}"
+            # ── Invoke registered before-browser-use-run hooks ──────
+            # Each hook gets a BrowserUseHookContext exposing the
+            # closure-scoped helpers (resolve_scope_key,
+            # extract_runtime_invocation_input) + module-level state
+            # dicts.  The first hook to return a non-None state dict
+            # short-circuits the LLM.  Site-specific patterns (e.g.
+            # feige_chat.front_desk's PreDispatch fan-out) register
+            # themselves via ``register_before_browser_use_run_hook``
+            # at module-import time; build_node itself has no knowledge
+            # of what any registered hook does.
+            if _before_browser_use_run_hooks:
+                _bur_hook_ctx = BrowserUseHookContext(
+                    node_name=str(node_name or ""),
+                    calling_agent_id=str(calling_agent_id or ""),
+                    mainwin=mainwin,
+                    resolve_scope_key=_resolve_browser_scope_key,
+                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                    parse_json_input=_parse_json_input,
+                    send_log=send_skill_editor_log,
+                    normalize_customer_id=_normalize_customer_id,
+                    normalize_reply_text=_normalize_reply_text,
+                    safe_format_dict=_SafeFormatDict,
+                    cached_browser_sessions=_cached_browser_sessions,
+                    frontdesk_dispatch_state_by_agent=_frontdesk_dispatch_state_by_agent,
+                    customer_last_dispatched_msg_id=_customer_last_dispatched_msg_id,
+                    auto_dispatch_last_agent_reply=_auto_dispatch_last_agent_reply,
+                    is_customer_dispatch_inflight=_is_customer_dispatch_inflight,
+                    mark_customer_dispatch_inflight=_mark_customer_dispatch_inflight,
+                    clear_customer_dispatch_inflight=_clear_customer_dispatch_inflight,
+                    inflight_ttl_s=_CUSTOMER_DISPATCH_INFLIGHT_TTL_S,
+                    resolve_template=_resolve_template,
+                    get_or_create_browser_session=_get_or_create_browser_session,
+                    hp_b_was_recently_sent=_hp_b_was_recently_sent,
+                    hp_b_mark_sent=_hp_b_mark_sent,
+                    hp_b_dedup_ttl_s=_HP_B_DEDUP_TTL_S,
+                )
+                for _bur_hook in _before_browser_use_run_hooks:
+                    _bur_hook_result = await _bur_hook(
+                        agent, state, inputs, _bur_hook_ctx
                     )
+                    if _bur_hook_result is not None:
+                        return _bur_hook_result
 
             # Register current agent instance so extension tools (e.g. list_files)
             # can auto-authorize discovered file paths for later read_long_content/read_file calls.
