@@ -941,7 +941,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </div>
         )}
 
-        {/* Node Behavior Section (collapsible) — assignment, preDispatch, stepPatches, tabPolicy */}
+        {/* Node Behavior Section (collapsible) — assignment, preDispatch, stepPatches, siteAdapter, tabPolicy */}
         <div
           style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
           onClick={() => setNodeBehaviorExpanded(!nodeBehaviorExpanded)}
@@ -988,6 +988,32 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                     onChange={(val) => field.onChange(val)}
                     placeholder={'{"refocus_assigned_tab":true,"abort_when_pre_dispatched":true,"pre_dispatch_flag_attr":"_ecan_frontdesk_dispatched_all"}'}
                     autosize={{ minRows: 3, maxRows: 10 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <FormItem name="hookBundles" label={t('nodes.browserAutomation.hookBundles', 'Hook Bundles (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.hookBundles.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'[{"path":"feige_chat","enabled":true,"config":{"cooldown_ms":1500}},{"path":"/abs/path/to/custom_bundle","config":{}}]'}
+                    autosize={{ minRows: 3, maxRows: 10 }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+            <FormItem name="siteAdapter" label={t('nodes.browserAutomation.siteAdapter', 'Site Adapter (JSON)')} type="string" vertical>
+              <Field<string> name="inputsValues.siteAdapter.content">
+                {({ field }) => (
+                  <TextArea
+                    value={(field.value as string) || ''}
+                    onChange={(val) => field.onChange(val)}
+                    placeholder={'{"name":"feige","sidebar":{"item_selector":"[data-qa-id=\\"qa-conversation-chat-item\\"]","name_readers":[{"selector":".MP1bk3ccfHC9V2SnPCGD","source":"attr","attr":"title"},{"selector":".Jv6FtqUv5VoYARd2pp4y","source":"text"}],"active_strategies":[{"type":"class_token","token":"active"},{"type":"aria_selected"},{"type":"odd_one_out"}]},"header":{"root_selector":"#topbar-left-info","exclude_texts":["添加备注"],"max_text_len":60},"verify_policy":"affirmative_and_no_conflict"}'}
+                    autosize={{ minRows: 3, maxRows: 12 }}
                     style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
                   />
                 )}
@@ -1560,6 +1586,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'assignment',
               'preDispatch',
               'stepPatches',
+              'hookBundles',
+              'siteAdapter',
               'tabPolicy',
               'eventMonitors',
             ];
