@@ -807,6 +807,10 @@
       "assignment": "分配配置 (JSON)",
       "preDispatch": "前置分发配置 (JSON)",
       "stepPatches": "步骤补丁 (JSON)",
+      "siteAdapter": "站点适配器 (JSON)",
+      "siteAdapterDesc": "基于 Hook 的站点适配器所需的选择器/策略数据。Tier-0 verify_active_session 串线保护需要此配置。",
+      "hookBundles": "Hook 包 (JSON)",
+      "hookBundlesDesc": "要加载的外部 Hook 包，数组格式 {path, enabled?, config?}。path 可以是内部包名（如 'feige_chat'）、绝对路径或 'pkg:<name>'。",
       "tabPolicy": "标签页策略",
       "tabPolicyStrict": "strict_single_tab（默认 — 禁止 switch_tab）",
       "tabPolicyAllowAssigned": "allow_assigned_tab（允许聚焦已分配的 tab_id）"
