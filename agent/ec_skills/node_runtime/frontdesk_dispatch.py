@@ -1,0 +1,844 @@
+"""Generic front-desk PreDispatch fast-path (extracted 2026-04-23).
+
+Previously this lived as a ~645-line nested ``async def
+_maybe_run_frontdesk_dispatch_fastpath(agent_obj)`` inside
+``build_node._run_browser_use`` (original lines 9553-10198).  It
+violated our "functions should be small and focused" guideline and
+tied several site-agnostic concerns (monitor lookup, tab discovery,
+round-robin recipient selection, send_chat dispatch) to several
+Feige-specific concerns (chat-thread scrape, msg-id dedup, dom-echo
+fallback).
+
+The site-specific concerns now live in
+``hooks/external/<site>/pre_dispatch_enrich.py`` plugins (see
+``feige_chat/pre_dispatch_enrich.py`` for the reference
+implementation).  This module owns **only** the generic skeleton and
+discovers the plugin lazily by name from the ``preDispatch.site_plugin``
+config field.
+
+Design goals
+------------
+
+* Every function is short (< 120 LOC) and does one thing.
+* All dependencies on ``build_node``-module-level state are injected
+  via :class:`DispatchContext` so this module has zero core imports
+  and can be unit-tested in isolation.
+* The public entry-point is :func:`run`; :class:`DispatchConfig` and
+  :class:`DispatchContext` are plain dataclasses.
+
+Skip the extraction rationale? See Phase-4 refactor notes in the
+project memory.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+logger = logging.getLogger("eCan")
+
+__all__ = [
+    "DispatchConfig",
+    "DispatchContext",
+    "run",
+]
+
+
+# ─────────────────────────────── dataclasses ──────────────────────────────
+
+
+@dataclass
+class DispatchConfig:
+    """Typed view of the ``inputs["preDispatch"]`` JSON blob.
+
+    Build once per node invocation via :meth:`from_raw` then pass to
+    :func:`run`.  Every field has a safe default so partial configs
+    from the node editor still work.
+    """
+
+    enabled: bool = False
+    source_monitor_label: str = ""
+    require_url_path: str = ""
+    allowed_statuses: set[str] = field(default_factory=lambda: {"ok", "empty", "no_match"})
+    # item_fields — column-name aliases for the snapshot items.
+    session_keys: list[str] = field(
+        default_factory=lambda: ["session", "session_id", "customer_id"]
+    )
+    name_keys: list[str] = field(
+        default_factory=lambda: ["customer_name", "name", "customer"]
+    )
+    chat_url_keys: list[str] = field(default_factory=lambda: ["chat_url"])
+    chat_url_template: str = ""
+    task_keywords: list[str] = field(default_factory=list)
+    skill_keywords: list[str] = field(default_factory=list)
+    flag_attr: str = "_ecan_frontdesk_dispatched_all"
+    state_attr: str = "_ecan_frontdesk_dispatch_state"
+    log_tag: str = "PreDispatch"
+    fastpath_marker: str = "frontdesk_fastpath"
+    history_prefix: str = "predispatch"
+    assignment_extra_fields: list[str] = field(default_factory=list)
+    site_plugin: str = ""  # "" → no enrichment; e.g. "feige_chat"
+
+    @classmethod
+    def from_raw(cls, raw: dict | None) -> "DispatchConfig":
+        """Parse the node-editor JSON blob into a typed config."""
+        if not isinstance(raw, dict):
+            return cls()
+        item_fields = raw.get("item_fields") or {}
+        if not isinstance(item_fields, dict):
+            item_fields = {}
+        recip = raw.get("recipient_filter") or {}
+        if not isinstance(recip, dict):
+            recip = {}
+        extra_fields = raw.get("assignment_extra_fields") or []
+        if not isinstance(extra_fields, list):
+            extra_fields = []
+        allowed = raw.get("allowed_statuses") or ["ok", "empty", "no_match"]
+        return cls(
+            enabled=bool(raw.get("enabled", False)),
+            source_monitor_label=str(raw.get("source_monitor_label") or "").strip(),
+            require_url_path=str(raw.get("require_url_path") or "").strip(),
+            allowed_statuses={str(s).strip().lower() for s in allowed if str(s).strip()},
+            session_keys=[str(k) for k in (item_fields.get("session_id") or ["session", "session_id", "customer_id"])],
+            name_keys=[str(k) for k in (item_fields.get("customer_name") or ["customer_name", "name", "customer"])],
+            chat_url_keys=[str(k) for k in (item_fields.get("chat_url") or ["chat_url"])],
+            chat_url_template=str(raw.get("chat_url_template") or ""),
+            task_keywords=[str(k).lower() for k in (recip.get("task_keywords") or []) if str(k).strip()],
+            skill_keywords=[str(k).lower() for k in (recip.get("skill_keywords") or []) if str(k).strip()],
+            flag_attr=str(raw.get("dispatched_flag_attr") or "_ecan_frontdesk_dispatched_all"),
+            state_attr=str(raw.get("dispatch_state_attr") or "_ecan_frontdesk_dispatch_state"),
+            log_tag=str(raw.get("log_tag") or "PreDispatch"),
+            fastpath_marker=str(raw.get("result_marker_key") or "frontdesk_fastpath"),
+            history_prefix=str(raw.get("history_prefix") or "predispatch"),
+            assignment_extra_fields=[str(k) for k in extra_fields],
+            site_plugin=str(raw.get("site_plugin") or "").strip(),
+        )
+
+
+@dataclass
+class DispatchContext:
+    """Injected dependencies + mutable module-level state from
+    ``build_node``.  Passed to :func:`run` so this module has no
+    core imports (avoids circular imports + makes unit testing easy).
+    """
+
+    # Runtime identifiers.
+    state: dict
+    calling_agent_id: str
+    node_name: str
+    mainwin: Any
+    scope_key: str
+    # Shared dicts owned by ``build_node`` module scope.
+    cached_browser_sessions: dict  # scope_key → BrowserSession
+    frontdesk_dispatch_state_by_agent: dict  # mutated
+    customer_last_dispatched_msg_id: dict  # mutated on success
+    auto_dispatch_last_agent_reply: dict  # read-only (populated by HOT-PATH-B)
+    # Inflight lock helpers (live in build_node; injected to avoid circular import).
+    is_customer_dispatch_inflight: Callable[[str], float]
+    mark_customer_dispatch_inflight: Callable[[str], None]
+    clear_customer_dispatch_inflight: Callable[[str], None]
+    inflight_ttl_s: float
+    # Pure string helpers.
+    normalize_customer_id: Callable[[str], str]
+    normalize_reply_text: Callable[[str], str]
+    # str.format_map-compatible dict subclass that swallows missing keys.
+    safe_format_dict: type
+    # Optional site-specific hooks.  ``feige_typing_holder_getter`` is
+    # a zero-arg callable returning the current "who is currently
+    # typing into Feige" customer-key (set by HOT-PATH-B); when set,
+    # the feige_chat enrich plugin uses it to avoid stealing the
+    # active Feige session during a concurrent reply (see race-guard
+    # documented under ``feige_chat.typing_lock``).  ``None`` disables
+    # the guard (acceptable for non-Feige sites).
+    feige_typing_holder_getter: Callable[[], str] | None = None
+
+
+# ─────────────────────────────────── helpers ────────────────────────────────
+
+
+def _should_skip_for_event_type(state: dict, log_tag: str) -> bool:
+    """PreDispatch is a customer-message fan-out; it must NOT run on
+    agent-to-agent ``chat_message`` replies (those are HOT-PATH-B
+    territory).  Running here would duplicate assignments because the
+    resume scopes to a different cached browser session whose
+    ``dispatch_state`` is empty.
+    """
+    try:
+        evt = state.get("event_type") or state.get("event", {}).get("type") or ""
+    except Exception:
+        evt = ""
+    if str(evt).strip().lower() == "chat_message":
+        logger.info(
+            f"[BrowserAutomation] {log_tag} skipped: event_type=chat_message "
+            f"(agent-to-agent reply, handled by HOT-PATH-B; PreDispatch only "
+            f"runs on customer browser_event)"
+        )
+        return True
+    return False
+
+
+def _find_active_monitor(
+    agent_obj, ctx: DispatchContext, cfg: DispatchConfig
+) -> tuple[Any, dict, Any] | tuple[None, None, None]:
+    """Locate an active ``EventMonitor`` whose label matches
+    ``cfg.source_monitor_label`` on either the agent's live session or
+    the cached session for this scope.  Returns
+    ``(monitor_set, control_state, session)`` or ``(None, None, None)``.
+    """
+    browser_session = getattr(agent_obj, "browser_session", None)
+    candidates = []
+    for cand in (browser_session, ctx.cached_browser_sessions.get(ctx.scope_key)):
+        if cand and cand not in candidates:
+            candidates.append(cand)
+
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import (
+            get_event_monitor_capability,
+        )
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {cfg.log_tag} capability import failed: {exc}"
+        )
+        return None, None, None
+
+    for cand in candidates:
+        cap = get_event_monitor_capability(cand, create=False)
+        monitor_set = cap.get_active_monitor_set() if cap else None
+        if not monitor_set:
+            continue
+        for monitor in list(getattr(monitor_set, "monitors", []) or []):
+            state = getattr(monitor, "state", None)
+            mcfg = (state or {}).get("config") if isinstance(state, dict) else None
+            if str(getattr(mcfg, "label", "") or "").strip() == cfg.source_monitor_label:
+                return monitor_set, state, cand
+
+    logger.info(
+        f"[BrowserAutomation] {cfg.log_tag} skipped: no active monitor with "
+        f"label={cfg.source_monitor_label!r} (scope={ctx.scope_key}, "
+        f"candidates={len(candidates)})"
+    )
+    return None, None, None
+
+
+def _validate_monitor_ready(control_state: dict, cfg: DispatchConfig) -> bool:
+    """Check the monitor's last snapshot is in an allowed status AND
+    (if required) on an allowed URL path.  Logs INFO and returns
+    ``False`` when either check fails.
+    """
+    status = str(control_state.get("last_status") or "").strip().lower()
+    current_url = str(control_state.get("last_current_url") or "").strip()
+    if status not in cfg.allowed_statuses or (
+        cfg.require_url_path and cfg.require_url_path not in current_url
+    ):
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} skipped: monitor not ready "
+            f"(status={status}, current_url={current_url}, "
+            f"require_path={cfg.require_url_path!r})"
+        )
+        return False
+    return True
+
+
+def _resolve_dispatch_state(
+    session, ctx: DispatchContext, cfg: DispatchConfig
+) -> dict:
+    """Get-or-create the shared ``assigned_sessions`` / ``opened_tabs``
+    state dict for this (agent, node).  Mirrored onto the session as
+    an attribute so legacy attribute-based reads still work.
+    """
+    key = (str(ctx.calling_agent_id or ""), str(ctx.node_name or ""), cfg.state_attr)
+    state = ctx.frontdesk_dispatch_state_by_agent.get(key)
+    if not isinstance(state, dict):
+        state = {"opened_tabs": {}, "assigned_sessions": {}}
+        ctx.frontdesk_dispatch_state_by_agent[key] = state
+    setattr(session, cfg.state_attr, state)
+    return state
+
+
+def _extract_actionable_items(
+    raw_items: list, cfg: DispatchConfig
+) -> list[dict]:
+    """Parse the monitor snapshot rows into minimal dispatch entries.
+
+    Items missing a resolvable ``session_id`` are dropped.  URLs are
+    either picked from configured field names or rendered from the
+    ``chat_url_template`` if none of the field names held a value.
+    """
+    def _pick_first(item: dict, keys: list[str]) -> str:
+        for k in keys:
+            v = item.get(k)
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s:
+                return s
+        return ""
+
+    actionable: list[dict] = []
+    for item in raw_items or []:
+        if not isinstance(item, dict):
+            continue
+        session_id = _pick_first(item, cfg.session_keys)
+        if not session_id:
+            continue
+        customer_name = _pick_first(item, cfg.name_keys)
+        chat_url = _pick_first(item, cfg.chat_url_keys)
+        if not chat_url and cfg.chat_url_template:
+            try:
+                from agent.ec_skills.build_node import _SafeFormatDict  # noqa: WPS433 — deferred to avoid top-level cycle
+                chat_url = cfg.chat_url_template.format_map(_SafeFormatDict({
+                    "session_id": session_id,
+                    "customer_id": session_id,
+                    "customer_name": customer_name,
+                }))
+            except Exception:
+                chat_url = ""
+        entry = {
+            "customer_id": session_id,
+            "session_id": session_id,
+            "customer_name": customer_name,
+            "chat_url": chat_url,
+            # Preserve the original sidebar last_message for the enrich plugin's override.
+            "last_message": str(item.get("last_message") or ""),
+        }
+        for extra_key in cfg.assignment_extra_fields:
+            ek = str(extra_key)
+            if ek and ek not in entry and ek in item:
+                entry[ek] = item.get(ek)
+        actionable.append(entry)
+    return actionable
+
+
+async def _open_tab_for_session(
+    session,
+    chat_url: str,
+    session_id: str,
+    opened_tabs: dict,
+    log_tag: str,
+) -> str:
+    """Find a tab already pointed at *chat_url* or open a new one via
+    CDP ``NavigateToUrlEvent``.  Returns the target id or ``""`` on
+    failure.  Caches successful target ids in *opened_tabs* so repeated
+    dispatches for the same session don't re-open.
+    """
+    cached = opened_tabs.get(session_id) or ""
+    if cached:
+        return cached
+
+    sm = getattr(session, "session_manager", None)
+    all_targets = sm.get_all_targets() if sm else {}
+
+    def _find_target(url: str) -> str:
+        for tid, tgt in (all_targets or {}).items():
+            if getattr(tgt, "target_type", "") not in ("page", "tab"):
+                continue
+            if str(getattr(tgt, "url", "") or "").strip() == url:
+                return str(tid or "")
+        return ""
+
+    tab_id = _find_target(chat_url) if chat_url else ""
+    if tab_id:
+        opened_tabs[session_id] = tab_id
+        return tab_id
+    if not chat_url:
+        return ""
+
+    try:
+        from browser_use.browser.events import NavigateToUrlEvent
+        await session.event_bus.dispatch(NavigateToUrlEvent(url=chat_url, new_tab=True))
+        await asyncio.sleep(0.8)
+        sm2 = getattr(session, "session_manager", None)
+        all_targets2 = sm2.get_all_targets() if sm2 else {}
+        for tid2, tgt2 in (all_targets2 or {}).items():
+            if getattr(tgt2, "target_type", "") not in ("page", "tab"):
+                continue
+            if str(getattr(tgt2, "url", "") or "").strip().rstrip("/") == chat_url.rstrip("/"):
+                tab_id = str(tid2)
+                break
+        if tab_id:
+            opened_tabs[session_id] = tab_id
+            logger.info(
+                f"[BrowserAutomation] {log_tag} opened tab "
+                f"tab_id=...{tab_id[-6:]} for session={session_id}"
+            )
+        return tab_id
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {log_tag} failed to open tab for "
+            f"session={session_id}: {exc}"
+        )
+        return ""
+
+
+def _resolve_recipient_agents(
+    cfg: DispatchConfig,
+    ctx: DispatchContext,
+    sender_agent_id: str,
+    dispatch_state: dict,
+) -> list[str]:
+    """Dynamic round-robin recipient discovery with per-dispatch_state
+    caching.  Excludes the sender + disabled agents.  When a
+    recipient_filter is configured, non-matching agents are excluded
+    and an empty result aborts dispatch rather than silently falling
+    back to "all live agents".
+    """
+    cached = dispatch_state.get("service_agents")
+    if cached:
+        return list(cached)
+
+    try:
+        from agent.mcp.server.chat_utils.chat_tools import list_chat_agents
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {cfg.log_tag} list_chat_agents import failed: {exc}"
+        )
+        return []
+
+    all_agents = list_chat_agents(ctx.mainwin, {"exclude_self": sender_agent_id}).get("agents", [])
+
+    def _is_live(a: dict) -> bool:
+        s = str(a.get("status") or "").strip().lower()
+        return bool(s) and s != "disabled"
+
+    live = [a for a in all_agents if _is_live(a)]
+    dropped = [a.get("id", "")[-8:] for a in all_agents if not _is_live(a)]
+    if dropped:
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} excluded {len(dropped)} "
+            f"non-live agents from recipient pool: {dropped}"
+        )
+
+    def _matches(a: dict) -> bool:
+        if cfg.task_keywords:
+            tasks = [str(t).lower() for t in a.get("tasks", [])]
+            if any(any(kw in t for t in tasks) for kw in cfg.task_keywords):
+                return True
+        if cfg.skill_keywords:
+            skills = [str(s).lower() for s in a.get("skills", [])]
+            if any(any(kw in s for s in skills) for kw in cfg.skill_keywords):
+                return True
+        return False
+
+    has_filter = bool(cfg.task_keywords or cfg.skill_keywords)
+    if has_filter:
+        service = [a for a in live if _matches(a)]
+        if not service:
+            logger.warning(
+                f"[BrowserAutomation] {cfg.log_tag} no live agents match "
+                f"recipient_filter (task_keywords={cfg.task_keywords}, "
+                f"skill_keywords={cfg.skill_keywords}); live_pool="
+                f"{[a['id'][-8:] for a in live]}. Aborting dispatch — "
+                f"configure recipient_filter to match an enabled agent's "
+                f"task or skill."
+            )
+            return []
+    else:
+        service = list(live)
+
+    ids = [a["id"] for a in service]
+    dispatch_state["service_agents"] = ids
+    dispatch_state.setdefault("rr_index", 0)
+    logger.info(
+        f"[BrowserAutomation] {cfg.log_tag} discovered {len(service)} "
+        f"recipient agents: {[a['id'][-8:] for a in service]}"
+    )
+    return ids
+
+
+def _load_enrich_plugin(name: str) -> Callable | None:
+    """Resolve a site-specific enrichment plugin by short name.
+
+    Empty name → no plugin (pass-through).  Unknown name → logs WARN
+    and returns ``None`` so dispatch proceeds without enrichment
+    (preferable to hard-failing).
+    """
+    if not name:
+        return None
+    if name == "feige_chat":
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.pre_dispatch_enrich import (
+                enrich_item,
+            )
+            logger.info(
+                "[BrowserAutomation] PreDispatch enrich plugin loaded: "
+                "feige_chat.pre_dispatch_enrich.enrich_item"
+            )
+            return enrich_item
+        except Exception as exc:
+            logger.warning(
+                f"[BrowserAutomation] PreDispatch failed to import "
+                f"feige_chat.pre_dispatch_enrich: {exc}"
+            )
+            return None
+    logger.warning(
+        f"[BrowserAutomation] PreDispatch unknown site_plugin={name!r}; "
+        f"proceeding without enrichment"
+    )
+    return None
+
+
+def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> dict:
+    """Shape the JSON body of the ``send_chat`` dispatch call."""
+    payload = {
+        "customer_id": item["customer_id"],
+        "session_id": item["session_id"],
+        "chat_url": item.get("chat_url", ""),
+    }
+    if tab_id:
+        payload["tab_id"] = tab_id
+    if item.get("customer_name"):
+        payload["customer_name"] = item["customer_name"]
+    for extra_key in cfg.assignment_extra_fields:
+        ek = str(extra_key)
+        if ek and ek in item and ek not in payload:
+            payload[ek] = item.get(ek)
+    return payload
+
+
+async def _dispatch_one_item(
+    item: dict,
+    *,
+    session,
+    ctx: DispatchContext,
+    cfg: DispatchConfig,
+    dispatch_state: dict,
+    enrich_fn: Callable | None,
+    sender_agent_id: str,
+    service_agent_ids: list[str],
+) -> tuple[str, str, str]:
+    """Per-item pipeline: tab open → enrich → dedup → send_chat →
+    bookkeeping.
+
+    Returns ``(opened_row, assigned_row, failure_row)`` where each
+    slot is either a descriptive string or ``""``.  The caller
+    aggregates these into the final fastpath payload.
+    """
+    session_id = item["session_id"]
+    chat_url = item.get("chat_url", "")
+    log_tag = cfg.log_tag
+    opened_tabs = dispatch_state.setdefault("opened_tabs", {})
+    assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
+
+    # Open tab first — instant, deterministic, costs no LLM tokens.
+    tab_id = await _open_tab_for_session(
+        session, chat_url, session_id, opened_tabs, log_tag
+    )
+    opened_row = session_id
+
+    customer_key = ctx.normalize_customer_id(
+        item.get("customer_name") or item.get("customer_id") or session_id or ""
+    )
+
+    # Cross-scope dispatch-inflight guard (the single source of truth
+    # for cross-agent dedup — per-dispatch_state.assigned_sessions is
+    # not shared across scopes).
+    try:
+        inflight_age = ctx.is_customer_dispatch_inflight(customer_key)
+        if inflight_age > 0:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} inflight skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(another dispatch is in flight, age={inflight_age:.1f}s, "
+                f"ttl={ctx.inflight_ttl_s}s)"
+            )
+            return opened_row, "", ""
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} inflight check failed: {exc}"
+        )
+
+    # Optional site-specific enrichment (ground-truth scrape + dedup).
+    scraped_msg_id = ""
+    if enrich_fn is not None:
+        enrich = await enrich_fn(
+            item=item,
+            browser_session=session,
+            customer_key=customer_key,
+            session_id=session_id,
+            log_tag=log_tag,
+            assigned_sessions=assigned_sessions,
+            customer_last_dispatched_msg_id=ctx.customer_last_dispatched_msg_id,
+            auto_dispatch_last_agent_reply=ctx.auto_dispatch_last_agent_reply,
+            normalize_reply_text=ctx.normalize_reply_text,
+            typing_holder_getter=ctx.feige_typing_holder_getter,
+        )
+        if enrich.skip:
+            return opened_row, "", ""
+        scraped_msg_id = enrich.scraped_msg_id
+        if enrich.should_clear_stale_assignment:
+            assigned_sessions.pop(session_id, None)
+
+    # Round-robin recipient pick.
+    rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
+    recipient_agent_id = service_agent_ids[rr_idx]
+    dispatch_state["rr_index"] = rr_idx + 1
+
+    assignment_payload = _build_assignment_payload(item, tab_id, cfg)
+
+    # Acquire inflight BEFORE send_chat so parallel scopes skip this
+    # customer immediately.  Previously acquired AFTER success, which
+    # left a 100-500 ms window for duplicate send_chat fires.
+    try:
+        ctx.mark_customer_dispatch_inflight(customer_key)
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} acquired inflight lock for "
+            f"cust={customer_key!r} (recipient=...{recipient_agent_id[-6:]})"
+        )
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} inflight acquire failed: {exc}"
+        )
+
+    try:
+        from agent.mcp.server.chat_utils.chat_tools import send_chat
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {log_tag} send_chat import failed: {exc}"
+        )
+        try:
+            ctx.clear_customer_dispatch_inflight(customer_key)
+        except Exception:
+            pass
+        return opened_row, "", f"{session_id}: send_chat import failed: {exc}"
+
+    send_result = send_chat(
+        ctx.mainwin,
+        {
+            "sender_agent_id": sender_agent_id,
+            "recipient_agent_id": recipient_agent_id,
+            "chat_id": session_id,
+            "message": json.dumps(assignment_payload, ensure_ascii=False),
+            "message_type": "text",
+            "async_send": False,
+        },
+    )
+    if send_result.get("success"):
+        assigned_sessions[session_id] = {
+            "recipient_agent_id": recipient_agent_id,
+            "message_id": str(send_result.get("message_id") or ""),
+            "timestamp": int(send_result.get("timestamp") or 0),
+        }
+        if scraped_msg_id:
+            ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id
+        assigned_row = (
+            f"{session_id}->{recipient_agent_id[-6:]} "
+            f"msg={str(send_result.get('message_id') or '')[:8]}"
+        )
+        return opened_row, assigned_row, ""
+
+    # send_chat failed → release the inflight lock so this customer
+    # isn't blocked for the full TTL on a no-op.
+    try:
+        ctx.clear_customer_dispatch_inflight(customer_key)
+    except Exception:
+        pass
+    return (
+        opened_row,
+        "",
+        f"{session_id}: assignment failed: {send_result.get('error', 'unknown error')}",
+    )
+
+
+def _build_result_payload(
+    cfg: DispatchConfig,
+    actionable: list[dict],
+    opened_rows: list[str],
+    assigned_rows: list[str],
+    failure_rows: list[str],
+) -> dict:
+    """Final result dict returned to the caller when dispatch ran
+    (even partially).  Matches the shape of the legacy inline
+    ``_maybe_run_frontdesk_dispatch_fastpath`` return.
+    """
+    return {
+        "all_done": True,
+        "work_result": {
+            cfg.fastpath_marker: True,
+            "visible_session_count": len(actionable),
+            "opened_count": len(opened_rows),
+            "assigned_count": len(assigned_rows),
+            "last_action_succeeded": not bool(failure_rows),
+            "no_customers": False,
+        },
+        "opened_sessions": opened_rows,
+        "assigned_sessions": assigned_rows,
+        "failures": failure_rows,
+        "message": (
+            f"{cfg.log_tag} completed"
+            if not failure_rows
+            else f"{cfg.log_tag} completed with failures"
+        ),
+    }
+
+
+# ───────────────────────────── orchestrator ───────────────────────────────
+
+
+async def run(
+    cfg: DispatchConfig, ctx: DispatchContext, agent_obj
+) -> dict | None:
+    """Run the front-desk PreDispatch fan-out fast-path.
+
+    Returns ``None`` to signal the caller should fall through to the
+    normal LLM-driven node path, or a ``{"final": ..., "history": ...}``
+    dict when the fast-path owned the outcome.
+    """
+    if not cfg.enabled:
+        return None
+    if not cfg.source_monitor_label:
+        logger.warning(
+            f"[BrowserAutomation] {cfg.log_tag} skipped: "
+            f"preDispatch.source_monitor_label is required but missing"
+        )
+        return None
+    if _should_skip_for_event_type(ctx.state, cfg.log_tag):
+        return None
+    if not getattr(agent_obj, "browser_session", None):
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} skipped: no browser session on agent"
+        )
+        return None
+
+    try:
+        monitor_set, control_state, session = _find_active_monitor(agent_obj, ctx, cfg)
+        if not monitor_set or not control_state:
+            return None
+        if not _validate_monitor_ready(control_state, cfg):
+            return None
+
+        raw_items = control_state.get("last_items") or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} candidate items: "
+            f"count={len(raw_items)} scope={ctx.scope_key} "
+            f"chosen_session_obj={id(session) if session else 'none'}"
+        )
+
+        dispatch_state = _resolve_dispatch_state(session, ctx, cfg)
+
+        # Serialise concurrent fast-path invocations on the same dispatch_state.
+        fp_lock = dispatch_state.get("_lock")
+        if fp_lock is None:
+            import threading
+            fp_lock = threading.Lock()
+            dispatch_state["_lock"] = fp_lock
+        if not fp_lock.acquire(blocking=False):
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} skipped: another "
+                f"invocation already running"
+            )
+            setattr(session, cfg.flag_attr, True)
+            return {
+                "final": json.dumps({
+                    "all_done": True,
+                    "message": f"{cfg.log_tag} handled by another invocation",
+                }),
+                "history": f"{cfg.history_prefix}:dedup",
+            }
+
+        try:
+            return await _run_with_lock_held(
+                cfg, ctx, session, dispatch_state, raw_items, agent_obj
+            )
+        finally:
+            if fp_lock.locked():
+                try:
+                    fp_lock.release()
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] {cfg.log_tag} failed: {exc}")
+        return None
+
+
+async def _run_with_lock_held(
+    cfg: DispatchConfig,
+    ctx: DispatchContext,
+    session,
+    dispatch_state: dict,
+    raw_items: list,
+    agent_obj,
+) -> dict | None:
+    """Body of :func:`run` executed while holding the per-dispatch_state
+    lock.  Split into its own function so :func:`run` is a short
+    readable orchestrator.
+    """
+    actionable = _extract_actionable_items(raw_items, cfg)
+    if not actionable:
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} completed: no visible sessions"
+        )
+        return {
+            "final": json.dumps({
+                "all_done": True,
+                "work_result": {
+                    cfg.fastpath_marker: True,
+                    "visible_session_count": 0,
+                    "opened_count": 0,
+                    "assigned_count": 0,
+                    "last_action_succeeded": True,
+                    "no_customers": True,
+                },
+                "message": f"{cfg.log_tag}: no visible customer sessions.",
+            }, ensure_ascii=False),
+            "history": f"{cfg.history_prefix}:no_customers",
+        }
+
+    sender_agent_id = str(ctx.calling_agent_id or "").strip()
+    if not sender_agent_id:
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} skipped: missing runtime "
+            f"sender agent id"
+        )
+        return None
+
+    service_agent_ids = _resolve_recipient_agents(cfg, ctx, sender_agent_id, dispatch_state)
+    if not service_agent_ids:
+        failure_rows = ["no recipient agents available"]
+        return _build_result_payload(cfg, actionable, [], [], failure_rows)
+
+    enrich_fn = _load_enrich_plugin(cfg.site_plugin)
+
+    opened_rows: list[str] = []
+    assigned_rows: list[str] = []
+    failure_rows: list[str] = []
+    for item in actionable:
+        opened, assigned, failure = await _dispatch_one_item(
+            item,
+            session=session,
+            ctx=ctx,
+            cfg=cfg,
+            dispatch_state=dispatch_state,
+            enrich_fn=enrich_fn,
+            sender_agent_id=sender_agent_id,
+            service_agent_ids=service_agent_ids,
+        )
+        if opened:
+            opened_rows.append(opened)
+        if assigned:
+            assigned_rows.append(assigned)
+        if failure:
+            failure_rows.append(failure)
+
+    if not opened_rows and not assigned_rows and not failure_rows:
+        return None
+
+    payload = _build_result_payload(cfg, actionable, opened_rows, assigned_rows, failure_rows)
+    logger.info(
+        f"[BrowserAutomation] {cfg.log_tag} completed: "
+        f"visible={len(actionable)} opened={len(opened_rows)} "
+        f"assigned={len(assigned_rows)} failures={len(failure_rows)}"
+    )
+    # Signal any concurrently-running LLM invocation to stop — it would
+    # just duplicate work.
+    assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
+    if assigned_rows or (not failure_rows and assigned_sessions):
+        setattr(session, cfg.flag_attr, True)
+    return {
+        "final": json.dumps(payload, ensure_ascii=False),
+        "history": cfg.history_prefix,
+    }

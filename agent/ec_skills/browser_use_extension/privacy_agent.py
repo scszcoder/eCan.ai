@@ -36,6 +36,27 @@ from typing import Any, Callable, Awaitable, Literal
 
 from utils.logger_helper import logger_helper as logger
 
+# ── Hook API (PR 1) ─────────────────────────────────────────────────────
+# The dispatcher/types live in sibling modules so plugin authors can import
+# from a stable path (`.hooks`) without pulling in PrivacyAgent internals.
+from .hook_api import (
+    Decision,
+    Hook,
+    HookContext,
+    HookManifest,
+    HookResult,
+    Stage,
+)
+from .hook_dispatcher import (
+    HookDispatcher,
+    MemoryStateStore,
+    ScopedToolProxy,
+)
+from .hook_loader import (
+    HookBundleSpec,
+    load_bundles,
+)
+
 # Import browser-use components
 try:
     from browser_use import Agent, BrowserSession, BrowserProfile
@@ -148,6 +169,12 @@ class PrivacyAgent:
         cloud_system_prompt_id: str | None = None,
         cloud_user_prompt_id: str | None = None,
         cloud_work_type: str | None = None,
+        # ── Hook system (PR 2/5/6) ─────────────────────────────────────
+        hooks: list[Hook] | None = None,
+        hook_bundles: list[Any] | None = None,  # PR 6: external bundle specs
+        site_adapter: dict | None = None,
+        skill_bundle_path: str | None = None,
+        hooks_enabled: bool = False,  # opt-in: auto-register Tier-0 built-ins
         **kwargs,
     ):
         """
@@ -256,6 +283,84 @@ class PrivacyAgent:
         self._original_get_next_action = self._agent._get_next_action
         if self.cloud_llm_enabled:
             self._agent._get_next_action = self._cloud_get_next_action
+
+        # ── Hook system plumbing (PR 2) ─────────────────────────────────
+        # A dispatcher is always instantiated so downstream code doesn't
+        # need to null-check.  With zero hooks registered it is a no-op on
+        # every stage (dispatch returns CONTINUE without invoking anything).
+        self._site_adapter: dict = dict(site_adapter or {})
+        self._skill_bundle_path: str | None = skill_bundle_path
+        self._hook_dispatcher: HookDispatcher = HookDispatcher(
+            site_adapter=self._site_adapter,
+            trace_id=task_id,
+        )
+        # Per-hook MemoryStateStore cache (one store per hook name).
+        self._hook_state_stores: dict[str, MemoryStateStore] = {}
+        # Monotonic span counter for tracing.
+        self._hook_span_seq: int = 0
+
+        # Register user-supplied hooks (Tier 1/2).
+        for _h in (hooks or []):
+            try:
+                self._hook_dispatcher.register(_h)
+            except Exception as _reg_err:
+                logger.error(
+                    f"[PrivacyAgent] Failed to register hook "
+                    f"{getattr(getattr(_h, 'manifest', None), 'name', type(_h).__name__)!r}: "
+                    f"{_reg_err}"
+                )
+
+        # ── External hook bundles (PR 6) ────────────────────────────────
+        # ``hook_bundles`` is a list of (str | dict | HookBundleSpec) —
+        # each entry describes one bundle directory (or pkg:) to load.
+        # Loader failures are isolated per bundle and logged; they do NOT
+        # abort agent construction.  An empty/None list is a no-op.
+        self._hook_bundles_raw: list[Any] = list(hook_bundles or [])
+        if self._hook_bundles_raw:
+            try:
+                _bundle_hooks = load_bundles(self._hook_bundles_raw, fail_fast=False)
+            except Exception as _bundle_err:
+                logger.error(
+                    f"[PrivacyAgent] hook_bundles load failed: {_bundle_err}",
+                    exc_info=True,
+                )
+                _bundle_hooks = []
+            for _h in _bundle_hooks:
+                try:
+                    # Bundle hooks are Tier>=1; the dispatcher enforces
+                    # Tier-0 comes only from the in-tree allowlist.
+                    self._hook_dispatcher.register(_h)
+                except Exception as _reg_err:
+                    logger.error(
+                        f"[PrivacyAgent] Bundle hook "
+                        f"{getattr(getattr(_h, 'manifest', None), 'name', type(_h).__name__)!r} "
+                        f"failed to register: {_reg_err}",
+                        exc_info=True,
+                    )
+
+        # ── Tier-0 built-in hooks (PR 5) ────────────────────────────────
+        # Opt-in via ``hooks_enabled=True``.  When enabled, the agent auto-
+        # registers the crosstalk guard + typing lock hooks that replace the
+        # inline HOT-PATH-B safety logic in build_node.py.  Legacy callers
+        # (default) get identical behavior to PR 2 — dispatcher present but
+        # no hooks registered → every stage is a no-op.
+        self._hooks_enabled: bool = bool(hooks_enabled)
+        if self._hooks_enabled:
+            try:
+                self._register_builtin_hooks()
+            except Exception as _builtin_err:
+                logger.error(
+                    f"[PrivacyAgent] Failed to auto-register built-in hooks "
+                    f"(continuing without them): {_builtin_err}",
+                    exc_info=True,
+                )
+
+        # Patch step + multi_act so every stage has an insertion point.
+        # These patches are no-ops when no hooks are registered.
+        self._original_step = self._agent.step
+        self._agent.step = self._hooked_step
+        self._original_multi_act = self._agent.multi_act
+        self._agent.multi_act = self._hooked_multi_act
         
         status = "enabled" if self.privacy_enabled else "DISABLED (passthrough mode)"
         debug_status = "debug=on" if self.privacy_debug else "debug=off"
@@ -600,7 +705,23 @@ class PrivacyAgent:
         Returns:
             Agent result (AgentHistoryList)
         """
-        return await self._agent.run(max_steps=max_steps, cancellation_event=cancellation_event)
+        # Forward cancellation_event only if the inner Agent.run supports it.
+        # Vanilla browser_use.Agent.run() lacks the kwarg; passing it blindly
+        # raises TypeError.
+        kwargs: dict[str, Any] = {"max_steps": max_steps}
+        if cancellation_event is not None:
+            try:
+                import inspect as _inspect
+                _sig = _inspect.signature(self._agent.run)
+                if "cancellation_event" in _sig.parameters or any(
+                    p.kind == _inspect.Parameter.VAR_KEYWORD
+                    for p in _sig.parameters.values()
+                ):
+                    kwargs["cancellation_event"] = cancellation_event
+            except (TypeError, ValueError):
+                # Signature inspection failed — safest to omit the kwarg.
+                pass
+        return await self._agent.run(**kwargs)
     
     def get_filter_results(self) -> list[FilterResult]:
         """
@@ -630,12 +751,349 @@ class PrivacyAgent:
         """Clear stored filter results."""
         self._filter_results.clear()
     
+    # ==================== Hook system public API (PR 2) ====================
+
+    def register_hook(self, hook: Hook) -> None:
+        """Register a hook at runtime.  Third-party hooks (Tier 1/2) only.
+
+        Tier-0 hooks are registered by the app's own code paths and rejected
+        when attempted from foreign packages (enforced structurally by
+        ``HookDispatcher.register``).
+        """
+        self._hook_dispatcher.register(hook)
+
+    def unregister_hook(self, name: str) -> bool:
+        """Remove a previously registered non-Tier-0 hook by name."""
+        return self._hook_dispatcher.unregister(name)
+
+    def list_hooks(self, stage: Stage | None = None) -> list[HookManifest]:
+        """Return manifests of currently registered hooks (in dispatch order)."""
+        return self._hook_dispatcher.list_hooks(stage)
+
+    async def shutdown_hooks(self) -> None:
+        """Best-effort teardown for hooks that hold external resources.
+
+        Primarily exists for the subprocess runtime lane (PR 9), which
+        keeps a long-lived child process per hook.  Idempotent; safe to
+        call multiple times.  Callers that construct a PrivacyAgent for
+        a one-shot run should invoke this before the event loop closes.
+        """
+        for mf in self._hook_dispatcher.list_hooks():
+            hook = self._hook_dispatcher.get_hook(mf.name)
+            sd = getattr(hook, "shutdown", None) if hook is not None else None
+            if sd is None:
+                continue
+            try:
+                result = sd()
+                if hasattr(result, "__await__"):
+                    await result
+            except Exception as e:
+                logger.warning(
+                    f"[PrivacyAgent] hook {mf.name!r} shutdown raised: {e!r}"
+                )
+
+    @property
+    def hook_dispatcher(self) -> HookDispatcher:
+        """The per-agent HookDispatcher.  Exposed for diagnostics/tests."""
+        return self._hook_dispatcher
+
+    @property
+    def hooks_enabled(self) -> bool:
+        """True when the opt-in built-in hook bundle has been registered."""
+        return self._hooks_enabled
+
+    # -------- Tier-0 built-in registration (PR 5) -----------------------
+
+    # Class-level list of built-in factory callables.  Each callable must
+    # take no args and return a ready-to-register Hook instance.  Kept as a
+    # method-local list rather than a module-level constant so importing
+    # privacy_agent doesn't eagerly import the hooks subpackage when the
+    # opt-in is off — keeps legacy paths lean.
+    def _register_builtin_hooks(self) -> None:
+        """Register the Tier-0 built-in hooks that replace the inline
+        HOT-PATH-B safety logic in build_node.py.
+
+        Current bundle:
+          * VerifyActiveSessionHook   — on_pre_action, crosstalk guard
+          * TypingLockAcquireHook     — on_pre_action, typing serialization
+          * TypingLockReleaseHook     — on_post_action, typing serialization
+
+        BypassActionsHook is NOT registered here because it fires at
+        ``on_event_normalized`` which is not triggered by the Agent loop
+        (it belongs to build_node.py's event-dispatch path — future PR).
+        """
+        # Lazy imports so module load stays lean for non-opted-in callers.
+        from .hooks.builtin.verify_active_session import VerifyActiveSessionHook
+        from .hooks.builtin.typing_lock import (
+            TypingLockAcquireHook,
+            TypingLockReleaseHook,
+        )
+
+        builtins: list[Hook] = [
+            VerifyActiveSessionHook(),
+            TypingLockAcquireHook(),
+            TypingLockReleaseHook(),
+        ]
+        registered: list[str] = []
+        for h in builtins:
+            try:
+                # allow_tier0=True because privacy_agent.py lives under the
+                # Tier-0 allowlist prefix, but being explicit is safer than
+                # relying on stack-frame introspection across Python versions.
+                self._hook_dispatcher.register(h, allow_tier0=True)
+                registered.append(h.manifest.name)
+            except Exception as _reg_err:
+                logger.error(
+                    f"[PrivacyAgent] Tier-0 hook {h.manifest.name!r} failed "
+                    f"to register: {_reg_err}",
+                    exc_info=True,
+                )
+        logger.info(
+            f"[PrivacyAgent] Tier-0 built-ins registered: {registered}"
+        )
+
+    # -------- internal: hook context + tool proxy construction ----------
+
+    async def _raw_hook_tool_call(self, name: str, /, **args: Any) -> Any:
+        """Backend for ScopedToolProxy — dispatches via the Agent's Tools
+        registry the same way ``multi_act`` does.  Permission gating is
+        applied by the ScopedToolProxy before this is reached.
+        """
+        try:
+            from browser_use.tools.registry.views import ActionModel  # type: ignore
+        except Exception as _imp_err:
+            raise RuntimeError(
+                f"browser-use ActionModel unavailable: {_imp_err}"
+            )
+        if not self._agent.tools:
+            raise RuntimeError("Agent has no Tools registry bound")
+        # Build a one-off ActionModel with the single named field populated.
+        # This mirrors how browser-use itself wraps LLM-chosen actions.
+        try:
+            action = ActionModel(**{name: args})  # type: ignore[arg-type]
+        except Exception as _build_err:
+            raise RuntimeError(
+                f"Failed to build ActionModel for tool {name!r}: {_build_err}"
+            )
+        return await self._agent.tools.act(
+            action=action,
+            browser_session=self._agent.browser_session,
+            file_system=getattr(self._agent, "file_system", None),
+            page_extraction_llm=self._agent.settings.page_extraction_llm,
+            sensitive_data=self._agent.sensitive_data,
+            available_file_paths=self._agent.available_file_paths,
+            extraction_schema=getattr(self._agent, "extraction_schema", None),
+        )
+
+    def _get_or_create_state_store(
+        self, hook_name: str, *, namespace: str = ""
+    ) -> MemoryStateStore:
+        """Return a (shared or hook-local) state store.
+
+        Hooks whose manifest sets ``state_namespace="foo"`` all receive the
+        SAME store, keyed by ``ns:foo``.  Hooks without a namespace get
+        their own store keyed by their name.  This lets paired hooks like
+        ``typing_lock_acquire`` + ``typing_lock_release`` cooperate while
+        keeping unrelated hooks isolated.
+        """
+        key = f"ns:{namespace}" if namespace else hook_name
+        store = self._hook_state_stores.get(key)
+        if store is None:
+            # NOTE: manifest.state == "disk" is honored in a later PR alongside
+            # the skill-bundle loader; for now all hooks get memory stores.
+            store = MemoryStateStore()
+            self._hook_state_stores[key] = store
+        return store
+
+    def _next_span_id(self) -> str:
+        self._hook_span_seq += 1
+        return f"{self._hook_dispatcher.trace_id[:8]}-{self._hook_span_seq:06d}"
+
+    def _build_hook_context(self, manifest: HookManifest) -> HookContext:
+        """Factory passed to ``HookDispatcher.dispatch``.  Builds a scoped
+        ToolProxy + StateStore on every call; these are cheap.
+        """
+        agent_self = self
+
+        class _Ctx:
+            pass
+
+        ctx = _Ctx()
+        ctx.manifest = manifest
+        ctx.trace_id = agent_self._hook_dispatcher.trace_id
+        ctx.span_id = agent_self._next_span_id()
+        ctx.step = int(getattr(getattr(agent_self._agent, "state", None), "n_steps", 0) or 0)
+        ctx.site_adapter = agent_self._site_adapter
+        ctx.tools = ScopedToolProxy(
+            raw_call=agent_self._raw_hook_tool_call,
+            allowed_globs=tuple(manifest.permissions.tools or ()),
+            hook_name=manifest.name,
+        )
+        ctx.state = agent_self._get_or_create_state_store(
+            manifest.name, namespace=manifest.state_namespace,
+        )
+        ctx.logger = logger
+        ctx.config = dict(manifest.matches.get("config", {}) or {})
+        # Raw BrowserSession handle — None in non-browser test contexts.
+        # Hooks that need DOM access import helpers from
+        # extension_tools_service (e.g. _evaluate_js) and pass this through.
+        ctx.browser_session = getattr(agent_self._agent, "browser_session", None)
+        ctx.emit_span = lambda *_a, **_k: None
+        return ctx  # type: ignore[return-value]
+
+    async def _dispatch_stage(self, stage: Stage, payload: Any) -> HookResult:
+        """Thin wrapper so call-sites don't need the ctx_factory boilerplate."""
+        try:
+            return await self._hook_dispatcher.dispatch(
+                stage, payload, ctx_factory=self._build_hook_context,
+            )
+        except Exception as _disp_err:
+            # Dispatcher-level failures must never crash the agent loop.
+            logger.exception(
+                f"[PrivacyAgent] hook dispatcher failed at stage={stage.value}: "
+                f"{_disp_err}"
+            )
+            return HookResult.cont(reason=f"dispatcher_error:{type(_disp_err).__name__}")
+
+    # -------- patched Agent methods (hook insertion points) -------------
+
+    async def _hooked_step(self, step_info: "AgentStepInfo | None" = None) -> None:
+        """Wraps Agent.step to fire on_pre_step / on_step_end / on_error.
+
+        Behavior with no hooks registered: identical to the original step().
+        With hooks registered, a pre-step hook may DROP to skip the step; all
+        other decisions at this stage degrade to CONTINUE in PR 2 (BYPASS /
+        HANDOFF / ESCALATE from on_pre_step will arrive when the Agent-
+        internal patches for them land in a later PR).
+        """
+        # on_pre_step
+        pre = await self._dispatch_stage(Stage.ON_PRE_STEP, {"step_info": step_info})
+        if pre.decision == Decision.DROP:
+            logger.info(
+                f"[PrivacyAgent] on_pre_step DROP — skipping step "
+                f"(reason={pre.reason!r})"
+            )
+            return
+        if pre.decision in (Decision.BYPASS, Decision.HANDOFF):
+            logger.warning(
+                f"[PrivacyAgent] on_pre_step decision {pre.decision.value!r} "
+                f"not yet implemented at step-level; falling through to normal "
+                f"step execution"
+            )
+
+        error: Exception | None = None
+        try:
+            await self._original_step(step_info)
+        except Exception as _step_err:
+            error = _step_err
+            # Fire on_error but preserve original exception semantics by
+            # re-raising after dispatch (unless the hook explicitly DROPs).
+            err_res = await self._dispatch_stage(
+                Stage.ON_ERROR,
+                {"error_type": type(_step_err).__name__, "error": str(_step_err)},
+            )
+            if err_res.decision != Decision.DROP:
+                raise
+            logger.info(
+                f"[PrivacyAgent] on_error DROP — suppressing step exception "
+                f"{type(_step_err).__name__}: {_step_err}"
+            )
+
+        # on_step_end (informational in PR 2 — decision ignored)
+        await self._dispatch_stage(
+            Stage.ON_STEP_END,
+            {
+                "n_steps": int(getattr(self._agent.state, "n_steps", 0) or 0),
+                "had_error": error is not None,
+            },
+        )
+
+    async def _hooked_multi_act(self, actions: list) -> list:
+        """Wraps Agent.multi_act to fire on_pre_action / on_post_action per
+        action in the queue.  Preserves multi_act's built-in page-change
+        guards by delegating to the original one action at a time.
+
+        Supported decisions in PR 2:
+          * on_pre_action  → Continue (default), Drop (skip this action)
+          * on_post_action → Continue (default), Replace (swap the ActionResult)
+
+        Bypass/Handoff/Escalate at action level will be added when HOT-PATH-B
+        is rehomed in PR 4; for now they log and fall through.
+        """
+        if not actions:
+            return await self._original_multi_act(actions)
+
+        # Fast path: no pre/post-action hooks registered → delegate wholesale
+        # so multi_act's internal page-change guards behave identically.
+        has_pre = bool(self._hook_dispatcher.list_hooks(Stage.ON_PRE_ACTION))
+        has_post = bool(self._hook_dispatcher.list_hooks(Stage.ON_POST_ACTION))
+        if not has_pre and not has_post:
+            return await self._original_multi_act(actions)
+
+        # Slow path: run actions one-at-a-time to allow per-action hook
+        # evaluation.  This changes multi_act's batch semantics slightly
+        # (each call is its own batch of size 1), but preserves the
+        # page-change guards per action.  Kept opt-in via hook presence.
+        results: list = []
+        for a in actions:
+            try:
+                action_name = next(iter(a.model_dump(exclude_unset=True).keys()))
+            except Exception:
+                action_name = "unknown"
+            pre = await self._dispatch_stage(
+                Stage.ON_PRE_ACTION, {"action_name": action_name, "action": a},
+            )
+            if pre.decision == Decision.DROP:
+                logger.info(
+                    f"[PrivacyAgent] on_pre_action DROP — skipping {action_name!r} "
+                    f"(reason={pre.reason!r})"
+                )
+                continue
+            if pre.decision in (Decision.BYPASS, Decision.HANDOFF, Decision.ESCALATE):
+                logger.warning(
+                    f"[PrivacyAgent] on_pre_action decision {pre.decision.value!r} "
+                    f"on {action_name!r} not yet implemented at action-level; "
+                    f"falling through to normal execution"
+                )
+
+            single_result = await self._original_multi_act([a])
+            # Post-action hook: may Replace the ActionResult list.
+            # Include ``action`` so hooks can inspect the same args they saw
+            # at on_pre_action (e.g. TypingLockReleaseHook needs the
+            # customer_name to decide whether to release the shared lock).
+            post = await self._dispatch_stage(
+                Stage.ON_POST_ACTION,
+                {"action_name": action_name, "action": a, "result": single_result},
+            )
+            # The dispatcher collapses trailing Replace into Continue-with-
+            # updated-payload, so inspect the payload shape rather than the
+            # decision verb to decide whether to honor a replacement.
+            if isinstance(post.payload, dict):
+                replaced = post.payload.get("result")
+                if isinstance(replaced, list):
+                    single_result = replaced
+            results.extend(single_result)
+
+            # Honor multi_act's "done/error aborts the rest" semantics.
+            if single_result and (
+                getattr(single_result[-1], "is_done", False)
+                or getattr(single_result[-1], "error", None)
+            ):
+                break
+        return results
+
     # Proxy commonly used Agent properties and methods
     
     @property
     def task(self) -> str:
         return self._agent.task
-    
+
+    @task.setter
+    def task(self, value: str) -> None:
+        # Forward to the inner Agent so loop-mode round resets (which
+        # reassign ``agent.task`` between iterations) work transparently.
+        self._agent.task = value
+
     @property
     def state(self) -> "AgentState":
         return self._agent.state
@@ -771,6 +1229,13 @@ class PrivacyAgent:
             "last_result": self._agent.state.last_result,
             "filter_stats": self.get_filter_stats(),
         }
+
+
+# Forward-looking alias — the class began life as PrivacyAgent but has grown
+# into a generic HookedAgent host.  New code should import ``HookedAgent``;
+# ``PrivacyAgent`` remains for backward compatibility with build_node.py
+# and any downstream that checks class_name.
+HookedAgent = PrivacyAgent
 
 
 # Convenience function to create a privacy-enabled agent

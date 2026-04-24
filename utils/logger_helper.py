@@ -3,12 +3,14 @@
 
 import logging
 import colorlog
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
+from queue import Queue
 import time
 import os
 import sys
 import signal
 import io
+import atexit
 from config.constants import APP_NAME
 from config.app_info import app_info
 import traceback
@@ -42,6 +44,53 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
                 if attempt < max_retries - 1:
                     import time
                     time.sleep(0.1)
+            except Exception as _other_err:
+                _last_err = _other_err
+                # Non-permission errors on Windows usually mean a stuck
+                # rotation slot (e.g. `eCan.log.1` left behind by a prior
+                # crashed rotation).  Move the blocking backup aside with
+                # a timestamped suffix so the next retry proceeds.
+                try:
+                    import time as _rot_time
+                    import os as _rot_os
+                    target_1 = f"{self.baseFilename}.1"
+                    if _rot_os.path.exists(target_1):
+                        stuck_path = f"{target_1}.stuck-{int(_rot_time.time())}"
+                        _rot_os.rename(target_1, stuck_path)
+                        sys.stderr.write(
+                            f"[WindowsSafeRotatingFileHandler] moved stuck "
+                            f"{target_1!r} -> {stuck_path!r} to unblock rotation\n"
+                        )
+                except Exception:
+                    pass
+        # All retries failed.  The stock RotatingFileHandler.doRollover
+        # closes `self.stream` BEFORE attempting the rename, so a failed
+        # rotation leaves the handler with a closed FD.  Subsequent
+        # emit() calls then write to the dead FD and Python's logging
+        # framework silently discards the records via handleError --
+        # the exact symptom observed 2026-04-22 14:51:10 where eCan.log
+        # went dark while the app kept running for several more minutes.
+        # Make the failure visible AND guarantee we keep a live stream,
+        # even if that means appending to the already-oversized file.
+        _last_err = locals().get("_last_err", None)
+        try:
+            sys.stderr.write(
+                f"[WindowsSafeRotatingFileHandler] rollover FAILED for "
+                f"{self.baseFilename!r} after {max_retries} attempts: "
+                f"{type(_last_err).__name__ if _last_err else 'Unknown'}: "
+                f"{_last_err!s}. Continuing to append to current file.\n"
+            )
+        except Exception:
+            pass
+        try:
+            if getattr(self, "stream", None) is None or getattr(self.stream, "closed", False):
+                self.stream = self._open()
+        except Exception as _reopen_err:
+            try:
+                sys.stderr.write(
+                    f"[WindowsSafeRotatingFileHandler] could not reopen stream "
+                    f"for {self.baseFilename!r}: {_reopen_err!s}\n"
+                )
             except Exception:
                 pass
 
@@ -83,76 +132,71 @@ class LoggerHelper:
         self.logger.setLevel(level)
         self.logger.propagate = False
 
-        if not any(isinstance(h, logging.StreamHandler) for h in self.logger.handlers):
-            console_formatter = colorlog.ColoredFormatter(
-                "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                log_colors={
-                    "DEBUG": "cyan",
-                    "INFO": "green",
-                    "WARNING": "yellow",
-                    "ERROR": "red",
-                    "CRITICAL": "bold_red",
-                    "TRACE": "white",
-                },
-                reset=True,
-                secondary_log_colors={},
-                style="%"
-            )
+        # Already set up with async queue — don't duplicate
+        if any(isinstance(h, QueueHandler) for h in self.logger.handlers):
+            return
 
-            # 创建支持 UTF-8 的控制台处理器
-            # 在 PyInstaller 环境中，sys.stdout 可能为 None
-            if sys.stdout is not None:
-                if sys.platform == "win32" and hasattr(sys.stdout, 'buffer'):
-                    # Windows 系统需要特殊处理 UTF-8 编码
-                    try:
-                        console_handler = logging.StreamHandler(
-                            io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-                        )
-                    except (AttributeError, OSError):
-                        # 如果失败，使用标准处理器
-                        console_handler = logging.StreamHandler()
-                else:
+        target_handlers = []
+
+        console_formatter = colorlog.ColoredFormatter(
+            "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            log_colors={
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+                "TRACE": "white",
+            },
+            reset=True,
+            secondary_log_colors={},
+            style="%"
+        )
+
+        # In PyInstaller windowed mode sys.stdout may be None — skip console handler then.
+        if sys.stdout is not None:
+            if sys.platform == "win32" and hasattr(sys.stdout, 'buffer'):
+                try:
+                    console_handler = logging.StreamHandler(
+                        io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+                    )
+                except (AttributeError, OSError):
                     console_handler = logging.StreamHandler()
+            else:
+                console_handler = logging.StreamHandler()
+            console_handler.setFormatter(console_formatter)
+            target_handlers.append(console_handler)
 
-                console_handler.setFormatter(console_formatter)
-                self.logger.addHandler(console_handler)
-            # 如果 sys.stdout 为 None（PyInstaller windowed 模式），跳过控制台处理器
+        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler = WindowsSafeRotatingFileHandler(
+            log_file,
+            maxBytes=1024 * 1024 * 10,
+            backupCount=5,
+            encoding='utf-8',
+            errors='replace'
+        )
+        file_handler.setFormatter(file_formatter)
+        target_handlers.append(file_handler)
 
-        if not any(isinstance(h, RotatingFileHandler) for h in self.logger.handlers):
-            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            # 确保文件处理器使用 UTF-8 编码
-            file_handler = WindowsSafeRotatingFileHandler(
-                log_file,
-                maxBytes=1024 * 1024 * 10,
-                backupCount=5,
-                encoding='utf-8',
-                errors='replace'
-            )
-            file_handler.setFormatter(file_formatter)
-            self.logger.addHandler(file_handler)
+        # Async logging: callers enqueue records in ~μs; a dedicated listener thread
+        # drains the queue to the real handlers. Worker threads no longer block
+        # on the main thread's log lock / disk I/O.
+        self._log_queue = Queue(-1)
+        queue_handler = QueueHandler(self._log_queue)
+        self.logger.addHandler(queue_handler)
+
+        self._log_listener = QueueListener(
+            self._log_queue, *target_handlers, respect_handler_level=True
+        )
+        self._log_listener.start()
+        atexit.register(self._log_listener.stop)
 
     def _safe_encode_message(self, message):
-        """Safely encode message, handle emoji and special characters"""
+        """Coerce non-string messages. Encoding safety is handled by the
+        handlers themselves (file handler uses UTF-8 with errors='replace',
+        console stream is wrapped in a UTF-8 TextIOWrapper)."""
         if not isinstance(message, str):
             message = str(message)
-
-        # On Windows systems, if encoding issues occur, replace problematic characters
-        # Only check encoding if we're on Windows and message might have issues
-        if sys.platform == "win32":
-            # Quick check: if message is pure ASCII, skip encoding check
-            try:
-                message.encode('ascii')
-                return message  # Pure ASCII, no encoding issues
-            except UnicodeEncodeError:
-                pass  # Contains non-ASCII, need to check GBK
-            
-            try:
-                # Try encoding to GBK, if it fails then replace characters
-                message.encode('gbk')
-            except UnicodeEncodeError:
-                # Replace characters that cannot be encoded
-                message = message.encode('gbk', errors='replace').decode('gbk', errors='replace')
-
         return message
 
     def _join_message_args(self, message, *args):

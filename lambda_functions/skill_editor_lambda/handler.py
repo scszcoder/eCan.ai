@@ -1996,7 +1996,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             from langchain_openai import ChatOpenAI
 
             api_key = os.environ.get("OPENAI_API_KEY")
-            model_name = os.environ.get("SKILL_EDITOR_MODEL", "gpt-5.2")
+            model_name = os.environ.get("SKILL_EDITOR_MODEL", "gpt-5.5")
             if api_key:
                 llm_instance = ChatOpenAI(model=model_name, api_key=api_key)
                 logger.info(f"[sendSkillEditorChatMessage] Using OpenAI LLM model={model_name}")

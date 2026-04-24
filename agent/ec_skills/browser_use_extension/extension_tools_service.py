@@ -67,7 +67,7 @@ _send_chat_dedup_cache: Dict[str, float] = {}  # key → timestamp
 # actionable_items filter so a customer with an in-flight dispatch is not
 # re-queued by the DOM monitor just because its pending_timer hasn't cleared
 # yet (pending_timer only clears after the reply reaches the customer).
-_SEND_CHAT_CUSTOMER_WINDOW_S = 90  # seconds
+_SEND_CHAT_CUSTOMER_WINDOW_S = 45  # seconds (reduced from 90 — shorter recovery when responder fails)
 _send_chat_customer_last: Dict[str, float] = {}  # customer_id → timestamp
 
 
@@ -78,7 +78,13 @@ def customer_recently_dispatched(customer_id: str, window_s: float = None) -> fl
         return 0.0
     window = window_s if window_s is not None else _SEND_CHAT_CUSTOMER_WINDOW_S
     now = _time.time()
-    last = _send_chat_customer_last.get(str(customer_id).strip())
+    # Normalize: strip message-preview suffix (e.g. "sc|有紫色款吗？" → "sc")
+    _norm_id = str(customer_id).strip()
+    if "|" in _norm_id:
+        _prefix = _norm_id.split("|", 1)[0].strip()
+        if _prefix:
+            _norm_id = _prefix
+    last = _send_chat_customer_last.get(_norm_id)
     if last is None:
         return 0.0
     age = now - last
@@ -1661,6 +1667,12 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
                 _dedup_customer = str(
                     _msg_obj.get("customer_id") or _msg_obj.get("customer_name") or ""
                 ).strip()
+                # Normalize: strip message-preview suffix from identity keys
+                # like "sc|有紫色款吗？" → "sc"
+                if "|" in _dedup_customer:
+                    _prefix = _dedup_customer.split("|", 1)[0].strip()
+                    if _prefix:
+                        _dedup_customer = _prefix
         _dedup_key = f"{_dedup_recipient}|{_dedup_customer}" if _dedup_customer else ""
         if _dedup_key:
             now = _time.time()

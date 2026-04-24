@@ -1,0 +1,122 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Feige chat — reference external hook bundle.
+#
+# Loaded via the browser_automation node editor's "Hook Bundles (JSON)"
+# field:
+#
+#     [{"path": "feige_chat", "config": {"cooldown_ms": 2000}}]
+#
+# The loader resolves "feige_chat" relative to
+# ``agent/ec_skills/browser_use_extension/hooks/external/`` for in-tree
+# bundles.  Out-of-tree bundles use an absolute path or "pkg:<name>".
+#
+# This bundle demonstrates the three things every external bundle needs:
+#
+#   1. A manifest (this file) declaring one or more hooks with explicit
+#      stage, tier, priority, and permissions.
+#   2. A Python file whose classes implement the Hook protocol
+#      (``manifest`` + ``async def run(ctx, payload)``).
+#   3. Optional bundle-level ``config`` defaults, merged with the
+#      user's per-node config dict at load time.
+#
+# Tier must be >= 1 for external bundles.  Tier 0 is reserved for the
+# in-tree ``builtin/`` hooks that enforce safety rails; the loader
+# rejects any external manifest that tries to claim tier: 0.
+# ─────────────────────────────────────────────────────────────────────────────
+
+api_version: 1
+bundle: feige_chat
+version: 1.0.0
+author: "eCan.ai reference"
+description: >
+  Reference external-hook bundle for the Feige real-site chatbot.
+  Demonstrates (a) deterministic LLM-bypass via on_event_normalized,
+  and (b) extending an in-tree Tier-0 crosstalk guard with Feige-
+  specific arg keys.
+
+# Bundle-level config defaults.  Users can override any of these from
+# the node editor's Hook Bundles field.  Individual hooks get the
+# merged dict as their ``config`` kwarg.
+config:
+  # Minimum gap between deterministic replies to the same customer.
+  # Prevents runaway loops if a page event storms.
+  cooldown_ms: 1500
+
+  # If a customer's latest message exactly matches a key below, the hook
+  # replies with the value via a deterministic BYPASS decision (no LLM).
+  quick_replies:
+    "你好": "您好,请问有什么可以帮您?"
+    "hi":   "Hi! How can I help you today?"
+    "价格":  "我们有多种套餐,请告诉我您的具体需求,我会推荐最合适的方案。"
+
+  # Action name the dispatcher asks the runtime to execute.  Must match
+  # a tool the bundle has permission for (see permissions.tools below).
+  send_action: "feige_send_message"
+
+# JSON-schema-style description of the config keys users may set on
+# this bundle.  Consumed by the node-editor's future dynamic form
+# renderer.  Keep in sync with the defaults above — the GUI will pre-
+# populate each field with ``config.<key>`` when the user enables the
+# bundle, so mismatched defaults surface as GUI regression.
+config_schema:
+  type: object
+  properties:
+    cooldown_ms:
+      type: integer
+      title: "Cooldown (ms)"
+      description: "Minimum gap between deterministic replies to the same customer."
+      minimum: 0
+      default: 1500
+    quick_replies:
+      type: object
+      title: "Quick replies"
+      description: "Map of trigger-text → canned reply.  Exact match."
+      additionalProperties: {type: string}
+    send_action:
+      type: string
+      title: "Send action name"
+      description: "Tool the dispatcher executes for a bypass.  Must be in permissions.tools."
+      default: "feige_send_message"
+
+hooks:
+  # ──────────────────────────────────────────────────────────────────
+  # Quick-reply hook — replaces the hotPathActions JSON blob with Python
+  # logic the author can unit-test.  Fires at on_event_normalized so it
+  # sees incoming events BEFORE the LLM ever gets involved.
+  # ──────────────────────────────────────────────────────────────────
+  - name: feige_quick_reply
+    entrypoint: "feige_hooks.py:FeigeQuickReplyHook"
+    stage: on_event_normalized
+    tier: 1
+    priority: 20
+    permissions:
+      tools:
+        - feige_send_message
+      network: none
+    budget:
+      timeout_ms: 200
+    matches:
+      event_type: ["chat_message", "customer_message"]
+    state: memory
+    # Share the cooldown store across this bundle's hooks if needed.
+    state_namespace: feige_quickreply
+
+  # ──────────────────────────────────────────────────────────────────
+  # Extended crosstalk guard.  Wraps the in-tree Tier-0 hook but adds
+  # extra "expected customer" arg keys that the Feige site happens to
+  # use.  Different name (not ``verify_active_session``) so it doesn't
+  # collide with the built-in; Tier 1 so the loader accepts it.
+  # ──────────────────────────────────────────────────────────────────
+  - name: feige_crosstalk_guard_ext
+    entrypoint: "feige_hooks.py:FeigeCrosstalkGuardHook"
+    stage: on_pre_action
+    tier: 1
+    priority: 6               # just after Tier-0 guard (priority 5)
+    permissions:
+      tools: []               # direct DOM eval, no tool calls
+    budget:
+      timeout_ms: 1500
+    matches:
+      action_name:
+        - feige_send_message
+        - feige_send_draft
