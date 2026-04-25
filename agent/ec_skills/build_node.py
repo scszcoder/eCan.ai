@@ -8022,6 +8022,484 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             self.state = state
             self.calling_agent_id = calling_agent_id
 
+        def _build_hook_ctx(self) -> "BrowserUseHookContext":
+            """Factory for the BrowserUseHookContext passed to every hook.
+
+            All three hook phases (before_browser_session_setup,
+            before_prompt_build, before_browser_use_run) need the same
+            wide context — this method captures the 16 build-scope
+            references in one place so the call sites become a single
+            line.  Hooks use this to access build-scope helpers
+            (scope-key resolution, runtime-input extraction, dispatch
+            state) without ``build_node`` having to plumb each one as
+            a parameter.
+
+            Closure refs (via the nested class scope): ``node_name``,
+            ``_resolve_browser_scope_key``, ``_extract_runtime_invocation_input``,
+            ``_parse_json_input``, ``send_skill_editor_log``,
+            ``_normalize_dispatch_identity_key``, ``_SafeFormatDict``,
+            ``_cached_browser_sessions``, ``_dispatch_state_by_agent``,
+            ``_is_dispatch_inflight``, ``_mark_dispatch_inflight``,
+            ``_clear_dispatch_inflight``, ``_DISPATCH_INFLIGHT_TTL_S``,
+            ``_resolve_template``, ``_get_or_create_browser_session``
+            from ``build_browser_automation_node``.
+            """
+            return BrowserUseHookContext(
+                node_name=str(node_name or ""),
+                calling_agent_id=str(self.calling_agent_id or ""),
+                mainwin=self.mainwin,
+                resolve_scope_key=_resolve_browser_scope_key,
+                extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                parse_json_input=_parse_json_input,
+                send_log=send_skill_editor_log,
+                normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
+                safe_format_dict=_SafeFormatDict,
+                cached_browser_sessions=_cached_browser_sessions,
+                dispatch_state_by_agent=_dispatch_state_by_agent,
+                is_dispatch_inflight=_is_dispatch_inflight,
+                mark_dispatch_inflight=_mark_dispatch_inflight,
+                clear_dispatch_inflight=_clear_dispatch_inflight,
+                inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
+                resolve_template=_resolve_template,
+                get_or_create_browser_session=_get_or_create_browser_session,
+            )
+
+        async def _inject_event_context(
+            self,
+            *,
+            task: str,
+        ) -> tuple[dict | None, str, str | None]:
+            """Inject the triggering-event hint into the task string.
+
+            When this browser_automation node was resumed by pend_event
+            after an event (browser_event, chat_message, etc.), expose
+            the event metadata so the LLM knows WHY this invocation
+            was triggered.  Also runs the ``before_prompt_build`` hook
+            phase, which may short-circuit by returning a state dict.
+
+            Returns ``(early_exit, task, evt_type)`` where:
+
+            * ``early_exit`` is a state dict (when a prompt-build hook
+              short-circuits) or ``None`` (proceed normally).
+            * ``task`` is the (possibly augmented) task string with
+              event context and any actionable-items override prepended.
+            * ``evt_type`` is the resolved event type (``browser_event``,
+              ``chat_message``, etc.) for downstream consumers.
+
+            Closure refs (via the nested class scope): ``actionable_field``,
+            ``node_name``, ``inputs``, ``_before_prompt_build_hooks``
+            from ``build_browser_automation_node``.
+            """
+            state = self.state
+            _override_block = ""  # prepended to task when actionable_items is non-empty
+            _evt_type: str | None = None
+            try:
+                from agent.ec_skills.browser_node.runner import (
+                    extract_triggering_event as _extract_evt,
+                )
+                _evt, _evt_type, _evt_ctx, _evt_label = _extract_evt(state)
+                if _evt_type:
+                    _evt_lines = [
+                        "## Triggering Event",
+                        f"This invocation was resumed by a **{_evt_type}** event.",
+                    ]
+                    if _evt_label:
+                        _evt_lines.append(f"Event label: **{_evt_label}**")
+                    if _evt_type == "browser_event":
+                        from agent.ec_skills.browser_node.runner import (
+                            build_browser_event_base_hint as _build_base_hint,
+                        )
+                        _new_msg_hint = _build_base_hint(_evt_label)
+                        # Inject raw event body items so the LLM has the
+                        # current snapshot without needing to call a list
+                        # tool.  Resolution + compaction delegated to helpers.
+                        try:
+                            from agent.ec_skills.browser_node.runner import (
+                                resolve_event_actionable_items as _resolve_evt_items,
+                                compact_actionable_items as _compact_items_fn,
+                            )
+                            _evt_items, _evt_items_src = _resolve_evt_items(
+                                evt_ctx=_evt_ctx, evt_label=_evt_label, state=state
+                            )
+                            if _evt_items and _evt_items_src:
+                                logger.info(
+                                    f"[BrowserAutomation] actionable_items source="
+                                    f"{_evt_items_src} ({len(_evt_items)} item(s)), "
+                                    f"node={node_name}"
+                                )
+                            if _evt_items:
+                                _compact_items = _compact_items_fn(_evt_items)
+                                if _compact_items:
+                                    # Compute actionable_raw once: the subset of compact_items
+                                    # whose configured actionable_field is non-empty.  Empty when
+                                    # the node author didn't opt into the actionable-items pattern.
+                                    _actionable_raw = (
+                                        [it for it in _compact_items
+                                         if str(it.get(actionable_field, "")).strip()]
+                                        if actionable_field else []
+                                    )
+
+                                    # Invoke prompt-build hooks.  Site plugins register here to
+                                    # apply business-case-specific enrichment.  If any hook
+                                    # supplies non-empty text (or a short_circuit_state), the
+                                    # generic fallback injection below is skipped.
+                                    _pb_handled = False
+                                    if _before_prompt_build_hooks:
+                                        _pb_ctx = PromptBuildContext(
+                                            compact_items=list(_compact_items),
+                                            actionable_raw=list(_actionable_raw),
+                                            actionable_field=str(actionable_field or ""),
+                                            event_type=str(_evt_type or ""),
+                                            event_label=str(_evt_label or ""),
+                                        )
+                                        _pb_hook_ctx = self._build_hook_ctx()
+                                        for _pb_hook in _before_prompt_build_hooks:
+                                            _pb_result = await _pb_hook(state, inputs, _pb_hook_ctx, _pb_ctx)
+                                            if _pb_result is None:
+                                                continue
+                                            if _pb_result.short_circuit_state is not None:
+                                                state.update(_pb_result.short_circuit_state)
+                                                return state, task, _evt_type
+                                            if _pb_result.task_hint_append:
+                                                _new_msg_hint += _pb_result.task_hint_append
+                                                _pb_handled = True
+                                            if _pb_result.override_prepend:
+                                                _override_block = _pb_result.override_prepend + _override_block
+                                                _pb_handled = True
+
+                                    # Generic fallback injection when no prompt-build
+                                    # hook added text.  See helper docstring.
+                                    if not _pb_handled:
+                                        from agent.ec_skills.browser_node.runner import (
+                                            build_actionable_items_fallback_text as _build_fallback_text,
+                                        )
+                                        _new_msg_hint += _build_fallback_text(
+                                            compact_items=_compact_items,
+                                            actionable_raw=_actionable_raw,
+                                            actionable_field=str(actionable_field or ""),
+                                            node_name=node_name,
+                                        )
+                        except Exception:
+                            pass
+                        _evt_lines.append(_new_msg_hint)
+                    elif _evt_type == "chat_message":
+                        from agent.ec_skills.browser_node.runner import (
+                            build_chat_message_event_line as _build_chat_line,
+                        )
+                        _evt_lines.append(_build_chat_line(state))
+                    task = f"{task}\n\n" + "\n".join(_evt_lines)
+                    logger.info(
+                        f"[BrowserAutomation] Injected triggering event context "
+                        f"(event_type={_evt_type}, label={_evt_label}, node={node_name})"
+                    )
+            except Exception as _evt_inject_err:
+                logger.info(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
+
+            # Prepend the override block so it appears BEFORE the user's system
+            # prompt. The LLM processes the task top-to-bottom; putting these
+            # rules first ensures they take precedence over any conflicting
+            # anti-duplicate heuristics in the system prompt.
+            if _override_block:
+                task = _override_block + task
+                logger.info(
+                    f"[BrowserAutomation] Prepended actionable_items protocol override "
+                    f"(node={node_name}, override_len={len(_override_block)})"
+                )
+
+            return None, task, _evt_type
+
+        async def _invoke_early_hooks(self) -> dict | None:
+            """Invoke registered before-browser-session-setup hooks.
+
+            Early hooks run BEFORE the (expensive) browser-use agent
+            is constructed, so a Feige-style fast-path (HOT-PATH-B:
+            chat_message arrives with a pre-computed reply, type it
+            into Feige directly, short-circuit the LLM) doesn't pay
+            for agent setup it will throw away.  Hooks acquire a
+            browser session via ``hook_ctx.get_or_create_browser_session``.
+
+            Returns the first hook's non-``None`` state dict (which
+            short-circuits the whole node), or ``None`` to let the
+            late phase run.
+
+            Closure refs (via the nested class scope):
+            ``_before_browser_session_setup_hooks``, ``inputs``
+            from ``build_browser_automation_node``.
+            """
+            if not _before_browser_session_setup_hooks:
+                return None
+            _early_hook_ctx = self._build_hook_ctx()
+            for _early_hook in _before_browser_session_setup_hooks:
+                _early_result = await _early_hook(
+                    None, self.state, inputs, _early_hook_ctx
+                )
+                if _early_result is not None:
+                    return _early_result
+            return None
+
+        async def _handle_pre_dispatch(
+            self,
+            *,
+            agent,
+            llm,
+            evt_type,
+            browser_scope_key: str,
+        ) -> tuple[dict | None, "Any"]:
+            """Run the pre-dispatch sequence: first-invocation skip, late hooks, cancellation wiring.
+
+            Returns ``(early_exit, cancellation_event)`` where:
+
+            * ``early_exit`` is the state/result dict to return directly
+              from :meth:`run` when the first-invocation short-circuit
+              fires *or* when a registered before-browser-use-run hook
+              intercepts.  ``None`` means proceed to the agent dispatch.
+            * ``cancellation_event`` is fetched from the global
+              cancellation registry by ``task_id`` and (if non-None)
+              attached to ``llm._ec_cancellation_event`` so
+              ``create_with_logging`` can poll it without a registry
+              lookup.
+
+            Closure refs (via the nested class scope): ``_event_monitor_configs``,
+            ``node_name``, ``_first_invocation_done``,
+            ``_before_browser_use_run_hooks``, ``_build_hook_ctx``,
+            ``inputs`` from ``build_browser_automation_node``.
+            """
+            # First-invocation short-circuit — skip LLM and let pend_event
+            # pick up the first real browser_event within seconds.  See
+            # helper docstring for full rationale.
+            from agent.ec_skills.browser_node.runner import (
+                maybe_first_invocation_short_circuit as _maybe_fi_skip,
+            )
+            _fi_state = _maybe_fi_skip(
+                state=self.state,
+                evt_type=evt_type,
+                event_monitor_configs=_event_monitor_configs,
+                first_invocation_done=_first_invocation_done,
+                browser_scope_key=browser_scope_key,
+                node_name=node_name,
+            )
+            if _fi_state is not None:
+                return _fi_state, None
+
+            # ── Invoke registered before-browser-use-run hooks ──────
+            # Each hook gets a BrowserUseHookContext exposing the
+            # closure-scoped helpers (resolve_scope_key,
+            # extract_runtime_invocation_input) + module-level state
+            # dicts.  The first hook to return a non-None state dict
+            # short-circuits the LLM.  Site-specific patterns (e.g.
+            # feige_chat.front_desk's PreDispatch fan-out) register
+            # themselves via ``register_before_browser_use_run_hook``
+            # at module-import time; build_node itself has no knowledge
+            # of what any registered hook does.
+            if _before_browser_use_run_hooks:
+                _bur_hook_ctx = self._build_hook_ctx()
+                for _bur_hook in _before_browser_use_run_hooks:
+                    _bur_hook_result = await _bur_hook(
+                        agent, self.state, inputs, _bur_hook_ctx
+                    )
+                    if _bur_hook_result is not None:
+                        return _bur_hook_result, None
+
+            # Register current agent instance so extension tools (e.g. list_files)
+            # can auto-authorize discovered file paths for later read_long_content/read_file calls.
+            try:
+                from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
+
+                set_current_agent(agent)
+            except Exception as _set_agent_exc:
+                logger.warning(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_exc}")
+
+            # Look up cancellation_event from global registry by task_id
+            from agent.ec_tasks import cancellation_registry
+            task_id = (self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None
+            cancellation_event = cancellation_registry.get(task_id) if task_id else None
+            if not cancellation_event:
+                logger.debug(f"[BrowserAutomation] No cancellation_event for task_id={task_id}")
+
+            # Store cancellation_event directly on the LLM so create_with_logging can poll it
+            # without a registry lookup by task_id (which may be stored at wrong state path).
+            if cancellation_event:
+                try:
+                    setattr(llm, "_ec_cancellation_event", cancellation_event)
+                except Exception:
+                    pass
+
+            return None, cancellation_event
+
+        async def _run_agent_dispatch(
+            self,
+            *,
+            agent,
+            agent_kwargs: dict,
+            cancellation_event,
+            last_known_focus_target_id,
+            browser_scope_key: str,
+            runtime_had_response_text: bool,
+        ) -> dict:
+            """Run the browser-use agent (with full cancel/focus dispatch) and finalize.
+
+            Wraps the inner try-block of :meth:`run`: resolves step-patch
+            config, computes the step focus target, dispatches the
+            ``agent.run()`` call via ``run_agent_with_dispatch``, then
+            delegates result post-processing to :meth:`_finalize_result`.
+
+            Closure refs (via the nested class scope): ``inputs``,
+            ``node_dom_focus_selector``, ``node_max_steps``,
+            ``node_timeout_seconds`` from ``build_browser_automation_node``.
+            """
+            from agent.ec_skills.browser_node.runner import (
+                resolve_step_patch_config as _resolve_step_cfg,
+                run_agent_with_dispatch as _run_agent_dispatch_helper,
+            )
+            _refocus_enabled, _abort_when_pre_dispatched, _pre_dispatch_flag_attr = (
+                _resolve_step_cfg(inputs)
+            )
+
+            _step_focus_target = None
+            if _refocus_enabled and hasattr(agent, 'step'):
+                # NOTE: ``locals().get("assignment_target_focus")`` is a
+                # defensive lookup carried over from the original closure
+                # body — the name has never actually been assigned, so it
+                # always falls through to ``last_known_focus_target_id``.
+                # Preserved verbatim for behavior parity.
+                _step_focus_target = (
+                    locals().get("assignment_target_focus")
+                    or last_known_focus_target_id
+                    or None
+                )
+
+            # 4-way agent.run() dispatch (cloud/privacy native, simple
+            # cancel wrapper, full step patch, plain).  See helper.
+            history = await _run_agent_dispatch_helper(
+                agent,
+                agent_kwargs=agent_kwargs,
+                cancellation_event=cancellation_event,
+                step_focus_target=_step_focus_target,
+                abort_when_pre_dispatched=_abort_when_pre_dispatched,
+                pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
+                dom_focus_selector=node_dom_focus_selector,
+                node_max_steps=node_max_steps,
+                node_timeout_seconds=node_timeout_seconds,
+            )
+
+            return await self._finalize_result(
+                agent=agent,
+                history=history,
+                browser_scope_key=browser_scope_key,
+                runtime_had_response_text=runtime_had_response_text,
+                cancellation_event=cancellation_event,
+            )
+
+        async def _finalize_result(
+            self,
+            *,
+            agent,
+            history,
+            browser_scope_key: str,
+            runtime_had_response_text: bool,
+            cancellation_event,
+        ) -> dict:
+            """Post-run extraction: persist focus, log diagnostics, build result dict.
+
+            Runs immediately after ``run_agent_with_dispatch`` returns and
+            before the ``finally``-block cleanup.  Side-effects:
+
+            * Re-raises ``CancelledError`` if cancellation was set during
+              the agent run (must short-circuit before any post-processing).
+            * Persists the post-run focus target so the next invocation's
+              CDP preflight can rebind to the same tab.
+            * Emits step-budget, history, final-result, and token-usage
+              diagnostics for postmortem analysis.
+            * Clears ``response_text`` from state so subsequent
+              ``browser_event`` cycles do not re-inject it.
+
+            Closure refs (via the nested class scope): ``_last_known_focus_target_ids``,
+            ``_log_browser_use_result_summary``, ``node_name``, ``skill_name``
+            from ``build_browser_automation_node``.
+            """
+            import asyncio
+            if cancellation_event and cancellation_event.is_set():
+                logger.info(
+                    "[BrowserAutomation] Cancellation set after agent.run(), stopping node execution"
+                )
+                raise asyncio.CancelledError("Task cancelled after LLM response")
+
+            # Persist post-run focus target.
+            from agent.ec_skills.browser_node.runner import (
+                persist_focus_target as _persist_focus,
+            )
+            _persist_focus(
+                agent,
+                browser_scope_key=browser_scope_key,
+                last_known_focus_target_ids=_last_known_focus_target_ids,
+            )
+
+            # Log step budget for postmortem diagnostics.
+            from agent.ec_skills.browser_node.runner import (
+                log_step_budget as _log_step_budget,
+            )
+            _log_step_budget(agent)
+
+            # Truncate long output for logging.
+            history_str = str(history)
+            if len(history_str) > 10000:
+                history_str = history_str[:10000] + '... (truncated)'
+            logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
+
+            final = history.final_result() if (history and hasattr(history, 'final_result')) else None
+            if history:
+                _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
+            final_str = str(final)
+            if len(final_str) > 10000:
+                final_str = final_str[:10000] + '... (truncated)'
+            logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
+
+            # Log browser-use's per-model token + cost summary.
+            from agent.ec_skills.browser_node.runner import (
+                log_browser_use_token_usage as _log_bu_tokens,
+            )
+            _log_bu_tokens(history)
+
+            # Clear consumed response_text so subsequent browser_event cycles
+            # don't re-inject and re-send it.
+            from agent.ec_skills.browser_node.runner import (
+                clear_consumed_response_text as _clear_resp,
+            )
+            _clear_resp(
+                self.state,
+                runtime_had_response_text=runtime_had_response_text,
+                node_name=node_name,
+                skill_name=skill_name,
+            )
+
+            return {"final": final, "history": str(history)}
+
+        async def _cleanup(self, *, agent, browser_scope_key: str) -> None:
+            """Finally-block cleanup: stop non-cached browser session.
+
+            Event monitors are intentionally *not* stopped here —
+            they persist across the pend_event loop for downstream
+            nodes to receive events.  Global monitor cleanup happens
+            when the runner shuts down.
+
+            Closure refs (via the nested class scope): ``_cached_browser_sessions``
+            and ``browser_type_setting`` from ``build_browser_automation_node``.
+
+            :param agent: The browser-use Agent instance (may be ``None``
+                if the run raised before agent construction).
+            :param browser_scope_key: The scope key used to look up the
+                cached session (``"chat:<id>"`` or ``"node:<name>"``).
+            """
+            from agent.ec_skills.browser_node.runner import (
+                stop_non_cached_browser_session as _stop_non_cached,
+            )
+            await _stop_non_cached(
+                agent,
+                browser_scope_key=browser_scope_key,
+                cached_browser_sessions=_cached_browser_sessions,
+                browser_type_setting=browser_type_setting,
+            )
+
         async def run(self) -> dict:
             # Unpack instance args into bare names so the body below
             # can stay verbatim from the original ``_run_browser_use``.
@@ -8043,38 +8521,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 f"[BA._run_browser_use] enter node={node_name} thread={_rbu_thread_name} "
                 f"calling_agent_id={calling_agent_id!r} task_len={len(task or '')}"
             )
-
-            def _build_hook_ctx() -> "BrowserUseHookContext":
-                """Factory for the BrowserUseHookContext passed to every hook.
-
-                All three hook phases (before_browser_session_setup,
-                before_prompt_build, before_browser_use_run) need the same
-                wide context — this closure captures all 16 build-scope
-                references in one place so the call sites become a single
-                line.  Hooks use this to access build-scope helpers
-                (scope-key resolution, runtime-input extraction, dispatch
-                state) without build_node having to plumb each one as
-                a parameter.
-                """
-                return BrowserUseHookContext(
-                    node_name=str(node_name or ""),
-                    calling_agent_id=str(calling_agent_id or ""),
-                    mainwin=mainwin,
-                    resolve_scope_key=_resolve_browser_scope_key,
-                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
-                    parse_json_input=_parse_json_input,
-                    send_log=send_skill_editor_log,
-                    normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
-                    safe_format_dict=_SafeFormatDict,
-                    cached_browser_sessions=_cached_browser_sessions,
-                    dispatch_state_by_agent=_dispatch_state_by_agent,
-                    is_dispatch_inflight=_is_dispatch_inflight,
-                    mark_dispatch_inflight=_mark_dispatch_inflight,
-                    clear_dispatch_inflight=_clear_dispatch_inflight,
-                    inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
-                    resolve_template=_resolve_template,
-                    get_or_create_browser_session=_get_or_create_browser_session,
-                )
 
             try:
                 import asyncio
@@ -8108,144 +8554,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # is just so the references at lines below resolve.
                 runtime_input = _extract_runtime_invocation_input(state)
 
-                # ── Inject triggering event context ──
-                # When this browser_automation node was resumed by pend_event after
-                # an event (browser_event, chat_message, etc.), expose the event
-                # metadata so the LLM knows WHY this invocation was triggered.
-                _override_block = ""  # prepended to task when actionable_items is non-empty
-                try:
-                    from agent.ec_skills.browser_node.runner import (
-                        extract_triggering_event as _extract_evt,
-                    )
-                    _evt, _evt_type, _evt_ctx, _evt_label = _extract_evt(state)
-                    if _evt_type:
-                        _evt_lines = [
-                            "## Triggering Event",
-                            f"This invocation was resumed by a **{_evt_type}** event.",
-                        ]
-                        if _evt_label:
-                            _evt_lines.append(f"Event label: **{_evt_label}**")
-                        if _evt_type == "browser_event":
-                            from agent.ec_skills.browser_node.runner import (
-                                build_browser_event_base_hint as _build_base_hint,
-                            )
-                            _new_msg_hint = _build_base_hint(_evt_label)
-                            # Inject raw event body items so the LLM has the
-                            # current snapshot without needing to call a list
-                            # tool.  Resolution + compaction delegated to helpers.
-                            try:
-                                from agent.ec_skills.browser_node.runner import (
-                                    resolve_event_actionable_items as _resolve_evt_items,
-                                    compact_actionable_items as _compact_items_fn,
-                                )
-                                _evt_items, _evt_items_src = _resolve_evt_items(
-                                    evt_ctx=_evt_ctx, evt_label=_evt_label, state=state
-                                )
-                                if _evt_items and _evt_items_src:
-                                    logger.info(
-                                        f"[BrowserAutomation] actionable_items source="
-                                        f"{_evt_items_src} ({len(_evt_items)} item(s)), "
-                                        f"node={node_name}"
-                                    )
-                                if _evt_items:
-                                    _compact_items = _compact_items_fn(_evt_items)
-                                    if _compact_items:
-                                        # ──────────────────────────────────────────────────────────────
-                                        # Compute actionable_raw once: the subset of compact_items
-                                        # whose configured ctionable_field is non-empty.  Empty when
-                                        # the node author didn’t opt into the actionable-items pattern.
-                                        _actionable_raw = (
-                                            [it for it in _compact_items
-                                             if str(it.get(actionable_field, "")).strip()]
-                                            if actionable_field else []
-                                        )
-                                    
-                                        # Invoke prompt-build hooks (Phase 7).  Site plugins register
-                                        # here to apply business-case-specific enrichment: filtering,
-                                        # protocol-override text, agent-list injection, deterministic
-                                        # short-circuit dispatch.  If any hook supplies non-empty text
-                                        # (or a short_circuit_state), the generic fallback injection
-                                        # below is skipped.
-                                        _pb_handled = False
-                                        if _before_prompt_build_hooks:
-                                            _pb_ctx = PromptBuildContext(
-                                                compact_items=list(_compact_items),
-                                                actionable_raw=list(_actionable_raw),
-                                                actionable_field=str(actionable_field or ""),
-                                                event_type=str(_evt_type or ""),
-                                                event_label=str(_evt_label or ""),
-                                            )
-                                            _pb_hook_ctx = _build_hook_ctx()
-                                            for _pb_hook in _before_prompt_build_hooks:
-                                                _pb_result = await _pb_hook(state, inputs, _pb_hook_ctx, _pb_ctx)
-                                                if _pb_result is None:
-                                                    continue
-                                                if _pb_result.short_circuit_state is not None:
-                                                    state.update(_pb_result.short_circuit_state)
-                                                    return state
-                                                if _pb_result.task_hint_append:
-                                                    _new_msg_hint += _pb_result.task_hint_append
-                                                    _pb_handled = True
-                                                if _pb_result.override_prepend:
-                                                    _override_block = _pb_result.override_prepend + _override_block
-                                                    _pb_handled = True
-                                    
-                                        # Generic fallback injection when no prompt-build
-                                        # hook added text.  See helper docstring.
-                                        if not _pb_handled:
-                                            from agent.ec_skills.browser_node.runner import (
-                                                build_actionable_items_fallback_text as _build_fallback_text,
-                                            )
-                                            _new_msg_hint += _build_fallback_text(
-                                                compact_items=_compact_items,
-                                                actionable_raw=_actionable_raw,
-                                                actionable_field=str(actionable_field or ""),
-                                                node_name=node_name,
-                                            )
-                            except Exception:
-                                pass
-                            _evt_lines.append(_new_msg_hint)
-                        elif _evt_type == "chat_message":
-                            from agent.ec_skills.browser_node.runner import (
-                                build_chat_message_event_line as _build_chat_line,
-                            )
-                            _evt_lines.append(_build_chat_line(state))
-                        task = f"{task}\n\n" + "\n".join(_evt_lines)
-                        logger.info(
-                            f"[BrowserAutomation] Injected triggering event context "
-                            f"(event_type={_evt_type}, label={_evt_label}, node={node_name})"
-                        )
-                except Exception as _evt_inject_err:
-                    logger.info(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
+                # Inject triggering-event context + run prompt-build hooks.
+                _early_exit, task, _evt_type = await self._inject_event_context(task=task)
+                if _early_exit is not None:
+                    return _early_exit
 
-                # Prepend the override block so it appears BEFORE the user's system
-                # prompt. The LLM processes the task top-to-bottom; putting these
-                # rules first ensures they take precedence over any conflicting
-                # anti-duplicate heuristics in the system prompt.
-                if _override_block:
-                    task = _override_block + task
-                    logger.info(
-                        f"[BrowserAutomation] Prepended actionable_items protocol override "
-                        f"(node={node_name}, override_len={len(_override_block)})"
-                    )
-
-                # ── Invoke early-phase before-session-setup hooks ──────
-                # Early hooks run BEFORE the (expensive) browser-use agent
-                # is constructed, so a Feige-style fast-path (HOT-PATH-B:
-                # chat_message arrives with a pre-computed reply, type it
-                # into Feige directly, short-circuit the LLM) doesn’t pay
-                # for agent setup it will throw away.  Hooks acquire a
-                # browser session via `hook_ctx.get_or_create_browser_session`.
-                # First hook to return a non-None state dict short-circuits
-                # the whole node; returning `None` lets the late phase run.
-                if _before_browser_session_setup_hooks:
-                    _early_hook_ctx = _build_hook_ctx()
-                    for _early_hook in _before_browser_session_setup_hooks:
-                        _early_result = await _early_hook(
-                            None, state, inputs, _early_hook_ctx
-                        )
-                        if _early_result is not None:
-                            return _early_result
+                # Early hooks: run BEFORE browser-use agent construction.
+                _early_exit = await self._invoke_early_hooks()
+                if _early_exit is not None:
+                    return _early_exit
 
                 # ── Assignment scope (always extracted — safe no-op when runtime_input
                 # is not JSON).  Downstream focus-preflight and per-step refocus read
@@ -8931,153 +9248,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     browser_scope_key=_browser_scope_key,
                 )
 
-                # First-invocation short-circuit — skip LLM and let pend_event
-                # pick up the first real browser_event within seconds.  See
-                # helper docstring for full rationale.
-                from agent.ec_skills.browser_node.runner import (
-                    maybe_first_invocation_short_circuit as _maybe_fi_skip,
-                )
-                _fi_state = _maybe_fi_skip(
-                    state=state,
+                # Pre-dispatch: first-invocation skip, late hooks, cancellation wiring.
+                _early_exit, cancellation_event = await self._handle_pre_dispatch(
+                    agent=agent,
+                    llm=llm,
                     evt_type=_evt_type,
-                    event_monitor_configs=_event_monitor_configs,
-                    first_invocation_done=_first_invocation_done,
                     browser_scope_key=_browser_scope_key,
-                    node_name=node_name,
                 )
-                if _fi_state is not None:
-                    return _fi_state
-
-                # ── Invoke registered before-browser-use-run hooks ──────
-                # Each hook gets a BrowserUseHookContext exposing the
-                # closure-scoped helpers (resolve_scope_key,
-                # extract_runtime_invocation_input) + module-level state
-                # dicts.  The first hook to return a non-None state dict
-                # short-circuits the LLM.  Site-specific patterns (e.g.
-                # feige_chat.front_desk's PreDispatch fan-out) register
-                # themselves via ``register_before_browser_use_run_hook``
-                # at module-import time; build_node itself has no knowledge
-                # of what any registered hook does.
-                if _before_browser_use_run_hooks:
-                    _bur_hook_ctx = _build_hook_ctx()
-                    for _bur_hook in _before_browser_use_run_hooks:
-                        _bur_hook_result = await _bur_hook(
-                            agent, state, inputs, _bur_hook_ctx
-                        )
-                        if _bur_hook_result is not None:
-                            return _bur_hook_result
-
-                # Register current agent instance so extension tools (e.g. list_files)
-                # can auto-authorize discovered file paths for later read_long_content/read_file calls.
-                try:
-                    from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
-
-                    set_current_agent(agent)
-                except Exception as _set_agent_exc:
-                    logger.warning(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_exc}")
-
-                # Look up cancellation_event from global registry by task_id
-                from agent.ec_tasks import cancellation_registry
-                task_id = (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None
-                cancellation_event = cancellation_registry.get(task_id) if task_id else None
-                if not cancellation_event:
-                    logger.debug(f"[BrowserAutomation] No cancellation_event for task_id={task_id}")
-
-                # Store cancellation_event directly on the LLM so create_with_logging can poll it
-                # without a registry lookup by task_id (which may be stored at wrong state path).
-                if cancellation_event:
-                    try:
-                        setattr(llm, "_ec_cancellation_event", cancellation_event)
-                    except Exception:
-                        pass
+                if _early_exit is not None:
+                    return _early_exit
 
                 try:
-                    # Resolve step-patch config (refocus / preDispatch abort /
-                    # legacy enable_step_refocus).  See helper docstring.
-                    from agent.ec_skills.browser_node.runner import (
-                        resolve_step_patch_config as _resolve_step_cfg,
-                        run_agent_with_dispatch as _run_agent_dispatch,
-                    )
-                    _refocus_enabled, _abort_when_pre_dispatched, _pre_dispatch_flag_attr = (
-                        _resolve_step_cfg(inputs)
-                    )
-
-                    _step_focus_target = None
-                    if _refocus_enabled and hasattr(agent, 'step'):
-                        _step_focus_target = (
-                            locals().get("assignment_target_focus")
-                            or _last_known_focus_target_id
-                            or None
-                        )
-
-                    # 4-way agent.run() dispatch (cloud/privacy native, simple
-                    # cancel wrapper, full step patch, plain).  See helper.
-                    history = await _run_agent_dispatch(
-                        agent,
+                    return await self._run_agent_dispatch(
+                        agent=agent,
                         agent_kwargs=agent_kwargs,
                         cancellation_event=cancellation_event,
-                        step_focus_target=_step_focus_target,
-                        abort_when_pre_dispatched=_abort_when_pre_dispatched,
-                        pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
-                        dom_focus_selector=node_dom_focus_selector,
-                        node_max_steps=node_max_steps,
-                        node_timeout_seconds=node_timeout_seconds,
-                    )
-
-                    # CRITICAL: Check cancellation after agent.run() returns
-                    # Even if cancellation was set during execution, we need to stop here
-                    if cancellation_event and cancellation_event.is_set():
-                        logger.info("[BrowserAutomation] Cancellation set after agent.run(), stopping node execution")
-                        raise asyncio.CancelledError("Task cancelled after LLM response")
-
-                    # Persist post-run focus target so next invocation's CDP
-                    # preflight can rebind to the same tab.
-                    from agent.ec_skills.browser_node.runner import (
-                        persist_focus_target as _persist_focus,
-                    )
-                    _persist_focus(
-                        agent,
+                        last_known_focus_target_id=_last_known_focus_target_id,
                         browser_scope_key=_browser_scope_key,
-                        last_known_focus_target_ids=_last_known_focus_target_ids,
-                    )
-                
-                    # Log step budget for postmortem diagnostics.
-                    from agent.ec_skills.browser_node.runner import log_step_budget as _log_step_budget
-                    _log_step_budget(agent)
-
-                    # Truncate long output for logging
-                    history_str = str(history)
-                    if len(history_str) > 10000:
-                        history_str = history_str[:10000] + '... (truncated)'
-                    logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
-
-                    final = history.final_result() if (history and hasattr(history, 'final_result')) else None
-                    if history:
-                        _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
-                    final_str = str(final)
-                    if len(final_str) > 10000:
-                        final_str = final_str[:10000] + '... (truncated)'
-                    logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
-                
-                    # Log browser-use's per-model token + cost summary (diagnostics only).
-                    from agent.ec_skills.browser_node.runner import (
-                        log_browser_use_token_usage as _log_bu_tokens,
-                    )
-                    _log_bu_tokens(history)
-
-                    # Clear consumed response_text so subsequent browser_event cycles
-                    # don't re-inject and re-send it.
-                    from agent.ec_skills.browser_node.runner import (
-                        clear_consumed_response_text as _clear_resp,
-                    )
-                    _clear_resp(
-                        state,
                         runtime_had_response_text=_runtime_had_response_text,
-                        node_name=node_name,
-                        skill_name=skill_name,
                     )
-
-                    return {"final": final, "history": str(history)}
                 except asyncio.CancelledError:
                     # CRITICAL: Cancellation must propagate up, NOT be converted to RuntimeError
                     logger.info("[BrowserAutomation] CancelledError caught, re-raising to propagate cancellation")
@@ -9091,21 +9280,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.error(f"[BrowserAutomation] {timeout_msg}")
                     raise RuntimeError(timeout_msg) from e
                 finally:
-                    # NOTE: Event monitors are NOT stopped here intentionally.
-                    # They persist across the loop for pend_event nodes to receive events.
-                    # Global cleanup happens when runner shuts down (see runner.py).
-                    # To manually stop monitors early, call stop_monitors(session._ecan_event_monitors, session).
-                    pass
-
-                    # Clean up non-cached browser session to prevent resource leaks.
-                    from agent.ec_skills.browser_node.runner import (
-                        stop_non_cached_browser_session as _stop_non_cached,
-                    )
-                    await _stop_non_cached(
-                        agent,
+                    # Event monitors intentionally persist across the pend_event
+                    # loop; only the non-cached browser session is torn down here.
+                    # See :meth:`_BrowserRunSession._cleanup` for details.
+                    await self._cleanup(
+                        agent=agent,
                         browser_scope_key=_browser_scope_key,
-                        cached_browser_sessions=_cached_browser_sessions,
-                        browser_type_setting=browser_type_setting,
                     )
             except Exception as e:
                 err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")

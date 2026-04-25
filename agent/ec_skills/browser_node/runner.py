@@ -82,822 +82,10 @@ from agent.ec_skills.build_node import (
     THINKING_SUPPRESSION_INSTRUCTION,
 )
 
-
-class BrowserUseRunner:
-    """Async runner for one ``browser_automation`` node invocation.
-
-    Lifetime: one instance per compiled node (built by
-    ``build_browser_automation_node``).  Reused across pend_event-loop
-    iterations — so caches (browser sessions, browser-use agents,
-    focus targets) persist between invocations.
-    """
-
-    def __init__(
-        self,
-        cfg: NodeConfig,
-        sessions: BrowserSessionManager,
-        *,
-        resolved_system_prompt: str = "",
-        resolved_user_prompt: str = "",
-        browser_prompt_vars: dict | None = None,
-    ):
-        self.cfg = cfg
-        self.sessions = sessions
-        self.resolved_system_prompt = resolved_system_prompt
-        self.resolved_user_prompt = resolved_user_prompt
-        self.browser_prompt_vars = browser_prompt_vars or {}
-        # Per-scope cache of browser_use.Agent (heavyweight, ~860 MB).
-        self.cached_bu_agents: dict[str, Any] = {}
-
-    # ── Misc helpers (closure-scoped in original) ─────────────────
-
-    @staticmethod
-    def extract_runtime_invocation_input(state: dict | None) -> str:
-        """Extract the live invocation payload for browser-use task grounding.
-
-        Browser-use nodes do not consume graph state directly; they
-        only see the composed task string.  For resumed chat/service
-        flows we must inject the current assignment/customer payload
-        into that task string so the model does not fall back to
-        examples or stale memory.
-        """
-        if not isinstance(state, dict):
-            return ""
-
-        candidates: list[str] = []
-        direct = state.get("input")
-        if isinstance(direct, str) and direct.strip():
-            candidates.append(direct.strip())
-
-        messages = state.get("messages")
-        if isinstance(messages, list) and len(messages) > 4:
-            payload = messages[4]
-            if isinstance(payload, str) and payload.strip():
-                candidates.append(payload.strip())
-
-        attrs = state.get("attributes", {}) if isinstance(state.get("attributes"), dict) else {}
-        params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
-        metadata = params.get("metadata", {}) if isinstance(params.get("metadata"), dict) else {}
-        meta_params = metadata.get("params", {}) if isinstance(metadata.get("params"), dict) else {}
-
-        content_obj = meta_params.get("content")
-        if isinstance(content_obj, str) and content_obj.strip():
-            candidates.append(content_obj.strip())
-        elif isinstance(content_obj, dict):
-            text = content_obj.get("text")
-            if isinstance(text, str) and text.strip():
-                candidates.append(text.strip())
-
-        message = params.get("message")
-        if isinstance(message, dict):
-            parts = message.get("parts")
-            if isinstance(parts, list) and parts:
-                first = parts[0]
-                if isinstance(first, dict):
-                    text = first.get("text")
-                    if isinstance(text, str) and text.strip():
-                        candidates.append(text.strip())
-
-        for c in candidates:
-            if c:
-                return c
-        return ""
-
-    # ── Mode dispatch (used by the orchestrator) ──────────────────
-
-    def _resolve_run_mode(self, inputs: dict) -> tuple[bool, bool]:
-        """Resolve ``(passive_enabled, cloud_agent_enabled)``.
-
-        Honors ``cfg.run_environment`` first, then env-var fallbacks
-        for backward compatibility.  Cloud takes precedence over passive.
-        """
-        env = self.cfg.run_environment
-        passive_enabled = False
-        cloud_enabled = False
-        if env == "passive_local":
-            passive_enabled = True
-        elif env in ("hybrid_cloud", "full_cloud"):
-            cloud_enabled = True
-        else:
-            # full_local or fallback — env-var compatibility shim.
-            try:
-                passive_enabled = (
-                    os.environ.get("EC_BROWSER_USE_PASSIVE", "").strip().lower()
-                    in {"1", "true", "yes", "on"}
-                )
-            except Exception:
-                pass
-            try:
-                cloud_enabled = (
-                    os.environ.get("EC_BROWSER_USE_MODE", "").strip().lower()
-                    in {"client_assisted_cloud", "cloud"}
-                    or os.environ.get("EC_BROWSER_USE_CLOUD_AGENT", "").strip().lower()
-                    in {"1", "true", "yes", "on"}
-                )
-            except Exception:
-                pass
-        if cloud_enabled:
-            passive_enabled = False
-        return passive_enabled, cloud_enabled
-
-    # ── Path 1: skill_passive_step ────────────────────────────────
-
-    async def _run_skill_passive_step(
-        self,
-        passive_cmd: dict,
-        mainwin: Any,
-    ) -> dict:
-        """Method wrapper around :func:`run_skill_passive_step`."""
-        return await run_skill_passive_step(passive_cmd, mainwin)
-
-    # ── Path 2: browser_use_passive_step ─────────────────────────
-
-    async def _run_browser_passive_step(
-        self,
-        state: dict,
-        passive_cmd: dict | None,
-        mainwin: Any,
-        calling_agent_id: str | None,
-    ) -> dict:
-        """Use ``PassiveAgent`` to execute action dicts on a real browser."""
-        from agent.ec_skills.browser_use_extension.passive_agent import PassiveAgent
-        from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
-
-        # Import the shared passive-agent cache (lives in session.py).
-        from agent.ec_skills.browser_node.session import _cached_passive_agents
-
-        actions = self._extract_actions_from_state(state)
-        logger.info(f"[PassiveMode] Extracted {len(actions)} actions from state")
-        if not isinstance(actions, list):
-            return {"error": "browser-use passive mode enabled but actions is not a list"}
-
-        browser_session = await self.sessions.get_or_create(
-            mainwin, state=state, calling_agent_id=calling_agent_id
-        )
-        if not browser_session:
-            return {"error": "browser-use passive mode: failed to acquire browser session"}
-
-        if not BrowserSessionManager.is_started(browser_session):
-            start_task = asyncio.create_task(browser_session.start())
-            await start_task
-
-        # Reuse PassiveAgent across loop iterations (keyed by browser_session id).
-        session_id = id(browser_session)
-        pa = _cached_passive_agents.get(session_id)
-        if pa is None:
-            pa = PassiveAgent(
-                browser_session=browser_session,
-                tools=custom_controller,
-                privacy_enabled=True,
-            )
-            scope = self.sessions.resolve_scope_key(state)
-            last_focus = self.sessions.last_focus_ids.get(scope)
-            if last_focus:
-                pa._last_focus_target_id = last_focus
-                logger.info(
-                    f"[PassiveMode] Transferred focus target ...{last_focus[-4:]} to new PassiveAgent"
-                )
-            _cached_passive_agents[session_id] = pa
-            logger.info(f"[PassiveMode] Created new PassiveAgent for session {session_id}")
-        else:
-            logger.debug(f"[PassiveMode] Reusing cached PassiveAgent for session {session_id}")
-
-        include_screenshot = False
-        stop_on_error = True
-        if isinstance(passive_cmd, dict):
-            include_screenshot = bool(passive_cmd.get("include_screenshot", False))
-            stop_on_error = bool(passive_cmd.get("stop_on_error", True))
-
-        payload: dict | None = None
-        exec_error: Exception | None = None
-        try:
-            payload = await pa.execute_actions(
-                actions=actions,
-                stop_on_error=stop_on_error,
-                include_screenshot=include_screenshot,
-            )
-            # Update focus target for next round.
-            if getattr(pa, "_last_focus_target_id", None):
-                scope = self.sessions.resolve_scope_key(state)
-                self.sessions.last_focus_ids[scope] = pa._last_focus_target_id
-        except Exception as exc:
-            exec_error = exc
-            err = get_traceback(exc, "ErrorBuildBrowserAutomationNodePassive")
-            logger.error(err)
-            send_skill_editor_log("error", err)
-            payload = {"error": str(err), "errors": [str(err)]}
-
-        await self._publish_passive_result(passive_cmd, payload or {}, mainwin, label="browser")
-
-        if exec_error is not None:
-            return {"error": str((payload or {}).get("error", str(exec_error)))}
-
-        # Strip screenshot_base64 to keep state history logs clean.
-        if isinstance(payload.get("browser"), dict):
-            payload["browser"].pop("screenshot_base64", None)
-
-        logger.info("[PassiveMode] Browser automation node returning. Loop continues.")
-        send_skill_editor_log("log", "[PassiveMode] Browser automation complete. Loop should continue.")
-        return {"passive": True, **payload}
-
-    # ── Helpers shared by passive paths ───────────────────────────
-
-    @staticmethod
-    def _extract_actions_from_state(state: dict | None) -> list:
-        """Extract action list from any of 5 possible state paths."""
-        if not isinstance(state, dict):
-            return []
-
-        # 1. tool_input.{node_name}.actions
-        tool_input = state.get("tool_input")
-        if isinstance(tool_input, dict):
-            for key in (None,):  # iterate once (placeholder for node-name keying)
-                pass
-            # The original used build-time `node_name` here.  Without
-            # that, fall through to the simpler tool_input.actions path
-            # — the runner instance does not have node_name as a string
-            # that needs to key into tool_input.
-            if isinstance(tool_input.get("actions"), list):
-                return tool_input.get("actions")
-
-        # 3. browser_use_actions (top-level)
-        if isinstance(state.get("browser_use_actions"), list):
-            return state.get("browser_use_actions")
-
-        # 4. attributes.passive_command.actions
-        attrs = state.get("attributes") or {}
-        if isinstance(attrs, dict):
-            pc = attrs.get("passive_command")
-            if isinstance(pc, dict) and isinstance(pc.get("actions"), list):
-                return pc.get("actions")
-            # 5. attributes.passive_command_actions
-            if isinstance(attrs.get("passive_command_actions"), list):
-                return attrs.get("passive_command_actions")
-
-        return []
-
-    @staticmethod
-    async def _publish_passive_result(
-        passive_cmd: dict | None,
-        payload: dict,
-        mainwin: Any,
-        *,
-        label: str,
-    ) -> None:
-        """Publish a ``PassiveBrowserStepResult`` back to cloud."""
-        if not passive_cmd or not mainwin:
-            return
-        try:
-            from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
-            from agent.ec_skills.browser_use_extension.passive_protocol import (
-                PassiveBrowserStepResult,
-            )
-
-            run_id = passive_cmd.get("run_id", "")
-            step_id = passive_cmd.get("step_id", "")
-            if not run_id or not step_id:
-                return
-            result = PassiveBrowserStepResult(
-                run_id=run_id,
-                step_id=step_id,
-                ok=not bool(payload.get("errors")),
-                elapsed_ms=int(payload.get("elapsed_ms") or 0),
-                actions=payload.get("actions") or [],
-                action_results=payload.get("action_results") or [],
-                errors=payload.get("errors") or [],
-                browser=payload.get("browser") or {},
-            )
-            http_endpoint = mainwin.getWanApiEndpoint()
-            auth_token = mainwin.get_auth_token()
-            client_id = mainwin.getAcctSiteID()
-            logger.info(
-                f"[{label}Passive] publish_step_result: client_id={client_id} "
-                f"run_id={run_id} step_id={step_id}"
-            )
-            await publish_step_result(result, http_endpoint, auth_token, client_id)
-            logger.info(f"[{label}Passive] Published step result to cloud")
-            send_skill_editor_log("log", f"[{label}Passive] Published step result to cloud")
-        except Exception as exc:
-            logger.error(f"[{label}Passive] Failed to publish step result: {exc}")
-            send_skill_editor_log("warning", f"[{label}Passive] Failed to publish: {exc}")
-
-    # ── Path 3: cloud agent ───────────────────────────────────────
-    # (LLM lives cloud-side or locally; browser actions over passive
-    # transport.  Heavy on LLM/transport setup.)
-
-    async def _run_cloud_agent(
-        self,
-        task: str,
-        state: dict,
-        mainwin: Any,
-        calling_agent_id: str | None,
-    ) -> dict:
-        """Run via :class:`CloudAgent` with passive transport for browser ops."""
-        import uuid
-        from agent.ec_skills.browser_use_extension.cloud_agent import (
-            CloudAgent,
-            make_default_cloud_transport_from_env,
-        )
-        from agent.ec_skills.browser_use_extension.extension_tools_service import (
-            custom_controller,
-            set_current_agent,
-        )
-
-        logger.info("[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
-        send_skill_editor_log("log", "[BrowserAutomation] Starting cloud agent mode")
-
-        try:
-            llm = self._build_cloud_llm(state)
-            transport = self._build_cloud_transport()
-            run_id = self._resolve_cloud_run_id(state)
-            cloud_agent_id = (state.get("attributes") or {}).get("agent_id") if isinstance(state, dict) else None
-            acct_site_id = self._resolve_acct_site_id(mainwin, transport)
-
-            agent_kwargs = {
-                "use_vision": self.cfg.use_vision,
-                "use_thinking": self.cfg.use_thinking,
-                "use_judge": self.cfg.enable_judge,
-            }
-            if not self.cfg.use_thinking:
-                agent_kwargs["extend_system_message"] = THINKING_SUPPRESSION_INSTRUCTION.strip()
-
-            agent = CloudAgent(
-                task=task,
-                llm=llm,
-                controller=custom_controller,
-                transport=transport,
-                run_id=run_id,
-                acct_site_id=acct_site_id,
-                agent_id=cloud_agent_id,
-                skill_id=self.cfg.skill_name,
-                node_id=self.cfg.node_name,
-                **agent_kwargs,
-            )
-            try:
-                setattr(agent, "_ecan_skill_name", self.cfg.skill_name)
-                setattr(agent, "_ecan_node_id", self.cfg.node_name)
-                setattr(agent, "_ecan_owner", self.cfg.owner)
-            except Exception:
-                pass
-            set_current_agent(agent)
-
-            try:
-                desc = agent.tools.registry.get_prompt_description(page_url=None)
-                logger.info(
-                    f"[Browser-Use] LLM sees {len(agent.tools.registry.actions)} total actions in system prompt"
-                )
-                logger.debug(f"[Browser-Use] Full tool list for LLM:\n{desc}")
-            except Exception:
-                pass
-
-            logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
-            send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
-            history = await agent.run()
-            self._log_step_budget("CloudAgent", agent)
-
-            final = history.final_result() if hasattr(history, "final_result") else None
-            _log_browser_use_result_summary(history, skill_name=self.cfg.skill_name, node_name=self.cfg.node_name)
-
-            logger.info("[BrowserAutomation] CloudAgent completed")
-            send_skill_editor_log("log", "[BrowserAutomation] CloudAgent completed")
-            return {
-                "cloud": True,
-                "client_assisted_cloud": True,
-                "mode": "client_assisted_cloud",
-                "run_id": run_id,
-                "final": final,
-                "history": str(history),
-            }
-        except Exception as exc:
-            err = get_traceback(exc, "ErrorBuildBrowserAutomationNodeCloudAgent")
-            logger.error(err)
-            send_skill_editor_log("error", err)
-            return {"error": str(err)}
-
-    # ── Cloud-agent helpers (LLM, transport, run_id, site_id) ────
-
-    def _build_cloud_llm(self, state: dict | None) -> Any:
-        """LLM resolution: proxy → node-specified → default-from-Settings."""
-        from agent.ec_skills.llm_utils.llm_utils import (
-            create_browser_use_llm_by_provider_type,
-            extract_provider_config,
-        )
-
-        # Proxy first.
-        if _should_use_proxy(self.cfg.raw_inputs):
-            proxy = _get_proxy_config()
-            if proxy:
-                from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
-
-                provider = self.cfg.llm_provider or "openai"
-                model = self.cfg.llm_model_name or "gpt-4o"
-                logger.info(f"[BrowserAutomation] Using Lambda proxy (cloud): {provider}/{model}")
-                send_skill_editor_log("log", f"[BrowserAutomation] LLM via Lambda proxy: {provider}/{model}")
-                return ChatLambdaProxy(
-                    model=model,
-                    provider_name=provider,
-                    user_id=proxy["user_id"],
-                    lambda_endpoint=proxy["endpoint"],
-                    auth_token=proxy["auth_token"],
-                )
-
-        # Node-specified provider.
-        if self.cfg.llm_provider:
-            return self._build_cloud_llm_from_node_config()
-
-        # Default from Settings.
-        from app_context import AppContext
-
-        ctx = AppContext.get_instance()
-        mainwin_ctx = ctx.get_main_window()
-        if not mainwin_ctx or not hasattr(mainwin_ctx, "config_manager"):
-            raise RuntimeError(
-                "[BrowserAutomation] Cannot access Settings to get default LLM configuration"
-            )
-        llm_config = mainwin_ctx.config_manager.llm_manager.get_default_llm_config()
-        provider_dict = llm_config["provider_dict"]
-        provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
-        if not api_key and provider_type not in ("ollama",):
-            raise RuntimeError(
-                f"[BrowserAutomation] No API key configured for default LLM provider "
-                f"'{llm_config['provider_id']}'"
-            )
-        llm = create_browser_use_llm_by_provider_type(
-            provider_type=provider_type,
-            model_name=self.cfg.llm_model_name or llm_config["model_name"],
-            api_key=api_key,
-            base_url=base_url,
-            mainwin=None,
-        )
-        if not llm:
-            raise RuntimeError(
-                f"[BrowserAutomation] Failed to create LLM instance for default provider "
-                f"'{llm_config['provider_id']}'"
-            )
-        logger.info(
-            f"[BrowserAutomation] Created LLM from Settings: {llm_config['provider_id']}, "
-            f"model: {llm_config['model_name']}"
-        )
-        send_skill_editor_log(
-            "log", f"[BrowserAutomation] Using default LLM: {llm_config['provider_id']}"
-        )
-        return llm
-
-    def _build_cloud_llm_from_node_config(self) -> Any:
-        """Build LLM strictly from the node-editor specified provider+model."""
-        from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm_by_provider_type
-
-        provider_lower = (self.cfg.llm_provider or "").lower()
-        model_name = self.cfg.llm_model_name
-        if not model_name:
-            try:
-                from app_context import AppContext
-
-                mainwin_cfg = AppContext.get_main_window()
-                if mainwin_cfg and hasattr(mainwin_cfg, "config_manager"):
-                    provider_cfg = mainwin_cfg.config_manager.llm_manager.get_provider(
-                        self.cfg.llm_provider
-                    )
-                    if provider_cfg:
-                        model_name = provider_cfg.get("default_model")
-            except Exception:
-                pass
-        if not model_name:
-            raise RuntimeError(
-                f"[BrowserAutomation] Node specified provider '{self.cfg.llm_provider}' "
-                f"but model_name is missing"
-            )
-
-        # Per-provider env var lookup (mirrors original behavior).
-        api_key = ""
-        base_url: str | None = None
-        if provider_lower == "openai":
-            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-            base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or None
-        elif provider_lower == "anthropic":
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        elif provider_lower == "deepseek":
-            api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-            base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
-        elif provider_lower in ("azure", "azure_openai"):
-            api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
-            base_url = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip() or None
-        else:
-            api_key = os.environ.get("LLM_API_KEY", "").strip()
-
-        if not api_key and provider_lower != "ollama":
-            raise RuntimeError(
-                f"[BrowserAutomation] Node specified provider '{self.cfg.llm_provider}' "
-                f"but no API key found in environment. Please set the required API key."
-            )
-
-        llm = create_browser_use_llm_by_provider_type(
-            provider_type=provider_lower,
-            model_name=model_name,
-            api_key=api_key,
-            base_url=base_url,
-            mainwin=None,
-        )
-        if not llm:
-            raise RuntimeError(
-                f"[BrowserAutomation] Failed to create LLM for node-specified provider "
-                f"'{self.cfg.llm_provider}'"
-            )
-        logger.info(
-            f"[BrowserAutomation] Created LLM from node config: provider={self.cfg.llm_provider}, "
-            f"model={model_name}"
-        )
-        send_skill_editor_log(
-            "log", f"[BrowserAutomation] LLM created: {self.cfg.llm_provider}/{model_name}"
-        )
-        return llm
-
-    @staticmethod
-    def _build_cloud_transport() -> Any:
-        """Prefer the cloud worker's global transport; else build from env."""
-        try:
-            from agent.cloud_worker.worker_main import get_global_passive_transport
-
-            transport = get_global_passive_transport()
-            if transport is not None:
-                logger.info("[BrowserAutomation] Using global CloudWorkerPassiveTransport")
-                send_skill_editor_log("log", "[BrowserAutomation] Using cloud worker passive transport")
-                return transport
-            logger.warning(
-                "[BrowserAutomation] get_global_passive_transport() returned None — "
-                "falling back to env-based transport"
-            )
-            send_skill_editor_log(
-                "log",
-                "[BrowserAutomation] ⚠️ Global passive transport is None, falling back to env-based",
-            )
-        except ImportError as exc:
-            logger.warning(f"[BrowserAutomation] cloud_worker import failed: {exc}")
-        except Exception as exc:
-            logger.warning(f"[BrowserAutomation] Error getting global transport: {exc}")
-
-        from agent.ec_skills.browser_use_extension.cloud_agent import (
-            make_default_cloud_transport_from_env,
-        )
-
-        transport = make_default_cloud_transport_from_env()
-        logger.info("[BrowserAutomation] Created transport from environment")
-        return transport
-
-    @staticmethod
-    def _resolve_cloud_run_id(state: dict | None) -> str:
-        """Resolve a stable run_id matching the PassiveStepResultListener."""
-        import uuid
-
-        run_id: str | None = None
-        explicit: str | None = None
-        state_dev = False
-        try:
-            if isinstance(state, dict):
-                explicit = state.get("browser_use_run_id")
-                run_id = explicit
-                md = state.get("metadata")
-                attrs = state.get("attributes")
-                state_dev = bool(
-                    state.get("dev_mode")
-                    or (md.get("dev_mode") if isinstance(md, dict) else False)
-                    or (attrs.get("dev_mode") if isinstance(attrs, dict) else False)
-                )
-                if not run_id:
-                    attrs = state.get("attributes") or {}
-                    run_id = attrs.get("chat_id")
-                if not run_id:
-                    attrs = state.get("attributes") or {}
-                    run_id = attrs.get("run_id") or attrs.get("passive_run_id")
-                if not run_id:
-                    md = state.get("metadata") or {}
-                    if isinstance(md, dict):
-                        run_id = md.get("run_id") or md.get("passive_run_id")
-        except Exception:
-            run_id = None
-
-        try:
-            from config.app_settings import app_settings
-
-            dev_mode = bool(state_dev or getattr(app_settings, "is_dev_mode", False))
-        except Exception:
-            dev_mode = bool(state_dev)
-
-        if dev_mode and not explicit:
-            dev = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
-            run_id = dev or "0123456789"
-
-        if not isinstance(run_id, str) or not run_id.strip():
-            run_id = (
-                (os.environ.get("ECAN_RUN_ID") or "").strip()
-                or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
-            )
-        if not isinstance(run_id, str) or not run_id.strip():
-            run_id = uuid.uuid4().hex
-        logger.debug(f"[BrowserAutomation] Cloud mode run_id={run_id}")
-        return run_id
-
-    @staticmethod
-    def _resolve_acct_site_id(mainwin: Any, transport: Any) -> str | None:
-        """Prefer mainwin (hybrid runs); fall back to transport.client_id; then env."""
-        if mainwin is not None and hasattr(mainwin, "getAcctSiteID"):
-            try:
-                site = mainwin.getAcctSiteID()
-                if site:
-                    return site
-            except Exception:
-                pass
-        if transport is not None and hasattr(transport, "client_id"):
-            return transport.client_id
-        return os.environ.get("EC_ACCT_SITE_ID", "").strip() or None
-
-    # ── Path 4 (full_local) — LLM + agent kwargs builders ────────
-
-    def _build_local_llm(self, state: dict | None, mainwin: Any) -> Any:
-        """LLM resolution for the full-local path.
-
-        Order of preference: lambda proxy → node-specified provider →
-        global default LLM via mainwin.config_manager.
-
-        Raises:
-            ValueError: when no LLM can be created (with actionable
-                        message identifying the missing config).
-        """
-        from agent.ec_skills.llm_utils.llm_utils import (
-            create_browser_use_llm,
-            create_browser_use_llm_by_provider_type,
-            extract_provider_config,
-        )
-
-        # Proxy first.
-        if _should_use_proxy(self.cfg.raw_inputs):
-            proxy = _get_proxy_config()
-            if proxy:
-                from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
-
-                provider = self.cfg.llm_provider or "openai"
-                model = self.cfg.llm_model_name or "gpt-4o"
-                masked = (
-                    proxy["auth_token"][:20] + "..."
-                    if len(proxy.get("auth_token", "")) > 20
-                    else proxy.get("auth_token", "(empty)")
-                )
-                logger.info(
-                    f"[BrowserAutomation] Using Lambda proxy (local): {provider}/{model}, "
-                    f"endpoint={proxy['endpoint']}, user={proxy['user_id']}, token={masked}"
-                )
-                return ChatLambdaProxy(
-                    model=model,
-                    provider_name=provider,
-                    user_id=proxy["user_id"],
-                    lambda_endpoint=proxy["endpoint"],
-                    auth_token=proxy["auth_token"],
-                )
-
-        # Node-specified provider+model (no fallback).
-        if self.cfg.llm_provider and self.cfg.llm_model_name:
-            return self._build_local_llm_from_node_config(mainwin)
-
-        # Global default.
-        logger.info("[BrowserAutomation] No node-specific LLM settings, using global default")
-        try:
-            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
-            if llm is None:
-                raise ValueError(
-                    "Failed to create LLM from global default settings.\n\n"
-                    "Please configure a default LLM in Settings > LLM Management:\n"
-                    "  1. Select a provider (OpenAI, DeepSeek, Qwen, etc.)\n"
-                    "  2. Enter API key\n"
-                    "  3. Set as default provider"
-                )
-            logger.info("[BrowserAutomation] ✅ Using global default LLM")
-            return llm
-        except ValueError:
-            raise
-        except Exception as exc:
-            raise ValueError(
-                f"Failed to create LLM from global default settings:\n"
-                f"  Error: {exc}\n\n"
-                f"Please check Settings > LLM Management:\n"
-                f"  1. Verify default provider is set\n"
-                f"  2. Verify API key is configured\n"
-                f"  3. Verify base URL is correct (if using local provider)"
-            ) from exc
-
-    def _build_local_llm_from_node_config(self, mainwin: Any) -> Any:
-        """Build LLM strictly from node-editor selection (no fallback)."""
-        from agent.ec_skills.llm_utils.llm_utils import (
-            create_browser_use_llm_by_provider_type,
-            extract_provider_config,
-        )
-
-        provider = self.cfg.llm_provider
-        model_name = self.cfg.llm_model_name
-        logger.info(
-            f"[BrowserAutomation] Using node-specific LLM: provider={provider}, model={model_name}"
-        )
-        try:
-            cm = mainwin.config_manager
-            provider_dict = cm.llm_manager.get_provider(provider)
-            logger.info(
-                f"[BrowserAutomation] get_provider('{provider}') returned: {provider_dict is not None}"
-            )
-            if not provider_dict:
-                raise ValueError(
-                    f"Provider '{provider}' not found in config. Please check provider name in node settings."
-                )
-            config = extract_provider_config(
-                provider_dict, config_manager=cm, node_model_name=model_name
-            )
-            api_key = config.get("api_key")
-            base_url = config.get("base_url")
-            provider_type_id = config.get("provider_type")
-            llm = create_browser_use_llm_by_provider_type(
-                provider_type=provider_type_id,
-                model_name=model_name,
-                api_key=api_key,
-                base_url=base_url,
-                mainwin=mainwin,
-            )
-            if llm is None:
-                raise ValueError(
-                    f"Failed to create LLM with provider '{provider_type_id}' "
-                    f"(display: {provider}), model '{model_name}'. "
-                    f"Check API key and base_url configuration."
-                )
-            logger.info(
-                f"[BrowserAutomation] ✅ Created LLM with node settings: "
-                f"provider={provider}, model={model_name}"
-            )
-            return llm
-        except ValueError:
-            raise
-        except Exception as exc:
-            raise ValueError(
-                f"Failed to create LLM with node settings:\n"
-                f"  Provider: {provider}\n"
-                f"  Model: {model_name}\n"
-                f"  Error: {exc}\n\n"
-                f"Please check:\n"
-                f"  1. Provider name is correct in node settings\n"
-                f"  2. Model name is correct and belongs to the provider\n"
-                f"  3. API key is configured in Settings > LLM Management\n"
-                f"  4. Base URL is correct (if using local/custom provider)"
-            ) from exc
-
-    def _attach_llm_token_context(self, llm: Any, state: dict | None, scope_key: str) -> None:
-        """Attach a ``_ec_token_context`` for token-usage attribution."""
-        try:
-            attrs = state.get("attributes") or {} if isinstance(state, dict) else {}
-            session_id = None
-            if isinstance(state, dict):
-                session_id = (
-                    state.get("session_id")
-                    or state.get("chat_id")
-                    or attrs.get("sessionId")
-                )
-            setattr(
-                llm,
-                "_ec_token_context",
-                {
-                    "skill_name": self.cfg.skill_name,
-                    "node_name": self.cfg.node_name,
-                    "source_id": f"{self.cfg.skill_name}::{self.cfg.node_name}",
-                    "source_name": f"{self.cfg.skill_name}::{self.cfg.node_name}",
-                    "task_id": attrs.get("task_id"),
-                    "run_id": state.get("run_id") if isinstance(state, dict) else None,
-                    "session_id": session_id,
-                    "browser_scope_key": scope_key,
-                    "node_model_name": self.cfg.llm_model_name,
-                    "node_llm_provider": self.cfg.llm_provider,
-                },
-            )
-        except Exception as exc:
-            logger.debug(f"[BrowserAutomation] token context attach failed: {exc}")
-
-    @staticmethod
-    def _log_step_budget(label: str, agent: Any) -> None:
-        try:
-            st = getattr(agent, "state", None)
-            settings = getattr(agent, "settings", None)
-            steps_used = getattr(st, "n_steps", "?") if st else "?"
-            max_steps = getattr(settings, "max_steps", "?") if settings else "?"
-            consec = getattr(st, "consecutive_failures", "?") if st else "?"
-            max_fail = getattr(settings, "max_failures", "?") if settings else "?"
-            stopped = getattr(st, "stopped", "?") if st else "?"
-            ao_done = (
-                agent.AgentOutput is getattr(agent, "DoneAgentOutput", None)
-                if hasattr(agent, "AgentOutput")
-                else "?"
-            )
-            logger.info(
-                f"[BrowserAutomation] {label} run finished: "
-                f"steps={steps_used}/{max_steps}, "
-                f"failures={consec}/{max_fail}, "
-                f"stopped={stopped}, AgentOutput_clobbered={ao_done}"
-            )
-        except Exception:
-            pass
+# ``BrowserUseRunner`` (815 lines) deleted 2026-04-24 — fully inlined into
+# module-level free functions (``_publish_passive_step_result``,
+# ``build_local_llm`` + ``_build_local_llm_from_node_config_impl``,
+# ``run_cloud_agent`` + 4 cloud helpers).  See ``REFACTOR_ROADMAP.md``.
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -973,10 +161,61 @@ async def run_skill_passive_step(passive_cmd: dict, mainwin: Any) -> dict:
         "errors": errors,
         "browser": {},
     }
-    await BrowserUseRunner._publish_passive_result(
+    await _publish_passive_step_result(
         passive_cmd, payload, mainwin, label="skill"
     )
     return {"passive": True, **payload}
+
+
+async def _publish_passive_step_result(
+    passive_cmd: dict | None,
+    payload: dict,
+    mainwin: Any,
+    *,
+    label: str,
+) -> None:
+    """Publish a ``PassiveBrowserStepResult`` back to cloud.
+
+    Free-function replacement for the original
+    ``BrowserUseRunner._publish_passive_result`` static method (which is
+    being phased out as part of the Phase-6 cleanup — see
+    ``REFACTOR_ROADMAP.md``).
+    """
+    if not passive_cmd or not mainwin:
+        return
+    try:
+        from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
+        from agent.ec_skills.browser_use_extension.passive_protocol import (
+            PassiveBrowserStepResult,
+        )
+
+        run_id = passive_cmd.get("run_id", "")
+        step_id = passive_cmd.get("step_id", "")
+        if not run_id or not step_id:
+            return
+        result = PassiveBrowserStepResult(
+            run_id=run_id,
+            step_id=step_id,
+            ok=not bool(payload.get("errors")),
+            elapsed_ms=int(payload.get("elapsed_ms") or 0),
+            actions=payload.get("actions") or [],
+            action_results=payload.get("action_results") or [],
+            errors=payload.get("errors") or [],
+            browser=payload.get("browser") or {},
+        )
+        http_endpoint = mainwin.getWanApiEndpoint()
+        auth_token = mainwin.get_auth_token()
+        client_id = mainwin.getAcctSiteID()
+        logger.info(
+            f"[{label}Passive] publish_step_result: client_id={client_id} "
+            f"run_id={run_id} step_id={step_id}"
+        )
+        await publish_step_result(result, http_endpoint, auth_token, client_id)
+        logger.info(f"[{label}Passive] Published step result to cloud")
+        send_skill_editor_log("log", f"[{label}Passive] Published step result to cloud")
+    except Exception as exc:
+        logger.error(f"[{label}Passive] Failed to publish step result: {exc}")
+        send_skill_editor_log("warning", f"[{label}Passive] Failed to publish: {exc}")
 
 
 def _extract_passive_actions(state: dict | None, node_name: str) -> list:
@@ -1124,7 +363,7 @@ async def run_browser_passive_step(
         payload = {"error": str(err), "errors": [str(err)]}
 
     # Publish to cloud (even on error, so the cloud worker knows what happened).
-    await BrowserUseRunner._publish_passive_result(
+    await _publish_passive_step_result(
         passive_cmd, payload or {}, mainwin, label="browser"
     )
 
@@ -3259,6 +2498,78 @@ def apply_hook_bundle_kwargs(
         )
 
 
+def _build_local_llm_from_node_config_impl(
+    mainwin: Any,
+    *,
+    llm_provider: str | None,
+    llm_model_name: str | None,
+) -> Any:
+    """Build LLM strictly from node-editor selection (no fallback).
+
+    Free-function implementation; replaces the former
+    ``BrowserUseRunner._build_local_llm_from_node_config`` instance
+    method.
+    """
+    from agent.ec_skills.llm_utils.llm_utils import (
+        create_browser_use_llm_by_provider_type,
+        extract_provider_config,
+    )
+
+    provider = llm_provider
+    model_name = llm_model_name
+    logger.info(
+        f"[BrowserAutomation] Using node-specific LLM: provider={provider}, model={model_name}"
+    )
+    try:
+        cm = mainwin.config_manager
+        provider_dict = cm.llm_manager.get_provider(provider)
+        logger.info(
+            f"[BrowserAutomation] get_provider('{provider}') returned: {provider_dict is not None}"
+        )
+        if not provider_dict:
+            raise ValueError(
+                f"Provider '{provider}' not found in config. Please check provider name in node settings."
+            )
+        config = extract_provider_config(
+            provider_dict, config_manager=cm, node_model_name=model_name
+        )
+        api_key = config.get("api_key")
+        base_url = config.get("base_url")
+        provider_type_id = config.get("provider_type")
+        llm = create_browser_use_llm_by_provider_type(
+            provider_type=provider_type_id,
+            model_name=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            mainwin=mainwin,
+        )
+        if llm is None:
+            raise ValueError(
+                f"Failed to create LLM with provider '{provider_type_id}' "
+                f"(display: {provider}), model '{model_name}'. "
+                f"Check API key and base_url configuration."
+            )
+        logger.info(
+            f"[BrowserAutomation] ✅ Created LLM with node settings: "
+            f"provider={provider}, model={model_name}"
+        )
+        return llm
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to create LLM with node settings:\n"
+            f"  Provider: {provider}\n"
+            f"  Model: {model_name}\n"
+            f"  Error: {exc}\n\n"
+            f"Please check:\n"
+            f"  1. Provider name is correct in node settings\n"
+            f"  2. Model name is correct and belongs to the provider\n"
+            f"  3. API key is configured in Settings > LLM Management\n"
+            f"  4. Base URL is correct (if using local/custom provider)"
+        ) from exc
+
+
 def build_local_llm(
     mainwin: Any,
     *,
@@ -3271,24 +2582,74 @@ def build_local_llm(
     Order of preference: lambda proxy → node-specified provider →
     global default LLM via mainwin.config_manager.
 
+    Free-function implementation; replaces the former
+    ``BrowserUseRunner._build_local_llm`` instance method (the
+    ``_NoSessionsShim`` wrapper hack is no longer needed).
+
     Raises:
         ValueError: when no LLM can be created (with actionable
                     message identifying the missing config).
     """
-    cfg = NodeConfig(
-        node_name="",
-        skill_name="",
-        owner="",
-        llm_provider=llm_provider,
-        llm_model_name=llm_model_name,
-        raw_inputs=raw_inputs,
-    )
+    from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
 
-    class _NoSessionsShim:
-        pass
+    # Proxy first.
+    if _should_use_proxy(raw_inputs):
+        proxy = _get_proxy_config()
+        if proxy:
+            from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
 
-    runner = BrowserUseRunner(cfg, _NoSessionsShim())
-    return runner._build_local_llm(state=None, mainwin=mainwin)
+            provider = llm_provider or "openai"
+            model = llm_model_name or "gpt-4o"
+            masked = (
+                proxy["auth_token"][:20] + "..."
+                if len(proxy.get("auth_token", "")) > 20
+                else proxy.get("auth_token", "(empty)")
+            )
+            logger.info(
+                f"[BrowserAutomation] Using Lambda proxy (local): {provider}/{model}, "
+                f"endpoint={proxy['endpoint']}, user={proxy['user_id']}, token={masked}"
+            )
+            return ChatLambdaProxy(
+                model=model,
+                provider_name=provider,
+                user_id=proxy["user_id"],
+                lambda_endpoint=proxy["endpoint"],
+                auth_token=proxy["auth_token"],
+            )
+
+    # Node-specified provider+model (no fallback).
+    if llm_provider and llm_model_name:
+        return _build_local_llm_from_node_config_impl(
+            mainwin,
+            llm_provider=llm_provider,
+            llm_model_name=llm_model_name,
+        )
+
+    # Global default.
+    logger.info("[BrowserAutomation] No node-specific LLM settings, using global default")
+    try:
+        llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+        if llm is None:
+            raise ValueError(
+                "Failed to create LLM from global default settings.\n\n"
+                "Please configure a default LLM in Settings > LLM Management:\n"
+                "  1. Select a provider (OpenAI, DeepSeek, Qwen, etc.)\n"
+                "  2. Enter API key\n"
+                "  3. Set as default provider"
+            )
+        logger.info("[BrowserAutomation] ✅ Using global default LLM")
+        return llm
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to create LLM from global default settings:\n"
+            f"  Error: {exc}\n\n"
+            f"Please check Settings > LLM Management:\n"
+            f"  1. Verify default provider is set\n"
+            f"  2. Verify API key is configured\n"
+            f"  3. Verify base URL is correct (if using local provider)"
+        ) from exc
 
 
 def attach_llm_token_context(
@@ -3512,6 +2873,272 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
+def _build_cloud_llm_from_node_config_impl(
+    *,
+    llm_provider: str | None,
+    llm_model_name: str | None,
+) -> Any:
+    """Build a cloud LLM strictly from node-editor specified provider+model.
+
+    Free-function implementation; replaces the former
+    ``BrowserUseRunner._build_cloud_llm_from_node_config`` instance method.
+    """
+    from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm_by_provider_type
+
+    provider_lower = (llm_provider or "").lower()
+    model_name = llm_model_name
+    if not model_name:
+        try:
+            from app_context import AppContext
+
+            mainwin_cfg = AppContext.get_main_window()
+            if mainwin_cfg and hasattr(mainwin_cfg, "config_manager"):
+                provider_cfg = mainwin_cfg.config_manager.llm_manager.get_provider(llm_provider)
+                if provider_cfg:
+                    model_name = provider_cfg.get("default_model")
+        except Exception:
+            pass
+    if not model_name:
+        raise RuntimeError(
+            f"[BrowserAutomation] Node specified provider '{llm_provider}' "
+            f"but model_name is missing"
+        )
+
+    # Per-provider env var lookup (mirrors original behavior).
+    api_key = ""
+    base_url: str | None = None
+    if provider_lower == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or None
+    elif provider_lower == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    elif provider_lower == "deepseek":
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+    elif provider_lower in ("azure", "azure_openai"):
+        api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
+        base_url = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip() or None
+    else:
+        api_key = os.environ.get("LLM_API_KEY", "").strip()
+
+    if not api_key and provider_lower != "ollama":
+        raise RuntimeError(
+            f"[BrowserAutomation] Node specified provider '{llm_provider}' "
+            f"but no API key found in environment. Please set the required API key."
+        )
+
+    llm = create_browser_use_llm_by_provider_type(
+        provider_type=provider_lower,
+        model_name=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        mainwin=None,
+    )
+    if not llm:
+        raise RuntimeError(
+            f"[BrowserAutomation] Failed to create LLM for node-specified provider "
+            f"'{llm_provider}'"
+        )
+    logger.info(
+        f"[BrowserAutomation] Created LLM from node config: provider={llm_provider}, "
+        f"model={model_name}"
+    )
+    send_skill_editor_log(
+        "log", f"[BrowserAutomation] LLM created: {llm_provider}/{model_name}"
+    )
+    return llm
+
+
+def _build_cloud_llm_impl(
+    *,
+    llm_provider: str | None,
+    llm_model_name: str | None,
+    raw_inputs: dict,
+) -> Any:
+    """Cloud-LLM resolution: proxy → node-specified → default-from-Settings.
+
+    Free-function implementation; replaces the former
+    ``BrowserUseRunner._build_cloud_llm`` instance method.
+    """
+    from agent.ec_skills.llm_utils.llm_utils import (
+        create_browser_use_llm_by_provider_type,
+        extract_provider_config,
+    )
+
+    # Proxy first.
+    if _should_use_proxy(raw_inputs):
+        proxy = _get_proxy_config()
+        if proxy:
+            from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+
+            provider = llm_provider or "openai"
+            model = llm_model_name or "gpt-4o"
+            logger.info(f"[BrowserAutomation] Using Lambda proxy (cloud): {provider}/{model}")
+            send_skill_editor_log("log", f"[BrowserAutomation] LLM via Lambda proxy: {provider}/{model}")
+            return ChatLambdaProxy(
+                model=model,
+                provider_name=provider,
+                user_id=proxy["user_id"],
+                lambda_endpoint=proxy["endpoint"],
+                auth_token=proxy["auth_token"],
+            )
+
+    # Node-specified provider.
+    if llm_provider:
+        return _build_cloud_llm_from_node_config_impl(
+            llm_provider=llm_provider, llm_model_name=llm_model_name,
+        )
+
+    # Default from Settings.
+    from app_context import AppContext
+
+    ctx = AppContext.get_instance()
+    mainwin_ctx = ctx.get_main_window()
+    if not mainwin_ctx or not hasattr(mainwin_ctx, "config_manager"):
+        raise RuntimeError(
+            "[BrowserAutomation] Cannot access Settings to get default LLM configuration"
+        )
+    llm_config = mainwin_ctx.config_manager.llm_manager.get_default_llm_config()
+    provider_dict = llm_config["provider_dict"]
+    provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
+    if not api_key and provider_type not in ("ollama",):
+        raise RuntimeError(
+            f"[BrowserAutomation] No API key configured for default LLM provider "
+            f"'{llm_config['provider_id']}'"
+        )
+    llm = create_browser_use_llm_by_provider_type(
+        provider_type=provider_type,
+        model_name=llm_model_name or llm_config["model_name"],
+        api_key=api_key,
+        base_url=base_url,
+        mainwin=None,
+    )
+    if not llm:
+        raise RuntimeError(
+            f"[BrowserAutomation] Failed to create LLM instance for default provider "
+            f"'{llm_config['provider_id']}'"
+        )
+    logger.info(
+        f"[BrowserAutomation] Created LLM from Settings: {llm_config['provider_id']}, "
+        f"model: {llm_config['model_name']}"
+    )
+    send_skill_editor_log(
+        "log", f"[BrowserAutomation] Using default LLM: {llm_config['provider_id']}"
+    )
+    return llm
+
+
+def _build_cloud_transport_impl() -> Any:
+    """Prefer the cloud worker's global transport; else build from env.
+
+    Free-function replacement for the former
+    ``BrowserUseRunner._build_cloud_transport`` static method.
+    """
+    try:
+        from agent.cloud_worker.worker_main import get_global_passive_transport
+
+        transport = get_global_passive_transport()
+        if transport is not None:
+            logger.info("[BrowserAutomation] Using global CloudWorkerPassiveTransport")
+            send_skill_editor_log("log", "[BrowserAutomation] Using cloud worker passive transport")
+            return transport
+        logger.warning(
+            "[BrowserAutomation] get_global_passive_transport() returned None — "
+            "falling back to env-based transport"
+        )
+        send_skill_editor_log(
+            "log",
+            "[BrowserAutomation] ⚠️ Global passive transport is None, falling back to env-based",
+        )
+    except ImportError as exc:
+        logger.warning(f"[BrowserAutomation] cloud_worker import failed: {exc}")
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] Error getting global transport: {exc}")
+
+    from agent.ec_skills.browser_use_extension.cloud_agent import (
+        make_default_cloud_transport_from_env,
+    )
+
+    transport = make_default_cloud_transport_from_env()
+    logger.info("[BrowserAutomation] Created transport from environment")
+    return transport
+
+
+def _resolve_cloud_run_id_impl(state: dict | None) -> str:
+    """Resolve a stable run_id matching the PassiveStepResultListener.
+
+    Free-function replacement for the former
+    ``BrowserUseRunner._resolve_cloud_run_id`` static method.
+    """
+    import uuid
+
+    run_id: str | None = None
+    explicit: str | None = None
+    state_dev = False
+    try:
+        if isinstance(state, dict):
+            explicit = state.get("browser_use_run_id")
+            run_id = explicit
+            md = state.get("metadata")
+            attrs = state.get("attributes")
+            state_dev = bool(
+                state.get("dev_mode")
+                or (md.get("dev_mode") if isinstance(md, dict) else False)
+                or (attrs.get("dev_mode") if isinstance(attrs, dict) else False)
+            )
+            if not run_id:
+                attrs = state.get("attributes") or {}
+                run_id = attrs.get("chat_id")
+            if not run_id:
+                attrs = state.get("attributes") or {}
+                run_id = attrs.get("run_id") or attrs.get("passive_run_id")
+            if not run_id:
+                md = state.get("metadata") or {}
+                if isinstance(md, dict):
+                    run_id = md.get("run_id") or md.get("passive_run_id")
+    except Exception:
+        run_id = None
+
+    try:
+        from config.app_settings import app_settings
+
+        dev_mode = bool(state_dev or getattr(app_settings, "is_dev_mode", False))
+    except Exception:
+        dev_mode = bool(state_dev)
+
+    if dev_mode and not explicit:
+        dev = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+        run_id = dev or "0123456789"
+
+    if not isinstance(run_id, str) or not run_id.strip():
+        run_id = (
+            (os.environ.get("ECAN_RUN_ID") or "").strip()
+            or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+        )
+    if not isinstance(run_id, str) or not run_id.strip():
+        run_id = uuid.uuid4().hex
+    logger.debug(f"[BrowserAutomation] Cloud mode run_id={run_id}")
+    return run_id
+
+
+def _resolve_acct_site_id_impl(mainwin: Any, transport: Any) -> str | None:
+    """Prefer mainwin (hybrid runs); fall back to transport.client_id; then env.
+
+    Free-function replacement for the former
+    ``BrowserUseRunner._resolve_acct_site_id`` static method.
+    """
+    if mainwin is not None and hasattr(mainwin, "getAcctSiteID"):
+        try:
+            site = mainwin.getAcctSiteID()
+            if site:
+                return site
+        except Exception:
+            pass
+    if transport is not None and hasattr(transport, "client_id"):
+        return transport.client_id
+    return os.environ.get("EC_ACCT_SITE_ID", "").strip() or None
+
+
 async def run_cloud_agent(
     task: str,
     state: dict,
@@ -3530,28 +3157,88 @@ async def run_cloud_agent(
 ) -> dict:
     """Run via :class:`CloudAgent` with passive transport for browser ops.
 
-    Module-level entry point (no runner instance required).  Internally
-    builds a minimal :class:`NodeConfig` so the existing
-    :class:`BrowserUseRunner` cloud-LLM helpers can be reused without
-    duplication.
+    Module-level entry point (no runner instance required).  Free-function
+    implementation; replaces the former
+    ``BrowserUseRunner._run_cloud_agent`` instance method (the
+    ``_NoSessionsShim`` wrapper hack is no longer needed).
     """
-    # Build a minimal NodeConfig for the cloud-agent helpers.  Only the
-    # fields actually consumed by ``_build_cloud_llm`` /
-    # ``_build_cloud_llm_from_node_config`` are populated; all others
-    # take their dataclass defaults.
-    cfg = NodeConfig(
-        node_name=node_name,
-        skill_name=skill_name,
-        owner=owner,
-        use_vision=use_vision,
-        use_thinking=use_thinking,
-        enable_judge=use_judge,
-        llm_provider=llm_provider,
-        llm_model_name=llm_model_name,
-        raw_inputs=raw_inputs,
+    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent
+    from agent.ec_skills.browser_use_extension.extension_tools_service import (
+        custom_controller,
+        set_current_agent,
     )
-    # Sessions manager unused by the cloud path; supply a no-op shell.
-    class _NoSessionsShim:
-        pass
-    runner = BrowserUseRunner(cfg, _NoSessionsShim())
-    return await runner._run_cloud_agent(task, state, mainwin, calling_agent_id)
+
+    logger.info("[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
+    send_skill_editor_log("log", "[BrowserAutomation] Starting cloud agent mode")
+
+    try:
+        llm = _build_cloud_llm_impl(
+            llm_provider=llm_provider,
+            llm_model_name=llm_model_name,
+            raw_inputs=raw_inputs,
+        )
+        transport = _build_cloud_transport_impl()
+        run_id = _resolve_cloud_run_id_impl(state)
+        cloud_agent_id = (state.get("attributes") or {}).get("agent_id") if isinstance(state, dict) else None
+        acct_site_id = _resolve_acct_site_id_impl(mainwin, transport)
+
+        agent_kwargs = {
+            "use_vision": use_vision,
+            "use_thinking": use_thinking,
+            "use_judge": use_judge,
+        }
+        if not use_thinking:
+            agent_kwargs["extend_system_message"] = THINKING_SUPPRESSION_INSTRUCTION.strip()
+
+        agent = CloudAgent(
+            task=task,
+            llm=llm,
+            controller=custom_controller,
+            transport=transport,
+            run_id=run_id,
+            acct_site_id=acct_site_id,
+            agent_id=cloud_agent_id,
+            skill_id=skill_name,
+            node_id=node_name,
+            **agent_kwargs,
+        )
+        try:
+            setattr(agent, "_ecan_skill_name", skill_name)
+            setattr(agent, "_ecan_node_id", node_name)
+            setattr(agent, "_ecan_owner", owner)
+        except Exception:
+            pass
+        set_current_agent(agent)
+
+        try:
+            desc = agent.tools.registry.get_prompt_description(page_url=None)
+            logger.info(
+                f"[Browser-Use] LLM sees {len(agent.tools.registry.actions)} total actions in system prompt"
+            )
+            logger.debug(f"[Browser-Use] Full tool list for LLM:\n{desc}")
+        except Exception:
+            pass
+
+        logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
+        send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
+        history = await agent.run()
+        log_step_budget(agent)
+
+        final = history.final_result() if hasattr(history, "final_result") else None
+        _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
+
+        logger.info("[BrowserAutomation] CloudAgent completed")
+        send_skill_editor_log("log", "[BrowserAutomation] CloudAgent completed")
+        return {
+            "cloud": True,
+            "client_assisted_cloud": True,
+            "mode": "client_assisted_cloud",
+            "run_id": run_id,
+            "final": final,
+            "history": str(history),
+        }
+    except Exception as exc:
+        err = get_traceback(exc, "ErrorBuildBrowserAutomationNodeCloudAgent")
+        logger.error(err)
+        send_skill_editor_log("error", err)
+        return {"error": str(err)}
