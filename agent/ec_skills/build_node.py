@@ -386,36 +386,23 @@ def _clear_module_caches():
     # Clear API key cache
     _API_KEY_CACHE.clear()
 
-    # Clear browser session cache (Phase 6.7: now module-level in build_helpers).
-    try:
-        from agent.ec_skills.browser_node import build_helpers as _bh
-        _bh.cached_browser_sessions.clear()
-        _bh.cached_bu_agents.clear()
-        _bh.last_known_focus_target_ids.clear()
-        _bh.browser_start_locks.clear()
-    except Exception:
-        pass
+    # NOTE (Phase 6.7 hotfix, 2026-04-24): the previous block here cleared
+    # browser-session caches AND stopped persistent worker threads.  It
+    # had a latent NameError on ``_cached_browser_sessions`` (build-scope
+    # local) that silently aborted the function before the worker-stop
+    # ran, so in practice neither cache-clear nor worker-stop ever
+    # executed.  Phase 6.7 fixed the NameError, which inadvertently
+    # activated the worker-stop loop — every task completion now killed
+    # ALL persistent worker threads, including ones executing concurrent
+    # browser-automation tasks (CancelledError mid-await).
+    #
+    # The browser-session caches are intentionally long-lived (chat
+    # sessions reused across customer interactions, ~860MB browser-use
+    # agents kept hot).  The persistent workers are likewise designed to
+    # outlive individual tasks.  Neither should be torn down per-task.
+    # Leave them alone — module unload / process exit handles teardown.
 
-    # Clear passive agent cache
-    _cached_passive_agents.clear()
-
-    # Stop and remove persistent worker threads
-    try:
-        from agent.ec_skills.llm_utils.llm_utils import (
-            _persistent_worker_runners,
-            _persistent_worker_runners_lock,
-        )
-        with _persistent_worker_runners_lock:
-            for _name, _runner in list(_persistent_worker_runners.items()):
-                try:
-                    _runner.stop()
-                except Exception:
-                    pass
-            _persistent_worker_runners.clear()
-    except ImportError:
-        pass
-
-    logger.debug("[build_node] Module-level caches cleared")
+    logger.debug("[build_node] Module-level LLM caches cleared")
 
 
 def _resolve_cloud_tool_func(tool_name: str):
@@ -7953,6 +7940,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
                     logger.warning(err_msg)
                     send_skill_editor_log("warning", err_msg)
+
+            # ── Fallback: AppContext singleton (2026-04-24 hotfix) ──
+            # When the loop scaffolding (`update_loop_*_condition`) re-enters
+            # the node on auto-resume, the propagated state has been observed
+            # to carry only ``{attributes, result, tool_result}`` keys, often
+            # without ``attributes.agent_id`` populated.  The agent-based
+            # lookup above then returns ``None`` and the node aborts with
+            # "mainwin not available".  AppContext.get_main_window() is the
+            # process-wide singleton populated at startup; using it as a
+            # last-resort fallback restores execution without changing the
+            # primary lookup path.
+            if not mainwin and not is_cloud_mode:
+                try:
+                    from app_context import AppContext
+                    _ctx_mw = AppContext.get_main_window()
+                    if _ctx_mw is not None:
+                        mainwin = _ctx_mw
+                        logger.warning(
+                            f"[build_browser_automation_node] Recovered mainwin from "
+                            f"AppContext singleton (agent_id={agent_id!r}, state_keys="
+                            f"{sorted(state.keys()) if isinstance(state, dict) else '?'}"
+                            f", attrs_keys="
+                            f"{sorted((state.get('attributes') or {}).keys()) if isinstance(state, dict) else '?'})"
+                        )
+                except Exception as _ctx_err:
+                    logger.debug(
+                        f"[build_browser_automation_node] AppContext fallback failed: {_ctx_err}"
+                    )
 
             if not mainwin and not is_cloud_mode:
                 err_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
