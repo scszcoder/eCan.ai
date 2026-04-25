@@ -1,17 +1,17 @@
 # Browser Automation Node Refactor Roadmap
 
-Status: **Phases 5b.4 + 6 complete** (2026-04-24).
+Status: **Phases 5b.4 + 6 (incl. 6.5 / 6.6 / 6.7) complete** (2026-04-24).
 
-## Current state snapshot (post Phase 6)
+## Current state snapshot (post Phase 6.7)
 
-- `build_node.py`: 9,045 lines (–24% from 11,937 start-of-session)
-- `build_browser_automation_node`: 1,735 lines (–49% from 3,400 mid-session)
-- `browser_node/runner.py`: 5,015 lines, hosts top-level `BrowserRunSession`
-  class + `RunContext` dataclass + module-level helpers
+- `build_node.py`: **8,353 lines** (–30% from 11,937 start-of-session)
+- `build_browser_automation_node`: **1,124 lines** (–67% from 3,400 mid-session)
+- `browser_node/runner.py`: hosts `BrowserRunSession` + `RunContext`
+- `browser_node/contexts.py`: 4 hook-context dataclasses (Phase 6.5)
+- `browser_node/build_helpers.py`: 9 lifted helpers + 4 state dicts (Phase 6.7)
 - `_run_browser_use`: 13-line thin delegator in `build_node.py`
-- `BrowserRunSession`: 18 phase methods, no closure refs (everything via
-  `self.ctx.<name>` against `RunContext`)
-- `RunContext`: 44-field frozen-by-convention dataclass
+- `BrowserRunSession`: 18 phase methods, no closure refs
+- `RunContext`: **31 fields** (–30% from 44 post-6.3, settings + hooks only)
 
 ## Phase 5b.4 — split `run()` into phase methods (complete)
 
@@ -74,18 +74,81 @@ to `_BrowserRunSession` continue to resolve:
 from agent.ec_skills.browser_node.runner import BrowserRunSession as _BrowserRunSession
 ```
 
+## Phase 6.5 — context dataclasses to `contexts.py` (complete)
+
+Moved `BrowserUseHookContext`, `PromptBuildContext`, `PromptBuildResult`,
+`_AssignmentContext` from `build_node.py` to
+`browser_node/contexts.py` to break the runner→build_node cycle.
+`build_node.py` re-exports for back-compat so external hook bundles
+(e.g. `feige_chat`) continue to work without changes.
+
+## Phase 6.6 — strip underscores from `RunContext` (complete)
+
+19 fields had leading underscores (preserved during 6.2 to make the
+mass-rewrite a pure symbol substitution). Renamed via AST-aware
+script: 47 call-site replacements + 19 field-def renames in
+`runner.py`, 19 kwarg renames in `build_node.py`'s `_run_ctx`
+construction.
+
+## Phase 6.7 — lift helpers + state to `build_helpers.py` (complete)
+
+Created `browser_node/build_helpers.py` with **9 lifted helpers** + **4
+state dicts** previously closures of `build_browser_automation_node`:
+
+| Helper | Lines | Closure refs (before lift) |
+|---|---|---|
+| `extract_runtime_invocation_input` | 58 | 0 |
+| `get_browser_profile_settings` | 17 | 0 |
+| `is_session_started` | 22 | 0 |
+| `is_session_alive` | 43 | 1 |
+| `extract_assignment_scope` | 11 | 0 |
+| `resolve_browser_scope_key` | 30 | 1 (`node_name`) |
+| `cleanup_stale_browser_sessions` | 23 | 1 (state dict) |
+| `patch_browser_session_lifecycle_debug` | 73 | 1 (state dict) |
+| `get_or_create_browser_session` | 316 | 13 (settings + helpers + state) |
+
+The big function (`get_or_create_browser_session`) takes `ctx:
+RunContext` — call sites use `_bh.get_or_create_browser_session(...,
+ctx=self.ctx)`. Two pass-as-callable sites (hook context, passive
+step) wrap with a lambda binding `ctx`.
+
+State dicts moved to module-level singletons: `cached_browser_sessions`,
+`cached_bu_agents`, `last_known_focus_target_ids`, `browser_start_locks`.
+Behavior change: previously per-build-call (one dict per
+`build_browser_automation_node` invocation), now shared across all
+compiled nodes. Safe because every key includes node identity
+(`node:<name>` or `chat:<id>`) so collisions are structurally impossible.
+
+Latent bug fixed as a side-effect: `_clear_module_caches` at L390
+referenced `_cached_browser_sessions` — a build-scope local. Calling
+`_clear_module_caches` previously raised `NameError`; the executor's
+`except (ImportError, TypeError)` did NOT catch it. Rewired to clear
+the new module-level dicts.
+
+`RunContext` shrank from **44 → 31 fields**:
+- Dropped 9 helpers (now in `build_helpers.py`)
+- Dropped 5 state dicts (3 to `build_helpers`, 2 already module-level
+  in `build_node.py`: `_cached_passive_agents`, `_dispatch_state_by_agent`)
+- Dropped 4 module-level redirects (`normalize_dispatch_identity_key`,
+  `resolve_template`, `cached_passive_agents`, `dispatch_state_by_agent`)
+- Dropped `max_browser_cache_size` (now `MAX_BROWSER_CACHE_SIZE` in
+  `build_helpers`)
+- Added 2 fields used by lifted `get_or_create_browser_session`:
+  `cdp_port_setting`, `downloads_path`
+
+`build_browser_automation_node` shrank from **1,735 → 1,124 lines** (–35%).
+
 ## Future work
 
-- Strip leading underscores from `RunContext` field names (cosmetic
-  cleanup — was preserved during 6.2 to make the rewrite mechanical).
-- Move the three context dataclasses (`BrowserUseHookContext`,
-  `PromptBuildContext`, `_AssignmentContext`) from `build_node.py` to
-  `browser_node/contexts.py` to break the runner→build_node import cycle.
-- Inline the remaining `build_browser_automation_node` (1,735 lines)
-  build-scope helpers (`_get_or_create_browser_session`,
-  `_resolve_browser_scope_key`, `_extract_assignment_scope`, etc.) into
-  free functions in the appropriate `browser_node/*.py` submodule, then
-  drop them from `RunContext`.
+- Test `_clear_module_caches` properly — was latently broken before 6.7
+  (NameError on every call), now silently swallowed by `except
+  Exception`. Should add coverage that the dicts actually get cleared.
+- Lift `_run_browser_use` thin delegator (13 lines) and the remaining
+  cleanup helpers (`_is_matching_control_url`, `_reset_bu_agent_for_next_round`,
+  `_clear_module_caches`, `_clear_module_caches`, etc.) — would shrink
+  `build_browser_automation_node` further toward a true thin builder.
+- Move `RunContext` to its own module (currently in `runner.py`) once
+  it's fully decoupled.
 
 ---
 
