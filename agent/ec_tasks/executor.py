@@ -67,7 +67,17 @@ class TaskExecutor:
     # ==================== Resource Cleanup ====================
 
     def _clear_skill_module_caches(self):
-        """Clear skill module caches and checkpoints after execution to prevent memory accumulation."""
+        """Clear skill module caches and checkpoints after execution to prevent memory accumulation.
+
+        IMPORTANT: when the task is currently INTERRUPTED (input_required) we
+        must NOT clear the InMemorySaver checkpoints, because the executor
+        relies on them to auto-resume the graph after a pend_event interrupt.
+        Clearing the saver between the initial run and the resume call drops
+        the in-flight checkpoint and forces LangGraph to restart the graph
+        from scratch on resume — pend_event then interrupts again without
+        ever consuming the resume payload, so the chat_message is silently
+        lost and the LLM body of the loop is never reached.
+        """
         try:
             # 1. Clear build_node module caches
             try:
@@ -80,7 +90,24 @@ class TaskExecutor:
             # 2. Clear the skill's InMemorySaver checkpoints to prevent unbounded growth.
             #    InMemorySaver stores every checkpoint in a dict keyed by thread_id.
             #    Without clearing, the checkpoint dict grows indefinitely across executions.
-            if self.task and hasattr(self.task, "skill") and self.task.skill:
+            #    Skip when the task is parked on an interrupt so the auto-resume
+            #    path can find the saved checkpoint.
+            try:
+                from a2a.types import TaskState as _TaskState
+                _is_interrupted = bool(
+                    self.task
+                    and getattr(self.task, "status", None) is not None
+                    and getattr(self.task.status, "state", None) == _TaskState.input_required
+                )
+            except Exception:
+                _is_interrupted = False
+
+            if _is_interrupted:
+                logger.debug(
+                    "[TaskExecutor] Skipping InMemorySaver clear: task is parked on "
+                    "interrupt (input_required); checkpoints are required for auto-resume"
+                )
+            elif self.task and hasattr(self.task, "skill") and self.task.skill:
                 skill = self.task.skill
                 if hasattr(skill, "runnable") and skill.runnable:
                     try:
