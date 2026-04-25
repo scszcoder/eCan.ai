@@ -1,16 +1,95 @@
 # Browser Automation Node Refactor Roadmap
 
-Status: **Phase 5b.3 complete** (2026-04-24). This document records the
-audit findings needed to plan Phase 5b.4 and Phase 6.
+Status: **Phases 5b.4 + 6 complete** (2026-04-24).
 
-## Current state snapshot
+## Current state snapshot (post Phase 6)
 
-- `build_node.py`: 10,084 lines (–15.5% from 11,937 start-of-session)
-- `browser_node/runner.py`: 3,558 lines, 44 module-level definitions
-- `_run_browser_use`: 13-line thin delegator
-- `_BrowserRunSession`: 1,106-line class nested inside
-  `build_browser_automation_node`, body at lines 8025–9116 of
-  `build_node.py`
+- `build_node.py`: 9,045 lines (–24% from 11,937 start-of-session)
+- `build_browser_automation_node`: 1,735 lines (–49% from 3,400 mid-session)
+- `browser_node/runner.py`: 5,015 lines, hosts top-level `BrowserRunSession`
+  class + `RunContext` dataclass + module-level helpers
+- `_run_browser_use`: 13-line thin delegator in `build_node.py`
+- `BrowserRunSession`: 18 phase methods, no closure refs (everything via
+  `self.ctx.<name>` against `RunContext`)
+- `RunContext`: 44-field frozen-by-convention dataclass
+
+## Phase 5b.4 — split `run()` into phase methods (complete)
+
+`run()` body shrunk from 1,086 → 206 lines (–81%) by extracting 13 named
+phase methods. See git log around 2026-04-24 for the commit-by-commit
+breakdown.
+
+| Phase method | Lines |
+|---|---|
+| `_build_hook_ctx` | 41 |
+| `_inject_event_context` | 143 |
+| `_invoke_early_hooks` | 28 |
+| `_extract_assignment_and_scope` | 138 |
+| `_resolve_run_mode` | 51 |
+| `_run_passive_branch` | 108 |
+| `_resolve_agent_class` | 56 |
+| `_build_local_llm_and_kwargs` | 99 |
+| `_build_browser_profile_and_callbacks` | 106 |
+| `_apply_post_kwargs_extensions` | 48 |
+| `_acquire_browser_and_agent` | 182 |
+| `_finalize_agent_setup` | 108 |
+| `_run_cloud_branch` | 32 |
+| `_handle_pre_dispatch` | 88 |
+| `_run_agent_dispatch` | 63 |
+| `_finalize_result` | 83 |
+| `_cleanup` | 25 |
+| `run` (orchestrator) | 206 |
+
+### Lessons learned during 5b.4
+
+The dominant bug class was **run-local closure leakage**: names imported
+or unpacked inside `run()` (`BUAgent`, `custom_controller`, `mainwin`,
+`assignment_*`, `_asg_cfg`) are *not* visible to sibling phase methods
+of the same class — Python's closure rules give methods access to
+*enclosing-function* locals, not to *another method's* locals. Four
+production NameError regressions before the pattern was understood.
+Fixes: lazy-import inside each method that needs them; route per-call
+state through `self.*`; pass typed contexts (`asg_ctx`) explicitly
+rather than relying on unpacked locals.
+
+## Phase 6 — lift `BrowserRunSession` to `runner.py` (complete)
+
+Sub-steps, each committed separately:
+
+- **6.1** — Audit closure refs (64 names → 16 module-level / 44 build-scope)
+  + define `RunContext` dataclass in `runner.py`
+- **6.2** — AST-based mass-rewrite: 143 bare closure refs in the class
+  body converted to `self.ctx.<name>`. Field naming preserves underscores
+  to make the rewrite a pure symbol substitution.
+- **6.3** — Lift the (now portable) class verbatim from `build_node.py`
+  to `runner.py`. Bug fixed: `nonlocal _last_known_focus_target_ids` was
+  invalid at module scope — replaced with comment (the dict lives on
+  `self.ctx._last_known_focus_target_ids`, shared by reference).
+- **6.4** — Cleanup: docstring updates, this roadmap.
+
+`build_node.py` keeps a six-line import alias so historical references
+to `_BrowserRunSession` continue to resolve:
+
+```python
+from agent.ec_skills.browser_node.runner import BrowserRunSession as _BrowserRunSession
+```
+
+## Future work
+
+- Strip leading underscores from `RunContext` field names (cosmetic
+  cleanup — was preserved during 6.2 to make the rewrite mechanical).
+- Move the three context dataclasses (`BrowserUseHookContext`,
+  `PromptBuildContext`, `_AssignmentContext`) from `build_node.py` to
+  `browser_node/contexts.py` to break the runner→build_node import cycle.
+- Inline the remaining `build_browser_automation_node` (1,735 lines)
+  build-scope helpers (`_get_or_create_browser_session`,
+  `_resolve_browser_scope_key`, `_extract_assignment_scope`, etc.) into
+  free functions in the appropriate `browser_node/*.py` submodule, then
+  drop them from `RunContext`.
+
+---
+
+## Historical (Phase 5b.3 and earlier)
 
 ## Audit: `BrowserUseRunner` class (runner.py:86–900)
 
