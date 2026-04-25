@@ -8001,6 +8001,60 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.error(f"[BrowserAutomation] Failed to acquire browser: {error_msg}")
             return None
 
+    # ─── Phase 6 RunContext construction (2026-04-24) ────────────────
+    # Captures every build-scope closure ref needed by
+    # ``_BrowserRunSession``.  Built once, shared across every
+    # ``_run_browser_use`` invocation for this compiled node.  Field
+    # naming preserves the original closure-name underscores so the
+    # mass-rewrite from ``X`` to ``self.ctx.X`` could be a pure
+    # symbol-substitution.  Mutable dict / list fields are passed by
+    # reference (not copied), so cache mutations performed by helpers
+    # persist across runs.
+    from agent.ec_skills.browser_node.runner import RunContext as _RunContext
+    _run_ctx = _RunContext(
+        # identity
+        node_name=node_name, skill_name=skill_name, owner=owner, inputs=inputs,
+        # settings
+        node_llm_provider=node_llm_provider, node_model_name=node_model_name,
+        node_use_vision=node_use_vision, node_use_thinking=node_use_thinking,
+        node_max_actions_per_step=node_max_actions_per_step,
+        node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
+        node_profile=node_profile, node_headless=node_headless,
+        node_max_steps=node_max_steps, node_timeout_seconds=node_timeout_seconds,
+        enable_judge_setting=enable_judge_setting,
+        system_prompt_id=system_prompt_id, user_prompt_id=user_prompt_id,
+        loop_history_mode=loop_history_mode,
+        privacy_strategy_setting=privacy_strategy_setting,
+        run_environment_setting=run_environment_setting,
+        event_monitor_done_policy=event_monitor_done_policy,
+        browser_type_setting=browser_type_setting,
+        browser_driver_setting=browser_driver_setting,
+        actionable_field=actionable_field,
+        _MAX_BROWSER_CACHE_SIZE=_MAX_BROWSER_CACHE_SIZE,
+        # helpers
+        _resolve_browser_scope_key=_resolve_browser_scope_key,
+        _get_or_create_browser_session=_get_or_create_browser_session,
+        _is_session_started=_is_session_started,
+        _patch_browser_session_lifecycle_debug=_patch_browser_session_lifecycle_debug,
+        _extract_runtime_invocation_input=_extract_runtime_invocation_input,
+        _normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
+        _resolve_template=_resolve_template,
+        _get_browser_profile_settings=_get_browser_profile_settings,
+        _extract_assignment_scope=_extract_assignment_scope,
+        # mutable state dicts (shared by reference)
+        _cached_browser_sessions=_cached_browser_sessions,
+        _cached_bu_agents=_cached_bu_agents,
+        _cached_passive_agents=_cached_passive_agents,
+        _last_known_focus_target_ids=_last_known_focus_target_ids,
+        _dispatch_state_by_agent=_dispatch_state_by_agent,
+        # hook lists
+        _before_browser_session_setup_hooks=_before_browser_session_setup_hooks,
+        _before_prompt_build_hooks=_before_prompt_build_hooks,
+        _before_browser_use_run_hooks=_before_browser_use_run_hooks,
+        # event monitors
+        _event_monitor_configs=_event_monitor_configs,
+    )
+
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
         """Thin delegator — orchestrates a single browser-use run.
 
@@ -8009,6 +8063,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         further perturbing this delegator.  See class docstring.
         """
         return await _BrowserRunSession(
+            ctx=_run_ctx,
             task=task,
             mainwin=mainwin,
             state=state,
@@ -8035,7 +8090,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         one phase at a time, each verified with a live smoke test.
         """
 
-        def __init__(self, *, task, mainwin, state, calling_agent_id):
+        def __init__(self, *, ctx, task, mainwin, state, calling_agent_id):
+            self.ctx = ctx
             self.task = task
             self.mainwin = mainwin
             self.state = state
@@ -8064,23 +8120,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from ``build_browser_automation_node``.
             """
             return BrowserUseHookContext(
-                node_name=str(node_name or ""),
+                node_name=str(self.ctx.node_name or ""),
                 calling_agent_id=str(self.calling_agent_id or ""),
                 mainwin=self.mainwin,
-                resolve_scope_key=_resolve_browser_scope_key,
-                extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                resolve_scope_key=self.ctx._resolve_browser_scope_key,
+                extract_runtime_invocation_input=self.ctx._extract_runtime_invocation_input,
                 parse_json_input=_parse_json_input,
                 send_log=send_skill_editor_log,
-                normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
+                normalize_dispatch_identity_key=self.ctx._normalize_dispatch_identity_key,
                 safe_format_dict=_SafeFormatDict,
-                cached_browser_sessions=_cached_browser_sessions,
-                dispatch_state_by_agent=_dispatch_state_by_agent,
+                cached_browser_sessions=self.ctx._cached_browser_sessions,
+                dispatch_state_by_agent=self.ctx._dispatch_state_by_agent,
                 is_dispatch_inflight=_is_dispatch_inflight,
                 mark_dispatch_inflight=_mark_dispatch_inflight,
                 clear_dispatch_inflight=_clear_dispatch_inflight,
                 inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
-                resolve_template=_resolve_template,
-                get_or_create_browser_session=_get_or_create_browser_session,
+                resolve_template=self.ctx._resolve_template,
+                get_or_create_browser_session=self.ctx._get_or_create_browser_session,
             )
 
         async def _inject_event_context(
@@ -8144,7 +8200,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 logger.info(
                                     f"[BrowserAutomation] actionable_items source="
                                     f"{_evt_items_src} ({len(_evt_items)} item(s)), "
-                                    f"node={node_name}"
+                                    f"node={self.ctx.node_name}"
                                 )
                             if _evt_items:
                                 _compact_items = _compact_items_fn(_evt_items)
@@ -8154,8 +8210,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     # the node author didn't opt into the actionable-items pattern.
                                     _actionable_raw = (
                                         [it for it in _compact_items
-                                         if str(it.get(actionable_field, "")).strip()]
-                                        if actionable_field else []
+                                         if str(it.get(self.ctx.actionable_field, "")).strip()]
+                                        if self.ctx.actionable_field else []
                                     )
 
                                     # Invoke prompt-build hooks.  Site plugins register here to
@@ -8163,17 +8219,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                     # supplies non-empty text (or a short_circuit_state), the
                                     # generic fallback injection below is skipped.
                                     _pb_handled = False
-                                    if _before_prompt_build_hooks:
+                                    if self.ctx._before_prompt_build_hooks:
                                         _pb_ctx = PromptBuildContext(
                                             compact_items=list(_compact_items),
                                             actionable_raw=list(_actionable_raw),
-                                            actionable_field=str(actionable_field or ""),
+                                            actionable_field=str(self.ctx.actionable_field or ""),
                                             event_type=str(_evt_type or ""),
                                             event_label=str(_evt_label or ""),
                                         )
                                         _pb_hook_ctx = self._build_hook_ctx()
-                                        for _pb_hook in _before_prompt_build_hooks:
-                                            _pb_result = await _pb_hook(state, inputs, _pb_hook_ctx, _pb_ctx)
+                                        for _pb_hook in self.ctx._before_prompt_build_hooks:
+                                            _pb_result = await _pb_hook(state, self.ctx.inputs, _pb_hook_ctx, _pb_ctx)
                                             if _pb_result is None:
                                                 continue
                                             if _pb_result.short_circuit_state is not None:
@@ -8195,8 +8251,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                         _new_msg_hint += _build_fallback_text(
                                             compact_items=_compact_items,
                                             actionable_raw=_actionable_raw,
-                                            actionable_field=str(actionable_field or ""),
-                                            node_name=node_name,
+                                            actionable_field=str(self.ctx.actionable_field or ""),
+                                            node_name=self.ctx.node_name,
                                         )
                         except Exception:
                             pass
@@ -8209,7 +8265,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     task = f"{task}\n\n" + "\n".join(_evt_lines)
                     logger.info(
                         f"[BrowserAutomation] Injected triggering event context "
-                        f"(event_type={_evt_type}, label={_evt_label}, node={node_name})"
+                        f"(event_type={_evt_type}, label={_evt_label}, node={self.ctx.node_name})"
                     )
             except Exception as _evt_inject_err:
                 logger.info(f"[BrowserAutomation] Failed to inject event context: {_evt_inject_err}")
@@ -8222,7 +8278,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 task = _override_block + task
                 logger.info(
                     f"[BrowserAutomation] Prepended actionable_items protocol override "
-                    f"(node={node_name}, override_len={len(_override_block)})"
+                    f"(node={self.ctx.node_name}, override_len={len(_override_block)})"
                 )
 
             return None, task, _evt_type
@@ -8245,12 +8301,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             ``_before_browser_session_setup_hooks``, ``inputs``
             from ``build_browser_automation_node``.
             """
-            if not _before_browser_session_setup_hooks:
+            if not self.ctx._before_browser_session_setup_hooks:
                 return None
             _early_hook_ctx = self._build_hook_ctx()
-            for _early_hook in _before_browser_session_setup_hooks:
+            for _early_hook in self.ctx._before_browser_session_setup_hooks:
                 _early_result = await _early_hook(
-                    None, self.state, inputs, _early_hook_ctx
+                    None, self.state, self.ctx.inputs, _early_hook_ctx
                 )
                 if _early_result is not None:
                     return _early_result
@@ -8293,7 +8349,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             ``node_name`` from ``build_browser_automation_node``.
             """
             state = self.state
-            assignment_scope = _extract_assignment_scope(runtime_input)
+            assignment_scope = self.ctx._extract_assignment_scope(runtime_input)
             assignment_session_id = str(
                 assignment_scope.get("session_id")
                 or assignment_scope.get("sessionId")
@@ -8321,7 +8377,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             #   }
             # Template placeholders: {session_id}, {tab_id}, {chat_url},
             # {customer_name}.  Missing keys render as empty strings.
-            _asg_cfg = _parse_json_input(inputs, "assignment")
+            _asg_cfg = _parse_json_input(self.ctx.inputs, "assignment")
             if isinstance(_asg_cfg, dict) and _asg_cfg.get("enabled", True):
                 _require_any = [str(f) for f in (_asg_cfg.get("require_any_of") or [])]
                 if _require_any:
@@ -8337,7 +8393,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         if _on_missing == "skip_node":
                             logger.info(
                                 f"[BrowserAutomation] assignment gate: require_any_of={_require_any} "
-                                f"not present — skipping browser run. node={node_name}, "
+                                f"not present — skipping browser run. node={self.ctx.node_name}, "
                                 f"runtime_input={(runtime_input or '')[:200]}"
                             )
                             return (
@@ -8368,7 +8424,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         logger.info(
                             f"[BrowserAutomation] Applied scope contract "
                             f"(session_id={assignment_session_id or 'unknown'}, "
-                            f"tab_id={assignment_tab_id or 'none'}), node={node_name}"
+                            f"tab_id={assignment_tab_id or 'none'}), node={self.ctx.node_name}"
                         )
                     except Exception as _render_err:
                         logger.warning(
@@ -8376,9 +8432,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             f"(non-fatal): {_render_err}"
                         )
 
-            _browser_scope_key = _resolve_browser_scope_key(state)
-            _cached_browser_session = _cached_browser_sessions.get(_browser_scope_key)
-            _last_known_focus_target_id = _last_known_focus_target_ids.get(_browser_scope_key)
+            _browser_scope_key = self.ctx._resolve_browser_scope_key(state)
+            _cached_browser_session = self.ctx._cached_browser_sessions.get(_browser_scope_key)
+            _last_known_focus_target_id = self.ctx._last_known_focus_target_ids.get(_browser_scope_key)
 
             return (
                 None,
@@ -8416,11 +8472,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             passive_enabled = False
             cloud_agent_enabled = False
 
-            if run_environment_setting == 'passive_local':
+            if self.ctx.run_environment_setting == 'passive_local':
                 passive_enabled = True
-            elif run_environment_setting == 'hybrid_cloud':
+            elif self.ctx.run_environment_setting == 'hybrid_cloud':
                 cloud_agent_enabled = True
-            elif run_environment_setting == 'full_cloud':
+            elif self.ctx.run_environment_setting == 'full_cloud':
                 cloud_agent_enabled = True
             else:
                 # full_local or fallback - check env vars for backward compat.
@@ -8442,7 +8498,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 passive_enabled = False
 
             logger.info(
-                f"[BrowserAutomation] Run mode: run_environment={run_environment_setting}, "
+                f"[BrowserAutomation] Run mode: run_environment={self.ctx.run_environment_setting}, "
                 f"passive={passive_enabled}, cloud={cloud_agent_enabled}"
             )
             return passive_enabled, cloud_agent_enabled
@@ -8501,7 +8557,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         attrs = state.get("attributes", {})
                         run_id_fallback = attrs.get("run_id", "")
                         if run_id_fallback:
-                            step_key = f"{run_id_fallback}:{node_name}"
+                            step_key = f"{run_id_fallback}:{self.ctx.node_name}"
 
                 if step_key:
                     with _passive_steps_lock:
@@ -8541,14 +8597,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 return await _run_browser_passive_step(
                     state,
                     self.mainwin,
-                    get_browser_session=_get_or_create_browser_session,
-                    is_session_started=_is_session_started,
+                    get_browser_session=self.ctx._get_or_create_browser_session,
+                    is_session_started=self.ctx._is_session_started,
                     last_known_focus_target_id=last_known_focus_target_id,
-                    last_known_focus_target_ids=_last_known_focus_target_ids,
+                    last_known_focus_target_ids=self.ctx._last_known_focus_target_ids,
                     browser_scope_key=browser_scope_key,
-                    node_name=node_name,
+                    node_name=self.ctx.node_name,
                     calling_agent_id=self.calling_agent_id,
-                    passive_agent_cache=_cached_passive_agents,
+                    passive_agent_cache=self.ctx._cached_passive_agents,
                 )
             except Exception as e:
                 err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
@@ -8579,8 +8635,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             see another method's locals, only enclosing-function scope.
             """
             from browser_use import Agent as BUAgent
-            _node_hook_bundles_raw = (inputs.get("hookBundles") or {}).get("content")
-            _node_site_adapter_raw = (inputs.get("siteAdapter") or {}).get("content")
+            _node_hook_bundles_raw = (self.ctx.inputs.get("hookBundles") or {}).get("content")
+            _node_site_adapter_raw = (self.ctx.inputs.get("siteAdapter") or {}).get("content")
             _hooks_env_flag = os.environ.get(
                 "EC_BROWSER_USE_HOOKS_ENABLED", ""
             ).strip().lower() in {"1", "true", "yes", "on"}
@@ -8591,13 +8647,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             )
 
             AgentClass = BUAgent
-            use_privacy_agent = (privacy_strategy_setting != 'none') or _node_wants_hooks
+            use_privacy_agent = (self.ctx.privacy_strategy_setting != 'none') or _node_wants_hooks
 
             if use_privacy_agent:
                 try:
                     from agent.ec_skills.browser_use_extension.privacy_agent import PrivacyAgent
                     AgentClass = PrivacyAgent
-                    if privacy_strategy_setting == 'none' and _node_wants_hooks:
+                    if self.ctx.privacy_strategy_setting == 'none' and _node_wants_hooks:
                         logger.info(
                             f"[BrowserAutomation] Upgrading to PrivacyAgent for hook support "
                             f"(privacy=none, hooks_env={_hooks_env_flag}, "
@@ -8605,7 +8661,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             f"site_adapter={bool(_node_site_adapter_raw)})"
                         )
                     else:
-                        logger.info(f"[BrowserAutomation] Using PrivacyAgent for browser-use (strategy={privacy_strategy_setting})")
+                        logger.info(f"[BrowserAutomation] Using PrivacyAgent for browser-use (strategy={self.ctx.privacy_strategy_setting})")
                 except Exception as _privacy_import_exc:
                     logger.info(f"[BrowserAutomation] PrivacyAgent not available, using browser_use.Agent ({_privacy_import_exc})")
             else:
@@ -8655,17 +8711,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             )
             llm = _build_local_llm(
                 self.mainwin,
-                llm_provider=node_llm_provider,
-                llm_model_name=node_model_name,
-                raw_inputs=inputs,
+                llm_provider=self.ctx.node_llm_provider,
+                llm_model_name=self.ctx.node_model_name,
+                raw_inputs=self.ctx.inputs,
             )
             _attach_token_ctx(
                 llm,
                 self.state,
-                skill_name=skill_name,
-                node_name=node_name,
-                llm_provider=node_llm_provider,
-                llm_model_name=node_model_name,
+                skill_name=self.ctx.skill_name,
+                node_name=self.ctx.node_name,
+                llm_provider=self.ctx.node_llm_provider,
+                llm_model_name=self.ctx.node_model_name,
                 browser_scope_key=browser_scope_key,
             )
 
@@ -8677,23 +8733,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Data-driven DOM size reduction via node editor settings.
             # domLimit (chars) caps max_clickable_elements_length; domFocusSelector
             # prunes non-matching elements via CDP before DOM extraction.
-            if node_dom_limit:
+            if self.ctx.node_dom_limit:
                 logger.info(
                     f"[BrowserAutomation] DOM limit set to "
-                    f"{node_dom_limit} chars (was default ~18-25K)"
+                    f"{self.ctx.node_dom_limit} chars (was default ~18-25K)"
                 )
-            if node_dom_focus_selector:
+            if self.ctx.node_dom_focus_selector:
                 logger.info(
-                    f"[BrowserAutomation] DOM focus selector: {node_dom_focus_selector!r}"
+                    f"[BrowserAutomation] DOM focus selector: {self.ctx.node_dom_focus_selector!r}"
                 )
 
             agent_kwargs = get_agent_kwargs_with_compaction(
-                use_vision=node_use_vision,
-                use_thinking=node_use_thinking,
-                use_judge=enable_judge_setting,
+                use_vision=self.ctx.node_use_vision,
+                use_thinking=self.ctx.node_use_thinking,
+                use_judge=self.ctx.enable_judge_setting,
                 llm=llm,
-                max_actions_per_step=node_max_actions_per_step,
-                **({'max_clickable_elements_length': node_dom_limit} if node_dom_limit else {}),
+                max_actions_per_step=self.ctx.node_max_actions_per_step,
+                **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
             )
 
             # Log the actual message_compaction settings (INFO level for visibility).
@@ -8760,13 +8816,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 maybe_apply_extract_patch as _maybe_extract_patch,
             )
 
-            profile_settings = _get_browser_profile_settings(node_profile)
-            keep_browser_alive = bool(_event_monitor_configs)
+            profile_settings = self.ctx._get_browser_profile_settings(self.ctx.node_profile)
+            keep_browser_alive = bool(self.ctx._event_monitor_configs)
             browser_profile = _build_browser_profile(
                 profile_settings=profile_settings,
-                node_profile=node_profile,
+                node_profile=self.ctx.node_profile,
                 keep_alive=keep_browser_alive,
-                headless=node_headless,
+                headless=self.ctx.node_headless,
             )
 
             # Fingerprint / stealth — reused by the later stealth-JS injection
@@ -8775,10 +8831,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 browser_profile,
                 profile_settings,
                 calling_agent_id=self.calling_agent_id,
-                node_name=node_name,
+                node_name=self.ctx.node_name,
             )
 
-            if browser_type_setting == 'new chromium':
+            if self.ctx.browser_type_setting == 'new chromium':
                 logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
             else:
                 logger.info("[BrowserAutomation] Using persistent profile for existing-browser/CDP mode")
@@ -8798,9 +8854,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Factories close over the names they need (node_name for the step
             # label, _agent_ref for the done-callback's session lookup).
             _agent_ref: dict[str, "Any"] = {}
-            if _event_monitor_configs and event_monitor_done_policy == "stop":
+            if self.ctx._event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
                 agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
-            agent_kwargs["register_new_step_callback"] = _make_step_cb(node_name)
+            agent_kwargs["register_new_step_callback"] = _make_step_cb(self.ctx.node_name)
 
             # available_file_paths: scan state for product_dir
             # (init_params / analyze_product output) and return absolute
@@ -8855,10 +8911,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 self.mainwin,
                 use_privacy_agent=use_privacy_agent,
                 calling_agent_id=self.calling_agent_id,
-                skill_name=skill_name,
-                node_name=node_name,
-                system_prompt_id=system_prompt_id,
-                user_prompt_id=user_prompt_id,
+                skill_name=self.ctx.skill_name,
+                node_name=self.ctx.node_name,
+                system_prompt_id=self.ctx.system_prompt_id,
+                user_prompt_id=self.ctx.user_prompt_id,
             )
 
             if use_privacy_agent:
@@ -8866,7 +8922,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     apply_hook_bundle_kwargs as _apply_hook_kwargs,
                 )
                 _apply_hook_kwargs(
-                    agent_kwargs, inputs, privacy_strategy=privacy_strategy_setting
+                    agent_kwargs, self.ctx.inputs, privacy_strategy=self.ctx.privacy_strategy_setting
                 )
 
         async def _acquire_browser_and_agent(
@@ -8928,10 +8984,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             state = self.state
             mainwin = self.mainwin
 
-            if browser_type_setting == 'new chromium':
+            if self.ctx.browser_type_setting == 'new chromium':
                 # Mode 1: Let browser-use create and manage its own Chromium browser.
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
-                _bu_scope_key = _resolve_browser_scope_key(state)
+                _bu_scope_key = self.ctx._resolve_browser_scope_key(state)
                 agent = await _acquire_agent(
                     AgentClass=AgentClass,
                     task=task,
@@ -8939,8 +8995,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     controller=controller,
                     agent_kwargs=agent_kwargs,
                     bu_scope_key=_bu_scope_key,
-                    cached_bu_agents=_cached_bu_agents,
-                    loop_history_mode=loop_history_mode,
+                    cached_bu_agents=self.ctx._cached_bu_agents,
+                    loop_history_mode=self.ctx.loop_history_mode,
                     fp_profile=fp_profile,
                 )
                 agent_ref["agent"] = agent
@@ -8949,14 +9005,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Mode 2: Connect to existing browser via CDP.
             logger.info(
                 f"[BrowserAutomation] Mode: existing browser - connecting via CDP "
-                f"(type={browser_type_setting}, driver={browser_driver_setting})"
+                f"(type={self.ctx.browser_type_setting}, driver={self.ctx.browser_driver_setting})"
             )
 
-            browser_session = await _get_or_create_browser_session(
+            browser_session = await self.ctx._get_or_create_browser_session(
                 mainwin, state=state, calling_agent_id=self.calling_agent_id,
             )
 
-            if browser_session and browser_driver_setting == 'native':
+            if browser_session and self.ctx.browser_driver_setting == 'native':
                 log_msg = f"[BrowserAutomation] Connected to browser session: {getattr(browser_session, 'id', 'unknown')}"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
@@ -8970,8 +9026,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     browser_session,
                     keep_browser_alive=keep_browser_alive,
                     fp_profile=fp_profile,
-                    is_session_started=_is_session_started,
-                    patch_lifecycle_debug=_patch_browser_session_lifecycle_debug,
+                    is_session_started=self.ctx._is_session_started,
+                    patch_lifecycle_debug=self.ctx._patch_browser_session_lifecycle_debug,
                 )
 
                 # CDP focus preflight — re-bind agent focus to a valid page target.
@@ -8985,8 +9041,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         last_known_focus_target_id=last_known_focus_target_id,
                         assignment_tab_id=asg_ctx.tab_id,
                         assignment_chat_url=asg_ctx.chat_url,
-                        skill_name=skill_name,
-                        node_name=node_name,
+                        skill_name=self.ctx.skill_name,
+                        node_name=self.ctx.node_name,
                     )
                 except Exception as _focus_exc:
                     logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
@@ -9015,7 +9071,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 )
 
                 # Acquire-or-reuse cached browser-use agent (CDP path).
-                _bu_scope_key = _resolve_browser_scope_key(state)
+                _bu_scope_key = self.ctx._resolve_browser_scope_key(state)
                 agent = await _acquire_agent(
                     AgentClass=AgentClass,
                     task=task,
@@ -9023,8 +9079,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     controller=controller,
                     agent_kwargs=agent_kwargs,
                     bu_scope_key=_bu_scope_key,
-                    cached_bu_agents=_cached_bu_agents,
-                    loop_history_mode=loop_history_mode,
+                    cached_bu_agents=self.ctx._cached_bu_agents,
+                    loop_history_mode=self.ctx.loop_history_mode,
                     fp_profile=None,
                     browser_session=browser_session,
                 )
@@ -9045,7 +9101,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # Fallback: browser session creation failed or unsupported driver.
                 logger.warning(
                     f"[BrowserAutomation] Failed to connect to existing browser, falling back "
-                    f"to new browser (session={browser_session}, driver={browser_driver_setting})"
+                    f"to new browser (session={browser_session}, driver={self.ctx.browser_driver_setting})"
                 )
                 agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
                 agent_ref["agent"] = agent
@@ -9095,15 +9151,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from ``build_browser_automation_node``.
             """
             try:
-                setattr(agent, "_ecan_skill_name", skill_name)
-                setattr(agent, "_ecan_node_id", node_name)
-                setattr(agent, "_ecan_owner", owner)
+                setattr(agent, "_ecan_skill_name", self.ctx.skill_name)
+                setattr(agent, "_ecan_node_id", self.ctx.node_name)
+                setattr(agent, "_ecan_owner", self.ctx.owner)
             except Exception:
                 pass
 
             state = self.state
-            browser_scope_key = _resolve_browser_scope_key(state)
-            cached_browser_session = _cached_browser_sessions.get(browser_scope_key)
+            browser_scope_key = self.ctx._resolve_browser_scope_key(state)
+            cached_browser_session = self.ctx._cached_browser_sessions.get(browser_scope_key)
             # Merge with the dict value rather than overwriting: the focus preflight
             # (CDP path) may have set last_known_focus_target_id to the active tab.
             # Re-reading the dict here would discard that value (the dict is only
@@ -9111,7 +9167,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # have nothing to refocus to.
             last_known_focus_target_id = (
                 last_known_focus_target_id
-                or _last_known_focus_target_ids.get(browser_scope_key)
+                or self.ctx._last_known_focus_target_ids.get(browser_scope_key)
             )
 
             # Defensive post-construction cache update + keep_alive re-application.
@@ -9123,13 +9179,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _update_session_cache(
                 agent,
                 browser_scope_key=browser_scope_key,
-                cached_browser_sessions=_cached_browser_sessions,
+                cached_browser_sessions=self.ctx._cached_browser_sessions,
                 cached_browser_session=cached_browser_session,
-                last_known_focus_target_ids=_last_known_focus_target_ids,
-                cached_passive_agents=_cached_passive_agents,
+                last_known_focus_target_ids=self.ctx._last_known_focus_target_ids,
+                cached_passive_agents=self.ctx._cached_passive_agents,
                 keep_browser_alive=keep_browser_alive,
-                max_cache_size=_MAX_BROWSER_CACHE_SIZE,
-                patch_lifecycle_debug=_patch_browser_session_lifecycle_debug,
+                max_cache_size=self.ctx._MAX_BROWSER_CACHE_SIZE,
+                patch_lifecycle_debug=self.ctx._patch_browser_session_lifecycle_debug,
             )
 
             # Register the live agent + runtime context with extension_tools_service.
@@ -9137,14 +9193,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 agent,
                 state=state,
                 calling_agent_id=self.calling_agent_id,
-                skill_name=skill_name,
-                node_name=node_name,
-                owner=owner,
+                skill_name=self.ctx.skill_name,
+                node_name=self.ctx.node_name,
+                owner=self.ctx.owner,
             )
 
             # Monkey-patch eventbus.stop + close to preserve the browser session
             # across agent.run() when this run has long-lived event monitors.
-            if keep_browser_alive and _event_monitor_configs:
+            if keep_browser_alive and self.ctx._event_monitor_configs:
                 from agent.ec_skills.browser_node.runner import (
                     patch_agent_for_monitored_keep_alive as _patch_keep_alive,
                 )
@@ -9153,9 +9209,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Auto-start event monitors on the agent's browser session.
             await _start_monitors(
                 agent,
-                event_monitor_configs=_event_monitor_configs,
+                event_monitor_configs=self.ctx._event_monitor_configs,
                 calling_agent_id=self.calling_agent_id,
-                skill_name=skill_name,
+                skill_name=self.ctx.skill_name,
                 browser_scope_key=browser_scope_key,
             )
 
@@ -9183,15 +9239,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 self.state,
                 self.mainwin,
                 self.calling_agent_id,
-                skill_name=skill_name,
-                node_name=node_name,
-                owner=owner,
-                use_vision=node_use_vision,
-                use_thinking=node_use_thinking,
-                use_judge=enable_judge_setting,
-                llm_provider=node_llm_provider or "",
-                llm_model_name=node_model_name or "",
-                raw_inputs=inputs,
+                skill_name=self.ctx.skill_name,
+                node_name=self.ctx.node_name,
+                owner=self.ctx.owner,
+                use_vision=self.ctx.node_use_vision,
+                use_thinking=self.ctx.node_use_thinking,
+                use_judge=self.ctx.enable_judge_setting,
+                llm_provider=self.ctx.node_llm_provider or "",
+                llm_model_name=self.ctx.node_model_name or "",
+                raw_inputs=self.ctx.inputs,
             )
 
         async def _handle_pre_dispatch(
@@ -9230,10 +9286,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _fi_state = _maybe_fi_skip(
                 state=self.state,
                 evt_type=evt_type,
-                event_monitor_configs=_event_monitor_configs,
+                event_monitor_configs=self.ctx._event_monitor_configs,
                 first_invocation_done=_first_invocation_done,
                 browser_scope_key=browser_scope_key,
-                node_name=node_name,
+                node_name=self.ctx.node_name,
             )
             if _fi_state is not None:
                 return _fi_state, None
@@ -9248,11 +9304,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # themselves via ``register_before_browser_use_run_hook``
             # at module-import time; build_node itself has no knowledge
             # of what any registered hook does.
-            if _before_browser_use_run_hooks:
+            if self.ctx._before_browser_use_run_hooks:
                 _bur_hook_ctx = self._build_hook_ctx()
-                for _bur_hook in _before_browser_use_run_hooks:
+                for _bur_hook in self.ctx._before_browser_use_run_hooks:
                     _bur_hook_result = await _bur_hook(
-                        agent, self.state, inputs, _bur_hook_ctx
+                        agent, self.state, self.ctx.inputs, _bur_hook_ctx
                     )
                     if _bur_hook_result is not None:
                         return _bur_hook_result, None
@@ -9309,7 +9365,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 run_agent_with_dispatch as _run_agent_dispatch_helper,
             )
             _refocus_enabled, _abort_when_pre_dispatched, _pre_dispatch_flag_attr = (
-                _resolve_step_cfg(inputs)
+                _resolve_step_cfg(self.ctx.inputs)
             )
 
             _step_focus_target = None
@@ -9334,9 +9390,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 step_focus_target=_step_focus_target,
                 abort_when_pre_dispatched=_abort_when_pre_dispatched,
                 pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
-                dom_focus_selector=node_dom_focus_selector,
-                node_max_steps=node_max_steps,
-                node_timeout_seconds=node_timeout_seconds,
+                dom_focus_selector=self.ctx.node_dom_focus_selector,
+                node_max_steps=self.ctx.node_max_steps,
+                node_timeout_seconds=self.ctx.node_timeout_seconds,
             )
 
             return await self._finalize_result(
@@ -9388,7 +9444,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _persist_focus(
                 agent,
                 browser_scope_key=browser_scope_key,
-                last_known_focus_target_ids=_last_known_focus_target_ids,
+                last_known_focus_target_ids=self.ctx._last_known_focus_target_ids,
             )
 
             # Log step budget for postmortem diagnostics.
@@ -9405,7 +9461,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             final = history.final_result() if (history and hasattr(history, 'final_result')) else None
             if history:
-                _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
+                _log_browser_use_result_summary(history, skill_name=self.ctx.skill_name, node_name=self.ctx.node_name)
             final_str = str(final)
             if len(final_str) > 10000:
                 final_str = final_str[:10000] + '... (truncated)'
@@ -9425,8 +9481,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             _clear_resp(
                 self.state,
                 runtime_had_response_text=runtime_had_response_text,
-                node_name=node_name,
-                skill_name=skill_name,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
             )
 
             return {"final": final, "history": str(history)}
@@ -9453,8 +9509,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             await _stop_non_cached(
                 agent,
                 browser_scope_key=browser_scope_key,
-                cached_browser_sessions=_cached_browser_sessions,
-                browser_type_setting=browser_type_setting,
+                cached_browser_sessions=self.ctx._cached_browser_sessions,
+                browser_type_setting=self.ctx.browser_type_setting,
             )
 
         async def run(self) -> dict:
@@ -9475,7 +9531,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception:
                 _rbu_thread_name = "?"
             logger.info(
-                f"[BA._run_browser_use] enter node={node_name} thread={_rbu_thread_name} "
+                f"[BA._run_browser_use] enter node={self.ctx.node_name} thread={_rbu_thread_name} "
                 f"calling_agent_id={calling_agent_id!r} task_len={len(task or '')}"
             )
 
@@ -9488,7 +9544,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
                 # Patch navigation timeout to reduce "Page readiness timeout" warnings
                 # browser_use hardcodes 4s cross-domain / 2s same-domain, which is too short for many sites
-                log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
+                log_msg = f"🤖 Executing node Browser Automation node: {self.ctx.node_name}"
                 logger.debug(log_msg)
                 send_skill_editor_log("log", log_msg)
 
@@ -9500,16 +9556,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     task,
                     state=state,
                     mainwin=mainwin,
-                    node_name=node_name,
-                    skill_name=skill_name,
+                    node_name=self.ctx.node_name,
+                    skill_name=self.ctx.skill_name,
                     resolve_mustache_template=_resolve_mustache_template,
-                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                    extract_runtime_invocation_input=self.ctx._extract_runtime_invocation_input,
                 )
                 # Recompute runtime_input for downstream consumers
                 # (assignment-scope extraction + assignment-gate diagnostics).
                 # _prepare_task already injected it into the task; this binding
                 # is just so the references at lines below resolve.
-                runtime_input = _extract_runtime_invocation_input(state)
+                runtime_input = self.ctx._extract_runtime_invocation_input(state)
 
                 # Inject triggering-event context + run prompt-build hooks.
                 _early_exit, task, _evt_type = await self._inject_event_context(task=task)
@@ -9642,8 +9698,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     raise
                 except asyncio.TimeoutError as e:
                     timeout_msg = (
-                        f"Browser automation node timed out after {node_timeout_seconds}s"
-                        if node_timeout_seconds
+                        f"Browser automation node timed out after {self.ctx.node_timeout_seconds}s"
+                        if self.ctx.node_timeout_seconds
                         else "Browser automation node timed out"
                     )
                     logger.error(f"[BrowserAutomation] {timeout_msg}")
