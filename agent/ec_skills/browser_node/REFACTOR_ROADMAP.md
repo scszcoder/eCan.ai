@@ -119,11 +119,23 @@ Behavior change: previously per-build-call (one dict per
 compiled nodes. Safe because every key includes node identity
 (`node:<name>` or `chat:<id>`) so collisions are structurally impossible.
 
-Latent bug fixed as a side-effect: `_clear_module_caches` at L390
-referenced `_cached_browser_sessions` — a build-scope local. Calling
-`_clear_module_caches` previously raised `NameError`; the executor's
-`except (ImportError, TypeError)` did NOT catch it. Rewired to clear
-the new module-level dicts.
+Latent bug found in `_clear_module_caches` — but it turned out to be
+*load-bearing dead code*. The original function at L390 referenced
+`_cached_browser_sessions` (a build-scope local) which raised
+`NameError` on every call, silently swallowed by `executor.py`'s
+`except Exception as e: logger.debug(...)`. The `NameError`
+short-circuited the function so the worker-stop block at L402-416
+**never ran in production** despite shipping for months.
+
+The 6.7 lift fixed the `NameError` (rewiring to the new module-level
+dicts), which inadvertently *activated* the worker-stop loop. Every
+task completion then called `_PersistentAsyncWorkerThread.stop()` on
+**all** running workers — including ones executing concurrent browser-
+automation work — causing `CancelledError` mid-await. **Hotfix
+2026-04-24**: deleted the entire dead-code block. Browser-session
+caches and persistent workers are intentionally long-lived; neither
+should be torn down per-task. The first-customer-message-after-task-
+completion failure (`23:08:24` log) confirmed the issue.
 
 `RunContext` shrank from **44 → 31 fields**:
 - Dropped 9 helpers (now in `build_helpers.py`)
@@ -137,6 +149,55 @@ the new module-level dicts.
   `cdp_port_setting`, `downloads_path`
 
 `build_browser_automation_node` shrank from **1,735 → 1,124 lines** (–35%).
+
+## Hotfix #2 — `mainwin` recovery on auto-resume (2026-04-24 23:35)
+
+After fixing the persistent-worker `CancelledError` (hotfix #1), a
+**second** failure surfaced: customer messages still went unanswered
+because the auto-resumed `browser_automation` re-entry aborted with
+
+```
+[build_browser_automation_node] Cannot create browser_use LLM:
+mainwin not available. Please ensure agent is properly initialized.
+```
+
+### Root cause
+
+On `pend_event` auto-resume after a chat_message arrives, the LangGraph
+loop scaffolding (`update_loop_*_condition` → `check_loop_*_condition`
+→ `browser_automation_*`) re-enters the node with a stripped-down
+state — observed `state.keys() == ['attributes', 'result', 'tool_result']`
+where the first run had 27 keys. Critically, `state['attributes']`
+no longer carries `agent_id`, so the standard `agent_id → get_agent_by_id
+→ agent.mainwin` resolution chain returns `None`. The node aborts before
+reaching the LLM/PreDispatch logic.
+
+This is a **pre-existing latent bug** that only surfaced after hotfix
+#1 fixed the persistent-worker cancellation; previously the cancel
+killed the second iteration before mainwin resolution mattered.
+
+### Fix
+
+Added a defensive fallback at `@/Users/songc/PycharmProjects/eCan.ai/agent/ec_skills/build_node.py:7944-7970`:
+
+```python
+# Fallback: AppContext singleton (2026-04-24 hotfix)
+if not mainwin and not is_cloud_mode:
+    from app_context import AppContext
+    _ctx_mw = AppContext.get_main_window()
+    if _ctx_mw is not None:
+        mainwin = _ctx_mw
+        logger.warning("Recovered mainwin from AppContext singleton ...")
+```
+
+`AppContext.get_main_window()` is the process-wide singleton populated
+at startup; it's already used by ~30 call sites elsewhere in the
+codebase. Using it as a last-resort fallback restores execution
+without altering the primary lookup path.
+
+The recovery log is at `WARNING` level so persistent reliance on the
+fallback is visible. Long-term, the state-stripping in the auto-resume
+path should be investigated (separate from this refactor).
 
 ## Future work
 
