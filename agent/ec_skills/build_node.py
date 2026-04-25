@@ -7535,172 +7535,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             return actual_url.rstrip("/") == preferred_url.rstrip("/")
 
     def _reset_bu_agent_for_next_round(agent: Any, mode: str, task: str) -> None:
-        """Reset a cached browser-use sub-agent for re-use in the next loop round.
+        """Delegator → :func:`browser_node.agent.reset_bu_agent_for_next_round`.
 
-        Args:
-            agent: The browser-use Agent instance to reset.
-            mode:  loop_history_mode string — "clear", "trim:<N>", or "accumulate".
-            task:  The new task string for this round (updates agent.task).
+        The closure form is preserved so existing call sites inside
+        ``build_browser_automation_node`` keep working.  All real logic
+        (history clamp, AgentOutput restore, LoopDetector reset, state
+        reset) now lives in the dedicated module.
         """
-        try:
-            # Always update the task text so the agent knows what to do this round.
-            # Must update BOTH agent.task (cosmetic) AND agent.message_manager.task —
-            # the LLM reads message_manager.task via AgentMessagePrompt(task=self.task)
-            # on every step. Without this, a cached/reused agent keeps feeding the LLM
-            # the very first round's task forever, so runtime injections (triggering
-            # event, actionable_items, protocol override) from later rounds never reach it.
-            if hasattr(agent, 'task'):
-                agent.task = task
-            _mm_for_task = getattr(agent, 'message_manager', None)
-            if _mm_for_task is not None and hasattr(_mm_for_task, 'task'):
-                _mm_for_task.task = task
+        from agent.ec_skills.browser_node.agent import (
+            reset_bu_agent_for_next_round as _impl,
+        )
+        _impl(agent, mode, task)
 
-            # Restore full AgentOutput if a previous run clobbered it.
-            # browser-use sets AgentOutput = DoneAgentOutput (done-only) when
-            # max_steps or max_failures is reached.  Since we cache and reuse
-            # the agent, subsequent rounds would only see the "done" tool and
-            # lose all custom actions (feige_*, bu_send_chat, etc.).
-            _full_output = getattr(agent, '_ecan_full_AgentOutput', None)
-            if _full_output is not None and hasattr(agent, 'AgentOutput'):
-                _was_clobbered = agent.AgentOutput is not _full_output
-                agent.AgentOutput = _full_output
-                if _was_clobbered:
-                    logger.info(
-                        "[BrowserAutomation] AgentOutput was clobbered (DoneAgentOutput) — restored full AgentOutput"
-                    )
-
-            # Reset LoopDetector state.
-            # The loop detector tracks action hashes and page fingerprints across steps.
-            # Without resetting, the `done()` action hash accumulates across rounds,
-            # triggering false loop-detection nudges that confuse the LLM and may cause
-            # it to abandon its normal workflow (including skipping custom tool calls).
-            _ld = getattr(getattr(agent, 'state', None), 'loop_detector', None)
-            if _ld is not None:
-                _prev_rep = getattr(_ld, 'max_repetition_count', 0)
-                if hasattr(_ld, 'recent_action_hashes'):
-                    _ld.recent_action_hashes.clear()
-                if hasattr(_ld, 'recent_page_fingerprints'):
-                    _ld.recent_page_fingerprints.clear()
-                if hasattr(_ld, 'max_repetition_count'):
-                    _ld.max_repetition_count = 0
-                if hasattr(_ld, 'most_repeated_hash'):
-                    _ld.most_repeated_hash = None
-                if hasattr(_ld, 'consecutive_stagnant_pages'):
-                    _ld.consecutive_stagnant_pages = 0
-                if _prev_rep >= 3:
-                    logger.info(
-                        f"[BrowserAutomation] Reset LoopDetector "
-                        f"(was repetition={_prev_rep})"
-                    )
-
-            # Diagnostic: verify that the restored AgentOutput has custom actions.
-            # If it only has 'done', something went wrong with the save/restore.
-            try:
-                _ao = getattr(agent, 'AgentOutput', None)
-                if _ao is not None:
-                    # The action field's type annotation lists available actions as optional fields
-                    _action_field = _ao.model_fields.get('action')
-                    if _action_field and hasattr(_action_field.annotation, 'model_fields'):
-                        _action_names = list(_action_field.annotation.model_fields.keys())
-                        _n_actions = len(_action_names)
-                        if _n_actions <= 1:
-                            logger.warning(
-                                f"[BrowserAutomation] AgentOutput has only {_n_actions} actions "
-                                f"({_action_names}) — custom tools may be missing! "
-                                f"_ecan_full_AgentOutput={'set' if _full_output is not None else 'NOT set'}"
-                            )
-                        else:
-                            logger.debug(
-                                f"[BrowserAutomation] AgentOutput OK: {_n_actions} actions available"
-                            )
-            except Exception as _ao_check_err:
-                logger.debug(f"[BrowserAutomation] AgentOutput check failed: {_ao_check_err}")
-
-            # Always reset AgentState fields that would cause run() to exit immediately
-            # or behave incorrectly on re-entry:
-            #   - n_steps: kept as-is by default but must not exceed max_steps; resetting
-            #     to 1 gives each round a full fresh step budget.
-            #   - consecutive_failures: must be 0 or run() may abort before the first step.
-            #   - stopped: True would cause the main loop to break immediately.
-            #   - history.is_done(): True would skip the loop entirely on some paths.
-            st = getattr(agent, 'state', None)
-            if st is not None:
-                try:
-                    st.n_steps = 1
-                except Exception:
-                    pass
-                try:
-                    st.consecutive_failures = 0
-                except Exception:
-                    pass
-                try:
-                    st.stopped = False
-                except Exception:
-                    pass
-
-            if mode == "accumulate":
-                # Keep message history — nothing more to do.
-                logger.debug("[BrowserAutomation] loop_history_mode=accumulate: preserving full history")
-                return
-
-            # For "clear" and "trim" reset the message_manager state
-            # (context_messages, agent_history_items) so the LLM doesn't see stale DOM.
-            mm = getattr(agent, 'message_manager', None)
-            if mm:
-                mm_state = getattr(mm, 'state', None)
-                if mm_state:
-                    # Clear short-term context messages (current step DOM state, tool results)
-                    if hasattr(mm_state, 'context_messages'):
-                        mm_state.context_messages.clear()
-
-                    if mode == "clear":
-                        _had_history = False
-                        _had_memory = False
-                        if hasattr(mm_state, 'agent_history_items'):
-                            _had_history = len(mm_state.agent_history_items) > 0
-                            mm_state.agent_history_items.clear()
-                        # Also clear compacted_memory — this is browser-use's
-                        # cross-step summary (contains "Memory: ..." entries).
-                        # Without clearing it, stale dispatch tracking like
-                        # "sc is in pending_dispatches" persists and prevents
-                        # the LLM from re-dispatching customers with new messages.
-                        if hasattr(mm_state, 'compacted_memory'):
-                            _had_memory = mm_state.compacted_memory is not None
-                            mm_state.compacted_memory = None
-                        logger.info(
-                            f"[BrowserAutomation] loop_history_mode=clear: wiped message_manager "
-                            f"(had_history={_had_history}, had_compacted_memory={_had_memory})"
-                        )
-
-                    elif mode.startswith("trim:"):
-                        try:
-                            keep_n = int(mode.split(":", 1)[1])
-                        except (ValueError, IndexError):
-                            keep_n = 10
-                        if hasattr(mm_state, 'agent_history_items'):
-                            items = mm_state.agent_history_items
-                            if len(items) > keep_n:
-                                del items[:-keep_n]
-                        logger.debug(f"[BrowserAutomation] loop_history_mode={mode}: trimmed to last {keep_n} history items")
-
-            # Reset AgentHistoryList (used for final_result / is_done checks).
-            # Without this, history.is_done() returns True from the previous round and
-            # run() may exit before executing a single step.
-            hist = getattr(agent, 'history', None)
-            if hist is not None:
-                if mode == "clear":
-                    if hasattr(hist, 'history'):
-                        hist.history.clear()
-                elif mode.startswith("trim:"):
-                    try:
-                        keep_n = int(mode.split(":", 1)[1])
-                    except (ValueError, IndexError):
-                        keep_n = 10
-                    if hasattr(hist, 'history') and len(hist.history) > keep_n:
-                        del hist.history[:-keep_n]
-
-        except Exception as _reset_err:
-            logger.warning(f"[BrowserAutomation] _reset_bu_agent_for_next_round error (non-fatal): {_reset_err}")
 
     def _resolve_browser_scope_key(state: dict | None = None) -> str:
         """Resolve a stable browser scope key from workflow state.
@@ -8151,6 +7997,39 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             f"[BA._run_browser_use] enter node={node_name} thread={_rbu_thread_name} "
             f"calling_agent_id={calling_agent_id!r} task_len={len(task or '')}"
         )
+
+        def _build_hook_ctx() -> "BrowserUseHookContext":
+            """Factory for the BrowserUseHookContext passed to every hook.
+
+            All three hook phases (before_browser_session_setup,
+            before_prompt_build, before_browser_use_run) need the same
+            wide context — this closure captures all 16 build-scope
+            references in one place so the call sites become a single
+            line.  Hooks use this to access build-scope helpers
+            (scope-key resolution, runtime-input extraction, dispatch
+            state) without build_node having to plumb each one as
+            a parameter.
+            """
+            return BrowserUseHookContext(
+                node_name=str(node_name or ""),
+                calling_agent_id=str(calling_agent_id or ""),
+                mainwin=mainwin,
+                resolve_scope_key=_resolve_browser_scope_key,
+                extract_runtime_invocation_input=_extract_runtime_invocation_input,
+                parse_json_input=_parse_json_input,
+                send_log=send_skill_editor_log,
+                normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
+                safe_format_dict=_SafeFormatDict,
+                cached_browser_sessions=_cached_browser_sessions,
+                dispatch_state_by_agent=_dispatch_state_by_agent,
+                is_dispatch_inflight=_is_dispatch_inflight,
+                mark_dispatch_inflight=_mark_dispatch_inflight,
+                clear_dispatch_inflight=_clear_dispatch_inflight,
+                inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
+                resolve_template=_resolve_template,
+                get_or_create_browser_session=_get_or_create_browser_session,
+            )
+
         try:
             import asyncio
             from browser_use import Agent as BUAgent
@@ -8164,64 +8043,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
-            # ── Runtime Mustache Template Resolution ──
-            # Resolve {{llm_result}}, {{browser_research}}, {{browser_executor}} etc. in task
-            # This MUST happen at runtime (not build time) because state contains the actual values
-            if state and "{{" in task:
-                try:
-                    _resolved_task = _resolve_mustache_template(task, state, mainwin)
-                    if _resolved_task != task:
-                        logger.info(
-                            f"[BrowserAutomation] ✅ Resolved mustache templates in task "
-                            f"(node={node_name}, original_len={len(task)}, resolved_len={len(_resolved_task)})"
-                        )
-                        send_skill_editor_log(
-                            "log",
-                            f"[BrowserAutomation] Resolved mustache templates in task "
-                            f"(len: {len(task)} → {len(_resolved_task)})"
-                        )
-                        # Log preview of resolved content (first 500 chars)
-                        preview = _resolved_task[:500] + "..." if len(_resolved_task) > 500 else _resolved_task
-                        logger.debug(f"[BrowserAutomation] Resolved task preview:\n{preview}")
-                        task = _resolved_task
-                    else:
-                        logger.warning(
-                            f"[BrowserAutomation] ⚠️ Task still contains unresolved mustache templates "
-                            f"(node={node_name}). Check that upstream nodes have executed and state contains the expected data."
-                        )
-                        send_skill_editor_log(
-                            "warning",
-                            f"[BrowserAutomation] Unresolved mustache templates in task for node={node_name}"
-                        )
-                except Exception as _mustache_err:
-                    logger.warning(
-                        f"[BrowserAutomation] Failed to resolve mustache templates: {_mustache_err}"
-                    )
-
+            # Resolve mustache templates + inject runtime invocation input.
+            from agent.ec_skills.browser_node.runner import (
+                prepare_task_with_runtime_context as _prepare_task,
+            )
+            task, _runtime_had_response_text = _prepare_task(
+                task,
+                state=state,
+                mainwin=mainwin,
+                node_name=node_name,
+                skill_name=skill_name,
+                resolve_mustache_template=_resolve_mustache_template,
+                extract_runtime_invocation_input=_extract_runtime_invocation_input,
+            )
+            # Recompute runtime_input for downstream consumers
+            # (assignment-scope extraction + assignment-gate diagnostics).
+            # _prepare_task already injected it into the task; this binding
+            # is just so the references at lines below resolve.
             runtime_input = _extract_runtime_invocation_input(state)
-            _runtime_had_response_text = False
-            if runtime_input:
-                task = (
-                    f"{task}\n\n"
-                    f"## Current Invocation Input\n"
-                    f"{runtime_input}"
-                )
-                logger.info(
-                    f"[BrowserAutomation] Injected runtime invocation input into task "
-                    f"(node={node_name}, skill={skill_name}, len={len(runtime_input)})"
-                )
-                send_skill_editor_log(
-                    "log",
-                    f"[BrowserAutomation] Injected runtime input into task (len={len(runtime_input)})"
-                )
-                # Track if this input contains a chat_message response so we
-                # can clear it after the LLM processes it (preventing duplicates)
-                try:
-                    _ri_parsed = json.loads(runtime_input)
-                    if isinstance(_ri_parsed, dict) and _ri_parsed.get("response_text"):
-                        _runtime_had_response_text = True
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    pass
 
             # ── Inject triggering event context ──
             # When this browser_automation node was resumed by pend_event after
@@ -8229,44 +8068,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # metadata so the LLM knows WHY this invocation was triggered.
             _override_block = ""  # prepended to task when actionable_items is non-empty
             try:
-                _event_json = ""
-                _evt = None
-                _evt_type = ""
-                _evt_ctx = {}
-                _evt_label = ""
-                if isinstance(state, dict):
-                    _pr = state.get("prompt_refs")
-                    if isinstance(_pr, dict):
-                        _event_json = _pr.get("events", "")
-                if _event_json and isinstance(_event_json, str) and _event_json.strip():
-                    _evt = json.loads(_event_json)
-                    _evt_type = _evt.get("event_type", "")
-                    _evt_ctx = _evt.get("context", {}) if isinstance(_evt.get("context"), dict) else {}
-                # Fallback: if prompt_refs.events is empty, try to get event
-                # info from state["browser_event"] or state["attributes"]["browser_event"]
-                # (set by resume.py / pend_event node).
-                if not _evt_type and isinstance(state, dict):
-                    _be_fallback = (
-                        state.get("browser_event")
-                        or (state.get("attributes") or {}).get("browser_event")
-                    )
-                    if isinstance(_be_fallback, dict) and _be_fallback.get("type"):
-                        _evt_type = _be_fallback.get("type", "")
-                        _evt_ctx = {}
-                        _evt = _be_fallback
-                        logger.info(
-                            f"[BrowserAutomation] event injection fallback: "
-                            f"prompt_refs.events was empty, using state browser_event "
-                            f"(type={_evt_type}, sub_type={_be_fallback.get('sub_type', '')})"
-                        )
+                from agent.ec_skills.browser_node.runner import (
+                    extract_triggering_event as _extract_evt,
+                )
+                _evt, _evt_type, _evt_ctx, _evt_label = _extract_evt(state)
                 if _evt_type:
-                    # sub_type/label may be at top-level OR inside context
-                    _evt_label = (
-                        _evt_ctx.get("sub_type") or _evt_ctx.get("label")
-                        or (_evt.get("sub_type") if _evt else "")
-                        or (_evt.get("label") if _evt else "")
-                        or ""
-                    )
                     _evt_lines = [
                         "## Triggering Event",
                         f"This invocation was resumed by a **{_evt_type}** event.",
@@ -8274,114 +8080,29 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if _evt_label:
                         _evt_lines.append(f"Event label: **{_evt_label}**")
                     if _evt_type == "browser_event":
-                        _new_msg_hint = (
-                            "The DOM monitor detected a change in the watched region"
-                            + (f" (label: {_evt_label})" if _evt_label else "")
-                            + ". A new item or state change has occurred.\n\n"
-                            "**CRITICAL RULES FOR THIS INVOCATION:**\n"
-                            "1. Your memory from previous rounds has been WIPED. You have NO record of any prior dispatches.\n"
-                            "2. Do NOT infer dispatch status from the chat DOM. Previous agent replies visible in the chat thread are for OLDER messages, not the current one.\n"
-                            "3. If the snapshot below shows a customer with a message that looks like a question, you MUST dispatch it — even if you see prior agent replies in the DOM.\n"
-                            "4. The ONLY way a message counts as \"already dispatched\" is if YOU called bu_send_chat for that EXACT message text in THIS round. Seeing prior replies in the chat is NOT evidence of dispatch."
+                        from agent.ec_skills.browser_node.runner import (
+                            build_browser_event_base_hint as _build_base_hint,
                         )
-                        # Inject raw event body items so the LLM has the current
-                        # snapshot without needing to call a list tool.
+                        _new_msg_hint = _build_base_hint(_evt_label)
+                        # Inject raw event body items so the LLM has the
+                        # current snapshot without needing to call a list
+                        # tool.  Resolution + compaction delegated to helpers.
                         try:
-                            _evt_items = None
-                            _evt_items_src = ""
-                            # Path 0 (preferred): live EventMonitor snapshot. The
-                            # state.attributes.browser_event body is frozen at the
-                            # last pend_event resume — if this node has been running
-                            # for a while, the DOM has since moved on. Read the
-                            # monitor's current last_items directly so filters like
-                            # Fix A see fresh data.
-                            try:
-                                from agent.ec_skills.browser_use_extension.event_monitor import (
-                                    _active_monitor_sets as _ams,
-                                )
-                                # Prefer a monitor whose label matches _evt_label,
-                                # but fall back to any monitor with a non-empty
-                                # last_items snapshot. _evt_label is frequently
-                                # empty for chat_message-triggered runs, and
-                                # requiring an exact match was silently skipping
-                                # the live path in practice.
-                                _live_items = None
-                                _live_src_label = ""
-                                _fallback_items = None
-                                _fallback_label = ""
-                                for _mset in _ams.values():
-                                    for _mon in getattr(_mset, "monitors", []) or []:
-                                        _mcfg = getattr(_mon, "config", None)
-                                        _mlabel = getattr(_mcfg, "label", "") if _mcfg else ""
-                                        _mstate = getattr(_mon, "state", None)
-                                        if not isinstance(_mstate, dict):
-                                            continue
-                                        _cand = _mstate.get("last_items") or []
-                                        if not (isinstance(_cand, list) and _cand):
-                                            continue
-                                        if _evt_label and _mlabel == _evt_label:
-                                            _live_items = list(_cand)
-                                            _live_src_label = _mlabel
-                                            break
-                                        if _fallback_items is None:
-                                            _fallback_items = list(_cand)
-                                            _fallback_label = _mlabel
-                                    if _live_items:
-                                        break
-                                if not _live_items and _fallback_items:
-                                    _live_items = _fallback_items
-                                    _live_src_label = _fallback_label or "(no-label)"
-                                if _live_items:
-                                    _evt_items = _live_items
-                                    _evt_items_src = f"live_monitor[{_live_src_label}]"
-                            except Exception as _live_err:
-                                logger.debug(
-                                    f"[BrowserAutomation] live monitor snapshot lookup failed: {_live_err}"
-                                )
-                            # Path 1: context.params.body (legacy)
-                            if not _evt_items:
-                                _evt_body = _evt_ctx.get("params", {})
-                                if isinstance(_evt_body, dict):
-                                    _evt_body_str = _evt_body.get("body", "")
-                                    if isinstance(_evt_body_str, str) and _evt_body_str:
-                                        _evt_body_parsed = json.loads(_evt_body_str)
-                                        _evt_items = _evt_body_parsed.get("items", [])
-                                        if _evt_items:
-                                            _evt_items_src = "context.params.body"
-                            # Path 2: state["attributes"]["browser_event"]["body"]["items"]
-                            # (resume.py stores it at attributes.browser_event) — stalest path.
-                            if not _evt_items and isinstance(state, dict):
-                                _be_data = (
-                                    state.get("browser_event")  # top-level (resume_payload)
-                                    or (state.get("attributes") or {}).get("browser_event")  # state_patch path
-                                )
-                                if isinstance(_be_data, dict):
-                                    _be_body = _be_data.get("body", {})
-                                    if isinstance(_be_body, dict):
-                                        _evt_items = _be_body.get("items", [])
-                                        if _evt_items:
-                                            _evt_items_src = "state.attributes.browser_event"
+                            from agent.ec_skills.browser_node.runner import (
+                                resolve_event_actionable_items as _resolve_evt_items,
+                                compact_actionable_items as _compact_items_fn,
+                            )
+                            _evt_items, _evt_items_src = _resolve_evt_items(
+                                evt_ctx=_evt_ctx, evt_label=_evt_label, state=state
+                            )
                             if _evt_items and _evt_items_src:
                                 logger.info(
                                     f"[BrowserAutomation] actionable_items source="
                                     f"{_evt_items_src} ({len(_evt_items)} item(s)), "
                                     f"node={node_name}"
                                 )
-                            if isinstance(_evt_items, list) and _evt_items:
-                                # Strip heavy fields (avatars, URLs) but keep
-                                # everything else — no domain-specific filtering.
-                                _skip_keys = {"avatar_url", "avatar", "image_url", "icon_url"}
-                                _compact_items = []
-                                for _it in _evt_items:
-                                    if not isinstance(_it, dict):
-                                        continue
-                                    _ci = {
-                                        k: v for k, v in _it.items()
-                                        if k not in _skip_keys
-                                        and v not in (None, "", [])
-                                    }
-                                    if _ci:
-                                        _compact_items.append(_ci)
+                            if _evt_items:
+                                _compact_items = _compact_items_fn(_evt_items)
                                 if _compact_items:
                                     # ──────────────────────────────────────────────────────────────
                                     # Compute actionable_raw once: the subset of compact_items
@@ -8408,25 +8129,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                             event_type=str(_evt_type or ""),
                                             event_label=str(_evt_label or ""),
                                         )
-                                        _pb_hook_ctx = BrowserUseHookContext(
-                                            node_name=str(node_name or ""),
-                                            calling_agent_id=str(calling_agent_id or ""),
-                                            mainwin=mainwin,
-                                            resolve_scope_key=_resolve_browser_scope_key,
-                                            extract_runtime_invocation_input=_extract_runtime_invocation_input,
-                                            parse_json_input=_parse_json_input,
-                                            send_log=send_skill_editor_log,
-                                            normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
-                                            safe_format_dict=_SafeFormatDict,
-                                            cached_browser_sessions=_cached_browser_sessions,
-                                            dispatch_state_by_agent=_dispatch_state_by_agent,
-                                            is_dispatch_inflight=_is_dispatch_inflight,
-                                            mark_dispatch_inflight=_mark_dispatch_inflight,
-                                            clear_dispatch_inflight=_clear_dispatch_inflight,
-                                            inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
-                                            resolve_template=_resolve_template,
-                                            get_or_create_browser_session=_get_or_create_browser_session,
-                                        )
+                                        _pb_hook_ctx = _build_hook_ctx()
                                         for _pb_hook in _before_prompt_build_hooks:
                                             _pb_result = await _pb_hook(state, inputs, _pb_hook_ctx, _pb_ctx)
                                             if _pb_result is None:
@@ -8441,74 +8144,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                                 _override_block = _pb_result.override_prepend + _override_block
                                                 _pb_handled = True
                                     
-                                    # Generic fallback injection: only runs when no prompt-build
-                                    # hook added text.  Shows the compact snapshot so the LLM has
-                                    # at least the raw DOM state to reason about.
+                                    # Generic fallback injection when no prompt-build
+                                    # hook added text.  See helper docstring.
                                     if not _pb_handled:
-                                        if actionable_field:
-                                            _items_json = json.dumps(_actionable_raw, ensure_ascii=False, indent=2)
-                                            _new_msg_hint += (
-                                                f"\n\n### ctionable_items ({len(_actionable_raw)} of "
-                                                f"{len(_compact_items)}, filtered by {actionable_field} non-empty):"
-                                                f"\n```json\n{_items_json}\n```"
-                                            )
-                                            logger.info(
-                                                f"[BrowserAutomation] Injected {len(_actionable_raw)} actionable "
-                                                f"items (filter='{actionable_field}') into task hint (node={node_name})"
-                                            )
-                                        else:
-                                            _items_json = json.dumps(_compact_items, ensure_ascii=False, indent=2)
-                                            _new_msg_hint += (
-                                                f"\n\nCurrent snapshot ({len(_compact_items)} items):"
-                                                f"\n```json\n{_items_json}\n```"
-                                            )
-                                            _new_msg_hint += (
-                                                "\n\n**None of the above items have been dispatched in this round.** "
-                                                "You must process each actionable item from scratch."
-                                            )
-                                            logger.info(
-                                                f"[BrowserAutomation] Injected {len(_compact_items)} "
-                                                f"event items into task hint (node={node_name})"
-                                            )
+                                        from agent.ec_skills.browser_node.runner import (
+                                            build_actionable_items_fallback_text as _build_fallback_text,
+                                        )
+                                        _new_msg_hint += _build_fallback_text(
+                                            compact_items=_compact_items,
+                                            actionable_raw=_actionable_raw,
+                                            actionable_field=str(actionable_field or ""),
+                                            node_name=node_name,
+                                        )
                         except Exception:
                             pass
                         _evt_lines.append(_new_msg_hint)
                     elif _evt_type == "chat_message":
-                        # Extract the actual response text from state["input"] or
-                        # event data so the browser-use LLM knows EXACTLY what to type.
-                        # Without this, it may see a previous reply in the DOM and
-                        # incorrectly assume the work is already done.
-                        _chat_response_text = ""
-                        _chat_customer_name = ""
-                        try:
-                            _cm_input = state.get("input", "") if isinstance(state, dict) else ""
-                            if isinstance(_cm_input, str) and _cm_input.strip():
-                                _cm_parsed = json.loads(_cm_input)
-                                if isinstance(_cm_parsed, dict):
-                                    _chat_response_text = _cm_parsed.get("response_text", "")
-                                    _chat_customer_name = _cm_parsed.get("customer_name", "")
-                        except (json.JSONDecodeError, Exception):
-                            pass
-
-                        if _chat_response_text:
-                            # Surface the reply text + recipient so the LLM
-                            # has them at hand; delegate "how to deliver"
-                            # to the node's own system prompt (which is
-                            # user-configured per business case — this
-                            # generic node makes no assumption about the
-                            # delivery tool names).
-                            _evt_lines.append(
-                                f"A **NEW** reply was generated by another agent for recipient **{_chat_customer_name}**.\n\n"
-                                f"**Reply text to deliver:**\n{_chat_response_text}\n\n"
-                                f"You MUST deliver this reply THIS round using the tools defined for this node's purpose "
-                                f"(see system prompt), then call `done()`.  Do NOT skip — even if a prior reply was "
-                                f"already sent, this is a DIFFERENT message.  Do NOT call `done()` before delivery."
-                            )
-                        else:
-                            _evt_lines.append(
-                                "A new chat message arrived from another agent or from the customer. "
-                                "Check the Current Invocation Input for the message content and act on it."
-                            )
+                        from agent.ec_skills.browser_node.runner import (
+                            build_chat_message_event_line as _build_chat_line,
+                        )
+                        _evt_lines.append(_build_chat_line(state))
                     task = f"{task}\n\n" + "\n".join(_evt_lines)
                     logger.info(
                         f"[BrowserAutomation] Injected triggering event context "
@@ -8538,25 +8193,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # First hook to return a non-None state dict short-circuits
             # the whole node; returning `None` lets the late phase run.
             if _before_browser_session_setup_hooks:
-                _early_hook_ctx = BrowserUseHookContext(
-                    node_name=str(node_name or ""),
-                    calling_agent_id=str(calling_agent_id or ""),
-                    mainwin=mainwin,
-                    resolve_scope_key=_resolve_browser_scope_key,
-                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
-                    parse_json_input=_parse_json_input,
-                    send_log=send_skill_editor_log,
-                    normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
-                    safe_format_dict=_SafeFormatDict,
-                    cached_browser_sessions=_cached_browser_sessions,
-                    dispatch_state_by_agent=_dispatch_state_by_agent,
-                    is_dispatch_inflight=_is_dispatch_inflight,
-                    mark_dispatch_inflight=_mark_dispatch_inflight,
-                    clear_dispatch_inflight=_clear_dispatch_inflight,
-                    inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
-                    resolve_template=_resolve_template,
-                    get_or_create_browser_session=_get_or_create_browser_session,
-                )
+                _early_hook_ctx = _build_hook_ctx()
                 for _early_hook in _before_browser_session_setup_hooks:
                     _early_result = await _early_hook(
                         None, state, inputs, _early_hook_ctx
@@ -8748,236 +8385,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     _cmd_type = passive_cmd.get("type", "") if isinstance(passive_cmd, dict) else ""
 
                     if _cmd_type == "skill_passive_step":
-                        logger.info(f"[PassiveMode] skill_passive_step — bypassing browser setup, executing MCP tools directly")
-                        _mcp_t0 = time.perf_counter()
-                        actions = passive_cmd.get("actions", []) if isinstance(passive_cmd, dict) else []
-                        stop_on_error = bool(passive_cmd.get("stop_on_error", True)) if isinstance(passive_cmd, dict) else True
-
-                        from agent.mcp.local_client import mcp_call_tool as _mcp_call_tool
-                        mcp_results = []
-                        mcp_errors = []
-                        for idx, act in enumerate(actions):
-                            if not isinstance(act, dict):
-                                continue
-                            params = act.get("mcp_tool", act)  # support both {"mcp_tool": {...}} and flat dict
-                            tool_name = params.get("tool", "")
-                            tool_input = params.get("tool_input", {})
-                            try:
-                                logger.info(f"[PassiveMode] MCP tool[{idx}]: {tool_name} input={tool_input}")
-                                mcp_res = await _mcp_call_tool(tool_name, tool_input)
-                                logger.info(f"[PassiveMode] MCP tool[{idx}] result: {mcp_res}")
-                                mcp_results.append({"extracted_content": str(mcp_res) if mcp_res else ""})
-                            except Exception as mcp_err:
-                                err_msg = f"mcp_tool[{idx}] '{tool_name}' failed: {type(mcp_err).__name__}: {mcp_err}"
-                                logger.error(f"[PassiveMode] {err_msg}", exc_info=True)
-                                mcp_results.append({"error": err_msg})
-                                mcp_errors.append(err_msg)
-                                if stop_on_error:
-                                    break
-
-                        payload = {
-                            "ok": not bool(mcp_errors),
-                            "elapsed_ms": int((time.perf_counter() - _mcp_t0) * 1000),
-                            "actions": actions,
-                            "action_results": mcp_results,
-                            "errors": mcp_errors,
-                            "browser": {},
-                        }
-                        # Publish result back to cloud
-                        if passive_cmd and mainwin:
-                            try:
-                                from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
-                                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
-                                run_id = passive_cmd.get("run_id", "")
-                                step_id = passive_cmd.get("step_id", "")
-                                if run_id and step_id:
-                                    result = PassiveBrowserStepResult(
-                                        run_id=run_id, step_id=step_id,
-                                        ok=not bool(mcp_errors),
-                                        elapsed_ms=payload.get("elapsed_ms", 0),
-                                        actions=actions,
-                                        action_results=mcp_results,
-                                        errors=mcp_errors,
-                                        browser={},
-                                    )
-                                    http_endpoint = mainwin.getWanApiEndpoint()
-                                    auth_token = mainwin.get_auth_token()
-                                    client_id = mainwin.getAcctSiteID()
-                                    logger.info(f"[PassiveMode] publish_step_result: client_id={client_id}, run_id={run_id}, step_id={step_id}")
-                                    await publish_step_result(result, http_endpoint, auth_token, client_id)
-                                    logger.info(f"[PassiveMode] Published MCP step result to cloud")
-                                    send_skill_editor_log("log", f"[PassiveMode] Published MCP step result to cloud")
-                            except Exception as pub_err:
-                                logger.error(f"[PassiveMode] Failed to publish MCP step result: {pub_err}")
-                                send_skill_editor_log("warning", f"[PassiveMode] Failed to publish MCP result: {pub_err}")
-                        return {"passive": True, **payload}
+                        # Delegate to browser_node.runner.run_skill_passive_step:
+                        # bypass browser automation, execute MCP tools directly,
+                        # publish result back to cloud.  Lazy import keeps the
+                        # build_node ↔ runner module import cycle broken.
+                        from agent.ec_skills.browser_node.runner import (
+                            run_skill_passive_step as _run_skill_passive_step,
+                        )
+                        return await _run_skill_passive_step(passive_cmd, mainwin)
 
                     # ── browser_use_passive_step — normal browser automation ──
-                    # Extract actions from multiple possible state paths (modular for future event types)
-                    def _extract_actions_from_state(st: dict, nd_name: str) -> list:
-                        """
-                        Extract actions from state, checking multiple possible paths.
-                        Returns list of actions or empty list.
-                        
-                        Priority order:
-                        1. state.tool_input.{node_name}.actions
-                        2. state.tool_input.actions
-                        3. state.browser_use_actions
-                        4. state.attributes.passive_command.actions
-                        5. state.attributes.passive_command_actions (from adapt_to_state mapping)
-                        """
-                        if not isinstance(st, dict):
-                            return []
-                        
-                        # 1. Check tool_input.{node_name}.actions
-                        try:
-                            tool_input = st.get("tool_input")
-                            if isinstance(tool_input, dict):
-                                node_input = tool_input.get(nd_name)
-                                if isinstance(node_input, dict) and isinstance(node_input.get("actions"), list):
-                                    logger.debug(f"[PassiveMode] Found actions in tool_input.{nd_name}.actions")
-                                    return node_input.get("actions")
-                                # 2. Check tool_input.actions
-                                if isinstance(tool_input.get("actions"), list):
-                                    logger.debug("[PassiveMode] Found actions in tool_input.actions")
-                                    return tool_input.get("actions")
-                        except Exception:
-                            pass
-                        
-                        # 3. Check browser_use_actions
-                        if isinstance(st.get("browser_use_actions"), list):
-                            logger.debug("[PassiveMode] Found actions in browser_use_actions")
-                            return st.get("browser_use_actions")
-                        
-                        # 4. Check attributes.passive_command.actions
-                        try:
-                            attrs = st.get("attributes", {})
-                            pc = attrs.get("passive_command")
-                            if isinstance(pc, dict) and isinstance(pc.get("actions"), list):
-                                logger.debug("[PassiveMode] Found actions in attributes.passive_command.actions")
-                                return pc.get("actions")
-                        except Exception:
-                            pass
-                        
-                        # 5. Check attributes.passive_command_actions (from adapt_to_state mapping)
-                        try:
-                            attrs = st.get("attributes", {})
-                            if isinstance(attrs.get("passive_command_actions"), list):
-                                logger.debug("[PassiveMode] Found actions in attributes.passive_command_actions")
-                                return attrs.get("passive_command_actions")
-                        except Exception:
-                            pass
-                        
-                        return []
-                    
-                    actions = _extract_actions_from_state(state, node_name)
-                    logger.info(f"[PassiveMode] Extracted {len(actions)} actions from state")
-                    if not isinstance(actions, list):
-                        return {"error": "browser-use passive mode enabled but actions is not a list"}
-
-                    browser_session = await _get_or_create_browser_session(mainwin, state=state, calling_agent_id=calling_agent_id)
-                    if not browser_session:
-                        return {"error": "browser-use passive mode: failed to acquire browser session"}
-
-                    if not _is_session_started(browser_session):
-                        import asyncio
-                        task = asyncio.create_task(browser_session.start())
-                        await task
-
-                    # Reuse PassiveAgent across loop iterations (keyed by browser_session id)
-                    global _cached_passive_agents
-                    session_id = id(browser_session)
-                    if session_id in _cached_passive_agents:
-                        passive_agent = _cached_passive_agents[session_id]
-                        logger.debug(f"[PassiveMode] Reusing cached PassiveAgent for session {session_id}")
-                    else:
-                        passive_agent = PassiveAgent(
-                            browser_session=browser_session,
-                            tools=custom_controller,
-                            privacy_enabled=True,
-                        )
-                        # Transfer saved focus target from previous session
-                        if _last_known_focus_target_id:
-                            passive_agent._last_focus_target_id = _last_known_focus_target_id
-                            logger.info(f"[PassiveMode] Transferred focus target ...{_last_known_focus_target_id[-4:]} to new PassiveAgent")
-                        _cached_passive_agents[session_id] = passive_agent
-                        logger.info(f"[PassiveMode] Created new PassiveAgent for session {session_id}")
-
-                    # Get passive_command from state.attributes for run_id/step_id
-                    passive_cmd = None
-                    include_screenshot = False
-                    stop_on_error = True
-                    if isinstance(state, dict):
-                        attrs = state.get("attributes", {})
-                        passive_cmd = attrs.get("passive_command")
-                        if isinstance(passive_cmd, dict):
-                            include_screenshot = bool(passive_cmd.get("include_screenshot", False))
-                            stop_on_error = bool(passive_cmd.get("stop_on_error", True))
-
-                    payload = None
-                    exec_error = None
-                    try:
-                        payload = await passive_agent.execute_actions(
-                            actions=actions,
-                            stop_on_error=stop_on_error,
-                            include_screenshot=include_screenshot,
-                        )
-                        # Update closure-level focus target after successful execution
-                        if hasattr(passive_agent, '_last_focus_target_id') and passive_agent._last_focus_target_id:
-                            _last_known_focus_target_ids[_browser_scope_key] = passive_agent._last_focus_target_id
-                    except Exception as e:
-                        exec_error = e
-                        err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
-                        payload = {"error": str(err_msg), "errors": [str(err_msg)]}
-
-                    # Publish result back to cloud if we have passive_command info
-                    # This happens even on error so cloud worker knows what happened
-                    if passive_cmd and mainwin:
-                        try:
-                            from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
-                            from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
-                            
-                            run_id = passive_cmd.get("run_id", "")
-                            step_id = passive_cmd.get("step_id", "")
-                            
-                            if run_id and step_id:
-                                result = PassiveBrowserStepResult(
-                                    run_id=run_id,
-                                    step_id=step_id,
-                                    ok=not bool(payload.get("errors")),
-                                    elapsed_ms=int(payload.get("elapsed_ms") or 0),
-                                    actions=payload.get("actions") or [],
-                                    action_results=payload.get("action_results") or [],
-                                    errors=payload.get("errors") or [],
-                                    browser=payload.get("browser") or {},
-                                )
-                                
-                                http_endpoint = mainwin.getWanApiEndpoint()
-                                auth_token = mainwin.get_auth_token()
-                                client_id = mainwin.getAcctSiteID()
-                                logger.info(f"[BrowserAutomation] publish_step_result: client_id={client_id}, run_id={run_id}, step_id={step_id}")
-                                
-                                await publish_step_result(result, http_endpoint, auth_token, client_id)
-                                logger.info(f"[BrowserAutomation] Published passive step result: run_id={run_id}, step_id={step_id}")
-                                send_skill_editor_log("log", f"[BrowserAutomation] Published passive step result to cloud")
-                        except Exception as pub_err:
-                            logger.error(f"[BrowserAutomation] Failed to publish passive step result: {pub_err}")
-                            send_skill_editor_log("warning", f"[BrowserAutomation] Failed to publish result to cloud: {pub_err}")
-
-                    # Return error if execute_actions failed
-                    if exec_error:
-                        return {"error": str(payload.get("error", str(exec_error)))}
-                    
-                    # Strip screenshot_base64 from browser dict before returning to langgraph state
-                    # to keep state history logs clean (no huge base64 blobs).
-                    if isinstance(payload.get("browser"), dict):
-                        payload["browser"].pop("screenshot_base64", None)
-
-                    logger.info(f"[PassiveMode] Browser automation node returning. Workflow should continue to loop condition check.")
-                    send_skill_editor_log("log", f"[PassiveMode] Browser automation complete. Loop should continue.")
-                    return {"passive": True, **payload}
+                    # Delegate to browser_node.runner.run_browser_passive_step.
+                    # Closure-captured helpers are passed explicitly via DI so
+                    # the helper has no hidden coupling to build_node.py.
+                    from agent.ec_skills.browser_node.runner import (
+                        run_browser_passive_step as _run_browser_passive_step,
+                    )
+                    return await _run_browser_passive_step(
+                        state,
+                        mainwin,
+                        get_browser_session=_get_or_create_browser_session,
+                        is_session_started=_is_session_started,
+                        last_known_focus_target_id=_last_known_focus_target_id,
+                        last_known_focus_target_ids=_last_known_focus_target_ids,
+                        browser_scope_key=_browser_scope_key,
+                        node_name=node_name,
+                        calling_agent_id=calling_agent_id,
+                        passive_agent_cache=_cached_passive_agents,
+                    )
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
                     logger.error(err_msg)
@@ -9027,463 +8462,59 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Import LLM creation utilities
             from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
             
-            # CLOUD AGENT MODE: Handle hybrid_cloud/full_cloud before checking for mainwin
-            # In cloud mode, we create LLM from node config + environment variables
+            # CLOUD AGENT MODE: hybrid_cloud / full_cloud.
+            # Delegate to browser_node.runner.run_cloud_agent.  The runner
+            # owns LLM resolution (proxy / node-specified / Settings default),
+            # transport setup, run_id resolution, and the CloudAgent run loop.
             if cloud_agent_enabled:
-                try:
-                    import uuid
-                    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent, make_default_cloud_transport_from_env
-                    from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
-                    
-                    logger.info(f"[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
-                    send_skill_editor_log("log", f"[BrowserAutomation] Starting cloud agent mode")
-                    
-                    # Create LLM: proxy > node-specified provider > default from Settings
-                    llm = None
+                from agent.ec_skills.browser_node.runner import (
+                    run_cloud_agent as _run_cloud_agent,
+                )
+                return await _run_cloud_agent(
+                    task,
+                    state,
+                    mainwin,
+                    calling_agent_id,
+                    skill_name=skill_name,
+                    node_name=node_name,
+                    owner=owner,
+                    use_vision=node_use_vision,
+                    use_thinking=node_use_thinking,
+                    use_judge=enable_judge_setting,
+                    llm_provider=node_llm_provider or "",
+                    llm_model_name=node_model_name or "",
+                    raw_inputs=inputs,
+                )
 
-                    # --- Lambda proxy shortcut (cloud agent) ---
-                    if _should_use_proxy(inputs):
-                        proxy_cfg = _get_proxy_config()
-                        if proxy_cfg:
-                            from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
-                            _proxy_provider = node_llm_provider or 'openai'
-                            _proxy_model = node_model_name or 'gpt-4o'
-                            llm = ChatLambdaProxy(
-                                model=_proxy_model,
-                                provider_name=_proxy_provider,
-                                user_id=proxy_cfg['user_id'],
-                                lambda_endpoint=proxy_cfg['endpoint'],
-                                auth_token=proxy_cfg['auth_token'],
-                            )
-                            logger.info(f"[BrowserAutomation] Using Lambda proxy (cloud): {_proxy_provider}/{_proxy_model}")
-                            send_skill_editor_log("log", f"[BrowserAutomation] LLM via Lambda proxy: {_proxy_provider}/{_proxy_model}")
-
-                    if llm is None and node_llm_provider:
-                        # Node specified provider - use it and ONLY it (no fallback allowed)
-                        provider_lower = node_llm_provider.lower()
-                        selected_model_name = node_model_name
-                        if not selected_model_name:
-                            try:
-                                from app_context import AppContext
-                                mainwin_cfg = AppContext.get_main_window()
-                                if mainwin_cfg and hasattr(mainwin_cfg, 'config_manager'):
-                                    provider_cfg = mainwin_cfg.config_manager.llm_manager.get_provider(node_llm_provider)
-                                    if provider_cfg:
-                                        selected_model_name = provider_cfg.get('default_model')
-                            except Exception:
-                                pass
-                        if not selected_model_name:
-                            raise RuntimeError(f"[BrowserAutomation] Node specified provider '{node_llm_provider}' but model_name is missing")
-                        
-                        # Get API key from environment variables
-                        api_key = None
-                        base_url = None
-                        
-                        if provider_lower == 'openai':
-                            api_key = os.environ.get('OPENAI_API_KEY', '').strip()
-                            base_url = os.environ.get('OPENAI_BASE_URL', '').strip() or None
-                        elif provider_lower == 'anthropic':
-                            api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
-                        elif provider_lower == 'deepseek':
-                            api_key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
-                            base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').strip()
-                        elif provider_lower in ('azure', 'azure_openai'):
-                            api_key = os.environ.get('AZURE_OPENAI_API_KEY', '').strip()
-                            base_url = os.environ.get('AZURE_OPENAI_ENDPOINT', '').strip() or None
-                        else:
-                            api_key = os.environ.get('LLM_API_KEY', '').strip()
-                        
-                        if not api_key and provider_lower not in ('ollama',):
-                            raise RuntimeError(f"[BrowserAutomation] Node specified provider '{node_llm_provider}' but no API key found in environment. Please set the required API key.")
-                        
-                        llm = create_browser_use_llm_by_provider_type(
-                            provider_type=provider_lower,
-                            model_name=selected_model_name,
-                            api_key=api_key,
-                            base_url=base_url,
-                            mainwin=None
-                        )
-                        
-                        if not llm:
-                            raise RuntimeError(f"[BrowserAutomation] Failed to create LLM for node-specified provider '{node_llm_provider}'")
-                        
-                        logger.info(f"[BrowserAutomation] Created LLM from node config: provider={node_llm_provider}, model={selected_model_name}")
-                        send_skill_editor_log("log", f"[BrowserAutomation] LLM created: {node_llm_provider}/{selected_model_name}")
-
-                    if llm is None:
-                        # Node did NOT specify provider and no proxy - use default from Settings
-                        from app_context import AppContext
-                        ctx = AppContext.get_instance()
-                        mainwin_ctx = ctx.get_main_window()
-                        
-                        if not mainwin_ctx or not hasattr(mainwin_ctx, 'config_manager'):
-                            raise RuntimeError("[BrowserAutomation] Cannot access Settings to get default LLM configuration")
-                        
-                        # Use unified method to get default LLM config
-                        llm_config = mainwin_ctx.config_manager.llm_manager.get_default_llm_config()
-                        provider_dict = llm_config['provider_dict']
-                        
-                        from agent.ec_skills.llm_utils.llm_utils import extract_provider_config
-                        provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
-                        
-                        if not api_key and provider_type not in ('ollama',):
-                            raise RuntimeError(f"[BrowserAutomation] No API key configured for default LLM provider '{llm_config['provider_id']}'")
-                        
-                        llm = create_browser_use_llm_by_provider_type(
-                            provider_type=provider_type,
-                            model_name=node_model_name or llm_config['model_name'],
-                            api_key=api_key,
-                            base_url=base_url,
-                            mainwin=None
-                        )
-                        
-                        if not llm:
-                            raise RuntimeError(f"[BrowserAutomation] Failed to create LLM instance for default provider '{llm_config['provider_id']}'")
-                        
-                        logger.info(f"[BrowserAutomation] Created LLM from Settings: {llm_config['provider_id']}, model: {llm_config['model_name']}")
-                        send_skill_editor_log("log", f"[BrowserAutomation] Using default LLM: {llm_config['provider_id']}")
-                    
-                    # Create transport for cloud communication
-                    # First, try to get the global transport registered by cloud worker
-                    transport = None
-                    try:
-                        from agent.cloud_worker.worker_main import get_global_passive_transport
-                        transport = get_global_passive_transport()
-                        if transport:
-                            logger.info(f"[BrowserAutomation] Using global CloudWorkerPassiveTransport from cloud worker")
-                            send_skill_editor_log("log", f"[BrowserAutomation] Using cloud worker passive transport")
-                        else:
-                            logger.warning("[BrowserAutomation] get_global_passive_transport() returned None — was set_global_passive_transport() called?")
-                            send_skill_editor_log("log", "[BrowserAutomation] ⚠️ Global passive transport is None, falling back to env-based transport")
-                    except ImportError as ie:
-                        logger.warning(f"[BrowserAutomation] Could not import get_global_passive_transport: {ie}")
-                    except Exception as ex:
-                        logger.warning(f"[BrowserAutomation] Error getting global transport: {ex}")
-                    
-                    # Fall back to creating transport from environment
-                    if not transport:
-                        transport = make_default_cloud_transport_from_env()
-                        logger.info(f"[BrowserAutomation] Created transport from environment")
-                    
-                    # Get run_id from state - MUST match the run_id used by PassiveStepResultListener
-                    # The listener is created with the session/chat_id as run_id, so we must use that
-                    run_id = None
-                    browser_use_run_id_explicit = None
-                    state_dev_mode = False
-                    try:
-                        if isinstance(state, dict):
-                            # First priority: explicit browser_use_run_id
-                            browser_use_run_id_explicit = state.get("browser_use_run_id")
-                            run_id = browser_use_run_id_explicit
-                            # Detect dev mode if present in state
-                            md = state.get("metadata")
-                            attrs = state.get("attributes")
-                            state_dev_mode = bool(
-                                state.get("dev_mode")
-                                or (md.get("dev_mode") if isinstance(md, dict) else False)
-                                or (attrs.get("dev_mode") if isinstance(attrs, dict) else False)
-                            )
-                            if not run_id:
-                                attrs = state.get("attributes", {})
-                                # Second priority: chat_id (session ID) - this matches PassiveStepResultListener
-                                run_id = attrs.get("chat_id")
-                            if not run_id:
-                                # Third priority: other run_id fields
-                                attrs = state.get("attributes", {})
-                                run_id = attrs.get("run_id") or attrs.get("passive_run_id")
-                            if not run_id:
-                                # Fourth priority: metadata.run_id (used by some runners)
-                                md = state.get("metadata", {})
-                                if isinstance(md, dict):
-                                    run_id = md.get("run_id") or md.get("passive_run_id")
-                    except Exception:
-                        run_id = None
-
-                    # Skill Editor / dev mode: local passive subscriber defaults to 0123456789
-                    # unless EC_BROWSER_PASSIVE_RUN_ID is explicitly set.
-                    try:
-                        from config.app_settings import app_settings
-                        dev_mode = bool(state_dev_mode or getattr(app_settings, "is_dev_mode", False))
-                    except Exception:
-                        dev_mode = bool(state_dev_mode)
-
-                    if dev_mode and not browser_use_run_id_explicit:
-                        dev_run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
-                        run_id = dev_run_id or "0123456789"
-
-                    if not isinstance(run_id, str) or not run_id.strip():
-                        run_id = (
-                            (os.environ.get("ECAN_RUN_ID") or "").strip()
-                            or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
-                        )
-                    
-                    if not isinstance(run_id, str) or not run_id.strip():
-                        run_id = uuid.uuid4().hex
-                    
-                    logger.debug(f"[BrowserAutomation] Cloud mode run_id={run_id}")
-                    
-                    # Get agent/skill/node IDs
-                    cloud_agent_id = None
-                    try:
-                        if isinstance(state, dict):
-                            attrs = state.get("attributes", {})
-                            cloud_agent_id = attrs.get("agent_id")
-                    except Exception:
-                        pass
-                    
-                    # Get acct_site_id: prefer mainwin.getAcctSiteID() for hybrid runs launched from local client
-                    # For cloud worker, get it from the transport's client_id
-                    acct_site_id = None
-                    if mainwin and hasattr(mainwin, 'getAcctSiteID'):
-                        try:
-                            acct_site_id = mainwin.getAcctSiteID()
-                        except Exception:
-                            pass
-                    if not acct_site_id and transport and hasattr(transport, 'client_id'):
-                        # Cloud worker case: transport has the client_id from passive_client_id
-                        acct_site_id = transport.client_id
-                    if not acct_site_id:
-                        acct_site_id = os.environ.get('EC_ACCT_SITE_ID', '').strip() or None
-                    
-                    # Build agent kwargs
-                    agent_kwargs = {
-                        'use_vision': node_use_vision,
-                        'use_thinking': node_use_thinking,
-                        'use_judge': enable_judge_setting,
-                    }
-                    if not node_use_thinking:
-                        agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                    
-                    controller = custom_controller
-                    
-                    # Build combined_task from prompts (same logic as non-cloud path)
-                    task_instructions = task_text or system_prompt_content or inline_system_prompt or "You are a helpful browser automation agent."
-                    combined_task = f"System Instructions:\n{task_instructions}"
-                    
-                    agent = CloudAgent(
-                        task=task,  # Use the task parameter passed to _run_browser_use
-                        llm=llm,
-                        controller=controller,
-                        transport=transport,
-                        run_id=run_id,
-                        acct_site_id=acct_site_id,
-                        agent_id=cloud_agent_id,
-                        skill_id=skill_name,
-                        node_id=node_name,
-                        **agent_kwargs,
-                    )
-
-                    try:
-                        setattr(agent, "_ecan_skill_name", skill_name)
-                        setattr(agent, "_ecan_node_id", node_name)
-                        setattr(agent, "_ecan_owner", owner)
-                    except Exception:
-                        pass
-                    
-                    # Register agent instance for extension tools
-                    from agent.ec_skills.browser_use_extension.extension_tools_service import set_current_agent
-                    set_current_agent(agent)
-
-                    # Log all tools the LLM will see in its system prompt
-                    all_tools_description = agent.tools.registry.get_prompt_description(page_url=None)
-                    logger.info(f"[Browser-Use] LLM sees {len(agent.tools.registry.actions)} total actions in system prompt")
-                    logger.debug(f"[Browser-Use] Full tool list for LLM:\n{all_tools_description}")
-
-                    logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
-                    send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
-                    
-                    history = await agent.run()
-                    # Log step budget usage
-                    try:
-                        _ag_st = getattr(agent, 'state', None)
-                        _ag_settings = getattr(agent, 'settings', None)
-                        _steps_used = getattr(_ag_st, 'n_steps', '?') if _ag_st else '?'
-                        _max_steps = getattr(_ag_settings, 'max_steps', '?') if _ag_settings else '?'
-                        _consec_fail = getattr(_ag_st, 'consecutive_failures', '?') if _ag_st else '?'
-                        _max_fail = getattr(_ag_settings, 'max_failures', '?') if _ag_settings else '?'
-                        _stopped = getattr(_ag_st, 'stopped', '?') if _ag_st else '?'
-                        _ao_is_done = agent.AgentOutput is getattr(agent, 'DoneAgentOutput', None) if hasattr(agent, 'AgentOutput') else '?'
-                        logger.info(
-                            f"[BrowserAutomation] CloudAgent run finished: "
-                            f"steps={_steps_used}/{_max_steps}, "
-                            f"failures={_consec_fail}/{_max_fail}, "
-                            f"stopped={_stopped}, "
-                            f"AgentOutput_clobbered={_ao_is_done}"
-                        )
-                    except Exception:
-                        pass
-                    final = history.final_result() if hasattr(history, 'final_result') else None
-                    _log_browser_use_result_summary(history, skill_name=skill_name, node_name=node_name)
-
-                    logger.info(f"[BrowserAutomation] CloudAgent completed")
-                    send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent completed")
-                    
-                    return {
-                        "cloud": True,
-                        "client_assisted_cloud": True,
-                        "mode": "client_assisted_cloud",
-                        "run_id": run_id,
-                        "final": final,
-                        "history": str(history),
-                    }
-                except Exception as e:
-                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
-                    logger.error(err_msg)
-                    send_skill_editor_log("error", err_msg)
-                    return {"error": str(err_msg)}
 
             # LOCAL EXECUTION MODES: Require mainwin
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
 
-            # Use node-specific LLM provider/model if configured, otherwise fall back to mainwin default
-            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
-
-            llm = None
-
-            # --- Lambda proxy shortcut (local) ---
-            if _should_use_proxy(inputs):
-                proxy_cfg = _get_proxy_config()
-                if proxy_cfg:
-                    from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
-                    _proxy_provider = node_llm_provider or 'openai'
-                    _proxy_model = node_model_name or 'gpt-4o'
-                    llm = ChatLambdaProxy(
-                        model=_proxy_model,
-                        provider_name=_proxy_provider,
-                        user_id=proxy_cfg['user_id'],
-                        lambda_endpoint=proxy_cfg['endpoint'],
-                        auth_token=proxy_cfg['auth_token'],
-                    )
-                    _masked_token = (proxy_cfg['auth_token'][:20] + '...') if len(proxy_cfg.get('auth_token', '')) > 20 else proxy_cfg.get('auth_token', '(empty)')
-                    logger.info(
-                        f"[BrowserAutomation] Using Lambda proxy (local): {_proxy_provider}/{_proxy_model}, "
-                        f"endpoint={proxy_cfg['endpoint']}, user={proxy_cfg['user_id']}, token={_masked_token}"
-                    )
-
-            if llm is None and node_llm_provider and node_model_name:
-                # Node editor has specific provider/model selected - use those (no fallback)
-                logger.info(f"[BrowserAutomation] Using node-specific LLM: provider={node_llm_provider}, model={node_model_name}")
-                
-                # Get API key and base_url from mainwin's config for this provider
-                try:
-                    from agent.ec_skills.llm_utils.llm_utils import extract_provider_config
-                    
-                    config_manager = mainwin.config_manager
-                    provider_dict = config_manager.llm_manager.get_provider(node_llm_provider)
-                    logger.info(f"[BrowserAutomation] get_provider('{node_llm_provider}') returned: {provider_dict is not None}")
-                    
-                    if provider_dict:
-                        logger.debug(f"[BrowserAutomation] provider_dict keys: {list(provider_dict.keys())}")
-                        
-                        # Use extract_provider_config to get configuration
-                        # Pass node_model_name to ensure node-specified model takes priority over global default
-                        config = extract_provider_config(provider_dict, config_manager=config_manager, node_model_name=node_model_name)
-                        logger.info(f"[BrowserAutomation] extract_provider_config returned: {config is not None}")
-                        logger.debug(f"[BrowserAutomation] config keys: {list(config.keys()) if config else 'None'}")
-                        
-                        # Get api_key and base_url from config
-                        # extract_provider_config already ensures these are not None
-                        api_key = config.get('api_key')
-                        base_url = config.get('base_url')
-                        
-                        logger.debug(f"[BrowserAutomation] api_key: {'***' if api_key else 'None'}, base_url: {base_url}")
-                        
-                        # Use standard provider_type from config (not display name)
-                        # This ensures we pass the correct provider ID (e.g., 'dashscope' not 'qwen (dashscope)')
-                        provider_type_id = config.get('provider_type')
-                        logger.debug(f"[BrowserAutomation] Using provider_type: {provider_type_id} (from config, not display name: {node_llm_provider})")
-                        
-                        # Use node-selected model, not the default from config
-                        llm = create_browser_use_llm_by_provider_type(
-                            provider_type=provider_type_id,
-                            model_name=node_model_name,
-                            api_key=api_key,
-                            base_url=base_url,
-                            mainwin=mainwin
-                        )
-                        
-                        if llm is None:
-                            # Don't fallback - raise error to surface the problem
-                            raise ValueError(
-                                f"Failed to create LLM with provider '{provider_type_id}' (display: {node_llm_provider}), "
-                                f"model '{node_model_name}'. Check API key and base_url configuration."
-                            )
-                        
-                        logger.info(f"[BrowserAutomation] ✅ Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
-                    else:
-                        error_msg = f"Provider '{node_llm_provider}' not found in config. Please check provider name in node settings."
-                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
-                        raise ValueError(error_msg)
-                except Exception as e:
-                    error_msg = (
-                        f"Failed to create LLM with node settings:\n"
-                        f"  Provider: {node_llm_provider}\n"
-                        f"  Model: {node_model_name}\n"
-                        f"  Error: {str(e)}\n\n"
-                        f"Please check:\n"
-                        f"  1. Provider name is correct in node settings\n"
-                        f"  2. Model name is correct and belongs to the provider\n"
-                        f"  3. API key is configured in Settings > LLM Management\n"
-                        f"  4. Base URL is correct (if using local/custom provider)"
-                    )
-                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
-                    raise ValueError(error_msg) from e
-
-            if llm is None:
-                # No node-specific settings and no proxy - use global default LLM
-                logger.info("[BrowserAutomation] No node-specific LLM settings, using global default LLM")
-                try:
-                    llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
-                    if llm:
-                        logger.info("[BrowserAutomation] ✅ Using global default LLM")
-                    else:
-                        error_msg = (
-                            "Failed to create LLM from global default settings.\n\n"
-                            "Please configure a default LLM in Settings > LLM Management:\n"
-                            "  1. Select a provider (OpenAI, DeepSeek, Qwen, etc.)\n"
-                            "  2. Enter API key\n"
-                            "  3. Set as default provider"
-                        )
-                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
-                        raise ValueError(error_msg)
-                except Exception as e:
-                    error_msg = (
-                        f"Failed to create LLM from global default settings:\n"
-                        f"  Error: {str(e)}\n\n"
-                        f"Please check Settings > LLM Management:\n"
-                        f"  1. Verify default provider is set\n"
-                        f"  2. Verify API key is configured\n"
-                        f"  3. Verify base URL is correct (if using local provider)"
-                    )
-                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
-                    raise ValueError(error_msg) from e
-            
-            # Final validation
-            if not llm:
-                error_msg = "LLM creation failed. This should not happen - please report this bug."
-                logger.error(f"[BrowserAutomation] ? {error_msg}")
-                raise ValueError(error_msg)
-
-            try:
-                setattr(llm, "_ec_token_context", {
-                    "skill_name": skill_name,
-                    "node_name": node_name,
-                    "source_id": f"{skill_name}::{node_name}",
-                    "source_name": f"{skill_name}::{node_name}",
-                    "task_id": (state.get("attributes") or {}).get("task_id") if isinstance(state, dict) else None,
-                    "run_id": state.get("run_id") if isinstance(state, dict) else None,
-                    "session_id": (
-                        state.get("session_id")
-                        or state.get("chat_id")
-                        or (state.get("attributes", {}) or {}).get("sessionId")
-                    ) if isinstance(state, dict) else None,
-                    "browser_scope_key": _browser_scope_key,
-                    "node_model_name": node_model_name,
-                    "node_llm_provider": node_llm_provider,
-                })
-            except Exception as _ctx_err:
-                logger.debug(f"[BrowserAutomation] Failed to attach token context to llm: {_ctx_err}")
+            # LLM resolution + token-context attach.  Delegates to
+            # browser_node.runner.{build_local_llm, attach_llm_token_context}.
+            # build_local_llm follows: lambda proxy → node-specified provider
+            # → global default-from-Settings, raising ``ValueError`` with an
+            # actionable message on any path failure.
+            from agent.ec_skills.browser_node.runner import (
+                build_local_llm as _build_local_llm,
+                attach_llm_token_context as _attach_token_ctx,
+            )
+            llm = _build_local_llm(
+                mainwin,
+                llm_provider=node_llm_provider,
+                llm_model_name=node_model_name,
+                raw_inputs=inputs,
+            )
+            _attach_token_ctx(
+                llm,
+                state,
+                skill_name=skill_name,
+                node_name=node_name,
+                llm_provider=node_llm_provider,
+                llm_model_name=node_model_name,
+                browser_scope_key=_browser_scope_key,
+            )
 
             controller = custom_controller
                         
@@ -9527,461 +8558,142 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             else:
                 logger.warning("[BrowserAutomation] ⚠️ No message_compaction in agent_kwargs - history may grow unbounded!")
             
-            # Check if extensions should be disabled (dev mode)
-            # In dev mode: default to disabled (avoid network timeout)
-            from config.app_settings import app_settings
-            disable_extensions = app_settings.is_dev_mode
-            
-            # Create browser profile with extensions control.
-            # Use persistent user_data_dir for all browser modes to preserve login state (cookies, sessions).
-            # This ensures users don't need to re-login every time they run a skill.
+            # Browser profile + persistent user_data_dir (preserves login state).
+            # build_browser_profile auto-assigns a user_data_dir under
+            # <user_data>/browser_profiles/<safe_id>/ if the node didn't set one,
+            # cleans stale Chromium lock files, and returns a ready-to-use profile.
+            from agent.ec_skills.browser_node.runner import (
+                build_browser_profile as _build_browser_profile,
+            )
             profile_settings = _get_browser_profile_settings(node_profile)
-            
-            # Auto-assign persistent user_data_dir if not explicitly configured
-            _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
-            if not _bp_user_data_dir:
-                from utils.user_path_helper import ensure_user_data_dir
-                import re as _re
-                _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
-                _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
-                _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
-                logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
-            
-            # Clean stale lock files before creating browser profile
-            # This prevents startup failures from previous abnormal exits
-            from agent.ec_skills.browser_use_extension.profile_lock_cleaner import ensure_profile_unlocked
-            ensure_profile_unlocked(_bp_user_data_dir, auto_clean=True)
-            
-            # Create browser profile with persistent storage for all modes
             keep_browser_alive = bool(_event_monitor_configs)
-            browser_profile = BrowserProfile(
-                enable_default_extensions=not disable_extensions,
-                user_data_dir=_bp_user_data_dir,
-                keep_alive=keep_browser_alive or None,
-                headless=node_headless if node_headless else None,
+            browser_profile = _build_browser_profile(
+                profile_settings=profile_settings,
+                node_profile=node_profile,
+                keep_alive=keep_browser_alive,
+                headless=node_headless,
             )
 
-            # ── Fingerprint / stealth browser ──
-            # If the selected browser profile has enableStealth=true, apply
-            # fingerprint fields (user_agent, viewport, locale, anti-detect
-            # args) to the BrowserProfile object.  The stealth JS injection
-            # happens later, after the CDP session connects.
-            _fp_profile: dict | None = None
-            try:
-                _bp_settings = profile_settings if profile_settings else {}
-                if _bp_settings.get("enableStealth"):
-                    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import (
-                        apply_profile_to_browser_profile,
-                        load_profile,
-                        get_random_profile,
-                        generate_random_profile,
-                    )
-                    # Build an fp profile dict from the profile settings fields
-                    _fp_profile = {
-                        "id": _bp_settings.get("id", "stealth"),
-                        "userAgent": _bp_settings.get("user_agent") or "",
-                        "viewport": (
-                            {"width": _bp_settings["viewport_width"], "height": _bp_settings["viewport_height"]}
-                            if _bp_settings.get("viewport_width") and _bp_settings.get("viewport_height")
-                            else None
-                        ),
-                        "deviceScaleFactor": _bp_settings.get("deviceScaleFactor"),
-                        "timezone": _bp_settings.get("timezone") or "",
-                        "locale": _bp_settings.get("locale") or "",
-                        "displayLanguage": _bp_settings.get("displayLanguage") or "",
-                        "platform": _bp_settings.get("platform") or "",
-                        "languages": _bp_settings.get("languages") or [],
-                        "canvasNoiseSeed": _bp_settings.get("canvasNoiseSeed") or "",
-                        "webgl": {
-                            "vendor": _bp_settings.get("webglVendor") or "",
-                            "renderer": _bp_settings.get("webglRenderer") or "",
-                        },
-                        "hardwareConcurrency": _bp_settings.get("hardwareConcurrency"),
-                        "deviceMemory": _bp_settings.get("deviceMemory"),
-                        "webrtcPolicy": _bp_settings.get("webrtcPolicy") or "block",
-                        "doNotTrack": _bp_settings.get("doNotTrack") or "",
-                        # Hardware noise toggles
-                        "noiseWebGLImage": _bp_settings.get("noiseWebGLImage", True),
-                        "noiseClientRects": _bp_settings.get("noiseClientRects", True),
-                        "noiseSpeechVoices": _bp_settings.get("noiseSpeechVoices", True),
-                        "noiseMediaDevices": _bp_settings.get("noiseMediaDevices", True),
-                        "fontProtection": _bp_settings.get("fontProtection", True),
-                        "customFonts": _bp_settings.get("customFonts") or [],
-                        "portScanProtection": _bp_settings.get("portScanProtection", True),
-                        "portScanAllowedPorts": _bp_settings.get("portScanAllowedPorts") or "80,443",
-                        # WebGPU & geolocation
-                        "webgpuMode": _bp_settings.get("webgpuMode") or "based_on_webgl",
-                        "geoLocationMode": _bp_settings.get("geoLocationMode") or "",
-                        "geolocation": _bp_settings.get("geolocation"),
-                        "hardwareAcceleration": _bp_settings.get("hardwareAcceleration") or "default",
-                        "proxy": _bp_settings.get("fingerprintProxy"),
-                    }
-                    # If key fields are empty, user wants a random/auto profile
-                    if not _fp_profile["userAgent"] and not _fp_profile["canvasNoiseSeed"]:
-                        # Use deterministic seed from agent+node for stable profile
-                        _fp_seed = f"{calling_agent_id or 'default'}:{node_name}"
-                        _fp_profile = get_random_profile(seed=_fp_seed)
-                        logger.info(
-                            f"[BrowserAutomation] Stealth: auto-generated fingerprint profile "
-                            f"(seed={_fp_seed}, id={_fp_profile.get('id')})"
-                        )
-                    else:
-                        logger.info(
-                            f"[BrowserAutomation] Stealth: using configured fingerprint profile "
-                            f"(id={_fp_profile.get('id')}, ua_len={len(_fp_profile.get('userAgent', ''))})"
-                        )
-                    apply_profile_to_browser_profile(browser_profile, _fp_profile)
-            except Exception as _fp_err:
-                logger.warning(f"[BrowserAutomation] Stealth profile setup failed (non-fatal): {_fp_err}")
-                _fp_profile = None
+            # Fingerprint / stealth browser — delegated to
+            # browser_node.runner.apply_stealth_fingerprint.  Returns the
+            # resolved fp profile (or None) so the later stealth-JS
+            # injection step (after CDP connects) can reuse it.
+            from agent.ec_skills.browser_node.runner import (
+                apply_stealth_fingerprint as _apply_stealth_fp,
+            )
+            _fp_profile = _apply_stealth_fp(
+                browser_profile,
+                profile_settings,
+                calling_agent_id=calling_agent_id,
+                node_name=node_name,
+            )
 
             if browser_type_setting == 'new chromium':
                 logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
             else:
                 logger.info("[BrowserAutomation] Using persistent profile for existing-browser/CDP mode")
-            logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
+            try:
+                from config.app_settings import app_settings as _bn_app_settings
+                _disable_ext = _bn_app_settings.is_dev_mode
+            except Exception:
+                _disable_ext = False
+            logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if _disable_ext else 'enabled (production mode)'}")
             if keep_browser_alive:
                 logger.info("[BrowserAutomation] Browser profile keep_alive enabled for event-monitored workflow")
            
             if browser_profile:
                 agent_kwargs['browser_profile'] = browser_profile
 
+            # Lifecycle callbacks: per-step progress + on-done event-monitor stop.
+            # Factories live in browser_node.runner; they close over the names
+            # they need (node_name for the step label, _agent_ref for the
+            # done-callback's session lookup).
             _agent_ref: dict[str, Any] = {}
+            from agent.ec_skills.browser_node.runner import (
+                make_browser_step_callback as _make_step_cb,
+                make_browser_done_callback as _make_done_cb,
+            )
             if _event_monitor_configs and event_monitor_done_policy == "stop":
-                async def _on_browser_done(_history):
-                    try:
-                        agent_obj = _agent_ref.get("agent")
-                        session_obj = getattr(agent_obj, "browser_session", None) if agent_obj else None
-                        if not session_obj:
-                            return
-                        from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
-                        capability = get_event_monitor_capability(session_obj, create=False)
-                        if capability:
-                            await capability.stop()
-                            logger.info("[BrowserAutomation] Stopped session event monitors on done()")
-                    except Exception as _done_monitor_err:
-                        logger.warning(f"[BrowserAutomation] Failed to stop monitors on done(): {_done_monitor_err}")
+                agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
+            agent_kwargs["register_new_step_callback"] = _make_step_cb(node_name)
 
-                agent_kwargs["register_done_callback"] = _on_browser_done
-
-            # Step progress callback: send intermediate update_run_stat so the
-            # skill editor shows real-time progress during long browser automation.
-            def _on_browser_step(browser_state_summary, model_output, step_number):
-                """Sync callback invoked after each browser-use step."""
-                try:
-                    from agent.cloud_worker.cloud_logger import is_cloud_mode
-                    if is_cloud_mode():
-                        return
-                    from gui.ipc.api import IPCAPI
-                    import time as _t
-                    ipc = IPCAPI.get_instance()
-                    # Build a concise step summary from model_output actions
-                    action_summary = ""
-                    try:
-                        actions = getattr(model_output, "action", None)
-                        if actions and isinstance(actions, list):
-                            names = [getattr(a, "name", "") or type(a).__name__ for a in actions[:3]]
-                            action_summary = ", ".join(n for n in names if n)
-                    except Exception:
-                        pass
-                    step_label = f"step {step_number}" + (f" ({action_summary})" if action_summary else "")
-                    send_skill_editor_log("log", f"[BrowserAutomation] 📍 {node_name}: {step_label}")
-                    ipc.update_run_stat(
-                        agent_task_id=run_id or "0123456789",
-                        current_node=node_name,
-                        status="running",
-                        langgraph_state={"_browser_step": step_number, "_browser_action": action_summary},
-                        timestamp=int(_t.time() * 1000),
-                    )
-                except Exception:
-                    pass
-
-            agent_kwargs["register_new_step_callback"] = _on_browser_step
-
-            # Populate available_file_paths so the agent can upload local images.
-            # Extract product_dir from state (set by init_params / analyze_product),
-            # then allowlist every image file in that directory.
+            # Populate available_file_paths so the agent can upload local
+            # images.  Delegates to browser_node.runner which scans state
+            # for a ``product_dir`` (init_params / analyze_product output)
+            # and returns absolute paths to every non-UUID image file.
             try:
-                _product_dir_for_files: str | None = None
-                if isinstance(state, dict):
-                    # 1. Direct from prompt_refs (fastest)
-                    _pr = state.get("prompt_refs") or {}
-                    _product_dir_for_files = _pr.get("product_dir") or None
-                    if not _product_dir_for_files:
-                        # 2. Scan tool_result entries (init_params / analyze_product output)
-                        _tr = state.get("tool_result") or {}
-                        for _node_out in _tr.values():
-                            if not isinstance(_node_out, dict):
-                                continue
-                            _pd = _node_out.get("product_dir")
-                            if _pd and isinstance(_pd, str):
-                                _product_dir_for_files = _pd
-                                break
-                            # Try parsing "final" / "content" as JSON
-                            for _fk in ("final", "content", "extracted_content"):
-                                _fv = _node_out.get(_fk)
-                                if not isinstance(_fv, str):
-                                    continue
-                                try:
-                                    import json as _json_afp
-                                    _parsed_afp = _json_afp.loads(_fv)
-                                    if isinstance(_parsed_afp, dict) and _parsed_afp.get("product_dir"):
-                                        _product_dir_for_files = str(_parsed_afp["product_dir"])
-                                        break
-                                except Exception:
-                                    pass
-                            if _product_dir_for_files:
-                                break
-
-                if _product_dir_for_files and os.path.isdir(_product_dir_for_files):
-                    _image_exts = {
-                        ".jpg", ".jpeg", ".png", ".webp",
-                        ".gif", ".bmp", ".tiff", ".tif",
-                        ".heic", ".heif",
-                    }
-                    import re as _re_uuid
-                    # UUID pattern: 8-4-4-4-12 hex chars with hyphens (e.g. from research downloads)
-                    _UUID_PAT = _re_uuid.compile(
-                        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.',
-                        _re_uuid.IGNORECASE,
-                    )
-                    _file_paths = [
-                        os.path.join(_product_dir_for_files, _fname)
-                        for _fname in os.listdir(_product_dir_for_files)
-                        if (
-                            os.path.splitext(_fname.lower())[1] in _image_exts
-                            and not _UUID_PAT.match(_fname)  # exclude research-downloaded UUID images
-                        )
-                    ]
-                    if _file_paths:
-                        agent_kwargs["available_file_paths"] = _file_paths
-                        logger.info(
-                            f"[BrowserAutomation] available_file_paths: "
-                            f"{len(_file_paths)} image(s) from {_product_dir_for_files}"
-                        )
-                    else:
-                        logger.debug(
-                            f"[BrowserAutomation] No image files found in product_dir={_product_dir_for_files}"
-                        )
-                else:
-                    logger.debug(
-                        f"[BrowserAutomation] product_dir not found in state; "
-                        f"skipping available_file_paths ({_product_dir_for_files!r})"
-                    )
+                from agent.ec_skills.browser_node.runner import (
+                    resolve_available_file_paths as _resolve_afp,
+                )
+                _file_paths = _resolve_afp(state)
+                if _file_paths:
+                    agent_kwargs["available_file_paths"] = _file_paths
             except Exception as _afp_err:
                 logger.warning(f"[BrowserAutomation] Failed to set available_file_paths: {_afp_err}")
 
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
 
-            # Apply extract patch based on max_input_tokens from agent config
-            # This ensures extract tool respects the model's context length and prevents token overflow
-            # The patch reserves ~24K tokens for system prompt, history, and overhead
-            if 'max_input_tokens' in agent_kwargs:
-                try:
-                    # In development mode, reload the module to ensure we use the latest code
-                    # This helps during development when the patch code is being modified
-                    import sys
-                    if 'agent.ec_skills.browser_use_extension.extract_patch' in sys.modules:
-                        import importlib
-                        extract_patch_module = sys.modules['agent.ec_skills.browser_use_extension.extract_patch']
-                        importlib.reload(extract_patch_module)
-                        logger.debug("[BrowserAutomation] 🔄 Reloaded extract_patch module (dev mode)")
-                    
-                    from agent.ec_skills.browser_use_extension.extract_patch import patch_extract_max_char_limit
-                    
-                    # Apply patch with current model's token capacity
-                    result = patch_extract_max_char_limit(agent_kwargs['max_input_tokens'])
-                    
-                    if result:
-                        logger.debug(
-                            f"[BrowserAutomation] ✅ Extract patch applied/verified "
-                            f"(max_input_tokens={agent_kwargs['max_input_tokens']:,})"
-                        )
-                    else:
-                        logger.warning("[BrowserAutomation] ⚠️ Extract patch returned False")
-                        
-                except Exception as e:
-                    logger.error(f"[BrowserAutomation] ❌ Failed to apply extract patch: {e}", exc_info=True)
+            # Apply extract-tool max_char_limit patch from max_input_tokens.
+            from agent.ec_skills.browser_node.runner import (
+                maybe_apply_extract_patch as _maybe_extract_patch,
+            )
+            _maybe_extract_patch(agent_kwargs)
 
 
-            # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
-            # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
-            try:
-                cloud_enabled = os.environ.get("EC_BROWSER_USE_CLOUD_LLM", "").strip().lower() in {"1", "true", "yes", "on"}
-            except Exception:
-                cloud_enabled = False
-
-            if cloud_enabled and use_privacy_agent:
-                try:
-                    cloud_endpoint = None
-                    try:
-                        cloud_endpoint = mainwin.getWanApiEndpoint()
-                    except Exception:
-                        cloud_endpoint = None
-
-                    cloud_agent_id = calling_agent_id or getattr(mainwin, 'current_agent_id', None)
-                    agent_kwargs.update(
-                        {
-                            "cloud_llm_enabled": True,
-                            "cloud_session": getattr(mainwin, "session", None),
-                            "cloud_token": mainwin.get_auth_token(),
-                            "cloud_endpoint": cloud_endpoint,
-                            "cloud_acct_site_id": mainwin.getAcctSiteID(),
-                            "cloud_agent_id": cloud_agent_id,
-                            "cloud_skill_id": skill_name,
-                            "cloud_node_id": node_name,
-                            "cloud_system_prompt_id": system_prompt_id,
-                            "cloud_user_prompt_id": user_prompt_id,
-                            "cloud_work_type": "browser_use_next_action",
-                        }
-                    )
-                    logger.info(f"[BrowserAutomation] Cloud LLM enabled for PrivacyAgent (agent_id={cloud_agent_id})")
-                except Exception as _cloud_kwargs_exc:
-                    logger.warning(f"[BrowserAutomation] Failed to configure cloud LLM mode: {_cloud_kwargs_exc}")
+            # Optional cloud LLM transport for PrivacyAgent (env-flag gated).
+            from agent.ec_skills.browser_node.runner import (
+                maybe_apply_cloud_llm_kwargs as _maybe_cloud_kwargs,
+            )
+            _maybe_cloud_kwargs(
+                agent_kwargs,
+                mainwin,
+                use_privacy_agent=use_privacy_agent,
+                calling_agent_id=calling_agent_id,
+                skill_name=skill_name,
+                node_name=node_name,
+                system_prompt_id=system_prompt_id,
+                user_prompt_id=user_prompt_id,
+            )
 
             # ── Hook system wiring (PR 6/7/10) ──────────────────────────
-            # Opt-in, strictly additive.  The PrivacyAgent gains three hook-
-            # related kwargs; each defaults to "off".  A node keeps its
-            # legacy behaviour unless the author sets at least one of:
-            #   * hookBundles   (JSON array)  → external bundle specs
-            #   * siteAdapter   (JSON object) → shared selector/policy data
-            # An environment variable ``EC_BROWSER_USE_HOOKS_ENABLED`` flips
-            # the built-in Tier-0 safety hooks on for every browser-automation
-            # node — use it for canarying; per-node override via a future
-            # "hooksEnabled" field can layer on top later.
+            # Opt-in, strictly additive.  Delegated to
+            # browser_node.runner.apply_hook_bundle_kwargs which parses
+            # ``hookBundles`` / ``siteAdapter`` from inputs, sets
+            # ``hooks_enabled`` per env-var or per-node opt-in, and turns
+            # privacy filtering off when the upgrade was hook-only.
             if use_privacy_agent:
-                try:
-                    _hook_bundles_raw = (inputs.get("hookBundles") or {}).get("content")
-                    _hook_bundles_parsed = None
-                    if isinstance(_hook_bundles_raw, str) and _hook_bundles_raw.strip():
-                        _hook_bundles_parsed = json.loads(_hook_bundles_raw)
-                    if _hook_bundles_parsed:
-                        if not isinstance(_hook_bundles_parsed, list):
-                            raise ValueError(
-                                f"hookBundles must be a JSON array, got "
-                                f"{type(_hook_bundles_parsed).__name__}"
-                            )
-                        agent_kwargs["hook_bundles"] = _hook_bundles_parsed
-                        logger.info(
-                            f"[BrowserAutomation] Hook bundles configured: "
-                            f"{len(_hook_bundles_parsed)} spec(s)"
-                        )
-                except Exception as _hb_err:
-                    logger.warning(
-                        f"[BrowserAutomation] Failed to parse hookBundles; "
-                        f"continuing without external hooks: {_hb_err}"
-                    )
-
-                try:
-                    _site_adapter_raw = (inputs.get("siteAdapter") or {}).get("content")
-                    _site_adapter_parsed = None
-                    if isinstance(_site_adapter_raw, str) and _site_adapter_raw.strip():
-                        _site_adapter_parsed = json.loads(_site_adapter_raw)
-                    if _site_adapter_parsed:
-                        if not isinstance(_site_adapter_parsed, dict):
-                            raise ValueError(
-                                f"siteAdapter must be a JSON object, got "
-                                f"{type(_site_adapter_parsed).__name__}"
-                            )
-                        agent_kwargs["site_adapter"] = _site_adapter_parsed
-                        logger.info(
-                            f"[BrowserAutomation] site_adapter configured "
-                            f"(name={_site_adapter_parsed.get('name')!r})"
-                        )
-                except Exception as _sa_err:
-                    logger.warning(
-                        f"[BrowserAutomation] Failed to parse siteAdapter; "
-                        f"continuing without it: {_sa_err}"
-                    )
-
-                # Canary flag for Tier-0 built-in hooks.  Intentionally
-                # env-driven so operators can flip it without editing the
-                # skill file.  When either the env var OR node has supplied
-                # hook_bundles / site_adapter, we assume the operator wants
-                # the built-in safety rails turned on.
-                _hooks_env_flag = os.environ.get(
-                    "EC_BROWSER_USE_HOOKS_ENABLED", ""
-                ).strip().lower() in {"1", "true", "yes", "on"}
-                _hooks_opted_in = bool(
-                    _hooks_env_flag
-                    or agent_kwargs.get("hook_bundles")
-                    or agent_kwargs.get("site_adapter")
+                from agent.ec_skills.browser_node.runner import (
+                    apply_hook_bundle_kwargs as _apply_hook_kwargs,
                 )
-                if _hooks_opted_in:
-                    agent_kwargs["hooks_enabled"] = True
-                    logger.info(
-                        f"[BrowserAutomation] PrivacyAgent hooks_enabled=True "
-                        f"(env={_hooks_env_flag}, bundles="
-                        f"{bool(agent_kwargs.get('hook_bundles'))}, "
-                        f"site_adapter={bool(agent_kwargs.get('site_adapter'))})"
-                    )
-
-                # If we auto-upgraded to PrivacyAgent solely for hook support
-                # (privacy_strategy='none'), keep privacy filtering OFF so the
-                # user's explicit setting is honoured.  The hook dispatcher
-                # works independently of the filter pipeline.
-                if privacy_strategy_setting == 'none':
-                    agent_kwargs["privacy_enabled"] = False
-                    logger.info(
-                        "[BrowserAutomation] privacy_enabled=False "
-                        "(hook-only PrivacyAgent upgrade)"
-                    )
+                _apply_hook_kwargs(
+                    agent_kwargs, inputs, privacy_strategy=privacy_strategy_setting
+                )
 
             # Browser session creation logic:
             # - "new chromium": browser-use creates its own browser (no BrowserManager needed)
             # - Other types: connect to existing browser via CDP (requires BrowserManager)
             
             if browser_type_setting == 'new chromium':
-                # Mode 1: Let browser-use create and manage its own Chromium browser
+                # Mode 1: Let browser-use create and manage its own Chromium browser.
+                # Acquire-or-reuse logic + AgentOutput snapshot + stealth JS
+                # injection delegated to browser_node.runner.
                 logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
                 _bu_scope_key = _resolve_browser_scope_key(state)
-                _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
-                # Invalidate the cache if:
-                #  (a) the agent class changed (BUAgent ↔ PrivacyAgent), OR
-                #  (b) this run wants hooks but the cached PrivacyAgent was
-                #      built before hook kwargs reached agent_kwargs.
-                _want_hooks = bool(agent_kwargs.get("hooks_enabled"))
-                _cached_has_hooks = bool(getattr(_cached_bu_agent, "hooks_enabled", False))
-                if _cached_bu_agent is not None and (
-                    type(_cached_bu_agent) is not AgentClass
-                    or (_want_hooks and not _cached_has_hooks)
-                ):
-                    logger.info(
-                        f"[BrowserAutomation] Evicting cached agent "
-                        f"(class={type(_cached_bu_agent).__name__}→{AgentClass.__name__}, "
-                        f"cached_hooks={_cached_has_hooks}, want_hooks={_want_hooks}, "
-                        f"scope={_bu_scope_key})"
-                    )
-                    _cached_bu_agents.pop(_bu_scope_key, None)
-                    _cached_bu_agent = None
-                if _cached_bu_agent is not None:
-                    _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
-                    agent = _cached_bu_agent
-                    logger.info(f"[BrowserAutomation] Reusing cached browser-use agent (scope={_bu_scope_key}, mode={loop_history_mode})")
-                else:
-                    agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
-                    if hasattr(agent, 'AgentOutput'):
-                        agent._ecan_full_AgentOutput = agent.AgentOutput
-                    _cached_bu_agents[_bu_scope_key] = agent
-                    logger.info(f"[BrowserAutomation] Created new browser-use agent and cached (scope={_bu_scope_key})")
-
-                    # Stealth JS injection for new-chromium mode.
-                    # Pre-start the session so CDP is connected, inject stealth JS,
-                    # then agent.run() will call start() again (idempotent, safe no-op).
-                    if _fp_profile and hasattr(agent, "browser_session") and agent.browser_session:
-                        try:
-                            await agent.browser_session.start()
-                            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import inject_stealth
-                            _stealth_ok = await inject_stealth(agent.browser_session, _fp_profile)
-                            if _stealth_ok:
-                                logger.info(
-                                    f"[BrowserAutomation] Stealth JS injected into new-chromium session "
-                                    f"(profile={_fp_profile.get('id', '?')})"
-                                )
-                        except Exception as _stealth_err:
-                            logger.warning(f"[BrowserAutomation] Stealth JS injection failed (non-fatal): {_stealth_err}")
-
+                from agent.ec_skills.browser_node.runner import (
+                    acquire_or_reuse_local_agent as _acquire_agent,
+                )
+                agent = await _acquire_agent(
+                    AgentClass=AgentClass,
+                    task=task,
+                    llm=llm,
+                    controller=controller,
+                    agent_kwargs=agent_kwargs,
+                    bu_scope_key=_bu_scope_key,
+                    cached_bu_agents=_cached_bu_agents,
+                    loop_history_mode=loop_history_mode,
+                    fp_profile=_fp_profile,
+                )
                 _agent_ref["agent"] = agent
 
             else:
@@ -9997,189 +8709,40 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(log_msg)
                     send_skill_editor_log("log", log_msg)
 
-                    # IMPORTANT: browser-use decides whether to reset/kill the session
-                    # on agent.close() from browser_session.browser_profile.keep_alive,
-                    # not from the separate BrowserProfile object we built above.
-                    # For event-monitored loop workflows, propagate keep_alive onto the
-                    # actual reused session so monitors survive done() -> pend_event.
+                    # CDP session start: keep_alive + lifecycle-debug
+                    # patches + start() + stealth-JS injection.  See helper
+                    # docstring.
+                    from agent.ec_skills.browser_node.runner import (
+                        start_cdp_session_with_stealth as _start_cdp_session,
+                    )
+                    await _start_cdp_session(
+                        browser_session,
+                        keep_browser_alive=keep_browser_alive,
+                        fp_profile=_fp_profile,
+                        is_session_started=_is_session_started,
+                        patch_lifecycle_debug=_patch_browser_session_lifecycle_debug,
+                    )
+
+                    # CDP focus preflight — re-bind agent focus to a valid page
+                    # target.  Delegated to browser_node.runner; returns the
+                    # chosen target_focus and the new last-known focus id.
+                    # Exceptions propagate (the caller treats them as fatal —
+                    # except the inner "no tabs" RuntimeError, which is fatal
+                    # by design).
                     try:
-                        if hasattr(browser_session, "browser_profile") and browser_session.browser_profile:
-                            browser_session.browser_profile.keep_alive = bool(keep_browser_alive)
-                            logger.info(
-                                f"[BrowserAutomation] Applied keep_alive={bool(keep_browser_alive)} "
-                                f"to reused browser session profile"
-                            )
-                    except Exception as _keep_alive_err:
-                        logger.warning(
-                            f"[BrowserAutomation] Failed to apply keep_alive to reused browser session: "
-                            f"{_keep_alive_err}"
+                        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent  # noqa: F401
+                        from agent.ec_skills.browser_node.runner import (
+                            run_cdp_focus_preflight as _run_focus_preflight,
                         )
-                    if keep_browser_alive:
-                        _patch_browser_session_lifecycle_debug(browser_session, source="pre_start")
-                    
-                    # Start the browser session
-                    if not _is_session_started(browser_session):
-                        # Parallel branches have distinct session objects; no shared lock
-                        # needed (a global asyncio.Lock would serialize fan-out branches).
-                        _start_task = asyncio.create_task(browser_session.start())
-                        await _start_task
-                    if keep_browser_alive:
-                        _patch_browser_session_lifecycle_debug(browser_session, source="post_start")
-
-                    # Stealth JS injection for existing-browser/CDP mode.
-                    # CDP is connected after session.start(), so we can inject now.
-                    if _fp_profile:
-                        try:
-                            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import inject_stealth
-                            _stealth_ok = await inject_stealth(browser_session, _fp_profile)
-                            if _stealth_ok:
-                                logger.info(
-                                    f"[BrowserAutomation] Stealth JS injected into existing-browser session "
-                                    f"(profile={_fp_profile.get('id', '?')})"
-                                )
-                        except Exception as _stealth_err:
-                            logger.warning(f"[BrowserAutomation] Stealth JS injection failed (non-fatal): {_stealth_err}")
-
-                    # Focus/session preflight for CDP mode:
-                    # If agent_focus_target_id is missing/invalid (common after target detach),
-                    # re-bind to a valid page target before running browser-use Agent.
-                    try:
-                        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
-
+                        target_focus, _last_known_focus_target_id = await _run_focus_preflight(
+                            browser_session,
+                            last_known_focus_target_id=_last_known_focus_target_id,
+                            assignment_tab_id=assignment_tab_id,
+                            assignment_chat_url=assignment_chat_url,
+                            skill_name=skill_name,
+                            node_name=node_name,
+                        )
                         sm = getattr(browser_session, 'session_manager', None)
-                        all_targets = sm.get_all_targets() if sm else {}
-                        page_target_ids = [
-                            tid for tid, t in (all_targets or {}).items()
-                            if getattr(t, 'target_type', '') in ('page', 'tab')
-                        ]
-
-                        cur_focus = getattr(browser_session, 'agent_focus_target_id', None)
-                        valid_cur_focus = cur_focus in page_target_ids if cur_focus else False
-                        valid_last_focus = _last_known_focus_target_id in page_target_ids if _last_known_focus_target_id else False
-
-                        # Entry-log: record the state we're about to act on so that if
-                        # the preflight hangs or fails we can tell which branch we took
-                        # and which targets were available.
-                        try:
-                            logger.info(
-                                f"[BrowserAutomation] Focus preflight entry: "
-                                f"target_count={len(page_target_ids)}, "
-                                f"cur_focus_valid={valid_cur_focus}, "
-                                f"last_focus_valid={valid_last_focus}, "
-                                f"assignment_tab_id={(assignment_tab_id or '')[-6:] or 'none'}, "
-                                f"skill={skill_name}, node={node_name}"
-                            )
-                        except Exception:
-                            pass
-
-                        def _resolve_target_id_for_assignment(
-                            preferred_tab_id: str,
-                            preferred_chat_url: str,
-                        ) -> str | None:
-                            preferred_tab_id = str(preferred_tab_id or "").strip()
-                            preferred_chat_url = str(preferred_chat_url or "").strip()
-                            if not all_targets:
-                                return None
-
-                            if preferred_tab_id:
-                                if preferred_tab_id in page_target_ids:
-                                    return preferred_tab_id
-                                preferred_upper = preferred_tab_id.upper()
-                                for tid in page_target_ids:
-                                    if str(tid or "").upper().endswith(preferred_upper):
-                                        return str(tid)
-
-                            if preferred_chat_url:
-                                preferred_norm = preferred_chat_url.rstrip("/")
-                                for tid, target in (all_targets or {}).items():
-                                    if getattr(target, 'target_type', '') not in ('page', 'tab'):
-                                        continue
-                                    target_url = str(getattr(target, 'url', '') or '').strip().rstrip("/")
-                                    if target_url and target_url == preferred_norm:
-                                        return str(tid)
-                            return None
-
-                        target_focus = None
-                        assignment_target_focus = None
-                        try:
-                            assignment_target_focus = _resolve_target_id_for_assignment(
-                                assignment_tab_id,
-                                assignment_chat_url,
-                            )
-                        except Exception:
-                            assignment_target_focus = None
-
-                        if assignment_target_focus:
-                            target_focus = assignment_target_focus
-                        elif valid_cur_focus:
-                            target_focus = cur_focus
-                        elif valid_last_focus:
-                            target_focus = _last_known_focus_target_id
-                        elif page_target_ids:
-                            target_focus = page_target_ids[0]
-
-                        if not page_target_ids:
-                            error_msg = (
-                                "[BrowserAutomation] Focus preflight failed: no browser tabs available. "
-                                "All tabs have been closed. Please open at least one tab before running the agent."
-                            )
-                            logger.error(error_msg)
-                            send_skill_editor_log("error", error_msg)
-                            raise RuntimeError(error_msg)
-
-                        if target_focus:
-                            if cur_focus != target_focus:
-                                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_focus))
-                                logger.info(
-                                    f"[BrowserAutomation] Focus preflight switched target: "
-                                    f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
-                                )
-                            _last_known_focus_target_id = target_focus
-                            # Defensive preflight: get_browser_state_summary has been
-                            # observed to hang indefinitely (no internal timeout),
-                            # causing the whole browser_automation run to die. Wrap
-                            # with wait_for(3s) + one retry; on final failure log the
-                            # target state and SKIP — the next get_browser_state_summary
-                            # below will refresh the cache anyway.
-                            _preflight_ok = False
-                            for _preflight_attempt in range(2):
-                                try:
-                                    await asyncio.wait_for(
-                                        browser_session.get_browser_state_summary(include_screenshot=False),
-                                        timeout=3.0,
-                                    )
-                                    _preflight_ok = True
-                                    break
-                                except asyncio.TimeoutError:
-                                    logger.warning(
-                                        f"[BrowserAutomation] Focus preflight state-summary TIMEOUT "
-                                        f"after 3s (attempt {_preflight_attempt + 1}/2), "
-                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
-                                        f"target_count={len(page_target_ids)}, "
-                                        f"skill={skill_name}, node={node_name}"
-                                    )
-                                except Exception as _pf_inner_err:
-                                    logger.warning(
-                                        f"[BrowserAutomation] Focus preflight state-summary error "
-                                        f"(attempt {_preflight_attempt + 1}/2): {_pf_inner_err}"
-                                    )
-                            if not _preflight_ok:
-                                try:
-                                    _pf_cdp = getattr(browser_session, 'cdp_url', '') or ''
-                                    _pf_target = sm.get_target(target_focus) if sm else None
-                                    _pf_url = getattr(_pf_target, 'url', '') if _pf_target else ''
-                                    logger.warning(
-                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
-                                        f"refresh after 2 failed attempts. Proceeding with run. "
-                                        f"target=...{target_focus[-4:] if target_focus else 'None'}, "
-                                        f"url={_pf_url}, cdp={_pf_cdp}, "
-                                        f"skill={skill_name}, node={node_name}"
-                                    )
-                                except Exception:
-                                    logger.warning(
-                                        f"[BrowserAutomation] Focus preflight: SKIPPING state-summary "
-                                        f"refresh after 2 failed attempts (state snapshot unavailable)"
-                                    )
                     except Exception as _focus_exc:
                         logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
                         raise
@@ -10190,133 +8753,49 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if target_focus:
                         await browser_session.get_browser_state_summary(include_screenshot=False)
 
-                    # Assignment URL navigation: if the node's `assignment` config
-                    # names a URL-bearing field (default "chat_url") and that
-                    # scope field is present, ensure the focused tab is loaded
-                    # there before the LLM runs.  When this path is used, skip
-                    # the generic _extract_preferred_start_url fallback — the two
-                    # are alternative ways to anchor the starting URL.
-                    _tab_already_at_correct_url = False
-                    _asg_nav_field = "chat_url"
-                    if isinstance(_asg_cfg, dict) and _asg_cfg.get("enabled", True):
-                        _asg_nav_field = str(_asg_cfg.get("navigate_field") or "chat_url").strip() or "chat_url"
-                    _asg_nav_url_map = {
-                        "chat_url": assignment_chat_url,
-                        "session_id": assignment_session_id,
-                        "tab_id": assignment_tab_id,
-                        "customer_name": assignment_customer_name,
-                    }
-                    _asg_nav_url = str(_asg_nav_url_map.get(_asg_nav_field) or "").strip()
-                    _assignment_nav_used = False
-                    if _asg_nav_url and target_focus:
-                        latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
-                        focused_target = sm.get_target(latest_focus) if (sm and latest_focus) else None
-                        focused_url = str(getattr(focused_target, 'url', '') or '').strip()
-                        if focused_url.rstrip("/") != _asg_nav_url.rstrip("/"):
-                            await browser_session.event_bus.dispatch(
-                                NavigateToUrlEvent(url=_asg_nav_url, new_tab=False)
-                            )
-                            logger.info(
-                                f"[BrowserAutomation] Focus preflight navigated to assignment "
-                                f"{_asg_nav_field}: {_asg_nav_url}"
-                            )
-                            await asyncio.sleep(1.0)
-                            await browser_session.get_browser_state_summary(include_screenshot=False)
-                        else:
-                            logger.info(
-                                f"[BrowserAutomation] Focus preflight: tab already at assignment "
-                                f"{_asg_nav_field}, no navigation needed: {_asg_nav_url}"
-                            )
-                            _tab_already_at_correct_url = True
-                        _assignment_nav_used = True
-
-                    # Generic preferred_start_url fallback — only runs when no
-                    # assignment URL was consumed above.
-                    preferred_start_url = (
-                        None if _assignment_nav_used else _extract_preferred_start_url(task, state)
+                    # Pre-run navigation: anchor focused tab at the assignment
+                    # URL or a control-page preferred-start-URL.  Two strategies
+                    # (see helper docstring); returns whether the tab was
+                    # already at the correct URL (used below to suppress
+                    # browser-use's auto-navigate-from-task-URL).
+                    from agent.ec_skills.browser_node.runner import (
+                        run_pre_run_navigation as _run_prenav,
                     )
-                    if preferred_start_url and sm:
-                        latest_focus = getattr(browser_session, 'agent_focus_target_id', None)
-                        all_targets = sm.get_all_targets() if sm else {}
-                        preferred_target_id = None
-                        current_target = sm.get_target(latest_focus) if latest_focus else None
-                        current_url = getattr(current_target, 'url', '') if current_target else ''
+                    _tab_already_at_correct_url, _last_known_focus_target_id = await _run_prenav(
+                        browser_session,
+                        target_focus=target_focus,
+                        asg_cfg=_asg_cfg,
+                        assignment_chat_url=assignment_chat_url,
+                        assignment_session_id=assignment_session_id,
+                        assignment_tab_id=assignment_tab_id,
+                        assignment_customer_name=assignment_customer_name,
+                        task=task,
+                        state=state,
+                        last_known_focus_target_id=_last_known_focus_target_id,
+                    )
 
-                        for tid, target in (all_targets or {}).items():
-                            if getattr(target, 'target_type', '') not in ('page', 'tab'):
-                                continue
-                            target_url = getattr(target, 'url', '') or ''
-                            if _is_matching_control_url(target_url, preferred_start_url):
-                                preferred_target_id = tid
-                                break
-
-                        if preferred_target_id and preferred_target_id != latest_focus:
-                            await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=preferred_target_id))
-                            _last_known_focus_target_id = preferred_target_id
-                            logger.info(
-                                f"[BrowserAutomation] Switched to preferred control tab: "
-                                f"...{preferred_target_id[-4:]} url={preferred_start_url}"
-                            )
-                            await browser_session.get_browser_state_summary(include_screenshot=False)
-                        elif not _is_matching_control_url(current_url, preferred_start_url):
-                            await browser_session.event_bus.dispatch(
-                                NavigateToUrlEvent(url=preferred_start_url, new_tab=False)
-                            )
-                            logger.info(
-                                f"[BrowserAutomation] Pre-navigated focused tab to preferred startup URL: "
-                                f"{preferred_start_url}"
-                            )
-                            await asyncio.sleep(0.8)
-                            await browser_session.get_browser_state_summary(include_screenshot=False)
-
-                    # Reuse cached browser-use sub-agent if available (avoids per-cycle
-                    # re-init overhead and the ~860 MB allocation spike).
+                    # Acquire-or-reuse cached browser-use agent (CDP path).
+                    # Same helper as new-chromium mode; with browser_session
+                    # passed it: (a) injects browser_session into the
+                    # constructor, (b) re-binds the session onto the cached
+                    # agent on a hit, (c) skips stealth JS injection (already
+                    # done after CDP connect).
                     _bu_scope_key = _resolve_browser_scope_key(state)
-                    _cached_bu_agent = _cached_bu_agents.get(_bu_scope_key)
-                    # Invalidate the cache if:
-                    #  (a) the agent class changed between runs (BUAgent ↔
-                    #      PrivacyAgent), OR
-                    #  (b) this run wants hooks enabled but the cached agent
-                    #      was built before hook kwargs reached agent_kwargs
-                    #      (stale pre-wiring instance).
-                    _want_hooks = bool(agent_kwargs.get("hooks_enabled"))
-                    _cached_has_hooks = bool(getattr(_cached_bu_agent, "hooks_enabled", False))
-                    if _cached_bu_agent is not None and (
-                        type(_cached_bu_agent) is not AgentClass
-                        or (_want_hooks and not _cached_has_hooks)
-                    ):
-                        logger.info(
-                            f"[BrowserAutomation] Evicting cached agent "
-                            f"(class={type(_cached_bu_agent).__name__}→{AgentClass.__name__}, "
-                            f"cached_hooks={_cached_has_hooks}, want_hooks={_want_hooks}, "
-                            f"scope={_bu_scope_key})"
-                        )
-                        _cached_bu_agents.pop(_bu_scope_key, None)
-                        _cached_bu_agent = None
-                    if _cached_bu_agent is not None:
-                        _reset_bu_agent_for_next_round(_cached_bu_agent, loop_history_mode, task)
-                        # Re-bind the session in case it was recreated by the preflight above.
-                        try:
-                            _cached_bu_agent.browser_session = browser_session
-                        except Exception:
-                            pass
-                        agent = _cached_bu_agent
-                        logger.info(
-                            f"[BrowserAutomation] Reusing cached browser-use agent "
-                            f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
-                        )
-                    else:
-                        # First iteration for this task — create a new agent and cache it.
-                        agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
-                        # Save the full AgentOutput so _reset_bu_agent_for_next_round
-                        # can restore it after browser-use clobbers it on max_steps/failures.
-                        if hasattr(agent, 'AgentOutput'):
-                            agent._ecan_full_AgentOutput = agent.AgentOutput
-                        _cached_bu_agents[_bu_scope_key] = agent
-                        logger.info(
-                            f"[BrowserAutomation] Created new browser-use agent and cached "
-                            f"(scope={_bu_scope_key}, loop_history_mode={loop_history_mode})"
-                        )
+                    from agent.ec_skills.browser_node.runner import (
+                        acquire_or_reuse_local_agent as _acquire_agent,
+                    )
+                    agent = await _acquire_agent(
+                        AgentClass=AgentClass,
+                        task=task,
+                        llm=llm,
+                        controller=controller,
+                        agent_kwargs=agent_kwargs,
+                        bu_scope_key=_bu_scope_key,
+                        cached_bu_agents=_cached_bu_agents,
+                        loop_history_mode=loop_history_mode,
+                        fp_profile=None,
+                        browser_session=browser_session,
+                    )
                     _agent_ref["agent"] = agent
 
                     # Suppress browser-use's auto-navigate-from-task-URL feature when the
@@ -10353,203 +8832,75 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # the per-step refocus would have nothing to refocus to.
             _last_known_focus_target_id = _last_known_focus_target_id or _last_known_focus_target_ids.get(_browser_scope_key)
 
-            try:
-                # Defensive second application after agent construction. Some agent
-                # constructors may replace/wrap the session reference.
-                _agent_session = getattr(agent, "browser_session", None)
-                logger.info(
-                    f"[BrowserAutomation][LifecycleDebug] Agent/browser session identity: "
-                    f"agent_session_obj={id(_agent_session) if _agent_session else 'none'} "
-                    f"cached_obj={id(_cached_browser_session) if _cached_browser_session else 'none'} "
-                    f"same_as_cached={_agent_session is _cached_browser_session} scope={_browser_scope_key}"
+            # Defensive post-construction cache update + keep_alive
+            # re-application.  See helper docstring.
+            from agent.ec_skills.browser_node.runner import (
+                update_browser_session_cache as _update_session_cache,
+            )
+            _update_session_cache(
+                agent,
+                browser_scope_key=_browser_scope_key,
+                cached_browser_sessions=_cached_browser_sessions,
+                cached_browser_session=_cached_browser_session,
+                last_known_focus_target_ids=_last_known_focus_target_ids,
+                cached_passive_agents=_cached_passive_agents,
+                keep_browser_alive=keep_browser_alive,
+                max_cache_size=_MAX_BROWSER_CACHE_SIZE,
+                patch_lifecycle_debug=_patch_browser_session_lifecycle_debug,
+            )
+            # Register the live agent + runtime context with extension_tools_service
+            # so @-extension tools called from sub-skills can find the agent.
+            from agent.ec_skills.browser_node.runner import (
+                register_agent_for_extension_tools as _register_agent,
+            )
+            _register_agent(
+                agent,
+                state=state,
+                calling_agent_id=calling_agent_id,
+                skill_name=skill_name,
+                node_name=node_name,
+                owner=owner,
+            )
+
+            # Monkey-patch agent.eventbus.stop + agent.close to preserve the
+            # browser session across the agent.run() boundary when this run
+            # has long-lived event monitors that need to outlive the agent.
+            if keep_browser_alive and _event_monitor_configs:
+                from agent.ec_skills.browser_node.runner import (
+                    patch_agent_for_monitored_keep_alive as _patch_keep_alive,
                 )
-                if _agent_session and _agent_session is not _cached_browser_session:
-                    # Evict oldest entries if cache exceeds max size
-                    if len(_cached_browser_sessions) >= _MAX_BROWSER_CACHE_SIZE:
-                        evicted = 0
-                        for _key in list(_cached_browser_sessions.keys()):
-                            if _key == _browser_scope_key:
-                                continue
-                            if not _key.startswith("chat:"):
-                                _old_sess = _cached_browser_sessions.pop(_key, None)
-                                _last_known_focus_target_ids.pop(_key, None)
-                                if _old_sess is not None:
-                                    _cached_passive_agents.pop(id(_old_sess), None)
-                                evicted += 1
-                                if evicted >= 2:
-                                    break
-                    _cached_browser_sessions[_browser_scope_key] = _agent_session
-                    try:
-                        setattr(_agent_session, "_ecan_browser_scope_key", _browser_scope_key)
-                    except Exception:
-                        pass
-                    logger.info(
-                        f"[BrowserAutomation] Updated scoped cache from live agent session "
-                        f"for scope={_browser_scope_key}"
-                    )
-                if _agent_session and hasattr(_agent_session, "browser_profile") and _agent_session.browser_profile:
-                    _agent_session.browser_profile.keep_alive = bool(keep_browser_alive)
-                    logger.info(
-                        f"[BrowserAutomation] Agent session keep_alive="
-                        f"{_agent_session.browser_profile.keep_alive}"
-                    )
-                if keep_browser_alive:
-                    _patch_browser_session_lifecycle_debug(_agent_session, source="post_agent_create")
-            except Exception as _agent_keep_alive_err:
-                logger.warning(
-                    f"[BrowserAutomation] Failed to apply keep_alive on agent session: "
-                    f"{_agent_keep_alive_err}"
-                )
-            try:
-                from agent.ec_skills.browser_use_extension.extension_tools_service import (
-                    set_current_agent,
-                    set_current_runtime_context,
-                )
-                set_current_agent(agent)
-                set_current_runtime_context(
-                    agent_id=calling_agent_id or "",
-                    task_id=(state.get("attributes") or {}).get("task_id", "") if isinstance(state, dict) else "",
-                    skill_name=skill_name,
-                    node_id=node_name,
-                    owner=owner,
-                )
-            except Exception as _set_agent_err:
-                logger.debug(f"[BrowserAutomation] Failed to register current agent for extension tools: {_set_agent_err}")
+                _patch_keep_alive(agent)
 
-            # browser-use always calls agent.close() at the end of run(). Even for
-            # keep_alive=True it stops the browser_session event bus, which tears
-            # down the CDP/session plumbing our long-lived event monitors depend on.
-            # For monitor-driven loop workflows, preserve the browser session fully.
-            if keep_browser_alive and _event_monitor_configs and hasattr(agent, "close"):
-                try:
-                    _agent_eventbus = getattr(agent, "eventbus", None)
-                    if _agent_eventbus and hasattr(_agent_eventbus, "stop") and not getattr(_agent_eventbus, "_ecan_preserve_patched", False):
-                        _orig_agent_eventbus_stop = _agent_eventbus.stop
+            # Auto-start event monitors on the agent's browser session
+            # (Phase 1: HTTP polling).  Configs are deep-copied to prevent
+            # cross-task mutation of shared closure state.
+            from agent.ec_skills.browser_node.runner import (
+                start_event_monitors_for_agent as _start_monitors,
+            )
+            _active_monitor_set = await _start_monitors(
+                agent,
+                event_monitor_configs=_event_monitor_configs,
+                calling_agent_id=calling_agent_id,
+                skill_name=skill_name,
+                browser_scope_key=_browser_scope_key,
+            )
 
-                        async def _preserve_agent_eventbus_stop(*a, **kw):
-                            logger.info(
-                                f"[BrowserAutomation] Preserving agent event bus on monitored keep_alive run end: "
-                                f"args={a}, kwargs={kw}"
-                            )
-                            return None
-
-                        _agent_eventbus.stop = _preserve_agent_eventbus_stop
-                        setattr(_agent_eventbus, "_ecan_preserve_patched", True)
-                        setattr(_agent_eventbus, "_ecan_orig_stop", _orig_agent_eventbus_stop)
-                        logger.info("[BrowserAutomation] Patched agent.eventbus.stop to preserve monitored keep_alive session")
-                except Exception as _eventbus_patch_err:
-                    logger.warning(
-                        f"[BrowserAutomation] Failed to patch agent eventbus stop for monitored keep_alive session: "
-                        f"{_eventbus_patch_err}"
-                    )
-
-                _orig_agent_close = agent.close
-
-                async def _close_preserving_monitored_session():
-                    try:
-                        _bs = getattr(agent, "browser_session", None)
-                        _has_active_monitor_set = False
-                        try:
-                            from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
-
-                            _cap = get_event_monitor_capability(_bs, create=False) if _bs else None
-                            _active = _cap.get_active_monitor_set() if _cap else None
-                            _has_active_monitor_set = bool(_active and getattr(_active, "monitors", None))
-                        except Exception:
-                            _has_active_monitor_set = False
-
-                        if _bs and _has_active_monitor_set:
-                            logger.info(
-                                "[BrowserAutomation] Preserving monitored keep_alive browser session on agent.close()"
-                            )
-                            # Preserve aggressively: do not let browser-use tear down
-                            # any more process/session state at the run boundary.
-                            return
-                    except Exception as _preserve_close_err:
-                        logger.warning(
-                            f"[BrowserAutomation] Preserved close path failed, falling back to original close: "
-                            f"{_preserve_close_err}"
-                        )
-                    await _orig_agent_close()
-
-                agent.close = _close_preserving_monitored_session
-                logger.info("[BrowserAutomation] Patched agent.close to preserve monitored keep_alive session")
-
-            # Auto-start event monitors on the browser session (Phase 1: HTTP polling)
-            _active_monitor_set = None
-            if _event_monitor_configs and hasattr(agent, 'browser_session') and agent.browser_session:
-                try:
-                    from agent.ec_skills.browser_use_extension.event_monitor_capability import get_event_monitor_capability
-                    import copy as _copy_mod
-                    # Deep-copy configs to prevent cross-task mutation (all task instances
-                    # of the same compiled skill share the same closure list).
-                    logger.info(
-                        f"[BrowserAutomation] Pre-copy monitor state: "
-                        f"labels={[c.label for c in _event_monitor_configs]}, "
-                        f"list_id={id(_event_monitor_configs)}, obj_ids={[id(c) for c in _event_monitor_configs]}, "
-                        f"skill={skill_name}, scope={_browser_scope_key}"
-                    )
-                    _monitor_configs_copy = _copy_mod.deepcopy(_event_monitor_configs)
-                    capability = get_event_monitor_capability(agent.browser_session, create=True)
-                    _active_monitor_set = await capability.ensure_started(
-                        configs=_monitor_configs_copy,
-                        agent_id=calling_agent_id or "",
-                    ) if capability else None
-                    if _active_monitor_set:
-                        log_msg = (
-                            f"[BrowserAutomation] Event monitors started: "
-                            f"{len(_active_monitor_set.monitors)} active "
-                            f"(set_id={_active_monitor_set.monitor_set_id})"
-                        )
-                        logger.info(log_msg)
-                        send_skill_editor_log("log", log_msg)
-                except Exception as _em_start_err:
-                    logger.warning(f"[BrowserAutomation] Failed to start event monitors: {_em_start_err}")
-
-            # ── First-invocation short-circuit ──
-            # On auto-launch the browser_automation node runs before any
-            # event has fired.  Without event context the LLM has no
-            # actionable items, no pre-resolved agent list, and no
-            # override block — it loops aimlessly.  The EventMonitor is
-            # now started (see above), so we skip the LLM entirely and
-            # return a "done" state so the graph flows to pend_event,
-            # which picks up the first real browser_event within seconds.
-            # Guard: only fire once per scope so the loop doesn't repeat
-            # the skip if pend_event retries before an event arrives.
-            _fi_scope = _browser_scope_key or node_name
-            if not _evt_type and _event_monitor_configs:
-                logger.info(
-                    f"[BrowserAutomation] First-invocation check: "
-                    f"scope={_fi_scope}, already_done={_fi_scope in _first_invocation_done}, "
-                    f"done_set={_first_invocation_done}"
-                )
-            if (
-                not _evt_type
-                and _event_monitor_configs
-                and _fi_scope not in _first_invocation_done
-            ):
-                _first_invocation_done.add(_fi_scope)
-                logger.info(
-                    f"[BrowserAutomation] First-invocation short-circuit: "
-                    f"no triggering event but {len(_event_monitor_configs)} "
-                    f"event monitor(s) configured — skipping LLM, flowing "
-                    f"to pend_event immediately (node={node_name}, "
-                    f"scope={_fi_scope})"
-                )
-                send_skill_editor_log(
-                    "log",
-                    f"[BrowserAutomation] First invocation: no event → "
-                    f"skipping LLM, entering event loop"
-                )
-                state["result"] = {
-                    "llm_result": {
-                        "all_done": False,
-                        "work_done": False,
-                        "hot_path": True,
-                        "hot_path_type": "first_invocation_skip",
-                    }
-                }
-                return state
+            # First-invocation short-circuit — skip LLM and let pend_event
+            # pick up the first real browser_event within seconds.  See
+            # helper docstring for full rationale.
+            from agent.ec_skills.browser_node.runner import (
+                maybe_first_invocation_short_circuit as _maybe_fi_skip,
+            )
+            _fi_state = _maybe_fi_skip(
+                state=state,
+                evt_type=_evt_type,
+                event_monitor_configs=_event_monitor_configs,
+                first_invocation_done=_first_invocation_done,
+                browser_scope_key=_browser_scope_key,
+                node_name=node_name,
+            )
+            if _fi_state is not None:
+                return _fi_state
 
             # ── Invoke registered before-browser-use-run hooks ──────
             # Each hook gets a BrowserUseHookContext exposing the
@@ -10562,25 +8913,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # at module-import time; build_node itself has no knowledge
             # of what any registered hook does.
             if _before_browser_use_run_hooks:
-                _bur_hook_ctx = BrowserUseHookContext(
-                    node_name=str(node_name or ""),
-                    calling_agent_id=str(calling_agent_id or ""),
-                    mainwin=mainwin,
-                    resolve_scope_key=_resolve_browser_scope_key,
-                    extract_runtime_invocation_input=_extract_runtime_invocation_input,
-                    parse_json_input=_parse_json_input,
-                    send_log=send_skill_editor_log,
-                    normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
-                    safe_format_dict=_SafeFormatDict,
-                    cached_browser_sessions=_cached_browser_sessions,
-                    dispatch_state_by_agent=_dispatch_state_by_agent,
-                    is_dispatch_inflight=_is_dispatch_inflight,
-                    mark_dispatch_inflight=_mark_dispatch_inflight,
-                    clear_dispatch_inflight=_clear_dispatch_inflight,
-                    inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
-                    resolve_template=_resolve_template,
-                    get_or_create_browser_session=_get_or_create_browser_session,
-                )
+                _bur_hook_ctx = _build_hook_ctx()
                 for _bur_hook in _before_browser_use_run_hooks:
                     _bur_hook_result = await _bur_hook(
                         agent, state, inputs, _bur_hook_ctx
@@ -10613,48 +8946,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     pass
 
             try:
-                async def _run_agent_call(**run_kwargs):
-                    """Run agent with node-level limits (max_steps + optional hard timeout)."""
-                    # Safety ceiling: if maxSteps is not configured in the node, cap at 30 steps
-                    # to prevent an accidental infinite loop from running forever.
-                    # Set maxSteps explicitly in the node config for precise control.
-                    _effective_max_steps = node_max_steps if node_max_steps else 30
-                    run_kwargs.setdefault("max_steps", _effective_max_steps)
-                    # max_actions_per_step is an Agent constructor param (already in agent_kwargs),
-                    # NOT a run() param — do not pass it here or agent.run() raises TypeError.
-                    run_coro = agent.run(**run_kwargs)
-                    if node_timeout_seconds:
-                        return await asyncio.wait_for(run_coro, timeout=node_timeout_seconds)
-                    return await run_coro
-
-                # Pass cancellation_event to agents that support it natively;
-                # for native browser-use Agent, patch its step method inline.
-                # Also add per-step tab refocus for rt_chat_bot to prevent cross-agent
-                # CDP interference when multiple service agents share one Chrome instance.
-                agent_class_name = agent.__class__.__name__
-
-                # Resolve the target tab ID to keep focused across steps.
-                # Per-step refocus is opt-in via `stepPatches.refocus_assigned_tab`
-                # (or the legacy `enable_step_refocus` input).  For research/
-                # executor flows, forcing refocus each step can bounce the agent
-                # back to the original search tab and cause repeated clicks — so
-                # the default is off.
-                _step_patches_cfg = _parse_json_input(inputs, "stepPatches") or {}
-                if not isinstance(_step_patches_cfg, dict):
-                    _step_patches_cfg = {}
-                _refocus_enabled = bool(_step_patches_cfg.get("refocus_assigned_tab", False))
-                _abort_when_pre_dispatched = bool(_step_patches_cfg.get("abort_when_pre_dispatched", False))
-                _pre_dispatch_flag_attr = str(
-                    _step_patches_cfg.get("pre_dispatch_flag_attr") or "_ecan_frontdesk_dispatched_all"
+                # Resolve step-patch config (refocus / preDispatch abort /
+                # legacy enable_step_refocus).  See helper docstring.
+                from agent.ec_skills.browser_node.runner import (
+                    resolve_step_patch_config as _resolve_step_cfg,
+                    run_agent_with_dispatch as _run_agent_dispatch,
                 )
-
-                # Back-compat: legacy standalone `enable_step_refocus` input.
-                if not _refocus_enabled and isinstance(inputs, dict):
-                    _legacy_refocus = str(
-                        (inputs.get("enable_step_refocus") or {}).get("content", "") or ""
-                    ).strip().lower()
-                    if _legacy_refocus == "true":
-                        _refocus_enabled = True
+                _refocus_enabled, _abort_when_pre_dispatched, _pre_dispatch_flag_attr = (
+                    _resolve_step_cfg(inputs)
+                )
 
                 _step_focus_target = None
                 if _refocus_enabled and hasattr(agent, 'step'):
@@ -10664,181 +8964,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         or None
                     )
 
-                # Patch agent.step when any step-level hook is needed:
-                # - cancellation_event: cooperative stop support
-                # - refocus_assigned_tab: per-step tab refocus safety net
-                # - abort_when_pre_dispatched: abort stale LLM run after preDispatch
-                # - dom_focus_selector: DOM pruning around the LLM snapshot
-                _needs_step_patch = bool(hasattr(agent, 'step')) and (
-                    bool(cancellation_event)
-                    or _refocus_enabled
-                    or _abort_when_pre_dispatched
-                    or bool(node_dom_focus_selector)
+                # 4-way agent.run() dispatch (cloud/privacy native, simple
+                # cancel wrapper, full step patch, plain).  See helper.
+                history = await _run_agent_dispatch(
+                    agent,
+                    agent_kwargs=agent_kwargs,
+                    cancellation_event=cancellation_event,
+                    step_focus_target=_step_focus_target,
+                    abort_when_pre_dispatched=_abort_when_pre_dispatched,
+                    pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
+                    dom_focus_selector=node_dom_focus_selector,
+                    node_max_steps=node_max_steps,
+                    node_timeout_seconds=node_timeout_seconds,
                 )
-
-                # Always pass cancellation_event to agent.run() so stop button works
-                # This is CRITICAL for all agent types including browser-use
-                if cancellation_event:
-                    agent_kwargs['cancellation_event'] = cancellation_event
-                    logger.info(f"[BrowserAutomation] Passing cancellation_event to agent.run()")
-
-                if cancellation_event and agent_class_name in ('CloudAgent', 'PrivacyAgent'):
-                    history = await _run_agent_call(cancellation_event=cancellation_event)
-                elif cancellation_event and not _needs_step_patch:
-                    # CRITICAL: Without cooperative cancellation, stop button has no effect.
-                    # Wrap agent.run() with a step-level cancel check so stop works for all nodes.
-                    async def _step_check_cancel(*a, **kw):
-                        if cancellation_event and cancellation_event.is_set():
-                            logger.info("[BrowserAutomation] Cancellation requested, stopping")
-                            raise asyncio.CancelledError("Task cancelled by user")
-                        return await agent.step(*a, **kw)
-                    agent.step = _step_check_cancel
-                    history = await agent.run(**agent_kwargs)
-                    # Check cancellation after agent.run() returns
-                    if cancellation_event and cancellation_event.is_set():
-                        logger.info("[BrowserAutomation] Cancellation set after agent.run() (simple path), stopping")
-                        raise asyncio.CancelledError("Task cancelled after LLM response")
-                elif _needs_step_patch:
-                    _orig_step = agent.step
-                    _patch_cancel = cancellation_event
-                    _patch_focus = _step_focus_target
-                    _patch_bs = getattr(agent, 'browser_session', None) if _step_focus_target else None
-                    _patch_abort_pre = _abort_when_pre_dispatched
-                    _patch_pre_attr = _pre_dispatch_flag_attr
-                    _patch_dom_focus = node_dom_focus_selector  # CSS selectors for DOM pruning
-
-                    async def _step_with_cancel(*a, **kw):
-                        # preDispatch abort guard: if an earlier deterministic
-                        # dispatch (see `preDispatch` config) already handled all
-                        # work, this LLM invocation is stale — cancel it.
-                        if _patch_abort_pre:
-                            _bs_check = getattr(agent, 'browser_session', None)
-                            if _bs_check and getattr(_bs_check, _patch_pre_attr, False):
-                                logger.info(
-                                    f"[BrowserAutomation] LLM step aborted: "
-                                    f"preDispatch already completed (flag={_patch_pre_attr})"
-                                )
-                                raise asyncio.CancelledError("Work completed by preDispatch")
-
-                        # Per-step tab refocus: re-acquire focus on the assigned tab.
-                        # With independent sessions this is a safety net — each session
-                        # maintains its own target attachment, but re-confirm it here.
-                        if _patch_focus and _patch_bs:
-                            try:
-                                from browser_use.browser.events import SwitchTabEvent as _STE
-                                _cur = getattr(_patch_bs, 'agent_focus_target_id', None)
-                                if _cur != _patch_focus:
-                                    await _patch_bs.event_bus.dispatch(_STE(target_id=_patch_focus))
-                                    logger.debug(
-                                        f"[BrowserAutomation] Per-step tab refocus: "
-                                        f"...{_cur[-4:] if _cur else 'None'} → ...{_patch_focus[-4:]}"
-                                    )
-                                else:
-                                    logger.debug(
-                                        f"[BrowserAutomation] Per-step tab refocus: already on ...{_patch_focus[-4:]}"
-                                    )
-                            except Exception as _refocus_err:
-                                logger.debug(f"[BrowserAutomation] Per-step tab refocus skipped: {_refocus_err}")
-                        if _patch_cancel and _patch_cancel.is_set():
-                            logger.info(f"[BrowserAutomation] Cancellation requested, stopping")
-                            raise asyncio.CancelledError("Task cancelled by user")
-
-                        # DOM focus selector: hide elements NOT matching the configured
-                        # CSS selectors before browser-use extracts the DOM snapshot.
-                        # After the step completes, restore visibility so the page
-                        # remains usable for user interaction / next steps.
-                        _dom_hidden = False
-                        if _patch_dom_focus:
-                            try:
-                                _dom_bs = getattr(agent, 'browser_session', None)
-                                _dom_page = getattr(_dom_bs, 'current_page', None) if _dom_bs else None
-                                if _dom_page:
-                                    # Escape the selector for safe JS embedding
-                                    _sel_escaped = _patch_dom_focus.replace("\\", "\\\\").replace("'", "\\'")
-                                    _hide_js = f"""(function() {{
-  var sels = '{_sel_escaped}'.split(',').map(function(s) {{ return s.trim(); }}).filter(Boolean);
-  if (!sels.length) return 0;
-  var keep = new Set();
-  sels.forEach(function(sel) {{
-    document.querySelectorAll(sel).forEach(function(el) {{
-      keep.add(el);
-      // Also keep all ancestors so they remain visible
-      var p = el.parentElement;
-      while (p) {{ keep.add(p); p = p.parentElement; }}
-      // Keep all descendants so child content is visible
-      el.querySelectorAll('*').forEach(function(d) {{ keep.add(d); }});
-    }});
-  }});
-  var hidden = 0;
-  document.querySelectorAll('body *').forEach(function(el) {{
-    if (!keep.has(el)) {{
-      var st = el.style;
-      if (st.display !== 'none') {{
-        el.setAttribute('data-ecan-dom-focus-orig', st.display || '');
-        st.display = 'none';
-        hidden++;
-      }}
-    }}
-  }});
-  return hidden;
-}})()"""
-                                    _hide_result = await _dom_page.evaluate(_hide_js)
-                                    _dom_hidden = True
-                                    logger.debug(
-                                        f"[BrowserAutomation] DOM focus: hid {_hide_result} elements "
-                                        f"(selectors={_patch_dom_focus!r})"
-                                    )
-                            except Exception as _dom_hide_err:
-                                logger.debug(f"[BrowserAutomation] DOM focus hide failed: {_dom_hide_err}")
-
-                        try:
-                            return await _orig_step(*a, **kw)
-                        finally:
-                            # Restore hidden elements after DOM extraction
-                            if _dom_hidden:
-                                try:
-                                    _restore_js = """(function() {
-  var els = document.querySelectorAll('[data-ecan-dom-focus-orig]');
-  els.forEach(function(el) {
-    el.style.display = el.getAttribute('data-ecan-dom-focus-orig') || '';
-    el.removeAttribute('data-ecan-dom-focus-orig');
-  });
-  return els.length;
-})()"""
-                                    _dom_page = getattr(getattr(agent, 'browser_session', None), 'current_page', None)
-                                    if _dom_page:
-                                        _restored = await _dom_page.evaluate(_restore_js)
-                                        logger.debug(f"[BrowserAutomation] DOM focus: restored {_restored} elements")
-                                except Exception as _dom_restore_err:
-                                    logger.debug(f"[BrowserAutomation] DOM focus restore failed: {_dom_restore_err}")
-
-                    agent.step = _step_with_cancel
-                    _patch_labels = []
-                    if _patch_cancel:
-                        _patch_labels.append("cancellation")
-                    if _step_focus_target:
-                        _patch_labels.append(f"tab refocus (target=...{_step_focus_target[-4:]})")
-                    if _patch_abort_pre:
-                        _patch_labels.append(f"preDispatch abort guard (flag={_patch_pre_attr})")
-                    if _patch_dom_focus:
-                        _patch_labels.append(f"DOM focus ({_patch_dom_focus})")
-                    logger.info(
-                        f"[BrowserAutomation] Patched agent.step: {', '.join(_patch_labels) or 'basic'}"
-                    )
-                    try:
-                        history = await _run_agent_call()
-                    except asyncio.CancelledError as _ce:
-                        _ce_msg = str(_ce) or "CancelledError"
-                        if "fast-path" in _ce_msg:
-                            logger.info(f"[BrowserAutomation] LLM run stopped: {_ce_msg}")
-                            # Return a synthetic result so downstream doesn't crash.
-                            history = None
-                        else:
-                            raise
-                    finally:
-                        agent.step = _orig_step
-                else:
-                    history = await _run_agent_call()
 
                 # CRITICAL: Check cancellation after agent.run() returns
                 # Even if cancellation was set during execution, we need to stop here
@@ -10846,34 +8984,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info("[BrowserAutomation] Cancellation set after agent.run(), stopping node execution")
                     raise asyncio.CancelledError("Task cancelled after LLM response")
 
-                # Persist focus target across node iterations to survive session churn.
-                try:
-                    _focus_after_run = getattr(getattr(agent, 'browser_session', None), 'agent_focus_target_id', None)
-                    if _focus_after_run:
-                        _last_known_focus_target_ids[_browser_scope_key] = _focus_after_run
-                except Exception:
-                    pass
+                # Persist post-run focus target so next invocation's CDP
+                # preflight can rebind to the same tab.
+                from agent.ec_skills.browser_node.runner import (
+                    persist_focus_target as _persist_focus,
+                )
+                _persist_focus(
+                    agent,
+                    browser_scope_key=_browser_scope_key,
+                    last_known_focus_target_ids=_last_known_focus_target_ids,
+                )
                 
-                # Log step budget usage so we can tell at a glance whether
-                # max_steps was reached (which clobbers AgentOutput → DoneAgentOutput).
-                try:
-                    _ag_st = getattr(agent, 'state', None)
-                    _ag_settings = getattr(agent, 'settings', None)
-                    _steps_used = getattr(_ag_st, 'n_steps', '?') if _ag_st else '?'
-                    _max_steps = getattr(_ag_settings, 'max_steps', '?') if _ag_settings else '?'
-                    _consec_fail = getattr(_ag_st, 'consecutive_failures', '?') if _ag_st else '?'
-                    _max_fail = getattr(_ag_settings, 'max_failures', '?') if _ag_settings else '?'
-                    _stopped = getattr(_ag_st, 'stopped', '?') if _ag_st else '?'
-                    _ao_is_done = agent.AgentOutput is getattr(agent, 'DoneAgentOutput', None) if hasattr(agent, 'AgentOutput') else '?'
-                    logger.info(
-                        f"[BrowserAutomation] Run finished: "
-                        f"steps={_steps_used}/{_max_steps}, "
-                        f"failures={_consec_fail}/{_max_fail}, "
-                        f"stopped={_stopped}, "
-                        f"AgentOutput_clobbered={_ao_is_done}"
-                    )
-                except Exception as _step_log_err:
-                    logger.debug(f"[BrowserAutomation] Step count log failed: {_step_log_err}")
+                # Log step budget for postmortem diagnostics.
+                from agent.ec_skills.browser_node.runner import log_step_budget as _log_step_budget
+                _log_step_budget(agent)
 
                 # Truncate long output for logging
                 history_str = str(history)
@@ -10889,47 +9013,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     final_str = final_str[:10000] + '... (truncated)'
                 logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
                 
-                # Log browser-use usage summary for diagnostics only.
-                # Do NOT record it into TokenTracker because raw underlying LLM calls
-                # are already recorded in LoggingBrowserUseChatOpenAI. Recording both
-                # would double-count tokens and mislead later analysis.
-                try:
-                    _bu_usage = getattr(history, 'usage', None)
-                    if _bu_usage and (getattr(_bu_usage, 'total_tokens', 0) or 0) > 0:
-                        _by_model = getattr(_bu_usage, 'by_model', None) or {}
-                        if _by_model:
-                            for _m_name, _m_stats in _by_model.items():
-                                _m_in = getattr(_m_stats, 'prompt_tokens', 0) or 0
-                                _m_out = getattr(_m_stats, 'completion_tokens', 0) or 0
-                                if _m_in > 0 or _m_out > 0:
-                                    logger.info(f"[TokenTracker] BrowserUse summary model={_m_name} in={_m_in} out={_m_out}")
-                        logger.info(
-                            f"[TokenTracker] BrowserUse total: {getattr(_bu_usage, 'total_tokens', 0)} tokens, "
-                            f"{getattr(_bu_usage, 'entry_count', 0)} LLM calls, "
-                            f"cost=${getattr(_bu_usage, 'total_cost', 0.0):.4f}"
-                        )
-                    else:
-                        logger.debug(f"[TokenTracker] BrowserUse: no usage summary in history ({len(getattr(history, 'history', []))} steps)")
-                except Exception as _bu_tk_err:
-                    logger.warning(f"[TokenTracker] Failed to record browser-use token usage: {_bu_tk_err}")
+                # Log browser-use's per-model token + cost summary (diagnostics only).
+                from agent.ec_skills.browser_node.runner import (
+                    log_browser_use_token_usage as _log_bu_tokens,
+                )
+                _log_bu_tokens(history)
 
-                # ── Clear consumed response_text from all state sources ──
-                # After the LLM processes a chat_message response, clear it so
-                # subsequent browser_event cycles don't re-inject and re-send it.
-                if _runtime_had_response_text:
-                    state["input"] = ""
-                    if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
-                        state["messages"][4] = ""
-                    try:
-                        _clr_attrs = state.get("attributes")
-                        if isinstance(_clr_attrs, dict):
-                            _clr_attrs.pop("params", None)
-                    except Exception:
-                        pass
-                    logger.info(
-                        f"[BrowserAutomation] Cleared consumed response_text from state "
-                        f"(node={node_name}, skill={skill_name})"
-                    )
+                # Clear consumed response_text so subsequent browser_event cycles
+                # don't re-inject and re-send it.
+                from agent.ec_skills.browser_node.runner import (
+                    clear_consumed_response_text as _clear_resp,
+                )
+                _clear_resp(
+                    state,
+                    runtime_had_response_text=_runtime_had_response_text,
+                    node_name=node_name,
+                    skill_name=skill_name,
+                )
 
                 return {"final": final, "history": str(history)}
             except asyncio.CancelledError:
@@ -10951,19 +9051,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # To manually stop monitors early, call stop_monitors(session._ecan_event_monitors, session).
                 pass
 
-                # Clean up browser session if not cached
-                # Only close non-cached sessions to prevent resource leaks
-                if hasattr(agent, 'browser_session') and agent.browser_session:
-                    # Check if this is the cached session
-                    is_cached_session = (agent.browser_session == _cached_browser_sessions.get(_browser_scope_key))
-                    
-                    # Only close if NOT cached (cached sessions are reused)
-                    if not is_cached_session and browser_type_setting != 'new chromium':
-                        try:
-                            await agent.browser_session.stop()
-                            logger.debug("[BrowserAutomation] Browser session stopped (non-cached)")
-                        except Exception as e:
-                            logger.warning(f"[BrowserAutomation] Failed to stop browser session: {e}")
+                # Clean up non-cached browser session to prevent resource leaks.
+                from agent.ec_skills.browser_node.runner import (
+                    stop_non_cached_browser_session as _stop_non_cached,
+                )
+                await _stop_non_cached(
+                    agent,
+                    browser_scope_key=_browser_scope_key,
+                    cached_browser_sessions=_cached_browser_sessions,
+                    browser_type_setting=browser_type_setting,
+                )
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
@@ -11463,10 +9560,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         try:
             _strip_regex_src = ""
             _strip_replacement = "[assigned chat tab already open]"
-            if isinstance(_asg_cfg, dict):
-                _strip_regex_src = str(_asg_cfg.get("strip_url_regex") or "").strip()
+            # Re-parse assignment config locally — this block lives in `_auto`,
+            # while the upstream `_asg_cfg` is bound in the sibling closure
+            # `_run_browser_use` and is not visible here.
+            _asg_cfg_local = _parse_json_input(inputs, "assignment")
+            if isinstance(_asg_cfg_local, dict):
+                _strip_regex_src = str(_asg_cfg_local.get("strip_url_regex") or "").strip()
                 _strip_replacement = str(
-                    _asg_cfg.get("strip_url_replacement") or _strip_replacement
+                    _asg_cfg_local.get("strip_url_replacement") or _strip_replacement
                 )
             if _strip_regex_src:
                 _browser_scope_key_check = _resolve_browser_scope_key(state)
