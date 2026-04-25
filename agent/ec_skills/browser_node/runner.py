@@ -77,10 +77,110 @@ from agent.ec_skills.build_node import (
     _parse_json_input,
     _log_browser_use_result_summary,
     PromptBuildContext,
+    BrowserUseHookContext,
+    _AssignmentContext,
     send_skill_editor_log,
     get_traceback,
     THINKING_SUPPRESSION_INSTRUCTION,
 )
+
+
+# ─── Phase 6 RunContext (2026-04-24) ─────────────────────────────────
+# Frozen dataclass capturing every build-scope closure ref needed by
+# ``_BrowserRunSession`` (currently nested inside
+# :func:`agent.ec_skills.build_node.build_browser_automation_node`).
+#
+# Constructed *once* per compiled node at the bottom of
+# ``build_browser_automation_node`` (after every helper / setting is
+# resolved) and passed to each ``_BrowserRunSession.__init__`` call.
+# Lifecycle = lifetime of the compiled LangGraph node; reused across
+# every pend-event-loop iteration.
+#
+# Phase-6 lift target: once the class body is ported to use
+# ``self.ctx.*`` for every name listed here, ``_BrowserRunSession``
+# becomes portable and can be moved verbatim to this module.
+#
+# Categorization of fields:
+#   * "settings"  — immutable build-time values from the node JSON +
+#                   NodeConfig + env / Settings defaults.
+#   * "helpers"   — callables closed over the outer function's scope.
+#   * "state"     — mutable dicts shared with the build scope (refs,
+#                   not copies — they outlive the run).
+#   * "hooks"     — registered lifecycle-hook callables.
+#   * "monitors"  — parsed event-monitor configs.
+from dataclasses import dataclass, field
+from typing import Callable
+
+@dataclass
+class RunContext:
+    """Per-node closure-capture container for ``_BrowserRunSession``.
+
+    Frozen-by-convention: callers should treat fields as read-only.
+    The mutable dict / list fields are *shared with the build scope by
+    reference*, not copied, so cache mutations performed by helpers
+    persist across runs.
+
+    Field naming preserves the original closure-name underscores
+    (``_resolve_browser_scope_key``) to keep the Phase-6 mass-rewrite
+    a pure ``X`` → ``self.ctx.X`` operation with no name collisions.
+    """
+
+    # ── Identity / metadata (4) ─────────────────────────────────
+    node_name: str
+    skill_name: str
+    owner: str
+    inputs: dict
+
+    # ── Node-editor settings (22) ───────────────────────────────
+    node_llm_provider: Any
+    node_model_name: Any
+    node_use_vision: bool
+    node_use_thinking: bool
+    node_max_actions_per_step: Any
+    node_dom_limit: Any
+    node_dom_focus_selector: Any
+    node_profile: Any
+    node_headless: bool
+    node_max_steps: Any
+    node_timeout_seconds: Any
+    enable_judge_setting: bool
+    system_prompt_id: Any
+    user_prompt_id: Any
+    loop_history_mode: Any
+    privacy_strategy_setting: str
+    run_environment_setting: str
+    event_monitor_done_policy: str
+    browser_type_setting: str
+    browser_driver_setting: str
+    actionable_field: Any
+    _MAX_BROWSER_CACHE_SIZE: int
+
+    # ── Build-scope helpers (9) ─────────────────────────────────
+    _resolve_browser_scope_key: Callable
+    _get_or_create_browser_session: Callable
+    _is_session_started: Callable
+    _patch_browser_session_lifecycle_debug: Callable
+    _extract_runtime_invocation_input: Callable
+    _normalize_dispatch_identity_key: Callable
+    _resolve_template: Callable
+    _get_browser_profile_settings: Callable
+    _extract_assignment_scope: Callable
+
+    # ── Mutable state dicts (5) ─────────────────────────────────
+    _cached_browser_sessions: dict
+    _cached_bu_agents: dict
+    _cached_passive_agents: dict
+    _last_known_focus_target_ids: dict
+    _dispatch_state_by_agent: dict
+
+    # ── Lifecycle hook registries (3) ───────────────────────────
+    _before_browser_session_setup_hooks: list
+    _before_prompt_build_hooks: list
+    _before_browser_use_run_hooks: list
+
+    # ── Event monitor configs (1) ───────────────────────────────
+    _event_monitor_configs: list = field(default_factory=list)
+
 
 # ``BrowserUseRunner`` (815 lines) deleted 2026-04-24 — fully inlined into
 # module-level free functions (``_publish_passive_step_result``,
