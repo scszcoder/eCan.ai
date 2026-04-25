@@ -199,6 +199,83 @@ The recovery log is at `WARNING` level so persistent reliance on the
 fallback is visible. Long-term, the state-stripping in the auto-resume
 path should be investigated (separate from this refactor).
 
+## Hotfix #3 — InMemorySaver wiped between interrupt and auto-resume (2026-04-25 00:10)
+
+After hotfix #2, the front-desk dispatch worked (customer message reached
+the Q&A worker via `send_chat`), but the customer still saw no reply.
+Investigation showed the Q&A worker received the message and entered its
+graph, but **never ran its LLM body** — the workflow ping-ponged between
+`update_loop_KcQ3-_condition → check_loop_KcQ3-_condition →
+pend_event_sVz3K (interrupt)` repeatedly without ever advancing along the
+designed inner edge `pend_event_sVz3K → llm_7xz6k → mcp_PN5P3`.
+
+### Root cause
+
+`@/Users/songc/PycharmProjects/eCan.ai/agent/ec_tasks/executor.py:69-100`
+defines `TaskExecutor._clear_skill_module_caches`, which is called from
+the `finally` block of every `stream_run`/`astream_run`. It clears the
+skill's `InMemorySaver.{storage, writes, blobs}` to prevent memory growth.
+
+Problem: it ran **after every run, including interrupted ones**. The
+auto-resume path in
+`@/Users/songc/PycharmProjects/eCan.ai/agent/ec_tasks/runner.py:3914-3935`
+calls `execute_task_hybrid(task, Command(resume=resume_payload), ...)`
+expecting LangGraph to look up the saved checkpoint by `thread_id` and
+feed `resume_payload` as the return value of the original `interrupt(...)`
+call.
+
+But the `finally` from the initial run had already wiped that checkpoint,
+so LangGraph treated `Command(resume=...)` as a fresh invocation, ran the
+graph from `START` again, hit `pend_event` again, and interrupted —
+silently swallowing the resume payload. The chat message never reached
+the LLM node.
+
+Symptom in logs (Q&A worker `feige_chat_1`):
+
+```
+23:40:23,229  pend_event_sVz3K  ENTER  (1st time, interrupts)
+23:40:23,553  EXECUTOR Initial run interrupted at pend_event - auto-resuming
+23:40:23,568  update_loop_KcQ3-_condition  ENTER  (graph restarted!)
+23:40:23,621  check_loop_KcQ3-_condition   ENTER
+23:40:23,681  pend_event_sVz3K  ENTER  (2nd time, interrupts AGAIN)
+23:40:24,006  Auto-resume completed: success=False
+```
+
+`[pend_event_node] RESUMED:` (logged immediately after `interrupt(info)`
+returns) **never appears** because `interrupt()` never returned — the
+graph started fresh.
+
+This was introduced by commit `c0f3a485a` ("fix: fix run listing bug and
+optimize thread manager"). The intent (preventing unbounded checkpoint
+growth) was correct but the implementation was too aggressive — it cleared
+mid-execution between an interrupt and its resume.
+
+### Fix
+
+Gate the `InMemorySaver` clearing on the task **not** being parked on an
+interrupt (`TaskState.input_required`):
+
+```python
+if _is_interrupted:
+    logger.debug("Skipping InMemorySaver clear: task parked on interrupt; "
+                 "checkpoints are required for auto-resume")
+elif self.task and ...:
+    # original clear logic
+```
+
+Module-level cache clearing (LLM cache, etc.) still runs in all cases —
+only the InMemorySaver clear is gated.
+
+### Impact
+
+This single fix should restore end-to-end Q&A: customer → front desk
+PreDispatch → `send_chat` → Q&A worker `pend_event` interrupt → auto-resume
+with chat payload → LLM responds → MCP delivers reply → customer sees it.
+
+The phantom front-desk loop iterations observed earlier likely have the
+same root cause (loop body never advanced past `pend_event`, kept getting
+re-entered as fresh runs), so this fix should resolve them too.
+
 ## Future work
 
 - Test `_clear_module_caches` properly — was latently broken before 6.7
