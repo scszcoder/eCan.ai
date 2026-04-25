@@ -3362,21 +3362,27 @@ async def run_cloud_agent(
 class BrowserRunSession:
     """Per-call orchestrator for a single ``_run_browser_use`` invocation.
 
-    Defined inside :func:`build_browser_automation_node` so it
-    captures the build-scope closures and module-level state
-    (``_resolve_browser_scope_key``, ``_get_or_create_browser_session``,
-    ``_cached_browser_sessions``, ``_last_known_focus_target_ids``,
-    etc.) via Python's lexical scoping rules.  This means the
-    class is *not* portable across modules without the surrounding
-    context — that's intentional for now and is the natural
-    Phase-6 lift target.
+    Lifted to module scope in Phase 6.3 (2026-04-24).  Originally a
+    nested class inside :func:`build_browser_automation_node` that
+    captured ~50 closure refs via Python's lexical scoping; those refs
+    are now threaded explicitly through the :class:`RunContext`
+    dataclass on ``self.ctx``.
 
-    The body of the original ``_run_browser_use`` lives verbatim
-    in :meth:`run`.  Future incremental refactors should split
-    the linear flow into named phase methods (e.g.
-    ``_prepare_task``, ``_inject_event_context``,
-    ``_acquire_browser``, ``_run_agent``, ``_finalize``)
-    one phase at a time, each verified with a live smoke test.
+    Lifecycle: one instance per ``_run_browser_use`` invocation
+    (constructed by the thin delegator in ``build_node.py``).  Reused
+    state (browser-session caches, browser-use agent caches, focus
+    target ids, dispatch state) lives on ``self.ctx``, which is itself
+    constructed once per compiled node and shared across every
+    pend-event-loop iteration.
+
+    The 18 methods split the run flow into named phases — see
+    :meth:`run` for the orchestration order.  Each phase method
+    references closure data via ``self.ctx.<name>`` and per-call data
+    via ``self.task`` / ``self.mainwin`` / ``self.state`` /
+    ``self.calling_agent_id``.
+
+    See ``REFACTOR_ROADMAP.md`` for the multi-phase decomposition
+    history that produced this class.
     """
 
     def __init__(self, *, ctx, task, mainwin, state, calling_agent_id):
