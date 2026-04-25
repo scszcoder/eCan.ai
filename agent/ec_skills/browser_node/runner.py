@@ -3450,6 +3450,9 @@ class BrowserRunSession:
                         mainwin, state=state, calling_agent_id=calling_agent_id, ctx=self.ctx,
                     )
             ),
+            # Pipe the flowgram per-node runEnvironment flag through so
+            # the v2 hook wire-up can pick the right RunMode.
+            run_environment=str(self.ctx.run_environment_setting or "full_local"),
         )
 
     async def _inject_event_context(

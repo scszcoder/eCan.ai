@@ -53,6 +53,11 @@ from agent.ec_skills.build_node import (
 
 from agent.ec_skills.browser_node.session import BrowserSessionManager
 
+# v2 tier-aware dispatch (Step 4 wire-up).  Imported lazily inside the
+# invokers to avoid pulling pydantic at module-import time when no v2
+# hook is registered.  See ``_dispatch_v2_if_eligible`` for the
+# detection contract.
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Aggregated prompt-build result
@@ -87,6 +92,7 @@ def build_hook_context(
     mainwin: Any,
     sessions: BrowserSessionManager,
     extract_runtime_invocation_input: Callable[[dict | None], str],
+    run_environment: str = "full_local",
 ) -> BrowserUseHookContext:
     """Construct a ``BrowserUseHookContext`` for one hook invocation.
 
@@ -113,7 +119,62 @@ def build_hook_context(
         inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
         resolve_template=_resolve_template,
         get_or_create_browser_session=sessions.get_or_create,
+        run_environment=str(run_environment or "full_local"),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# v2 dispatch detection (Step 4 wire-up)
+# ─────────────────────────────────────────────────────────────────────
+
+# Sentinel returned by ``_dispatch_v2_if_eligible`` when the hook is
+# legacy-style and the caller should fall back to direct invocation.
+_LEGACY_FALLBACK = object()
+
+
+async def _dispatch_v2_if_eligible(
+    hook: Any,
+    ctx: BrowserUseHookContext,
+    *args: Any,
+    agent: Any = None,
+    **kwargs: Any,
+) -> Any:
+    """Dispatch *hook* via :class:`TierAwareRunner` if it is a v2 hook.
+
+    Returns the hook's result on v2 dispatch; returns
+    :data:`_LEGACY_FALLBACK` if the hook lacks ``EXECUTION_TIER`` so
+    the caller can run the legacy code path.
+
+    A v2 hook is any object with a string ``EXECUTION_TIER`` attribute
+    AND an async ``run`` method.  Anything else falls through.
+    """
+    tier = getattr(hook, "EXECUTION_TIER", None)
+    if not isinstance(tier, str) or not callable(getattr(hook, "run", None)):
+        return _LEGACY_FALLBACK
+
+    # Lazy imports — keep cold-start cheap when no v2 hooks register.
+    from agent.ec_skills.browser_use_extension.tier_aware_runner import (
+        RunMode,
+        TierAwareRunner,
+    )
+    from agent.ec_skills.browser_use_extension.legacy_bridge import (
+        backends_from_legacy_context,
+    )
+
+    # Pick the RunMode from the per-node ``runEnvironment`` flag in
+    # the flowgram JSON — this is a per-skill / per-node config, not
+    # an env var.  Legacy-only modes (``full_local`` / ``passive_local``
+    # / ``full_cloud``) all run hooks in-process on whichever side they
+    # land on, which maps to FULL_LOCAL in the v2 enum.  Only
+    # ``hybrid_cloud`` selects the RPC-routed mode.
+    mode = (
+        RunMode.HYBRID_CLOUD
+        if str(getattr(ctx, "run_environment", "") or "").lower() == "hybrid_cloud"
+        else RunMode.FULL_LOCAL
+    )
+    backends = backends_from_legacy_context(ctx, agent=agent)
+    runner = TierAwareRunner(mode, backends)
+    return await runner.dispatch(hook, *args, **kwargs)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -134,10 +195,21 @@ async def invoke_early_hooks(
         return None
     for hook in _before_browser_session_setup_hooks:
         try:
-            result = await hook(None, state, inputs, ctx)
+            # v2 path: hooks declaring EXECUTION_TIER are dispatched
+            # through the tier-aware runner; everything else uses the
+            # legacy callable contract.  The runtime is mode-agnostic.
+            v2_result = await _dispatch_v2_if_eligible(
+                hook, ctx, state, inputs, agent=None,
+            )
+            if v2_result is _LEGACY_FALLBACK:
+                result = await hook(None, state, inputs, ctx)
+            else:
+                result = v2_result
         except Exception as exc:
+            qual = getattr(hook, "__qualname__", type(hook).__name__)
+            mod = getattr(hook, "__module__", type(hook).__module__)
             logger.warning(
-                f"[BrowserAutomation] early hook {hook.__module__}.{hook.__qualname__} raised: {exc}"
+                f"[BrowserAutomation] early hook {mod}.{qual} raised: {exc}"
             )
             continue
         if result is not None:
@@ -163,11 +235,21 @@ async def invoke_prompt_build_hooks(
 
     for hook in _before_prompt_build_hooks:
         try:
-            result: PromptBuildResult | None = await hook(state, inputs, ctx, pb_ctx)
+            v2_result = await _dispatch_v2_if_eligible(
+                hook, ctx, state, inputs, pb_ctx,
+            )
+            if v2_result is _LEGACY_FALLBACK:
+                result: PromptBuildResult | None = await hook(
+                    state, inputs, ctx, pb_ctx,
+                )
+            else:
+                result = v2_result  # type: ignore[assignment]
         except Exception as exc:
+            qual = getattr(hook, "__qualname__", type(hook).__name__)
+            mod = getattr(hook, "__module__", type(hook).__module__)
             logger.warning(
                 f"[BrowserAutomation] prompt-build hook "
-                f"{hook.__module__}.{hook.__qualname__} raised: {exc}"
+                f"{mod}.{qual} raised: {exc}"
             )
             continue
         if result is None:
@@ -196,11 +278,18 @@ async def invoke_late_hooks(
         return None
     for hook in _before_browser_use_run_hooks:
         try:
-            result = await hook(agent, state, inputs, ctx)
+            v2_result = await _dispatch_v2_if_eligible(
+                hook, ctx, state, inputs, agent=agent,
+            )
+            if v2_result is _LEGACY_FALLBACK:
+                result = await hook(agent, state, inputs, ctx)
+            else:
+                result = v2_result
         except Exception as exc:
+            qual = getattr(hook, "__qualname__", type(hook).__name__)
+            mod = getattr(hook, "__module__", type(hook).__module__)
             logger.warning(
-                f"[BrowserAutomation] late hook "
-                f"{hook.__module__}.{hook.__qualname__} raised: {exc}"
+                f"[BrowserAutomation] late hook {mod}.{qual} raised: {exc}"
             )
             continue
         if result is not None:

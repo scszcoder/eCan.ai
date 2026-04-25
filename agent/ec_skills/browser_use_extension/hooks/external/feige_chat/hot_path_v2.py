@@ -1,0 +1,545 @@
+"""Step 2g — port of ``hot_path.execute`` DOM orchestration to v2 surface.
+
+The legacy :mod:`hot_path` module orchestrates Feige's HOT-PATH-B
+action sequence directly against a browser-use session, an
+``actions_registry`` dict keyed by tool name, and a private
+``_evaluate_js`` helper.  This v2 port takes the same control flow
+(typing-lock acquire, per-action verification, post-success tab
+restore, finally-release) but replaces the three legacy dependencies
+with two typed Protocol surfaces:
+
+* :class:`BrowserPrimitives` — for ``eval_js`` + ``click`` + ``wait_for``
+  used by the verification helpers and the post-success tab restore.
+
+* :class:`ToolInvoker` — for the bundle-specific tool calls
+  (``feige_open_session``, ``feige_send_message``).  In-process
+  callers wrap a real ``actions_registry`` via :class:`RegistryToolInvoker`;
+  hybrid_cloud callers can plug an RPC variant once step-5 lands.
+
+* :class:`TypingLock` — already a Protocol; same surface, no change.
+
+What's identical to v1
+----------------------
+
+Every decision branch (typing-lock wait loop, per-tool verification
+attempts, intervals, abort reasons, post-success tab restore + sleep)
+preserves the v1 timing constants and behaviour.  See
+:func:`execute_v2` docstring for a side-by-side mapping.
+
+What's intentionally different
+------------------------------
+
+* No ``inspect.signature(...)`` introspection — :class:`ToolInvoker`
+  has a single typed surface (``invoke(name, args)``).
+* No top-level dependency on ``extension_tools_service._evaluate_js``.
+  Verification helpers receive primitives via the executor instance.
+* No ``browser_session.get_current_page()`` for the tab restore —
+  :meth:`BrowserPrimitives.click` is sufficient on Feige's SPA.
+
+Tests
+-----
+
+See :mod:`tests.test_hot_path_v2`.  The test surface uses
+:class:`StubPrimitives` and :class:`StubToolInvoker` so the executor
+runs end-to-end without a real browser.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol, runtime_checkable
+
+from agent.ec_skills.browser_node.contexts import (
+    BrowserPrimitives,
+    TypingLock,
+)
+
+logger = logging.getLogger("ecan.feige.hot_path_v2")
+
+__all__ = [
+    "ToolInvoker",
+    "ToolResult",
+    "RegistryToolInvoker",
+    "HotPathOutcomeV2",
+    "HotPathExecutorV2",
+    "execute_v2",
+    # Re-exposed for tests / monkey-patching
+    "TYPING_LOCK_WAIT_ATTEMPTS",
+    "TYPING_LOCK_WAIT_INTERVAL_S",
+    "POST_OPEN_VERIFY_ATTEMPTS",
+    "POST_OPEN_VERIFY_INTERVAL_S",
+    "PRE_SEND_REVERIFY_ATTEMPTS",
+    "PRE_SEND_REVERIFY_INTERVAL_S",
+    "POST_SEND_TAB_RESTORE_SLEEP_S",
+]
+
+
+# ── Timing constants (identical to v1 hot_path module) ────────────────────
+TYPING_LOCK_WAIT_ATTEMPTS: int = 30      # 30 × 100 ms = 3 s
+TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
+POST_OPEN_VERIFY_ATTEMPTS: int = 8        # 8 × 75 ms = 600 ms
+POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
+PRE_SEND_REVERIFY_ATTEMPTS: int = 8
+PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
+POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
+
+# ── Selectors / DOM contracts ─────────────────────────────────────────────
+# Feige's "最近联系" recent-contacts sub-tab.  Restored after a
+# successful send so future DOM reads see ``pending_timer`` (invisible
+# on the ``当前会话`` tab).
+RECENT_CONTACTS_TAB_SELECTOR: str = '[data-qa-id="qa-last-chat-tab"]'
+
+# JS snippet that returns ``{ok, active}`` — the active customer's
+# normalised name on the current Feige page.  Imported from the
+# bundle's dom_assets so v2 stays in lock-step with v1's contract.
+try:
+    from .dom_assets import (
+        FEIGE_ACTIVE_CUSTOMER_JS,
+        _normalize_dispatch_identity_key,
+    )
+except Exception:  # pragma: no cover — bundle import side-effects
+    FEIGE_ACTIVE_CUSTOMER_JS = "({ok: false, active: ''})"
+    def _normalize_dispatch_identity_key(s: str) -> str:  # type: ignore
+        return (s or "").strip().lower()
+
+
+# ============================================================================
+# ToolInvoker Protocol — replaces legacy ``actions_registry`` + ``inspect``
+# ============================================================================
+
+
+@dataclass
+class ToolResult:
+    """Result returned by :class:`ToolInvoker.invoke`.
+
+    Mirrors the surface the legacy executor consumed via
+    ``getattr(result, 'error', None)`` and
+    ``getattr(result, 'extracted_content', '')``.  Using an explicit
+    dataclass lets v2 callers / tests build results without touching
+    browser-use internals.
+    """
+
+    ok: bool = True
+    error: str = ""
+    extracted_content: Any = None
+
+
+@runtime_checkable
+class ToolInvoker(Protocol):
+    """Bundle-specific tool invocation surface.
+
+    The HOT-PATH-B executor calls ``invoke('feige_open_session', {...})``
+    and ``invoke('feige_send_message', {...})``.  Production binding
+    wraps the live ``actions_registry`` (see :class:`RegistryToolInvoker`);
+    tests use a stub.  A future hybrid_cloud binding can implement this
+    Protocol over the transport.
+    """
+
+    async def invoke(self, name: str, args: dict[str, Any]) -> ToolResult:
+        """Invoke a registered tool by *name* with *args*."""
+        ...
+
+
+class RegistryToolInvoker:
+    """In-process :class:`ToolInvoker` that wraps a browser-use
+    ``actions_registry`` + ``browser_session``.
+
+    This is the production binding for ``full_local`` mode.  It
+    preserves the v1 introspection: forwards ``browser_session`` only
+    when the underlying tool function accepts that parameter.  Errors
+    surface via :class:`ToolResult` (no exceptions out the top).
+    """
+
+    def __init__(self, actions_registry: dict, browser_session: Any):
+        self._reg = actions_registry
+        self._sess = browser_session
+
+    async def invoke(self, name: str, args: dict[str, Any]) -> ToolResult:
+        act_obj = self._reg.get(name)
+        if act_obj is None:
+            return ToolResult(ok=False, error=f"tool_not_found:{name}")
+        try:
+            params = act_obj.param_model(**args)
+        except Exception as exc:
+            return ToolResult(
+                ok=False, error=f"param_validation_failed:{exc}"
+            )
+        try:
+            import inspect as _inspect
+            sig = _inspect.signature(act_obj.function)
+            if "browser_session" in sig.parameters:
+                raw = await act_obj.function(
+                    params=params, browser_session=self._sess,
+                )
+            else:
+                raw = await act_obj.function(params=params)
+        except Exception as exc:
+            return ToolResult(ok=False, error=f"tool_raised:{exc}")
+        if raw is None:
+            return ToolResult(ok=False, error="action returned None")
+        err = getattr(raw, "error", None)
+        if err:
+            return ToolResult(ok=False, error=str(err))
+        return ToolResult(
+            ok=True,
+            extracted_content=getattr(raw, "extracted_content", None),
+        )
+
+
+# ============================================================================
+# Outcome dataclass (compatible with v1 HotPathOutcome shape)
+# ============================================================================
+
+
+@dataclass
+class HotPathOutcomeV2:
+    """Result of :func:`execute_v2`.
+
+    Field-compatible superset of the v1 :class:`HotPathOutcome` so
+    code that consumes the old shape works unchanged after a swap.
+    """
+
+    ok: bool = False
+    reason: str = ""
+    typing_acquired: bool = False
+    last_tool_error: str = ""
+    actions_attempted: int = 0
+    extras: dict = field(default_factory=dict)
+
+
+# ============================================================================
+# Verification helpers — pure functions over BrowserPrimitives
+# ============================================================================
+
+
+async def _verify_active_customer(
+    primitives: BrowserPrimitives,
+    expected: str,
+    *,
+    attempts: int = 1,
+    interval: float = 0.075,
+    expected_as_key: bool = True,
+) -> tuple[bool, str]:
+    """Poll ``FEIGE_ACTIVE_CUSTOMER_JS`` up to *attempts* times.
+
+    Identical semantics to v1 ``_verify_active_customer`` — same JSON
+    decoding, same key-normalisation, same return shape.
+    """
+    active_last = ""
+    for _ in range(attempts):
+        try:
+            raw = await primitives.eval_js(FEIGE_ACTIVE_CUSTOMER_JS)
+            data = raw
+            if isinstance(raw, str):
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    data = {}
+            if isinstance(data, dict) and data.get("ok"):
+                active_last = str(data.get("active") or "").strip()
+                if expected_as_key:
+                    if _normalize_dispatch_identity_key(active_last) == expected:
+                        return True, active_last
+                else:
+                    if active_last == str(expected).strip():
+                        return True, active_last
+        except Exception:
+            pass
+        if attempts > 1:
+            await asyncio.sleep(interval)
+    return False, active_last
+
+
+async def _post_open_verify(
+    primitives: BrowserPrimitives,
+    resolved_args: dict,
+    node_name: str,
+) -> tuple[bool, str]:
+    """Crosstalk guard after ``feige_open_session`` returns OK."""
+    expected = (
+        resolved_args.get("customer_name")
+        or resolved_args.get("customer_id")
+        or ""
+    )
+    if not expected:
+        return True, ""
+    ok, active = await _verify_active_customer(
+        primitives, expected,
+        attempts=POST_OPEN_VERIFY_ATTEMPTS,
+        interval=POST_OPEN_VERIFY_INTERVAL_S,
+        expected_as_key=False,
+    )
+    if not ok:
+        logger.error(
+            f"[hot_path_v2] ABORT send — active-customer verification "
+            f"failed after feige_open_session: expected={expected!r} "
+            f"active={active!r}. Crosstalk guard tripped, node={node_name}"
+        )
+        return False, "post_open_verify_failed"
+    logger.info(
+        f"[hot_path_v2] active-customer verified = {active!r} after "
+        f"feige_open_session"
+    )
+    return True, ""
+
+
+async def _pre_send_reverify(
+    primitives: BrowserPrimitives,
+    invoker: ToolInvoker,
+    customer_key: str,
+    node_name: str,
+) -> tuple[bool, str]:
+    """Re-verify and (on drift) re-open inline before ``feige_send_message``."""
+    ok, active = await _verify_active_customer(
+        primitives, customer_key, attempts=1
+    )
+    if ok:
+        return True, ""
+    logger.warning(
+        f"[hot_path_v2] pre-send DRIFT — expected={customer_key!r} "
+        f"active={active!r}; re-opening session before typing, node={node_name}"
+    )
+    # Best-effort re-open.  Errors are swallowed so the recovery poll
+    # has a chance to succeed even if the re-open call itself raised.
+    try:
+        await invoker.invoke("feige_open_session", {"customer_name": customer_key})
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.debug(f"[hot_path_v2] re-open feige_open_session errored: {exc}")
+    recovered_ok, recovered_active = await _verify_active_customer(
+        primitives, customer_key,
+        attempts=PRE_SEND_REVERIFY_ATTEMPTS,
+        interval=PRE_SEND_REVERIFY_INTERVAL_S,
+    )
+    if not recovered_ok:
+        logger.error(
+            f"[hot_path_v2] ABORT send — pre-send re-verify failed after "
+            f"re-open: expected={customer_key!r} active={recovered_active!r}, "
+            f"node={node_name}"
+        )
+        return False, "pre_send_reverify_failed"
+    logger.info(
+        f"[hot_path_v2] pre-send re-verify recovered — active now "
+        f"{recovered_active!r}, node={node_name}"
+    )
+    return True, ""
+
+
+async def _restore_recent_contacts_tab(
+    primitives: BrowserPrimitives,
+    node_name: str,
+) -> None:
+    """Click Feige's '最近联系' sub-tab; non-fatal on failure."""
+    try:
+        clicked = await primitives.click(RECENT_CONTACTS_TAB_SELECTOR)
+        if clicked:
+            await asyncio.sleep(POST_SEND_TAB_RESTORE_SLEEP_S)
+            logger.info(
+                f"[hot_path_v2] switched back to '最近联系' tab, node={node_name}"
+            )
+    except Exception as exc:
+        logger.debug(f"[hot_path_v2] tab switch failed: {exc}")
+
+
+# ============================================================================
+# Executor — orchestrates one HOT-PATH-B action sequence
+# ============================================================================
+
+
+class HotPathExecutorV2:
+    """v2 HOT-PATH-B executor satisfying
+    :class:`front_desk_hot_path_v2.HotPathExecutor` Protocol.
+
+    Constructor wires the two backends; :meth:`execute` runs a single
+    sequence and returns a :class:`HotPathOutcomeV2`.  The same
+    instance can be reused across many calls.
+    """
+
+    def __init__(
+        self,
+        primitives: BrowserPrimitives,
+        invoker: ToolInvoker,
+        typing_lock: TypingLock,
+    ):
+        self._prim = primitives
+        self._invoker = invoker
+        self._lock = typing_lock
+
+    # ── public ──
+    async def execute(
+        self,
+        *,
+        customer_key: str,
+        action_seq: list[dict],
+        payload: dict,
+        resolve_template: Callable[[Any, dict], Any],
+        node_name: str = "",
+    ) -> HotPathOutcomeV2:
+        return await execute_v2(
+            primitives=self._prim,
+            invoker=self._invoker,
+            typing_lock=self._lock,
+            customer_key=customer_key,
+            action_seq=action_seq,
+            payload=payload,
+            resolve_template=resolve_template,
+            node_name=node_name,
+        )
+
+
+# ============================================================================
+# Functional entry point — preserved for callers that prefer free functions
+# ============================================================================
+
+
+async def _acquire_typing_lock(
+    typing_lock: TypingLock, customer_key: str, node_name: str,
+) -> bool:
+    """Bounded-wait typing-lock acquire (identical to v1 timing)."""
+    if not customer_key:
+        return False
+    for _ in range(TYPING_LOCK_WAIT_ATTEMPTS):
+        if typing_lock.try_acquire(customer_key):
+            logger.info(
+                f"[hot_path_v2] acquired Feige typing lock "
+                f"cust={customer_key!r}, node={node_name}"
+            )
+            return True
+        await asyncio.sleep(TYPING_LOCK_WAIT_INTERVAL_S)
+    logger.warning(
+        f"[hot_path_v2] could not acquire typing lock cust={customer_key!r} "
+        f"within {TYPING_LOCK_WAIT_ATTEMPTS * TYPING_LOCK_WAIT_INTERVAL_S:.1f}s "
+        f"(holder={typing_lock.holder()!r}); proceeding lock-less, node={node_name}"
+    )
+    return False
+
+
+async def _run_one_action(
+    act: dict,
+    *,
+    primitives: BrowserPrimitives,
+    invoker: ToolInvoker,
+    payload: dict,
+    resolve_template: Callable[[Any, dict], Any],
+    customer_key: str,
+    node_name: str,
+    outcome: HotPathOutcomeV2,
+) -> bool:
+    """Execute one action.  Returns True to continue, False to abort."""
+    outcome.actions_attempted += 1
+    tool_name = act.get("tool", "")
+    resolved_args = {
+        k: resolve_template(v, payload) for k, v in act.get("args", {}).items()
+    }
+
+    # Pre-send re-verify (Fix A in v1, line-for-line preserved).
+    if tool_name == "feige_send_message" and customer_key:
+        ok, reason = await _pre_send_reverify(
+            primitives, invoker, customer_key, node_name,
+        )
+        if not ok:
+            outcome.reason = reason
+            return False
+
+    # Invoke the tool.
+    result = await invoker.invoke(tool_name, resolved_args)
+    if not result.ok:
+        # Distinguish missing tool vs failure.
+        if result.error.startswith("tool_not_found:"):
+            outcome.reason = result.error
+        else:
+            outcome.last_tool_error = result.error
+            outcome.reason = f"tool_failed:{tool_name}"
+        logger.warning(
+            f"[hot_path_v2] {tool_name} → FAIL args={resolved_args} "
+            f"error={result.error!r}"
+        )
+        return False
+
+    logger.info(
+        f"[hot_path_v2] {tool_name} → OK args={resolved_args} "
+        f"extracted={result.extracted_content!r}"
+    )
+
+    # Post-open crosstalk guard.
+    if tool_name == "feige_open_session":
+        ok, reason = await _post_open_verify(
+            primitives, resolved_args, node_name,
+        )
+        if not ok:
+            outcome.reason = reason
+            return False
+
+    delay_ms = act.get("delay_after_ms", 300)
+    await asyncio.sleep(float(delay_ms) / 1000.0)
+    return True
+
+
+async def execute_v2(
+    *,
+    primitives: BrowserPrimitives,
+    invoker: ToolInvoker,
+    typing_lock: TypingLock,
+    customer_key: str,
+    action_seq: list[dict],
+    payload: dict,
+    resolve_template: Callable[[Any, dict], Any],
+    node_name: str = "",
+) -> HotPathOutcomeV2:
+    """Run a Feige HOT-PATH-B action sequence using v2 surfaces.
+
+    Behaviour matches v1 ``hot_path.execute`` line-for-line:
+
+    1. Acquire typing lock (bounded wait).
+    2. Loop ``action_seq``, invoking each tool via :class:`ToolInvoker`.
+       * Pre-send re-verify on ``feige_send_message`` with re-open recovery.
+       * Post-open crosstalk-guard verification on ``feige_open_session``.
+       * Per-action settle delay (``delay_after_ms``, default 300).
+    3. On full success: click ``最近联系`` to restore tab state.
+    4. ``finally``: release typing lock on every exit path.
+
+    Differences from v1 are documented in module docstring; none of
+    them affect the decision tree.
+    """
+    outcome = HotPathOutcomeV2()
+    outcome.typing_acquired = await _acquire_typing_lock(
+        typing_lock, customer_key, node_name,
+    )
+
+    try:
+        for act in action_seq:
+            if not await _run_one_action(
+                act,
+                primitives=primitives,
+                invoker=invoker,
+                payload=payload,
+                resolve_template=resolve_template,
+                customer_key=customer_key,
+                node_name=node_name,
+                outcome=outcome,
+            ):
+                break
+        else:
+            # Loop completed every action without break → success.  The
+            # for-else also runs when action_seq is empty, preserving
+            # v1's "empty sequence = success" behaviour.
+            outcome.ok = True
+            outcome.reason = "all_ok"
+            await _restore_recent_contacts_tab(primitives, node_name)
+    except Exception as exc:
+        logger.warning(
+            f"[hot_path_v2] executor exception: {exc}", exc_info=True,
+        )
+        outcome.ok = False
+        if not outcome.reason:
+            outcome.reason = f"exception:{exc}"
+    finally:
+        if outcome.typing_acquired and customer_key:
+            try:
+                typing_lock.release(customer_key)
+            except Exception:
+                pass
+
+    return outcome

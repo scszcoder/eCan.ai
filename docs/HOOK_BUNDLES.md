@@ -22,6 +22,17 @@ and strictly additive — existing skills continue to work unchanged.
 > both systems; they solve non-overlapping problems.  Pick the right
 > layer for your use case before authoring.
 
+> **Hybrid-cloud bundle delivery.**  The signing infrastructure
+> described under *Trust model and signing* below is reused verbatim
+> for **on-demand bundle distribution** to local agents in
+> `runEnvironment=hybrid_cloud` skills (the cloud worker holds the
+> authoritative bundle catalogue; locals receive bundles over the
+> hybrid wire protocol when a skill needs them).  See
+> [`HYBRID_CLOUD_HOOKS.md`](./HYBRID_CLOUD_HOOKS.md) §
+> *Bundle delivery* for the cloud-side `pack_bundle_request` and the
+> local-side `BundleDeliveryExecutor`.  No new crypto is introduced;
+> only the transport changes.
+
 - [Concepts](#concepts)
 - [Bundle layout](#bundle-layout)
 - [Writing a hook](#writing-a-hook)

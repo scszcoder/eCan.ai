@@ -11,6 +11,18 @@ patterns** (e.g. Feige's front-desk + Q&A-worker fan-out) extend the generic
 > two systems are orthogonal; a single site bundle (e.g. `feige_chat`) can
 > and does use both.  See [*Relationship to `HookDispatcher` bundles*](#relationship-to-hookdispatcher-bundles).
 
+> **Hybrid-cloud / tiered hooks (v2).**  This document describes the
+> *contract* (three phases, hook signature, registration).  A second-
+> generation typing layer adds an `EXECUTION_TIER` attribute and
+> tier-specific context types so the same hook implementation can run
+> across `full_local`, `full_cloud`, and `hybrid_cloud` deployments
+> without modification.  v2 is **purely additive** — a hook that
+> doesn't declare `EXECUTION_TIER` runs through the legacy code path
+> described here, byte-identical to before.  See
+> [`HYBRID_CLOUD_HOOKS.md`](./HYBRID_CLOUD_HOOKS.md) for the v2
+> contract, the `runEnvironment` flowgram flag, and the cross-tier
+> wire protocol.
+
 - [When to use this system](#when-to-use-this-system)
 - [The three phases](#the-three-phases)
 - [Context types](#context-types)
