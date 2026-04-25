@@ -71,14 +71,23 @@ from agent.ec_skills.browser_node.agent import reset_bu_agent_for_next_round
 
 # Re-imports from build_node — these will move into this package
 # when Phase 6 collapses the giant function.
+# Phase 6.5 (2026-04-24): context dataclasses live in their own module
+# now to break the runner→build_node import cycle.
+from agent.ec_skills.browser_node.contexts import (
+    BrowserUseHookContext,
+    PromptBuildContext,
+    _AssignmentContext,
+)
+
+# Phase 6.7 (2026-04-24): browser-session helpers + state dicts moved
+# out of build_browser_automation_node into a dedicated module.
+from agent.ec_skills.browser_node import build_helpers as _bh
+
 from agent.ec_skills.build_node import (
     _resolve_mustache_template,
     _SafeFormatDict,
     _parse_json_input,
     _log_browser_use_result_summary,
-    PromptBuildContext,
-    BrowserUseHookContext,
-    _AssignmentContext,
     send_skill_editor_log,
     get_traceback,
     THINKING_SUPPRESSION_INSTRUCTION,
@@ -90,6 +99,11 @@ from agent.ec_skills.build_node import (
     _is_dispatch_inflight,
     _mark_dispatch_inflight,
     _clear_dispatch_inflight,
+    # Phase 6.7: module-level helpers + state previously plumbed via RunContext.
+    _normalize_dispatch_identity_key,
+    _resolve_template,
+    _cached_passive_agents,
+    _dispatch_state_by_agent,
 )
 
 
@@ -139,7 +153,9 @@ class RunContext:
     owner: str
     inputs: dict
 
-    # ── Node-editor settings (22) ───────────────────────────────
+    # ── Node-editor settings (23) ───────────────────────────────
+    # Phase 6.7 added cdp_port_setting + downloads_path so the lifted
+    # ``get_or_create_browser_session`` can reach them via ctx.
     node_llm_provider: Any
     node_model_name: Any
     node_use_vision: bool
@@ -160,34 +176,29 @@ class RunContext:
     event_monitor_done_policy: str
     browser_type_setting: str
     browser_driver_setting: str
+    cdp_port_setting: str
+    downloads_path: Any
     actionable_field: Any
-    _MAX_BROWSER_CACHE_SIZE: int
-
-    # ── Build-scope helpers (9) ─────────────────────────────────
-    _resolve_browser_scope_key: Callable
-    _get_or_create_browser_session: Callable
-    _is_session_started: Callable
-    _patch_browser_session_lifecycle_debug: Callable
-    _extract_runtime_invocation_input: Callable
-    _normalize_dispatch_identity_key: Callable
-    _resolve_template: Callable
-    _get_browser_profile_settings: Callable
-    _extract_assignment_scope: Callable
-
-    # ── Mutable state dicts (5) ─────────────────────────────────
-    _cached_browser_sessions: dict
-    _cached_bu_agents: dict
-    _cached_passive_agents: dict
-    _last_known_focus_target_ids: dict
-    _dispatch_state_by_agent: dict
 
     # ── Lifecycle hook registries (3) ───────────────────────────
-    _before_browser_session_setup_hooks: list
-    _before_prompt_build_hooks: list
-    _before_browser_use_run_hooks: list
+    before_browser_session_setup_hooks: list
+    before_prompt_build_hooks: list
+    before_browser_use_run_hooks: list
 
     # ── Event monitor configs (1) ───────────────────────────────
-    _event_monitor_configs: list = field(default_factory=list)
+    event_monitor_configs: list = field(default_factory=list)
+
+    # Phase 6.7 (2026-04-24) dropped 18 fields:
+    #   * 9 helpers — now in browser_node/build_helpers.py
+    #   * 5 state dicts — now module-level in build_helpers.py
+    #     (cached_browser_sessions, cached_bu_agents,
+    #     last_known_focus_target_ids) or already module-level in
+    #     build_node.py (cached_passive_agents, dispatch_state_by_agent)
+    #   * 4 module-level callables (normalize_dispatch_identity_key,
+    #     resolve_template) and module-level state already importable
+    #     from build_node directly
+    #   * max_browser_cache_size — now MAX_BROWSER_CACHE_SIZE in
+    #     build_helpers.py
 
 
 # ``BrowserUseRunner`` (815 lines) deleted 2026-04-24 — fully inlined into
@@ -3418,20 +3429,27 @@ class BrowserRunSession:
             node_name=str(self.ctx.node_name or ""),
             calling_agent_id=str(self.calling_agent_id or ""),
             mainwin=self.mainwin,
-            resolve_scope_key=self.ctx._resolve_browser_scope_key,
-            extract_runtime_invocation_input=self.ctx._extract_runtime_invocation_input,
+            resolve_scope_key=lambda s: _bh.resolve_browser_scope_key(s, node_name=self.ctx.node_name),
+            extract_runtime_invocation_input=_bh.extract_runtime_invocation_input,
             parse_json_input=_parse_json_input,
             send_log=send_skill_editor_log,
-            normalize_dispatch_identity_key=self.ctx._normalize_dispatch_identity_key,
+            normalize_dispatch_identity_key=_normalize_dispatch_identity_key,
             safe_format_dict=_SafeFormatDict,
-            cached_browser_sessions=self.ctx._cached_browser_sessions,
-            dispatch_state_by_agent=self.ctx._dispatch_state_by_agent,
+            cached_browser_sessions=_bh.cached_browser_sessions,
+            dispatch_state_by_agent=_dispatch_state_by_agent,
             is_dispatch_inflight=_is_dispatch_inflight,
             mark_dispatch_inflight=_mark_dispatch_inflight,
             clear_dispatch_inflight=_clear_dispatch_inflight,
             inflight_ttl_s=_DISPATCH_INFLIGHT_TTL_S,
-            resolve_template=self.ctx._resolve_template,
-            get_or_create_browser_session=self.ctx._get_or_create_browser_session,
+            resolve_template=_resolve_template,
+            # Phase 6.7: wrap to bind ctx=self.ctx; the hook contract still
+            # expects ``get_or_create_browser_session(mainwin, state=..., calling_agent_id=...)``.
+            get_or_create_browser_session=(
+                lambda mainwin, state=None, calling_agent_id=None:
+                    _bh.get_or_create_browser_session(
+                        mainwin, state=state, calling_agent_id=calling_agent_id, ctx=self.ctx,
+                    )
+            ),
         )
 
     async def _inject_event_context(
@@ -3514,7 +3532,7 @@ class BrowserRunSession:
                                 # supplies non-empty text (or a short_circuit_state), the
                                 # generic fallback injection below is skipped.
                                 _pb_handled = False
-                                if self.ctx._before_prompt_build_hooks:
+                                if self.ctx.before_prompt_build_hooks:
                                     _pb_ctx = PromptBuildContext(
                                         compact_items=list(_compact_items),
                                         actionable_raw=list(_actionable_raw),
@@ -3523,7 +3541,7 @@ class BrowserRunSession:
                                         event_label=str(_evt_label or ""),
                                     )
                                     _pb_hook_ctx = self._build_hook_ctx()
-                                    for _pb_hook in self.ctx._before_prompt_build_hooks:
+                                    for _pb_hook in self.ctx.before_prompt_build_hooks:
                                         _pb_result = await _pb_hook(state, self.ctx.inputs, _pb_hook_ctx, _pb_ctx)
                                         if _pb_result is None:
                                             continue
@@ -3596,10 +3614,10 @@ class BrowserRunSession:
         ``_before_browser_session_setup_hooks``, ``inputs``
         from ``build_browser_automation_node``.
         """
-        if not self.ctx._before_browser_session_setup_hooks:
+        if not self.ctx.before_browser_session_setup_hooks:
             return None
         _early_hook_ctx = self._build_hook_ctx()
-        for _early_hook in self.ctx._before_browser_session_setup_hooks:
+        for _early_hook in self.ctx.before_browser_session_setup_hooks:
             _early_result = await _early_hook(
                 None, self.state, self.ctx.inputs, _early_hook_ctx
             )
@@ -3644,7 +3662,7 @@ class BrowserRunSession:
         ``node_name`` from ``build_browser_automation_node``.
         """
         state = self.state
-        assignment_scope = self.ctx._extract_assignment_scope(runtime_input)
+        assignment_scope = _bh.extract_assignment_scope(runtime_input)
         assignment_session_id = str(
             assignment_scope.get("session_id")
             or assignment_scope.get("sessionId")
@@ -3727,9 +3745,9 @@ class BrowserRunSession:
                         f"(non-fatal): {_render_err}"
                     )
 
-        _browser_scope_key = self.ctx._resolve_browser_scope_key(state)
-        _cached_browser_session = self.ctx._cached_browser_sessions.get(_browser_scope_key)
-        _last_known_focus_target_id = self.ctx._last_known_focus_target_ids.get(_browser_scope_key)
+        _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+        _cached_browser_session = _bh.cached_browser_sessions.get(_browser_scope_key)
+        _last_known_focus_target_id = _bh.last_known_focus_target_ids.get(_browser_scope_key)
 
         return (
             None,
@@ -3892,14 +3910,20 @@ class BrowserRunSession:
             return await _run_browser_passive_step(
                 state,
                 self.mainwin,
-                get_browser_session=self.ctx._get_or_create_browser_session,
-                is_session_started=self.ctx._is_session_started,
+                # Phase 6.7: bind ctx=self.ctx for the lifted helper.
+                get_browser_session=(
+                    lambda mainwin, state=None, calling_agent_id=None:
+                        _bh.get_or_create_browser_session(
+                            mainwin, state=state, calling_agent_id=calling_agent_id, ctx=self.ctx,
+                        )
+                ),
+                is_session_started=_bh.is_session_started,
                 last_known_focus_target_id=last_known_focus_target_id,
-                last_known_focus_target_ids=self.ctx._last_known_focus_target_ids,
+                last_known_focus_target_ids=_bh.last_known_focus_target_ids,
                 browser_scope_key=browser_scope_key,
                 node_name=self.ctx.node_name,
                 calling_agent_id=self.calling_agent_id,
-                passive_agent_cache=self.ctx._cached_passive_agents,
+                passive_agent_cache=_cached_passive_agents,
             )
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
@@ -4111,8 +4135,8 @@ class BrowserRunSession:
             maybe_apply_extract_patch as _maybe_extract_patch,
         )
 
-        profile_settings = self.ctx._get_browser_profile_settings(self.ctx.node_profile)
-        keep_browser_alive = bool(self.ctx._event_monitor_configs)
+        profile_settings = _bh.get_browser_profile_settings(self.ctx.node_profile)
+        keep_browser_alive = bool(self.ctx.event_monitor_configs)
         browser_profile = _build_browser_profile(
             profile_settings=profile_settings,
             node_profile=self.ctx.node_profile,
@@ -4149,7 +4173,7 @@ class BrowserRunSession:
         # Factories close over the names they need (node_name for the step
         # label, _agent_ref for the done-callback's session lookup).
         _agent_ref: dict[str, "Any"] = {}
-        if self.ctx._event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
+        if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(self.ctx.node_name)
 
@@ -4282,7 +4306,7 @@ class BrowserRunSession:
         if self.ctx.browser_type_setting == 'new chromium':
             # Mode 1: Let browser-use create and manage its own Chromium browser.
             logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
-            _bu_scope_key = self.ctx._resolve_browser_scope_key(state)
+            _bu_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
             agent = await _acquire_agent(
                 AgentClass=AgentClass,
                 task=task,
@@ -4290,7 +4314,7 @@ class BrowserRunSession:
                 controller=controller,
                 agent_kwargs=agent_kwargs,
                 bu_scope_key=_bu_scope_key,
-                cached_bu_agents=self.ctx._cached_bu_agents,
+                cached_bu_agents=_bh.cached_bu_agents,
                 loop_history_mode=self.ctx.loop_history_mode,
                 fp_profile=fp_profile,
             )
@@ -4303,8 +4327,8 @@ class BrowserRunSession:
             f"(type={self.ctx.browser_type_setting}, driver={self.ctx.browser_driver_setting})"
         )
 
-        browser_session = await self.ctx._get_or_create_browser_session(
-            mainwin, state=state, calling_agent_id=self.calling_agent_id,
+        browser_session = await _bh.get_or_create_browser_session(
+            mainwin, state=state, calling_agent_id=self.calling_agent_id, ctx=self.ctx,
         )
 
         if browser_session and self.ctx.browser_driver_setting == 'native':
@@ -4321,8 +4345,8 @@ class BrowserRunSession:
                 browser_session,
                 keep_browser_alive=keep_browser_alive,
                 fp_profile=fp_profile,
-                is_session_started=self.ctx._is_session_started,
-                patch_lifecycle_debug=self.ctx._patch_browser_session_lifecycle_debug,
+                is_session_started=_bh.is_session_started,
+                patch_lifecycle_debug=_bh.patch_browser_session_lifecycle_debug,
             )
 
             # CDP focus preflight — re-bind agent focus to a valid page target.
@@ -4366,7 +4390,7 @@ class BrowserRunSession:
             )
 
             # Acquire-or-reuse cached browser-use agent (CDP path).
-            _bu_scope_key = self.ctx._resolve_browser_scope_key(state)
+            _bu_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
             agent = await _acquire_agent(
                 AgentClass=AgentClass,
                 task=task,
@@ -4374,7 +4398,7 @@ class BrowserRunSession:
                 controller=controller,
                 agent_kwargs=agent_kwargs,
                 bu_scope_key=_bu_scope_key,
-                cached_bu_agents=self.ctx._cached_bu_agents,
+                cached_bu_agents=_bh.cached_bu_agents,
                 loop_history_mode=self.ctx.loop_history_mode,
                 fp_profile=None,
                 browser_session=browser_session,
@@ -4453,8 +4477,8 @@ class BrowserRunSession:
             pass
 
         state = self.state
-        browser_scope_key = self.ctx._resolve_browser_scope_key(state)
-        cached_browser_session = self.ctx._cached_browser_sessions.get(browser_scope_key)
+        browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+        cached_browser_session = _bh.cached_browser_sessions.get(browser_scope_key)
         # Merge with the dict value rather than overwriting: the focus preflight
         # (CDP path) may have set last_known_focus_target_id to the active tab.
         # Re-reading the dict here would discard that value (the dict is only
@@ -4462,7 +4486,7 @@ class BrowserRunSession:
         # have nothing to refocus to.
         last_known_focus_target_id = (
             last_known_focus_target_id
-            or self.ctx._last_known_focus_target_ids.get(browser_scope_key)
+            or _bh.last_known_focus_target_ids.get(browser_scope_key)
         )
 
         # Defensive post-construction cache update + keep_alive re-application.
@@ -4474,13 +4498,13 @@ class BrowserRunSession:
         _update_session_cache(
             agent,
             browser_scope_key=browser_scope_key,
-            cached_browser_sessions=self.ctx._cached_browser_sessions,
+            cached_browser_sessions=_bh.cached_browser_sessions,
             cached_browser_session=cached_browser_session,
-            last_known_focus_target_ids=self.ctx._last_known_focus_target_ids,
-            cached_passive_agents=self.ctx._cached_passive_agents,
+            last_known_focus_target_ids=_bh.last_known_focus_target_ids,
+            cached_passive_agents=_cached_passive_agents,
             keep_browser_alive=keep_browser_alive,
-            max_cache_size=self.ctx._MAX_BROWSER_CACHE_SIZE,
-            patch_lifecycle_debug=self.ctx._patch_browser_session_lifecycle_debug,
+            max_cache_size=_bh.MAX_BROWSER_CACHE_SIZE,
+            patch_lifecycle_debug=_bh.patch_browser_session_lifecycle_debug,
         )
 
         # Register the live agent + runtime context with extension_tools_service.
@@ -4495,7 +4519,7 @@ class BrowserRunSession:
 
         # Monkey-patch eventbus.stop + close to preserve the browser session
         # across agent.run() when this run has long-lived event monitors.
-        if keep_browser_alive and self.ctx._event_monitor_configs:
+        if keep_browser_alive and self.ctx.event_monitor_configs:
             from agent.ec_skills.browser_node.runner import (
                 patch_agent_for_monitored_keep_alive as _patch_keep_alive,
             )
@@ -4504,7 +4528,7 @@ class BrowserRunSession:
         # Auto-start event monitors on the agent's browser session.
         await _start_monitors(
             agent,
-            event_monitor_configs=self.ctx._event_monitor_configs,
+            event_monitor_configs=self.ctx.event_monitor_configs,
             calling_agent_id=self.calling_agent_id,
             skill_name=self.ctx.skill_name,
             browser_scope_key=browser_scope_key,
@@ -4581,7 +4605,7 @@ class BrowserRunSession:
         _fi_state = _maybe_fi_skip(
             state=self.state,
             evt_type=evt_type,
-            event_monitor_configs=self.ctx._event_monitor_configs,
+            event_monitor_configs=self.ctx.event_monitor_configs,
             first_invocation_done=_first_invocation_done,
             browser_scope_key=browser_scope_key,
             node_name=self.ctx.node_name,
@@ -4599,9 +4623,9 @@ class BrowserRunSession:
         # themselves via ``register_before_browser_use_run_hook``
         # at module-import time; build_node itself has no knowledge
         # of what any registered hook does.
-        if self.ctx._before_browser_use_run_hooks:
+        if self.ctx.before_browser_use_run_hooks:
             _bur_hook_ctx = self._build_hook_ctx()
-            for _bur_hook in self.ctx._before_browser_use_run_hooks:
+            for _bur_hook in self.ctx.before_browser_use_run_hooks:
                 _bur_hook_result = await _bur_hook(
                     agent, self.state, self.ctx.inputs, _bur_hook_ctx
                 )
@@ -4739,7 +4763,7 @@ class BrowserRunSession:
         _persist_focus(
             agent,
             browser_scope_key=browser_scope_key,
-            last_known_focus_target_ids=self.ctx._last_known_focus_target_ids,
+            last_known_focus_target_ids=_bh.last_known_focus_target_ids,
         )
 
         # Log step budget for postmortem diagnostics.
@@ -4804,7 +4828,7 @@ class BrowserRunSession:
         await _stop_non_cached(
             agent,
             browser_scope_key=browser_scope_key,
-            cached_browser_sessions=self.ctx._cached_browser_sessions,
+            cached_browser_sessions=_bh.cached_browser_sessions,
             browser_type_setting=self.ctx.browser_type_setting,
         )
 
@@ -4818,7 +4842,7 @@ class BrowserRunSession:
         # Note: previously `nonlocal _last_known_focus_target_ids` from when
         # this class was nested inside ``build_browser_automation_node``.
         # Phase 6.2 rewrote every closure ref to ``self.ctx.*``, so the dict
-        # is now ``self.ctx._last_known_focus_target_ids`` (mutable, shared
+        # is now ``_bh.last_known_focus_target_ids`` (mutable, shared
         # by reference with the build scope — mutations still persist).
         # Entry trace — pairs with [BA._auto] worker_call start/done so we
         # can see whether the hang is in the thread-hop itself or inside
@@ -4858,13 +4882,13 @@ class BrowserRunSession:
                 node_name=self.ctx.node_name,
                 skill_name=self.ctx.skill_name,
                 resolve_mustache_template=_resolve_mustache_template,
-                extract_runtime_invocation_input=self.ctx._extract_runtime_invocation_input,
+                extract_runtime_invocation_input=_bh.extract_runtime_invocation_input,
             )
             # Recompute runtime_input for downstream consumers
             # (assignment-scope extraction + assignment-gate diagnostics).
             # _prepare_task already injected it into the task; this binding
             # is just so the references at lines below resolve.
-            runtime_input = self.ctx._extract_runtime_invocation_input(state)
+            runtime_input = _bh.extract_runtime_invocation_input(state)
 
             # Inject triggering-event context + run prompt-build hooks.
             _early_exit, task, _evt_type = await self._inject_event_context(task=task)

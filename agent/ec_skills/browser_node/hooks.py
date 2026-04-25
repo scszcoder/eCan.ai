@@ -28,12 +28,14 @@ from typing import Any, Callable
 from utils.logger_helper import logger_helper as logger
 
 # Re-import contracts from build_node to avoid duplicate definitions.
-# When build_node.py collapses to a shim (Phase 6), the dataclasses
-# move into this package and build_node.py imports them from here.
-from agent.ec_skills.build_node import (
+# Phase 6.5 (2026-04-24): context dataclasses live in their own module
+# now.  build_node.py re-exports them for back-compat.
+from agent.ec_skills.browser_node.contexts import (
     BrowserUseHookContext,
     PromptBuildContext,
     PromptBuildResult,
+)
+from agent.ec_skills.build_node import (
     _before_browser_session_setup_hooks,
     _before_prompt_build_hooks,
     _before_browser_use_run_hooks,
