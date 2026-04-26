@@ -2567,6 +2567,56 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # End Context Engineering
             # =================================================================
             
+            # ── Multimodal upgrade (pre-hook stage) ───────────────────────────
+            # If the inbound payload (state["input"] JSON) carries
+            # ``latest_message_attachments`` with ``data_uri`` blobs
+            # (eager-fetched by the front-desk's pre-dispatch hook), replace
+            # the current-turn HumanMessage at ``messages[-1]`` with a proper
+            # multimodal content list ([text_part, image_url_part, ...]) and
+            # strip the base64 blob out of the text part.
+            #
+            # Why here (before run_pre_llm_hook) and NOT after recent_context is
+            # built: with a raw ~6 MB data-URI-bearing HumanMessage,
+            # ``get_recent_context`` sees it as ~2.6 M tokens and silently drops
+            # it via its token-budget filter, leaving recent_context with only
+            # the SystemMessage.  Upgrading here keeps the text part tiny (~7 KB)
+            # and lets the multimodal HumanMessage flow through the pre-hook
+            # into ``state["history"]`` and then through get_recent_context.
+            #
+            # Fully try/except'd — a failure MUST NOT break the text-only path.
+            try:
+                if (
+                    messages
+                    and isinstance(messages[-1], HumanMessage)
+                    and isinstance(messages[-1].content, str)
+                ):
+                    from agent.ec_skills.llm_utils.llm_utils import (
+                        prep_multi_modal_content,
+                    )
+                    _mm_content = prep_multi_modal_content(
+                        state,
+                        runtime,
+                        llm=None,  # vision-capability check deferred to build_llm
+                        base_text=messages[-1].content,
+                    )
+                    if _mm_content:
+                        _img_n = sum(
+                            1 for p in _mm_content
+                            if isinstance(p, dict) and p.get("type") == "image_url"
+                        )
+                        messages[-1] = HumanMessage(content=_mm_content)
+                        logger.info(
+                            f"[multimodal-llm-node] node={node_name} "
+                            f"upgraded messages[-1] HumanMessage to multimodal "
+                            f"({_img_n} image part(s))"
+                        )
+            except Exception as _mm_exc:
+                logger.warning(
+                    f"[multimodal-llm-node] non-fatal upgrade failure "
+                    f"(continuing text-only): "
+                    f"{type(_mm_exc).__name__}: {_mm_exc}"
+                )
+
             _t_stage = _time.perf_counter()
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
             _perf_llm("pre_hook", _t_stage)
