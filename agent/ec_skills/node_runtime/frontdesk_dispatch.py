@@ -519,6 +519,25 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     last_msg = str(item.get("last_message") or "").strip()
     if last_msg:
         payload["latest_message"] = last_msg
+    # ── Multimodal: customer-attached images ─────────────────────────
+    # The hot-path scraper (``feige_chat.pre_dispatch_v2`` /
+    # ``pre_dispatch_enrich``) populates ``item["last_message_attachments"]``
+    # with a list of dicts ``{"kind": "image", "url": "...", "data_uri":
+    # "data:image/...;base64,...", "alt": "..."}`` — ``data_uri`` present
+    # on successful eager-fetch, ``fetch_error`` present on fallback.
+    # We forward the list verbatim so the Q&A worker side can decide
+    # how to surface it to its LLM (vision content parts when the model
+    # supports vision; descriptive text-only fallback otherwise).
+    atts = item.get("last_message_attachments")
+    if isinstance(atts, list) and atts:
+        # Defensive shallow copy + filter to JSON-serialisable dicts so
+        # a malformed entry can't poison the send_chat envelope.
+        cleaned: list[dict] = []
+        for a in atts:
+            if isinstance(a, dict) and (a.get("data_uri") or a.get("url")):
+                cleaned.append(a)
+        if cleaned:
+            payload["latest_message_attachments"] = cleaned
     for extra_key in cfg.assignment_extra_fields:
         ek = str(extra_key)
         if ek and ek in item and ek not in payload:

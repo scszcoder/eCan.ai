@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from agent.ec_skills.browser_node.contexts import (
@@ -58,11 +58,20 @@ class ScrapeResult:
 
     Wire-format-friendly — a dataclass with str/bool fields so it
     serializes cleanly across the local→cloud boundary in hybrid mode.
+
+    ``attachments`` is a list of dicts (each ``{"kind": "image", "url":
+    "https://...", "alt": "..."}``) extracted from the customer bubble
+    along with the text.  Empty list when the bubble was text-only or
+    when scrape failed.  Cloud side is responsible for downloading and
+    base64-encoding the URLs (see ``image_fetch.fetch_image_to_data_uri``)
+    before forwarding to the Q&A worker — the wire format intentionally
+    keeps URLs (not data URIs) here so the local→cloud RPC stays small.
     """
     scrape_ok: bool
     msg_id: str = ""
     text: str = ""
     error: str = ""
+    attachments: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -70,15 +79,28 @@ class ScrapeResult:
             "msg_id": self.msg_id,
             "text": self.text,
             "error": self.error,
+            "attachments": list(self.attachments or []),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "ScrapeResult":
+        # Defensive: accept missing/non-list attachments and coerce items.
+        raw_atts = d.get("attachments") or []
+        atts: list[dict] = []
+        if isinstance(raw_atts, list):
+            for a in raw_atts:
+                if isinstance(a, dict) and a.get("url"):
+                    atts.append({
+                        "kind": str(a.get("kind") or "image"),
+                        "url": str(a.get("url") or ""),
+                        "alt": str(a.get("alt") or ""),
+                    })
         return cls(
             scrape_ok=bool(d.get("scrape_ok")),
             msg_id=str(d.get("msg_id") or ""),
             text=str(d.get("text") or ""),
             error=str(d.get("error") or ""),
+            attachments=atts,
         )
 
 

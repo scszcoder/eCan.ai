@@ -141,6 +141,26 @@ async def _scrape_and_override_last_message(
             f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
         )
         item["last_message"] = new_last
+
+    # Multimodal: forward any image attachments scraped from the
+    # customer bubble.  Eager fetch + base64-encode so signed CDN URLs
+    # (carrying ``x-expires=...``) don't expire en route to the worker.
+    # Failure is non-fatal — fall back to raw URL passthrough.  See
+    # ``pre_dispatch_v2._dispatch_one_item`` for the symmetric v2 path.
+    raw_atts = scraped.get("attachments") or []
+    if raw_atts:
+        try:
+            from .image_fetch import fetch_attachments  # local import
+            enriched = await fetch_attachments(raw_atts)
+            if enriched:
+                item["last_message_attachments"] = enriched
+        except Exception as fetch_exc:
+            logger.warning(
+                f"[BrowserAutomation] {log_tag} fetch_attachments failed "
+                f"for cust={customer_key!r}: {type(fetch_exc).__name__}: "
+                f"{fetch_exc!r}; forwarding raw URLs"
+            )
+            item["last_message_attachments"] = list(raw_atts)
     return msg_id
 
 
