@@ -2574,7 +2574,12 @@ _FEIGE_GET_THREAD_JS = r"""
       var alt = (im.getAttribute('alt') || '').trim();
       if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
       if (alt === '头像') continue;
-      var src = im.getAttribute('src') || im.src || '';
+      // Prefer the resolved ``.src`` property over the raw attribute
+      // so relative URLs (``/sample0.png``) become absolute, matching
+      // what the downstream aiohttp-based eager-fetch requires.  See
+      // ``feige_chat/dom_assets.py`` for the same fix on the bubble
+      // scraper.
+      var src = im.src || im.getAttribute('src') || '';
       if (!src) continue;
       if (src.indexOf('data:image/svg') === 0) continue;
       atts.push({ kind: 'image', url: src, alt: alt });

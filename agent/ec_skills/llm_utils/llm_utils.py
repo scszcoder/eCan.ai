@@ -299,75 +299,206 @@ def parse_json_from_response(response_text):
         return []
 
 
-def prep_multi_modal_content(state, runtime):
+_DATA_URI_STRIP_RE = re.compile(
+    r'"data_uri"\s*:\s*"data:image/[^"\\]*(?:\\.[^"\\]*)*"\s*,?\s*'
+)
+
+
+def _strip_data_uri_noise(text: str) -> str:
+    """Remove ``"data_uri": "data:image/...;base64,..."`` blobs from a JSON-ish
+    text string.
+
+    The Q&A worker's user-prompt has the entire dispatch payload (including
+    attachment ``data_uri`` fields) inlined as a JSON string.  When we
+    promote those attachments to ``image_url`` content parts, leaving the
+    base64 blob in the text wastes 2-3 KB of tokens per image and can
+    confuse the model with apparent random noise.  This regex-strip removes
+    just the ``"data_uri": "..."`` key/value pair (and the trailing comma if
+    present) while leaving the surrounding JSON structure intact and human-
+    readable.  Best-effort: returns the input unchanged on any error.
+    """
     try:
-        attachments = state.get("attachments", [])
-        user_content = []
-        logger.debug(f"node running: {runtime}")
-        user_input = state.get("input", "")
-        logger.debug(f"LLM input text: {user_input}")
-        # Add user text
-        user_content.append({"type": "text", "text": user_input})
+        return _DATA_URI_STRIP_RE.sub("", text)
+    except Exception:
+        return text
 
-        # Add all attachments in supported format
-        for att in attachments:
-            fname = att["filename"].lower()
 
-            mime_type = att.get("mime_type", "").lower()
-            logger.debug(f"Processing file: {fname} (MIME: {mime_type})")
+def prep_multi_modal_content(
+    state,
+    runtime=None,
+    *,
+    llm=None,
+    base_text: str | None = None,
+):
+    """Build a multimodal HumanMessage ``content`` list from ``state``.
 
-            # Skip if no file data
-            if not att.get("file_data"):
-                logger.debug(f"Skipping empty file: {fname}")
-                continue
+    Two attachment sources are supported (in priority order):
 
-            data = att["file_data"]
+    1. ``state["input"]`` — JSON string (the standard Q&A worker payload)
+       carrying ``latest_message_attachments`` per the front-desk → Q&A
+       worker contract.  Each entry is a dict with ``kind="image"`` and
+       either ``data_uri`` (success) or ``url`` + ``fetch_error`` (URL-
+       fallback).  Only ``data_uri`` entries are promoted to ``image_url``
+       parts; URL-fallback entries are dropped at debug level.
+    2. ``state["attachments"]`` — legacy schema with ``filename`` /
+       ``mime_type`` / ``file_data``.  Kept for backward compatibility
+       with any caller that pre-populates this field directly.
 
-            # file_text = extract_file_text(data, fname)
+    Vision capability is gated by ``llm.supports_vision`` when ``llm`` is
+    provided — returning ``None`` short-circuits the caller's upgrade path
+    so a non-vision model is never sent ``image_url`` parts (which would
+    error or be silently dropped).
 
-            # Handle image files (PNG, JPG, etc.)
-            if mime_type.startswith('image/'):
-                logger.debug(f"Processing image file: {fname}")
-                file_data = data if isinstance(data, str) else base64.b64encode(data).decode('utf-8')
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{mime_type};base64,{file_data}"
-                        # "detail": "auto"
-                    }
-                })
+    Args:
+        state:     Node state dict.  ``state["input"]`` may be a JSON
+                   string, ``state["attachments"]`` may be a list.
+        runtime:   LangGraph runtime (unused; kept for legacy signature).
+        llm:       Optional LLM instance for vision-capability gating.
+        base_text: Optional override for the leading ``text`` content part.
+                   When provided, the ``data_uri`` blobs are stripped from
+                   it before use (saves 2-3 KB tokens per image and avoids
+                   confusing the model with raw base64).  When omitted, the
+                   raw ``state["input"]`` is used (legacy behaviour).
 
-            # Handle PDF files
-            elif mime_type == 'application/pdf':
-                logger.debug(f"Processing PDF file: {fname}")
-                # For PDFs, we'll just note its existence since we can't process it directly
-                user_content.append({
-                    "type": "text",
-                    "text": f"[PDF file: {fname} - PDF content cannot be processed directly]"
-                })
+    Returns:
+        ``list[dict]`` ready for ``HumanMessage(content=...)`` when at
+        least one image part was added; ``None`` otherwise (no images
+        found, vision disabled, or any internal failure).  Callers should
+        treat ``None`` as "skip the upgrade — keep the original text-only
+        HumanMessage".
+    """
+    try:
+        # ── Vision capability gate ─────────────────────────────────────
+        if llm is not None:
+            try:
+                if getattr(llm, "supports_vision", True) is False:
+                    logger.info(
+                        "[multimodal] prep: skipping — LLM does not support "
+                        "vision (set supports_vision=True on the model "
+                        "config to enable)"
+                    )
+                    return None
+            except Exception:
+                pass  # be permissive — let the call through
 
-            # Handle audio files
-            elif mime_type.startswith('audio/'):
-                logger.debug(f"Processing audio file: {fname}")
-                # For audio files, we'll just note its existence
-                user_content.append({
-                    "type": "text",
-                    "text": f"[Audio file: {fname} - Audio content cannot be processed directly]"
-                })
+        # ── Resolve the leading text part ──────────────────────────────
+        # Prefer the caller-supplied base_text (already-rendered prompt);
+        # fall back to raw state["input"] for legacy callers.
+        if base_text is None:
+            base_text = state.get("input", "") if isinstance(state, dict) else ""
+        if not isinstance(base_text, str):
+            base_text = str(base_text)
 
-            # Handle other file types
-            else:
-                logger.warning(f"Unsupported file type: {fname} ({mime_type})")
-                # user_content.append({
-                #     "type": "text",
-                #     "text": f"[File: {fname} - This file type is not supported for direct analysis]"
-                # })
+        user_content: list[dict] = []
+        image_part_count = 0
 
+        # ── Source 1: latest_message_attachments parsed from state["input"] ──
+        text_size_before = len(base_text)
+        text_size_after = text_size_before
+        raw_input = state.get("input") if isinstance(state, dict) else None
+        if isinstance(raw_input, str) and raw_input.strip():
+            try:
+                payload = json.loads(raw_input)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                lma = payload.get("latest_message_attachments")
+                if isinstance(lma, list) and lma:
+                    pending_image_parts: list[dict] = []
+                    for entry in lma:
+                        if not isinstance(entry, dict):
+                            continue
+                        kind = entry.get("kind")
+                        if kind and kind != "image":
+                            continue
+                        data_uri = entry.get("data_uri")
+                        if not isinstance(data_uri, str) or not data_uri.startswith("data:image/"):
+                            err = entry.get("fetch_error")
+                            if err:
+                                logger.debug(
+                                    f"[multimodal] prep: dropping attachment "
+                                    f"with fetch_error={err!r} url={entry.get('url')!r}"
+                                )
+                            continue
+                        pending_image_parts.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": data_uri,
+                                "detail": "auto",
+                            },
+                        })
+                    if pending_image_parts:
+                        # Strip the (now redundant) base64 blobs from the
+                        # text part — they're fully represented as
+                        # image_url content parts.
+                        base_text = _strip_data_uri_noise(base_text)
+                        text_size_after = len(base_text)
+                        # Append text first, then images (OpenAI / Anthropic
+                        # both accept either order; text-first is the
+                        # convention used by browser-use and most examples).
+                        user_content.append({"type": "text", "text": base_text})
+                        user_content.extend(pending_image_parts)
+                        image_part_count += len(pending_image_parts)
+
+        # ── Source 2: legacy state["attachments"] schema ───────────────
+        if image_part_count == 0:
+            attachments = state.get("attachments", []) if isinstance(state, dict) else []
+            if isinstance(attachments, list) and attachments:
+                # Only seed the text part now (we deferred above for the
+                # data_uri-strip case).
+                user_content.append({"type": "text", "text": base_text})
+                for att in attachments:
+                    if not isinstance(att, dict):
+                        continue
+                    fname = (att.get("filename") or "").lower()
+                    mime_type = (att.get("mime_type") or "").lower()
+                    if not att.get("file_data"):
+                        logger.debug(f"[multimodal] prep: skipping empty file: {fname}")
+                        continue
+                    data = att["file_data"]
+                    if mime_type.startswith("image/"):
+                        file_data = (
+                            data if isinstance(data, str)
+                            else base64.b64encode(data).decode("utf-8")
+                        )
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{file_data}",
+                            },
+                        })
+                        image_part_count += 1
+                    elif mime_type == "application/pdf":
+                        user_content.append({
+                            "type": "text",
+                            "text": f"[PDF file: {fname} - PDF content cannot be processed directly]",
+                        })
+                    elif mime_type.startswith("audio/"):
+                        user_content.append({
+                            "type": "text",
+                            "text": f"[Audio file: {fname} - Audio content cannot be processed directly]",
+                        })
+                    else:
+                        logger.warning(
+                            f"[multimodal] prep: unsupported file type "
+                            f"{fname} ({mime_type})"
+                        )
+
+        if image_part_count == 0:
+            # No images materialised — caller should skip the upgrade and
+            # keep the existing text-only HumanMessage as-is.
+            return None
+
+        logger.info(
+            f"[multimodal] prep: built {image_part_count} image part(s) "
+            f"(text size {text_size_before}->{text_size_after} chars)"
+        )
         return user_content
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorPrepMultiModalContent")
-        logger.debug(err_trace)
+        logger.warning(f"[multimodal] prep failed (non-fatal): {err_trace}")
+        return None
 
 
 def get_country_by_ip() -> str | None:
@@ -3375,6 +3506,65 @@ def get_recent_context(
         filtered_history = _remove_old_screenshots(filtered_history, keep_recent=keep_screenshots)
         if len(filtered_history) < original_count:
             logger.debug(f"[get_recent_context] Removed old screenshots, kept {keep_screenshots} most recent")
+
+    # ── Multimodal hygiene: rewrite stale string-form HumanMessages that carry
+    # embedded ``data:image/...;base64,...`` blobs into proper multimodal
+    # content lists ``[{"type":"text", ...}, {"type":"image_url", ...}]``.
+    #
+    # This is a Layer-3 safety net for messages that landed in history
+    # BEFORE the build_node multimodal upgrade hook ran (e.g., turns from
+    # a previous app start, or from code paths that bypass the LLM-node
+    # pre-hook).  Without this, OpenAI's API tokenizer counts every base64
+    # byte as text and the call fails with ``context_length_exceeded`` even
+    # though our local token filter (estimate_message_tokens) correctly
+    # ignored the blob.
+    #
+    # Behaviour:
+    #   - String content with a data URI → rewritten in place to a
+    #     multimodal list (text part with blob stripped + one
+    #     ``image_url`` part per detected blob).
+    #   - String content without a data URI → untouched.
+    #   - List content → untouched (already multimodal).
+    #   - Wrapped in try/except so any unexpected message shape is silently
+    #     skipped (preserve current behaviour on the failure path).
+    try:
+        from agent.ec_skills.browser_use_extension.token_utils import (
+            _DATA_URI_IMAGE_RE,
+        )
+        _mm_rewrites = 0
+        for _i, _m in enumerate(filtered_history):
+            try:
+                _content = getattr(_m, "content", None)
+                if not isinstance(_content, str):
+                    continue
+                if "data:image/" not in _content:
+                    continue
+                _uris = _DATA_URI_IMAGE_RE.findall(_content)
+                if not _uris:
+                    continue
+                _stripped_text = _DATA_URI_IMAGE_RE.sub("", _content)
+                _new_parts = [{"type": "text", "text": _stripped_text}]
+                for _u in _uris:
+                    _new_parts.append(
+                        {"type": "image_url", "image_url": {"url": _u}}
+                    )
+                # Mutate in place so caller-visible message objects update.
+                _m.content = _new_parts
+                _mm_rewrites += 1
+            except Exception:
+                continue
+        if _mm_rewrites:
+            logger.info(
+                f"[get_recent_context] Layer-3 multimodal rewrite: "
+                f"{_mm_rewrites} stale string-form message(s) converted to "
+                f"multimodal list (data_uri blobs preserved as image_url parts)"
+            )
+    except Exception as _mm_l3_exc:
+        # Defensive: never let this rewrite break the rest of the pipeline.
+        logger.warning(
+            f"[get_recent_context] Layer-3 multimodal rewrite skipped: "
+            f"{type(_mm_l3_exc).__name__}: {_mm_l3_exc}"
+        )
 
     # Agent optimization: Compress tool results to save tokens
     if compress_tools:

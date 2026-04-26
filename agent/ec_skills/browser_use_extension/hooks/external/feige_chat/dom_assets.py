@@ -282,7 +282,12 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
       // Skip avatar imgs by alt (catches future class-name renames).
       if (alt === '头像') continue;
-      var src = im.getAttribute('src') || im.src || '';
+      // Use ``im.src`` (the resolved property) in preference to
+      // ``im.getAttribute('src')`` so relative URLs like ``/sample0.png``
+      // come out as absolute (``http://host:port/sample0.png``).  The
+      // downstream eager-fetch in ``image_fetch.fetch_image_to_data_uri``
+      // uses aiohttp which rejects relative URLs with ``InvalidURL``.
+      var src = im.src || im.getAttribute('src') || '';
       if (!src) continue;
       // Skip data: avatars (the SVG default-avatar fallback).
       if (src.indexOf('data:image/svg') === 0) continue;
@@ -306,6 +311,37 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
     if (!text && attachments.length === 0) continue;
+    // ── Merge attachments from immediately-prior customer bubbles ──
+    // Real-world multimodal chats fire as bursts: e.g. (image, text)
+    // or (text, image, text).  When the latest bubble we picked is
+    // text, the image lives in a sibling bubble just above it.  Walk
+    // backwards collecting customer-side attachments until we hit:
+    //   * an agent-side bubble (real reply already happened) → STOP
+    //   * a non-customer-non-agent wrapper (system/notice) → SKIP
+    //   * the look-back cap (3 bubbles) → STOP
+    // We DON'T merge prior bubbles' text (that would conflate two
+    // distinct messages); we only merge image attachments so the
+    // vision LLM has them available.  Dedup/msg_id stay anchored on
+    // the tail bubble so existing dispatch logic is unchanged.
+    var lookback = 0, j = i - 1;
+    while (j >= 0 && lookback < 3) {
+      var prevWrap = wrappers[j];
+      // Detect agent-side row (row-reverse flexDirection).
+      var prevRowAny = prevWrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (prevRowAny &&
+          (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
+        break;  // agent reply already happened — don't reach across
+      }
+      var prevRow = _customerBubble(prevWrap);
+      if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
+      var prevAtts = _collectAttachments(prevRow);
+      if (prevAtts.length) {
+        // Prepend so visual order is preserved (older bubble first).
+        attachments = prevAtts.concat(attachments);
+      }
+      lookback++;
+      j--;
+    }
     var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     var msgIdEl = wrap.querySelector('[data-id]');
