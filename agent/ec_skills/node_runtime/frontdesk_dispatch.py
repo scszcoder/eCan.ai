@@ -491,6 +491,24 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
         payload["tab_id"] = tab_id
     if item.get("customer_name"):
         payload["customer_name"] = item["customer_name"]
+    # ── Fix C: Q&A-compatible payload ────────────────────────────────
+    # Some recipients of this fastpath dispatch are Q&A workers (e.g.
+    # ``飞鸽客户应答``) whose contract requires ``latest_message`` — the
+    # customer's actual original message text — so the worker can answer
+    # the customer's question.  Without it the worker falls back to a
+    # generic "请详细描述一下" clarification template and the customer
+    # never gets a real answer (the LLM-driven ``bu_send_chat`` path
+    # provides this field correctly via Fix A in extension_tools_service,
+    # but this fastpath bypasses ``bu_send_chat`` and so was missing it).
+    #
+    # ``item["last_message"]`` is populated by ``_parse_dispatch_items``
+    # from the monitor snapshot's ``last_message`` field.  We only set
+    # ``latest_message`` when the source value is non-empty so we don't
+    # signal a Q&A dispatch with a blank value (which the worker prompt
+    # treats as "missing").
+    last_msg = str(item.get("last_message") or "").strip()
+    if last_msg:
+        payload["latest_message"] = last_msg
     for extra_key in cfg.assignment_extra_fields:
         ek = str(extra_key)
         if ek and ek in item and ek not in payload:
