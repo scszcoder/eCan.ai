@@ -4372,8 +4372,48 @@ class BrowserRunSession:
 
             # Restore browser state so selector/session mapping is fresh
             # before agent.run() picks it up.
+            #
+            # ── Hang-bound: get_browser_state_summary has been observed
+            # to deadlock indefinitely in ``bubus`` under target detach
+            # /high concurrency (see eCan.log.1 around 14:34:04: stack
+            # ends at runner.py:4376 → browser/session.py:1520 →
+            # bubus/models.py:574 → asyncio.wait_for → TimeoutError).
+            # When this hangs, the entire front-desk node is wedged and
+            # the worker reply queue stops draining, so customer messages
+            # silently never get answered.  Cap with the same 3 s budget
+            # as the focus preflight + one retry; on persistent failure
+            # log a warning and proceed.  ``agent.run()`` re-acquires
+            # state internally if needed.
             if target_focus:
-                await browser_session.get_browser_state_summary(include_screenshot=False)
+                _state_ok = False
+                for _attempt in range(2):
+                    try:
+                        await asyncio.wait_for(
+                            browser_session.get_browser_state_summary(include_screenshot=False),
+                            timeout=3.0,
+                        )
+                        _state_ok = True
+                        break
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"[BrowserAutomation] post-preflight state-summary "
+                            f"TIMEOUT after 3s (attempt {_attempt + 1}/2), "
+                            f"target=...{(target_focus or '')[-4:]}, "
+                            f"skill={self.ctx.skill_name}, node={self.ctx.node_name}"
+                        )
+                    except Exception as _state_exc:
+                        logger.warning(
+                            f"[BrowserAutomation] post-preflight state-summary "
+                            f"error (attempt {_attempt + 1}/2): {_state_exc}"
+                        )
+                if not _state_ok:
+                    logger.warning(
+                        f"[BrowserAutomation] post-preflight state-summary: "
+                        f"SKIPPING after 2 failed attempts. Proceeding with "
+                        f"agent.run() which will re-acquire state lazily. "
+                        f"target=...{(target_focus or '')[-4:]}, "
+                        f"skill={self.ctx.skill_name}, node={self.ctx.node_name}"
+                    )
 
             # Pre-run navigation: anchor focused tab at the assignment URL.
             from agent.ec_skills.browser_node.runner import (
