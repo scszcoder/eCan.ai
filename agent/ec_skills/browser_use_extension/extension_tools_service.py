@@ -2559,31 +2559,60 @@ _FEIGE_GET_THREAD_JS = r"""
   // Agent message:   inner div with flex-direction:row-reverse  OR  class containing "messageIsMe"
   // Customer message: inner div with flex-direction:row          OR  class containing "messageNotMe"
   // System/event:    div.tC9ap6QtAyeCD0jfuMns containing no leaveMessageWrapper (just text spans)
+  //
+  // Image bubbles do NOT have ".iD7SHBvMhm4OhfCsBGr1" — the bubble is a
+  // bare <img alt="图片"> inside the row container.  We extract images
+  // from the row separately (skipping avatar imgs by class+alt) so an
+  // image-only message is no longer silently dropped.
+  function _collectAttachments(row) {
+    if (!row) return [];
+    var atts = [];
+    var imgs = Array.from(row.querySelectorAll('img'));
+    for (var k = 0; k < imgs.length; k++) {
+      var im = imgs[k];
+      var cls = (im.className || '').toString();
+      var alt = (im.getAttribute('alt') || '').trim();
+      if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+      if (alt === '头像') continue;
+      var src = im.getAttribute('src') || im.src || '';
+      if (!src) continue;
+      if (src.indexOf('data:image/svg') === 0) continue;
+      atts.push({ kind: 'image', url: src, alt: alt });
+    }
+    return atts;
+  }
   var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
   var results = [];
   var start = Math.max(0, wrappers.length - maxMessages);
   for (var i = start; i < wrappers.length; i++) {
     var wrap = wrappers[i];
-    // Message bubble element (has the actual text)
+    // Row container holds avatar + bubble; flex-direction tells us sender.
+    var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
     var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-    if (!bubble) {
-      // System/event message (no bubble) — capture inner text of the system span
+    if (!bubble && !row) {
+      // System/event message (no bubble, no row) — capture inner text.
       var sysEl = wrap.querySelector('.BqNO6cexAGBsZgUmEzIE, .e0Bi5IauHWvUG8773oi9, .rcHPT4n3TlQD0Nu4sSiv');
       if (sysEl) {
-        results.push({ index: i, text: sysEl.textContent.trim(), is_agent: false, is_system: true, timestamp: '' });
+        results.push({ index: i, text: sysEl.textContent.trim(), is_agent: false, is_system: true, timestamp: '', attachments: [] });
       }
       continue;
     }
-    var text = (bubble.querySelector('pre') || bubble).textContent.trim();
-    // Determine sender from CSS class on the bubble itself
-    var isAgent = bubble.classList.contains('messageIsMe');
-    // Timestamp lives in a sibling of the bubble
+    var text = bubble ? (bubble.querySelector('pre') || bubble).textContent.trim() : '';
+    // Determine sender: prefer the bubble's class, fall back to row direction.
+    var isAgent;
+    if (bubble) {
+      isAgent = bubble.classList.contains('messageIsMe');
+    } else {
+      isAgent = ((row && row.style.flexDirection) || '').indexOf('reverse') !== -1;
+    }
+    var attachments = _collectAttachments(row);
+    // Drop bubbles with neither text nor attachments (defensive).
+    if (!text && attachments.length === 0) continue;
     var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
-    // data-id on the wrapper's direct child can serve as a message ID
     var msgIdEl = wrap.querySelector('[data-id]');
     var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
-    results.push({ index: i, text: text, is_agent: isAgent, is_system: false, timestamp: ts, msg_id: msgId });
+    results.push({ index: i, text: text, is_agent: isAgent, is_system: false, timestamp: ts, msg_id: msgId, attachments: attachments });
   }
   return JSON.stringify({ messages: results, total_found: wrappers.length, selector_used: wrappers.length > 0 ? 'matched' : 'none' });
 })(MAX_MESSAGES);

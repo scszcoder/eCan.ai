@@ -5018,6 +5018,23 @@ class BrowserRunSession:
                 use_privacy_agent=use_privacy_agent,
             )
 
+            # Multimodal: when the inbound payload (state["input"]) carries
+            # ``latest_message_attachments`` with eager-fetched data URIs,
+            # build browser-use ``sample_images`` so a vision-capable LLM
+            # can actually see the customer's image alongside the text.
+            # No-op for text-only turns; vision-gated by llm.supports_vision.
+            from agent.ec_skills.browser_node.multimodal import (
+                apply_multimodal_to_agent_kwargs as _apply_mm_kwargs,
+            )
+            _n_images = _apply_mm_kwargs(
+                agent_kwargs, state=self.state, llm=llm,
+            )
+            if _n_images:
+                logger.info(
+                    f"[BrowserAutomation] Multimodal: injected {_n_images} "
+                    f"customer image(s) as sample_images (use_vision forced ON)"
+                )
+
             # Acquire browser session + browser-use Agent (new-chromium or CDP path).
             agent, _last_known_focus_target_id = await self._acquire_browser_and_agent(
                 AgentClass=AgentClass,
@@ -5031,6 +5048,18 @@ class BrowserRunSession:
                 last_known_focus_target_id=_last_known_focus_target_id,
                 asg_ctx=_asg_ctx,
             )
+
+            # Multimodal cache-reuse fix: when the Agent above was re-acquired
+            # from ``cached_bu_agents`` (NOT freshly constructed), its
+            # ``sample_images`` is stuck at the previous turn's list — the
+            # constructor kwargs we just set above don't apply.  Mutate the
+            # cached Agent's ``sample_images`` (and its ``_message_manager``
+            # copy) so this turn's images flow through.  Also clears stale
+            # images on text-only turns so they don't bleed across customers.
+            from agent.ec_skills.browser_node.multimodal import (
+                refresh_agent_sample_images as _refresh_mm,
+            )
+            _refresh_mm(agent, state=self.state, llm=llm)
 
             # Post-construction: agent attrs, cache update, register, keep-alive, monitors.
             _browser_scope_key, _last_known_focus_target_id = await self._finalize_agent_setup(
