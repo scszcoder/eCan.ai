@@ -303,6 +303,16 @@ def _extract_actionable_items(
             "chat_url": chat_url,
             # Preserve the original sidebar last_message for the enrich plugin's override.
             "last_message": str(item.get("last_message") or ""),
+            # Preserve the live-monitor's ``identity_key`` (format:
+            # ``<customer_name>|<last_message>``) so successful fastpath
+            # dispatches can stamp ``_dispatched_identity_keys`` and the
+            # later AUTO-DISPATCH filter in actionable_items.py can
+            # recognise this customer as already-dispatched.  Without
+            # this, the same customer message gets dispatched twice —
+            # once via the fastpath here and once via the LLM-side
+            # AUTO-DISPATCH inside ``_run_browser_use`` — causing
+            # duplicate worker invocations and racing replies.
+            "identity_key": str(item.get("identity_key") or ""),
         }
         for extra_key in cfg.assignment_extra_fields:
             ek = str(extra_key)
@@ -641,6 +651,32 @@ async def _dispatch_one_item(
         }
         if scraped_msg_id:
             ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id
+        # ── Cross-path dedup: stamp the AUTO-DISPATCH identity-key
+        #   table so the LLM-side AUTO-DISPATCH (in
+        #   actionable_items.py) recognises this customer as already
+        #   handled and skips its own dispatch.  Both paths share the
+        #   same ``_dispatched_identity_keys`` dict; they were just
+        #   never wired together.  Best-effort import — if
+        #   actionable_items isn't loaded (non-Feige skill) we silently
+        #   no-op.
+        try:
+            _ident = str(item.get("identity_key") or "").strip()
+            if _ident:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                    _dispatched_identity_keys as _ai_identity_keys,
+                )
+                import time as _t
+                _ai_identity_keys[_ident] = _t.time()
+                logger.debug(
+                    f"[BrowserAutomation] {log_tag} stamped AUTO-DISPATCH "
+                    f"identity_key={_ident!r} so the LLM-side path skips "
+                    f"this customer."
+                )
+        except Exception as _stamp_exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} cross-path identity-key "
+                f"stamp failed (non-fatal): {_stamp_exc}"
+            )
         assigned_row = (
             f"{session_id}->{recipient_agent_id[-6:]} "
             f"msg={str(send_result.get('message_id') or '')[:8]}"
