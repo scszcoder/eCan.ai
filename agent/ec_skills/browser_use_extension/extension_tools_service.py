@@ -1652,6 +1652,94 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
     except Exception as _assignment_enrich_err:
         logger.warning(f"[bu_send_chat] Failed to normalize front-desk assignment payload: {_assignment_enrich_err}")
 
+    # ── Q&A dispatch payload normalization (Fix A) ────────────────────
+    #
+    # The front-desk LLM sometimes echoes the result shape of
+    # `feige_open_session` (which has session_id/chat_url) into a
+    # `bu_send_chat` payload that should instead be a Q&A dispatch
+    # ({customer_id, customer_name, latest_message}).  The worker LLM
+    # then receives a payload with no `latest_message` and either
+    # produces an unrelated reply (compensating from chat history) or
+    # — once that malformed payload contaminates conversation history
+    # — emits `done(success=False, text="payload 缺少必需字段")` on a
+    # subsequent turn even when that turn's payload is correct.
+    #
+    # Detection rule for a Q&A dispatch shape:
+    #   - has customer_id and/or customer_name
+    #   - has NO service-assignment fields (session_id, chat_url, tab_id)
+    #   - has NO response_text (which would identify a Q&A *reply*)
+    #
+    # When detected, we require `latest_message` to be present.  If
+    # absent, we reject the call with a precise correction message.
+    # This is strictly additive: legitimate service assignments and
+    # Q&A replies are unaffected because their shapes don't match.
+    try:
+        _qa_msg_str = config.get("message", "")
+        if isinstance(_qa_msg_str, str):
+            _qa_obj = try_parse_json(_qa_msg_str)
+            if isinstance(_qa_obj, dict):
+                _has_session = bool(str(
+                    _qa_obj.get("session_id") or _qa_obj.get("sessionId") or ""
+                ).strip())
+                _has_chat_url = bool(str(
+                    _qa_obj.get("chat_url") or _qa_obj.get("chatUrl") or ""
+                ).strip())
+                _has_tab_id = bool(str(
+                    _qa_obj.get("tab_id") or _qa_obj.get("tabId") or ""
+                ).strip())
+                _has_response = bool(str(_qa_obj.get("response_text") or "").strip())
+                _has_latest = bool(str(_qa_obj.get("latest_message") or "").strip())
+                _has_customer = bool(str(
+                    _qa_obj.get("customer_id") or _qa_obj.get("customer_name") or ""
+                ).strip())
+                _is_qa_dispatch = (
+                    _has_customer
+                    and not _has_session
+                    and not _has_chat_url
+                    and not _has_tab_id
+                    and not _has_response
+                )
+                if _is_qa_dispatch and not _has_latest:
+                    logger.warning(
+                        f"[bu_send_chat] REJECT Q&A dispatch with no latest_message: "
+                        f"sender={bound_sender_agent_id} "
+                        f"recipient={normalized_recipient_id or normalized_recipient_name} "
+                        f"payload_keys={sorted(_qa_obj.keys())}"
+                    )
+                    return ActionResult(
+                        error=(
+                            "Q&A dispatch payload is missing the required field "
+                            "'latest_message'. The recipient is a Q&A worker — its "
+                            "contract requires exactly: "
+                            '{"customer_id": "<id>", "customer_name": "<name>", '
+                            '"latest_message": "<the customer\'s original message text>"}. '
+                            "Do NOT pass session_id, chat_url, or tab_id (those are "
+                            "for service-assignment payloads to a different worker "
+                            "type). Take 'latest_message' from the `last_message` "
+                            "field of the matching feige_list_sessions entry for "
+                            "this customer."
+                        )
+                    )
+                # Strip non-contract noise fields so the worker's history
+                # doesn't accumulate inconsistent shapes across turns.
+                if _is_qa_dispatch and _has_latest:
+                    _stripped = False
+                    for _k in ("session_id", "sessionId", "chat_url", "chatUrl",
+                               "tab_id", "tabId"):
+                        if _k in _qa_obj:
+                            _qa_obj.pop(_k, None)
+                            _stripped = True
+                    if _stripped:
+                        config["message"] = json.dumps(_qa_obj, ensure_ascii=False)
+                        logger.info(
+                            f"[bu_send_chat] Stripped non-contract fields from Q&A "
+                            f"dispatch payload (customer="
+                            f"{_qa_obj.get('customer_id') or _qa_obj.get('customer_name')}) "
+                            f"to keep worker history consistent."
+                        )
+    except Exception as _qa_norm_err:
+        logger.warning(f"[bu_send_chat] Failed to normalize Q&A dispatch payload: {_qa_norm_err}")
+
     # Discovery gate and duplicate-recipient detection are now handled
     # in chat_tools.send_chat() — the common path for both bu_send_chat
     # and MCP send_chat.  No need to duplicate here.

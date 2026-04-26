@@ -4563,6 +4563,28 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     log_msg = f"[MCP Auto-Select] work_done=True, no pending tool call, skipping for node '{node_name}'"
                     logger.info(log_msg)
                     send_skill_editor_log("info", log_msg)
+                    # ── Silent-drop visibility (Fix B observability) ──
+                    # If the LLM explicitly emitted `done(success=False, ...)`
+                    # alongside work_done=True, the loop exits without sending
+                    # any reply.  That used to log only at INFO and was easy
+                    # to miss when a customer's message went unanswered.  Re-
+                    # log at WARNING so an operator can find these in eCan.log.
+                    try:
+                        _raw_msg = ""
+                        if isinstance(llm_result, dict):
+                            _raw_msg = str(llm_result.get('message', '') or '')
+                        if not _raw_msg:
+                            _raw_msg = str(state.get('result', {}).get('llm_result', {}).get('message', '') or '')
+                        if 'done(success=false' in _raw_msg.lower():
+                            _drop_msg = (
+                                f"[Silent Drop] node='{node_name}' emitted "
+                                f"done(success=False) with no tool call — NO REPLY "
+                                f"WAS SENT. Raw LLM output: {_raw_msg!r}"
+                            )
+                            logger.warning(_drop_msg)
+                            send_skill_editor_log("warning", _drop_msg)
+                    except Exception:
+                        pass
                     return state
                 else:
                     log_msg = f"[MCP Auto-Select] work_done=True but has pending tool '{next_tool_name}' — executing tool first, then marking done"
