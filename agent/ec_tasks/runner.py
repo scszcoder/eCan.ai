@@ -221,6 +221,138 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
     return msg
 
 
+def _release_dispatch_locks_on_skill_failure(response: Any) -> None:
+    """Release Feige dispatch dedup + inflight locks when a Q&A worker
+    skill fails.
+
+    Liveness incident 2026-04-27 (eCan.log around 03:41:33): a Q&A
+    worker handling customer ``cejs``'s "退货包邮吗?" message failed at
+    its ``check_loop_*_condition`` step.  ``runner._on_skill_complete``
+    correctly marked the task ``failed`` and emitted ``task_failed``,
+    but performed **zero cleanup of dispatch state**.  Because
+
+    * ``_dispatched_identity_keys`` (Feige actionable_items, no TTL)
+      was stamped on dispatch *success* and is invalidated only by
+      DOM-diff pruning when the customer's sidebar ``last_message``
+      changes, and
+    * the customer is *waiting for a reply* and won't send anything
+      new,
+
+    the customer's message stayed permanently dedup-blocked — every
+    monitor tick logged ``[filter] identity_key dedup: …
+    already_dispatched, age=…`` growing forever, and the front-desk
+    monitor silently skipped re-dispatch until the 1-hour safety GC
+    or until the customer eventually gave up and re-asked.  Same
+    failure mode held customer ``sc``'s "有12岁女生款吗?" hostage in
+    parallel.
+
+    The 30s inflight lock has the same failure mode (released on
+    ``send_chat`` *transport* failure, never on worker-side failure).
+
+    This helper is best-effort: on any error or non-Feige skill
+    shape it silently no-ops so non-Feige callers are unaffected.
+    """
+    if not isinstance(response, dict):
+        return
+    try:
+        # Q&A worker contract: input payload is JSON
+        # ``{customer_id, customer_name, latest_message}``.  Walk the
+        # ``response['step']`` envelope to find the most recent
+        # dict-shaped step with such an ``input``.
+        step = response.get("step")
+        if not isinstance(step, dict):
+            return
+        payload: dict | None = None
+        for _v in step.values():
+            if not isinstance(_v, dict):
+                continue
+            _inp = _v.get("input")
+            if isinstance(_inp, dict):
+                payload = _inp
+                break
+            if isinstance(_inp, str) and _inp.strip().startswith("{"):
+                try:
+                    _parsed = json.loads(_inp)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(_parsed, dict):
+                    payload = _parsed
+                    break
+        if not isinstance(payload, dict):
+            return
+        cust_id = str(
+            payload.get("customer_id") or payload.get("customerId") or ""
+        ).strip()
+        cust_name = str(
+            payload.get("customer_name") or payload.get("customerName") or ""
+        ).strip()
+        latest_msg = str(payload.get("latest_message") or "").strip()
+        if not (cust_id or cust_name) or not latest_msg:
+            return  # Not a Q&A inbound payload — nothing to release.
+
+        # The identity_key format is ``<customer_name>|<last_message>``
+        # (see ``actionable_items.py``); fastpath stamping prefers
+        # ``customer_name`` but ``customer_id`` may be used when name
+        # is absent, so try both.
+        ident_candidates: list[str] = []
+        for _prefix in (cust_name, cust_id):
+            if _prefix:
+                _id = f"{_prefix}|{latest_msg}"
+                if _id not in ident_candidates:
+                    ident_candidates.append(_id)
+
+        # 1. Identity-key dedup (Feige-specific; best-effort import).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                _dispatched_identity_keys as _ai_identity_keys,
+            )
+            _now = time.time()
+            for _id in ident_candidates:
+                _stamped_at = _ai_identity_keys.pop(_id, None)
+                if _stamped_at is not None:
+                    logger.info(
+                        f"[COMPLETE] Released identity_key dedup on skill "
+                        f"failure: {_id!r} "
+                        f"(was stamped {_now - _stamped_at:.1f}s ago)"
+                    )
+        except ImportError:
+            pass  # Non-Feige skill — no identity-key table to clear.
+        except Exception as _e:
+            logger.debug(
+                f"[COMPLETE] identity_key release failed (non-fatal): {_e}"
+            )
+
+        # 2. Inflight lock (keyed by *normalized* customer name/id).
+        try:
+            from agent.ec_skills.build_node import (
+                _clear_dispatch_inflight,
+                _normalize_dispatch_identity_key,
+            )
+            _seen: set[str] = set()
+            for _key_raw in (cust_name, cust_id):
+                if not _key_raw:
+                    continue
+                _key = _normalize_dispatch_identity_key(_key_raw)
+                if not _key or _key in _seen:
+                    continue
+                _seen.add(_key)
+                _clear_dispatch_inflight(_key)
+                logger.info(
+                    f"[COMPLETE] Released inflight lock on skill failure: "
+                    f"customer_key={_key!r}"
+                )
+        except ImportError:
+            pass
+        except Exception as _e:
+            logger.debug(
+                f"[COMPLETE] inflight release failed (non-fatal): {_e}"
+            )
+    except Exception as _outer:
+        logger.debug(
+            f"[COMPLETE] _release_dispatch_locks_on_skill_failure: {_outer}"
+        )
+
+
 class TaskRunnerRegistry:
     """Global registry for TaskRunner instances to allow coordinated shutdown."""
     _runners: List["TaskRunner"] = []
@@ -4127,6 +4259,13 @@ class TaskRunner(Generic[Context]):
             if isinstance(response, dict) and response.get("success") is False and not _is_interrupt:
                 err_text = str(response.get("Error") or response.get("error") or response)
                 logger.error(f"[COMPLETE] Skill failed for waiter={waiter_task_id}: {err_text}")
+                # Liveness fix (incident 2026-04-27): release Feige
+                # dispatch dedup + inflight locks so the customer's
+                # message is re-dispatchable instead of permanently
+                # locked behind a stale stamp.  See
+                # ``_release_dispatch_locks_on_skill_failure`` for the
+                # full write-up.
+                _release_dispatch_locks_on_skill_failure(response)
                 try:
                     task.status.state = TaskState.failed
                     task.status.message = _create_message("agent", err_text)

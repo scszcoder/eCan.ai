@@ -648,6 +648,107 @@ def add_to_history(state, messages, max_entries: int = 200):
         state["history"] = state["history"][-max_entries:]
 
 
+def _is_qa_inbound_payload(payload) -> bool:
+    """Return ``True`` when *payload* is a Q&A-worker inbound dispatch.
+
+    Mirrors ``extension_tools_service._is_qa_dispatch`` so the inbound
+    detection (Q&A worker side) and outbound rejection (front-desk side)
+    use the same rule.  A Q&A *inbound* dispatch payload has BOTH
+    ``customer_id`` and ``latest_message`` and lacks ``response_text``
+    (which would mark it as a Q&A *reply* flowing back to front-desk).
+    Returns ``False`` for non-dict payloads so callers can pass any
+    parsed JSON value defensively.
+    """
+    if not isinstance(payload, dict):
+        return False
+    cust = str(payload.get("customer_id") or payload.get("customerId") or "").strip()
+    latest = str(payload.get("latest_message") or "").strip()
+    response = str(payload.get("response_text") or "").strip()
+    return bool(cust and latest and not response)
+
+
+def _reset_qa_history_on_customer_change(
+    state: dict,
+    payload,
+    *,
+    node_name: str = "",
+    logger_=None,
+) -> bool:
+    """Per-customer ``state["history"]`` isolation for Q&A workers.
+
+    Production incident 2026-04-27: a Q&A worker (e.g. ``飞鸽客户应答``)
+    handling multiple customers via round-robin dispatch echoed one
+    customer's answer onto another customer's chat tab.  Symptom:
+    customer B asked "转人工", but the bot typed
+    "您好，红色款是否有货需要帮您核实一下…" into B's tab — that answer
+    belonged to customer A who had asked "有红色的吗？".
+
+    Root cause: ``state["history"]`` is shared across all dispatches to
+    the same agent (the LangGraph state is per chatter-task, and the
+    chatter task is per-agent, not per-customer).  When customer A's
+    ``(HumanMessage, AIMessage)`` pair was still in history at the
+    moment customer B's HumanMessage arrived, the LLM weighted the
+    prior turn heavily and produced an answer shaped by A's turn.
+    The Q&A worker's prompt explicitly instructs "忽略历史，只看本轮的
+    ``{{input}}``" but the model didn't fully comply.
+
+    This helper detects an inbound Q&A dispatch payload (via
+    :func:`_is_qa_inbound_payload`) and, when the ``customer_id`` has
+    changed since the last call, clears ``state["history"]`` so the LLM
+    can't reach across customer boundaries.  The new ``customer_id`` is
+    recorded in ``state["attributes"]["_last_qa_customer_id"]``.
+
+    Returns ``True`` when a reset was performed (so callers / tests
+    can assert), ``False`` otherwise.
+
+    NOTE: deliberately does NOT touch front-desk inbound traffic —
+    front-desk receives Q&A *replies* (which carry ``response_text``)
+    and browser events (which never look like a dispatch), neither of
+    which trip :func:`_is_qa_inbound_payload`.  Front-desk legitimately
+    tracks multi-customer state in its history.
+    """
+    try:
+        if not _is_qa_inbound_payload(payload):
+            return False
+        cust = str(
+            payload.get("customer_id") or payload.get("customerId") or ""
+        ).strip()
+        attrs = state.setdefault("attributes", {}) if isinstance(state, dict) else {}
+        if not isinstance(attrs, dict):
+            # Should never happen — defensive against malformed state.
+            return False
+        last_cust = str(attrs.get("_last_qa_customer_id") or "").strip()
+        did_reset = False
+        if last_cust and last_cust != cust:
+            hist_len = (
+                len(state["history"])
+                if isinstance(state.get("history"), list)
+                else 0
+            )
+            state["history"] = []
+            # Drop the per-turn ``prompts`` accumulator too —
+            # ``standard_post_llm_hook`` extends it with the AIMessage of
+            # each turn; clearing keeps state tidy and prevents
+            # memory-monitor false alarms.
+            if isinstance(state.get("prompts"), list):
+                state["prompts"] = []
+            did_reset = True
+            if logger_ is not None:
+                logger_.info(
+                    f"[{node_name}] Q&A history reset on customer change: "
+                    f"prev={last_cust!r} -> new={cust!r} "
+                    f"(cleared {hist_len} prior history entries)"
+                )
+        attrs["_last_qa_customer_id"] = cust
+        return did_reset
+    except Exception as exc:
+        if logger_ is not None:
+            logger_.debug(
+                f"[{node_name}] Q&A history isolation skipped: {exc}"
+            )
+        return False
+
+
 STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
@@ -6208,6 +6309,19 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             human_text_content = data.get("content")
 
         if human_text_content:
+            # ── Per-customer history isolation for Q&A workers ──────────
+            # See ``_reset_qa_history_on_customer_change`` for the full
+            # incident write-up (2026-04-27 crosstalk).  Short version:
+            # ``state["history"]`` is shared across all dispatches to
+            # the same agent, so without this reset a Q&A worker can
+            # bleed customer A's prior turn into customer B's reply.
+            _qa_payload = data if isinstance(data, dict) else None
+            if _qa_payload is None and isinstance(human_text_content, str):
+                _qa_payload = try_parse_json(human_text_content)
+            _reset_qa_history_on_customer_change(
+                state, _qa_payload, node_name=node_name, logger_=logger,
+            )
+
             # Set state["input"] so _get_human_input() in pre_llm_hook can find it
             state["input"] = human_text_content
             state.setdefault("history", [])
