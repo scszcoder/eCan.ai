@@ -231,6 +231,46 @@ async def _dispatch_one_item(
             )
             item["last_message"] = scrape.text
 
+    # ── System / platform message guard ──────────────────────────────
+    # The IM platform and the built-in 智能客服 inject text into the
+    # chat thread (and, more often, into the sidebar preview) that
+    # looks like a customer message but isn't.  Examples observed in
+    # production logs:
+    #
+    #   * "当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。"
+    #     (platform stall warning)
+    #   * "您好，现在是人工客服为您服务。为了更高效..."
+    #     (handover system msg)
+    #   * "亲亲，在哒~很高兴为您服务，请问有什么可以帮您？"
+    #     (built-in bot pre-handover greeting)
+    #   * "已读" / "转人工"  (DOM label leakage)
+    #
+    # If we dispatch any of these to the Q&A worker, the LLM
+    # earnestly *answers them* — leading to "您好，这条提示像是
+    # 系统状态提醒..." kinds of replies that confuse customers and
+    # waste tokens.  Filter HERE, before any inflight/send_chat
+    # bookkeeping is touched.
+    try:
+        from .system_message_filter import (
+            first_matching_pattern as _first_pat,
+        )
+        _candidate_text = str(item.get("last_message") or "")
+        _hit = _first_pat(_candidate_text)
+        if _hit:
+            logger.info(
+                f"[V2 pre_dispatch] system-message filter SKIP for "
+                f"cust={customer_key!r} pattern={_hit!r} "
+                f"text={_candidate_text[:80]!r}"
+            )
+            outcome.skip_reason = f"system_message:{_hit}"
+            return outcome
+    except Exception as _smf_exc:
+        # Defence-in-depth: a filter failure must not abort dispatch.
+        logger.debug(
+            f"[V2 pre_dispatch] system-message filter raised "
+            f"(non-fatal): {type(_smf_exc).__name__}: {_smf_exc}"
+        )
+
     # Multimodal: when the scraped bubble carries image attachments,
     # eagerly fetch + base64-encode them in parallel here so the Q&A
     # worker's payload is self-contained and the signed CDN URLs (which

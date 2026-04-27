@@ -582,6 +582,20 @@ async def _dispatch_one_item(
     # Cross-scope dispatch-inflight guard (the single source of truth
     # for cross-agent dedup — per-dispatch_state.assigned_sessions is
     # not shared across scopes).
+    #
+    # IMPORTANT (race fix 2026-04-27): we **mark** inflight immediately
+    # after passing the check, BEFORE the (slow) site-specific scrape
+    # runs.  Previously the mark happened only after enrich + RR pick
+    # (~500 ms-2 s later for Feige), leaving a wide window where
+    # multiple parallel "新消息" events for the same customer all
+    # passed the check, all did their scrape, and all dispatched —
+    # resulting in 3 Q&A worker invocations within 4 s and the wrong
+    # (oldest, stalest) reply being typed (observed live 2026-04-27
+    # 10:33:01-05 for customer `sc`).
+    #
+    # Any early-return BELOW this point MUST release the lock — see
+    # the explicit ``ctx.clear_dispatch_inflight(customer_key)`` calls
+    # along each non-success path.
     try:
         inflight_age = ctx.is_dispatch_inflight(customer_key)
         if inflight_age > 0:
@@ -597,22 +611,72 @@ async def _dispatch_one_item(
             f"[BrowserAutomation] {log_tag} inflight check failed: {exc}"
         )
 
+    # ── Mark inflight EARLY (closes the parallel-scrape race) ──
+    _inflight_marked_early = False
+    try:
+        ctx.mark_dispatch_inflight(customer_key)
+        _inflight_marked_early = True
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} pre-acquired inflight lock "
+            f"for cust={customer_key!r} BEFORE enrich/scrape "
+            f"(prevents parallel-fire race)"
+        )
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} early mark_inflight failed "
+            f"(non-fatal, fallback path remains): {exc}"
+        )
+
+    def _release_inflight_on_early_exit(reason: str) -> None:
+        """Release the early-acquired inflight lock when we bail out
+        BEFORE actually firing send_chat.  Without this, a skip during
+        enrich (e.g. msg-id dedup, system-message filter) would leave
+        the lock held for the full 30 s TTL and silently suppress this
+        customer's NEXT genuine message."""
+        if not _inflight_marked_early:
+            return
+        try:
+            ctx.clear_dispatch_inflight(customer_key)
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} released early inflight "
+                f"lock for cust={customer_key!r} (reason={reason})"
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} early inflight release "
+                f"failed: {exc}"
+            )
+
     # Optional site-specific enrichment (ground-truth scrape + dedup).
     scraped_msg_id = ""
     if enrich_fn is not None:
-        enrich = await enrich_fn(
-            item=item,
-            browser_session=session,
-            customer_key=customer_key,
-            session_id=session_id,
-            log_tag=log_tag,
-            assigned_sessions=assigned_sessions,
-            customer_last_dispatched_msg_id=ctx.customer_last_dispatched_msg_id,
-            auto_dispatch_last_agent_reply=ctx.auto_dispatch_last_agent_reply,
-            normalize_reply_text=ctx.normalize_reply_text,
-            typing_holder_getter=ctx.feige_typing_holder_getter,
-        )
+        try:
+            enrich = await enrich_fn(
+                item=item,
+                browser_session=session,
+                customer_key=customer_key,
+                session_id=session_id,
+                log_tag=log_tag,
+                assigned_sessions=assigned_sessions,
+                customer_last_dispatched_msg_id=ctx.customer_last_dispatched_msg_id,
+                auto_dispatch_last_agent_reply=ctx.auto_dispatch_last_agent_reply,
+                normalize_reply_text=ctx.normalize_reply_text,
+                typing_holder_getter=ctx.feige_typing_holder_getter,
+            )
+        except Exception as exc:
+            # Enrich raising is non-fatal but we MUST release the
+            # early-inflight lock or this customer is stuck for 30 s.
+            logger.warning(
+                f"[BrowserAutomation] {log_tag} enrich_fn raised "
+                f"({type(exc).__name__}: {exc!r}); releasing inflight "
+                f"and continuing with sidebar-preview as last_message."
+            )
+            _release_inflight_on_early_exit(f"enrich_raised:{type(exc).__name__}")
+            return opened_row, "", ""
         if enrich.skip:
+            _release_inflight_on_early_exit(
+                f"enrich_skip:{enrich.skip_reason or 'unspecified'}"
+            )
             return opened_row, "", ""
         scraped_msg_id = enrich.scraped_msg_id
         if enrich.should_clear_stale_assignment:
@@ -625,9 +689,9 @@ async def _dispatch_one_item(
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 
-    # Acquire inflight BEFORE send_chat so parallel scopes skip this
-    # customer immediately.  Previously acquired AFTER success, which
-    # left a 100-500 ms window for duplicate send_chat fires.
+    # Re-mark inflight just before send_chat — idempotent if already
+    # held from the early acquire above; the timestamp refresh extends
+    # the TTL so a slow QA worker doesn't free the lock prematurely.
     try:
         ctx.mark_dispatch_inflight(customer_key)
         logger.debug(
