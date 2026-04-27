@@ -1886,9 +1886,46 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     logger.debug("[LLMNode]system_prompt_id:", system_prompt_id)
     logger.debug("[LLMNode]user_prompt_id:", user_prompt_id)
 
-    # Get inline prompt content
+    # ── Skill-author footgun guard: duplicate prompt ids ─────────────
+    # If a skill author accidentally points both ``systemPromptId`` and
+    # ``promptId`` at the same prompt, the prompt body gets loaded as
+    # BOTH the system and user templates, so every ``{{input}}`` slot
+    # and every token of the body is sent to the model twice, and any
+    # inlined attachment ``data_uri`` in ``{{input}}`` blows the system
+    # message up to tens of megabytes.  This caused the Feige Q&A
+    # worker "我看不到图片" regression; keep a loud warning here so the
+    # next misconfiguration is obvious in logs and the skill editor
+    # timeline.
+    if (
+        system_prompt_id
+        and user_prompt_id
+        and system_prompt_id == user_prompt_id
+    ):
+        _dup_msg = (
+            f"[build_llm_node] ⚠️ node={node_name}: systemPromptId and "
+            f"promptId are both set to '{system_prompt_id}'. The prompt "
+            f"body will be used as BOTH system and user prompt, which "
+            f"doubles token cost and inlines attachment data_uri blobs "
+            f"into the system message. Set promptId to a separate "
+            f"user-input template (e.g. one containing just "
+            f"'{{{{input}}}}'), or clear one of the two fields."
+        )
+        logger.warning(_dup_msg)
+        try:
+            send_skill_editor_log("warning", _dup_msg)
+        except Exception:
+            pass
+
+    # Get inline prompt content.
+    # Note: ``inline_user_prompt`` defaults to ``{{input}}`` (NOT
+    # ``STANDARD_SYS_PROMPT``) because this field is the *user-turn*
+    # template — the natural default is to pass the invocation payload
+    # straight through as the human message.  Using the system-prompt
+    # string here was a historical copy-paste; it caused the user turn
+    # to literally read "You are a helpful AI assistant." when the
+    # skill author left the field blank.
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or STANDARD_SYS_PROMPT)
-    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or STANDARD_SYS_PROMPT)
+    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "{{input}}")
 
     logger.debug("[LLMNode]inline_system_prompt:", inline_system_prompt)
     logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
@@ -2592,6 +2629,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 ):
                     from agent.ec_skills.llm_utils.llm_utils import (
                         prep_multi_modal_content,
+                        _strip_data_uri_noise,
                     )
                     _mm_content = prep_multi_modal_content(
                         state,
@@ -2605,6 +2643,63 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             if isinstance(p, dict) and p.get("type") == "image_url"
                         )
                         messages[-1] = HumanMessage(content=_mm_content)
+
+                        # ── Critical: strip inlined data URIs from the text
+                        # streams now that the image is properly delivered as
+                        # an ``image_url`` content part on the HumanMessage.
+                        #
+                        # Why this matters: ``{{input}}`` inside the prompt
+                        # template gets substituted with the raw JSON payload
+                        # which carries ``"data_uri": "data:image/...;base64,
+                        # <up-to-7MB>"`` for each customer attachment.  When
+                        # the same prompt body is used for BOTH the system
+                        # and user templates (e.g. when ``systemPromptId`` and
+                        # ``promptId`` point at the same prompt id, or when
+                        # the prompt body has multiple ``{{input}}`` slots —
+                        # both common in Feige-style Q&A workers), the
+                        # ``final_system_prompt`` and ``final_user_prompt``
+                        # each balloon to tens of megabytes of inline base64.
+                        #
+                        # The model then sees the (real, viewable) image
+                        # AND six garbled base64 strings in the system text
+                        # — and reports back "I can't see a clear image"
+                        # which is exactly its prompted fallback for
+                        # unrecognizable content.  Stripping the data URIs
+                        # from the text streams here keeps the model focused
+                        # on the one canonical ``image_url`` part.
+                        try:
+                            _orig_sys_len = len(final_system_prompt) if final_system_prompt else 0
+                            _orig_usr_len = len(final_user_prompt) if final_user_prompt else 0
+                            if final_system_prompt:
+                                final_system_prompt = _strip_data_uri_noise(final_system_prompt)
+                            if final_user_prompt:
+                                final_user_prompt = _strip_data_uri_noise(final_user_prompt)
+                            # Mirror the strip into messages[0] (SystemMessage)
+                            # since downstream code reads from that as well.
+                            if (
+                                messages
+                                and isinstance(messages[0], SystemMessage)
+                                and isinstance(messages[0].content, str)
+                            ):
+                                messages[0] = SystemMessage(
+                                    content=_strip_data_uri_noise(messages[0].content)
+                                )
+                            _new_sys_len = len(final_system_prompt) if final_system_prompt else 0
+                            _new_usr_len = len(final_user_prompt) if final_user_prompt else 0
+                            logger.info(
+                                f"[multimodal-llm-node] stripped data_uri noise "
+                                f"from prompt text streams: "
+                                f"system {_orig_sys_len:,} -> {_new_sys_len:,} chars, "
+                                f"user {_orig_usr_len:,} -> {_new_usr_len:,} chars "
+                                f"(image now delivered as image_url part)"
+                            )
+                        except Exception as _strip_exc:
+                            logger.warning(
+                                f"[multimodal-llm-node] data_uri strip failed "
+                                f"(non-fatal, continuing): "
+                                f"{type(_strip_exc).__name__}: {_strip_exc}"
+                            )
+
                         logger.info(
                             f"[multimodal-llm-node] node={node_name} "
                             f"upgraded messages[-1] HumanMessage to multimodal "
