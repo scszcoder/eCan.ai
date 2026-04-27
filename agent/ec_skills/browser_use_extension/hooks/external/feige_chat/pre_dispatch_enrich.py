@@ -265,6 +265,43 @@ async def enrich_item(
         browser_session, item, customer_key, log_tag, typing_holder_getter
     )
 
+    # Stage 1.5: System / platform message guard.
+    #
+    # The Feige sidebar's ``last_message`` preview AND occasionally the
+    # chat-thread bubble extractor can surface non-customer-authored
+    # text — platform stall warnings ("当前会话已长时间未回复"),
+    # human-handover system messages ("您好，现在是人工客服为您服务"),
+    # built-in 智能客服 auto-replies ("亲亲，在哒~"), etc.  When these
+    # reach the Q&A worker as ``latest_message`` the LLM dutifully
+    # *answers them* — observed live 2026-04-27 10:35:01 where the bot
+    # replied to a platform warning with "您好，这条提示像是系统状态
+    # 提醒...".  Filter HERE, BEFORE the dedup cache is touched, so a
+    # genuine subsequent customer message isn't suppressed by msg-id
+    # dedup against a system-noise turn we accidentally remembered.
+    try:
+        from .system_message_filter import (
+            first_matching_pattern as _first_pat,
+        )
+        _candidate_text = str(item.get("last_message") or "")
+        _smf_hit = _first_pat(_candidate_text)
+        if _smf_hit:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} system-message filter "
+                f"SKIP for cust={customer_key!r} pattern={_smf_hit!r} "
+                f"text={_candidate_text[:80]!r}"
+            )
+            return EnrichResult(
+                skip=True,
+                skip_reason=f"system_message:{_smf_hit}",
+                scraped_msg_id=scraped_msg_id,
+            )
+    except Exception as _smf_exc:
+        # Defence-in-depth: a filter failure must not abort dispatch.
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} system-message filter "
+            f"raised (non-fatal): {type(_smf_exc).__name__}: {_smf_exc}"
+        )
+
     # Stage 2: strict msg-id dedup (only meaningful when scrape gave us an id).
     try:
         if _check_msg_id_dedup(
