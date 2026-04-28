@@ -253,20 +253,108 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
 # ---------------------------------------------------------------------------
 FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
 (function() {
+  // Avatar imgs use class "Zq9KgucRnc7bRQfikvzQ" (sidebar/header) or
+  // "qwDH4Hnmk4jmYkYLmHGF" (in-thread sender avatar).  Skip those —
+  // we only want CONTENT images (alt="图片").  We keep an inclusive
+  // alt-attribute filter as the primary signal so future class-name
+  // churn doesn't silently drop content images.
+  function _customerBubble(wrap) {
+    // Customer-side row direction is "row" (agent-side is row-reverse).
+    // We rely on the inner row container's flex-direction style — the
+    // Feige DOM sets it inline so reading style.flexDirection is
+    // reliable across both real Feige and the emulation.
+    var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (!row) return null;
+    if ((row.style.flexDirection || '').indexOf('reverse') !== -1) {
+      return null;  // agent-side bubble
+    }
+    return row;
+  }
+  function _collectAttachments(row) {
+    if (!row) return [];
+    var atts = [];
+    var imgs = Array.from(row.querySelectorAll('img'));
+    for (var k = 0; k < imgs.length; k++) {
+      var im = imgs[k];
+      var cls = (im.className || '').toString();
+      var alt = (im.getAttribute('alt') || '').trim();
+      // Skip avatar imgs by class.
+      if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+      // Skip avatar imgs by alt (catches future class-name renames).
+      if (alt === '头像') continue;
+      // Use ``im.src`` (the resolved property) in preference to
+      // ``im.getAttribute('src')`` so relative URLs like ``/sample0.png``
+      // come out as absolute (``http://host:port/sample0.png``).  The
+      // downstream eager-fetch in ``image_fetch.fetch_image_to_data_uri``
+      // uses aiohttp which rejects relative URLs with ``InvalidURL``.
+      var src = im.src || im.getAttribute('src') || '';
+      if (!src) continue;
+      // Skip data: avatars (the SVG default-avatar fallback).
+      if (src.indexOf('data:image/svg') === 0) continue;
+      atts.push({ kind: 'image', url: src, alt: alt });
+    }
+    return atts;
+  }
   var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
   for (var i = wrappers.length - 1; i >= 0; i--) {
     var wrap = wrappers[i];
+    var row = _customerBubble(wrap);
+    if (!row) continue;                                  // agent-side or system
     var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-    if (!bubble) continue;                               // system / event
-    if (bubble.classList.contains('messageIsMe')) continue; // agent reply
-    var text = (bubble.querySelector('pre') || bubble).textContent.trim();
+    var text = '';
+    if (bubble) {
+      if (bubble.classList.contains('messageIsMe')) continue;  // double-check
+      text = (bubble.querySelector('pre') || bubble).textContent.trim();
+    }
+    var attachments = _collectAttachments(row);
+    // A bubble counts as a customer message if it has either text or
+    // a content image.  Image-only bubbles (text === '') were silently
+    // dropped before this change.
+    if (!text && attachments.length === 0) continue;
+    // ── Merge attachments from immediately-prior customer bubbles ──
+    // Real-world multimodal chats fire as bursts: e.g. (image, text)
+    // or (text, image, text).  When the latest bubble we picked is
+    // text, the image lives in a sibling bubble just above it.  Walk
+    // backwards collecting customer-side attachments until we hit:
+    //   * an agent-side bubble (real reply already happened) → STOP
+    //   * a non-customer-non-agent wrapper (system/notice) → SKIP
+    //   * the look-back cap (3 bubbles) → STOP
+    // We DON'T merge prior bubbles' text (that would conflate two
+    // distinct messages); we only merge image attachments so the
+    // vision LLM has them available.  Dedup/msg_id stay anchored on
+    // the tail bubble so existing dispatch logic is unchanged.
+    var lookback = 0, j = i - 1;
+    while (j >= 0 && lookback < 3) {
+      var prevWrap = wrappers[j];
+      // Detect agent-side row (row-reverse flexDirection).
+      var prevRowAny = prevWrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (prevRowAny &&
+          (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
+        break;  // agent reply already happened — don't reach across
+      }
+      var prevRow = _customerBubble(prevWrap);
+      if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
+      var prevAtts = _collectAttachments(prevRow);
+      if (prevAtts.length) {
+        // Prepend so visual order is preserved (older bubble first).
+        attachments = prevAtts.concat(attachments);
+      }
+      lookback++;
+      j--;
+    }
     var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     var msgIdEl = wrap.querySelector('[data-id]');
     var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
-    return JSON.stringify({ text: text, msg_id: msgId, timestamp: ts, index: i });
+    return JSON.stringify({
+      text: text,
+      msg_id: msgId,
+      timestamp: ts,
+      index: i,
+      attachments: attachments
+    });
   }
-  return JSON.stringify({ text: '', msg_id: '', timestamp: '', index: -1 });
+  return JSON.stringify({ text: '', msg_id: '', timestamp: '', index: -1, attachments: [] });
 })()
 """
 
@@ -808,7 +896,7 @@ async def scrape_latest_customer_bubble(
     active session from the customer currently being typed to.
     """
     import asyncio as _s_asyncio
-    empty = {"text": "", "msg_id": "", "timestamp": "", "index": -1, "scrape_ok": False}
+    empty = {"text": "", "msg_id": "", "timestamp": "", "index": -1, "attachments": [], "scrape_ok": False}
     if not browser_session or not customer_name:
         return empty
 
@@ -891,7 +979,25 @@ async def scrape_latest_customer_bubble(
         text = str(data.get("text") or "").strip()
         msg_id = str(data.get("msg_id") or "").strip()
         idx = int(data.get("index", -1) or -1)
-        if not text:
+        # Attachments — list of {kind, url, alt}.  Defensive coercion:
+        # the JS may, on selector drift, return missing key or non-list.
+        raw_atts = data.get("attachments") or []
+        attachments: list[dict] = []
+        if isinstance(raw_atts, list):
+            for a in raw_atts:
+                if not isinstance(a, dict):
+                    continue
+                url = str(a.get("url") or "").strip()
+                if not url:
+                    continue
+                attachments.append({
+                    "kind": str(a.get("kind") or "image"),
+                    "url": url,
+                    "alt": str(a.get("alt") or ""),
+                })
+        # Bubble counts as a customer message if it has text or attachments.
+        # Image-only bubbles (text == '') were silently dropped before this.
+        if not text and not attachments:
             logger.info(
                 f"[BrowserAutomation] scrape-latest-customer: thread had no customer "
                 f"bubble for {customer_name!r} (index={idx}) — falling back"
@@ -900,13 +1006,14 @@ async def scrape_latest_customer_bubble(
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: {customer_name!r} "
             f"latest_bubble msg_id=...{msg_id[-8:] if msg_id else '<none>'} "
-            f"text={text[:40]!r}"
+            f"text={text[:40]!r} attachments={len(attachments)}"
         )
         return {
             "text": text,
             "msg_id": msg_id,
             "timestamp": str(data.get("timestamp") or "").strip(),
             "index": idx,
+            "attachments": attachments,
             "scrape_ok": True,
         }
     except Exception as _err:

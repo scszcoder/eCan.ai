@@ -666,6 +666,7 @@ export const Save = ({ disabled }: SaveProps) => {
 
       // 3. Extract config nodes and create updated skillInfo
       const configNodes = extractConfigNodes(diagram);
+      console.log('[Save] skillInfo from store:', JSON.stringify(skillInfo, null, 2));
       const updatedSkillInfo = {
         ...skillInfo,
         workFlow: diagram,
@@ -713,12 +714,25 @@ export const Save = ({ disabled }: SaveProps) => {
 
       // 4. Handle skill rename if name changed - uses ID-based approach for reliable DB update
       let effectivePath = currentFilePath || null;
+      console.log('[Save] Rename check start - currentFilePath:', currentFilePath, 'effectivePath:', effectivePath);
       try {
         if (effectivePath) {
           const norm = effectivePath.replace(/\\/g, '/');
           const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
           const oldBase = m?.[1] || '';
           const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
+          
+          console.log('[Save] Rename check values:', {
+            path: effectivePath,
+            normPath: norm,
+            regexMatch: m,
+            oldBase,
+            proposedBase,
+            oldBaseExists: !!oldBase,
+            proposedBaseExists: !!proposedBase,
+            namesDifferent: oldBase !== proposedBase,
+            shouldRename: !!(oldBase && proposedBase && oldBase !== proposedBase)
+          });
 
           if (oldBase && proposedBase && oldBase !== proposedBase) {
             // Resolve DB skill ID for reliable rename: use store match first

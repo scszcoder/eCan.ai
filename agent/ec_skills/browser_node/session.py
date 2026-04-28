@@ -26,6 +26,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_node.config import (
     NodeConfig,
     MAX_BROWSER_CACHE_SIZE,
+    MAX_CHAT_SCOPE_CACHE_SIZE,
     NEW_TAB_WAIT_SEC,
 )
 
@@ -559,19 +560,63 @@ class BrowserSessionManager:
             logger.warning(f"[BrowserSessionManager] Focus restore failed: {exc}")
 
     def _evict_oldest_if_full(self, current_scope: str) -> None:
-        """Evict up to 2 non-chat scopes when cache exceeds the limit."""
-        if len(self._cached_sessions) < MAX_BROWSER_CACHE_SIZE:
-            return
-        evicted = 0
-        for scope in list(self._cached_sessions.keys()):
-            if scope == current_scope or scope.startswith("chat:"):
-                continue
-            old = self._cached_sessions.pop(scope, None)
-            self._last_focus_ids.pop(scope, None)
-            if old is not None:
-                _cached_passive_agents.pop(id(old), None)
-            evicted += 1
-            if evicted >= 2:
+        """Evict up to 2 non-chat scopes when cache exceeds the limit.
+
+        Additionally, cap the number of long-lived ``chat:<customer>``
+        scopes at :data:`MAX_CHAT_SCOPE_CACHE_SIZE`.  Each chat scope
+        retains a full ``BrowserSession`` (CDP client + event bus +
+        watchdogs) plus, downstream, a ``browser_use.Agent`` (~860 MB).
+        Without this cap a long-running front-desk grows by one entry
+        per unique customer and exhausts RAM (observed 0.3 GB → 9.5 GB
+        in ~12 min in customer logs from 2026-04-26).  When a chat
+        scope is evicted here we also cascade the eviction into
+        :data:`build_helpers.cached_bu_agents` so the heavy Agent is
+        released; the dispatch-side ``identity_key`` table in
+        ``actionable_items`` is per-customer-message so it does not
+        pin the scope.
+        """
+        # Existing behaviour: evict non-chat scopes when over the
+        # general size limit.
+        if len(self._cached_sessions) >= MAX_BROWSER_CACHE_SIZE:
+            evicted = 0
+            for scope in list(self._cached_sessions.keys()):
+                if scope == current_scope or scope.startswith("chat:"):
+                    continue
+                old = self._cached_sessions.pop(scope, None)
+                self._last_focus_ids.pop(scope, None)
+                if old is not None:
+                    _cached_passive_agents.pop(id(old), None)
+                evicted += 1
+                if evicted >= 2:
+                    break
+
+        # New behaviour: cap chat scopes (FIFO insertion order).  Skip
+        # the current scope so we never evict the one we're about to
+        # write to.  We evict at most one entry per insertion so steady-
+        # state stays at MAX_CHAT_SCOPE_CACHE_SIZE.
+        chat_scopes = [s for s in self._cached_sessions.keys() if s.startswith("chat:")]
+        if len(chat_scopes) >= MAX_CHAT_SCOPE_CACHE_SIZE:
+            for scope in chat_scopes:
+                if scope == current_scope:
+                    continue
+                old = self._cached_sessions.pop(scope, None)
+                self._last_focus_ids.pop(scope, None)
+                if old is not None:
+                    _cached_passive_agents.pop(id(old), None)
+                # Cascade-evict the heavy browser-use Agent for this
+                # scope so the ~860 MB block is freed.  Best-effort
+                # import to avoid a hard cycle.
+                try:
+                    from agent.ec_skills.browser_node import build_helpers as _bh
+                    if scope in _bh.cached_bu_agents:
+                        _bh.cached_bu_agents.pop(scope, None)
+                except Exception:
+                    pass
+                logger.info(
+                    f"[BrowserSessionManager] Evicted oldest chat scope "
+                    f"{scope!r} (cap={MAX_CHAT_SCOPE_CACHE_SIZE}); freed "
+                    f"BrowserSession + cached browser-use Agent."
+                )
                 break
 
     # ── Lifecycle debug instrumentation ───────────────────────────

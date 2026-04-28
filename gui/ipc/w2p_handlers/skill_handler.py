@@ -2579,3 +2579,53 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
     except Exception as e:
         logger.error(f"[skill_handler] ❌ Error syncing skill from file: {e}")
         return {'success': False, 'error': str(e)}
+
+
+def prepare_skill_info_from_json(skill_json_path: str, skill_id: str, skill_name: str) -> Dict[str, Any]:
+    """Build skill_info dict from a skill JSON file path.
+
+    Used by rename handlers to prepare data for the standardized save flow.
+    """
+    from pathlib import Path
+    skill_path = Path(skill_json_path)
+    with open(str(skill_path), 'r', encoding='utf-8') as f:
+        skill_data = json.load(f)
+
+    return {
+        'id': skill_id,
+        'name': skill_name,
+        'skillName': skill_name,
+        'description': skill_data.get('description', ''),
+        'version': skill_data.get('version', '1.0.0'),
+        'level': skill_data.get('level', 'entry'),
+        'config': skill_data.get('config', {}),
+        'diagram': skill_data.get('workFlow', {}),
+        'tags': skill_data.get('tags', []),
+        'examples': skill_data.get('examples', []),
+        'inputModes': skill_data.get('inputModes', []),
+        'outputModes': skill_data.get('outputModes', []),
+        'apps': skill_data.get('apps', []),
+        'limitations': skill_data.get('limitations', []),
+        'price': skill_data.get('price', 0),
+        'price_model': skill_data.get('price_model', ''),
+        'public': skill_data.get('public', False),
+        'rentable': skill_data.get('rentable', False),
+        'run_in_cloud': skill_data.get('run_in_cloud', False),
+        'hybrid_cloud_mode': skill_data.get('hybrid_cloud_mode', False),
+        'path': skill_json_path,
+        'source': 'ui',
+    }
+
+
+def get_current_username() -> str:
+    """Get the current logged-in username."""
+    try:
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context(None, None)
+        if ctx:
+            login = ctx.get_login()
+            if login:
+                return login.username or ''
+    except Exception:
+        pass
+    return ''
