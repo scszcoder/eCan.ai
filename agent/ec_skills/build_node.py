@@ -236,6 +236,76 @@ def _normalize_dispatch_identity_key(raw_id: str) -> str:
     return s
 
 
+def _stale_input_has_undelivered_response_text(
+    stale_input: Any,
+    new_event_type: str,
+) -> tuple[bool, str, str]:
+    """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
+    worker reply that HOT-PATH-B has not yet typed into Feige.
+
+    Used by :func:`build_pend_for_event_node` to defend against an
+    event-bus race where a chat_message resume populates
+    ``state["input"]`` with ``response_text`` but the langgraph loops
+    back to ``pend_event`` via condition nodes WITHOUT entering
+    ``browser_automation_janWe`` (so HOT-PATH-B never fires).  The next
+    non-chat_message resume would then permanently drop the reply via
+    ``state.pop("input", None)``.
+
+    Liveness incident 2026-04-28 (eCan.log around 12:19:50): customer
+    ``cejs``'s "退货包邮吗" went silent for ~2 minutes this way.
+
+    Returns ``(should_preserve, customer, response_text)``.  Caller is
+    expected to put ``stale_input`` back into ``state["input"]`` iff
+    ``should_preserve`` is ``True``.
+
+    Heuristic: preserve iff
+      * ``new_event_type`` is NOT ``chat_message`` (chat_message
+        resumes re-populate ``state["input"]`` themselves),
+      * ``stale_input`` parses as a JSON object with non-empty
+        ``response_text`` and ``customer_name``/``customer_id``,
+      * ``dispatch_state.was_recently_sent(...)`` is 0.0 (15 s TTL,
+        i.e. HOT-PATH-B has NOT typed this reply recently).
+
+    HOT-PATH-B has its own dedup guards downstream, so a false-positive
+    (reply already typed but TTL not yet recorded) just becomes a
+    ``dedup-skip`` — no duplicate sends.
+    """
+    if new_event_type == "chat_message":
+        return False, "", ""
+    if not stale_input:
+        return False, "", ""
+    try:
+        import json as _json
+        parsed = (
+            _json.loads(stale_input)
+            if isinstance(stale_input, str)
+            else stale_input
+        )
+    except Exception:
+        return False, "", ""
+    if not isinstance(parsed, dict):
+        return False, "", ""
+    response_text = parsed.get("response_text")
+    customer = parsed.get("customer_name") or parsed.get("customer_id")
+    if not (
+        isinstance(response_text, str) and response_text.strip()
+        and isinstance(customer, str) and customer.strip()
+    ):
+        return False, "", ""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            dispatch_state as _ds,
+        )
+        recent_age = _ds.was_recently_sent(customer, response_text)
+    except Exception:
+        recent_age = 0.0
+    if recent_age > 0.0:
+        # HOT-PATH-B already typed this reply within the dedup TTL —
+        # really stale, safe to drop.
+        return False, customer, response_text
+    return True, customer, response_text
+
+
 # ==================== Lambda Proxy Helpers ====================
 
 def _should_use_proxy(node_inputs: dict | None = None) -> bool:
@@ -6207,6 +6277,37 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # starts fresh; the new event's data (if any) will be set below
         # by chat_attributes enrichment or human_text extraction.
         _stale_input = state.pop("input", None)
+
+        # ── Preserve UNDELIVERED response_text across event-bus race ──
+        # See ``_stale_input_has_undelivered_response_text`` docstring
+        # for the full incident write-up.  TL;DR: when a chat_message
+        # resume populates ``state["input"]`` with a Q&A worker's reply
+        # but the langgraph loops back to pend_event via condition nodes
+        # without entering ``browser_automation_janWe``, the very next
+        # non-chat_message resume here would silently drop the reply.
+        # Restore it so HOT-PATH-B's ``state["input"]`` payload-source
+        # fallback can pick it up on the next BA invocation.
+        try:
+            _preserve, _undeliv_cust, _undeliv_resp = (
+                _stale_input_has_undelivered_response_text(
+                    _stale_input, _rp_event_type
+                )
+            )
+            if _preserve:
+                state["input"] = _stale_input
+                _stale_input = None  # don't log as cleared
+                logger.warning(
+                    f"[pend_event] Preserved undelivered response_text "
+                    f"(cust={_undeliv_cust!r}, len={len(_undeliv_resp)}) "
+                    f"in state.input — would have been dropped by "
+                    f"{_rp_event_type} resume; HOT-PATH-B will retry "
+                    f"via state.input fallback, node={node_name}"
+                )
+        except Exception as _undeliv_err:
+            logger.debug(
+                f"[pend_event] Undelivered-reply preservation check failed "
+                f"(non-fatal): {_undeliv_err}"
+            )
         _stale_msg4 = None
         if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
             _stale_msg4 = state["messages"][4]
