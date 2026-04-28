@@ -444,6 +444,27 @@ async def execute(
             outcome.ok = True
             outcome.reason = "all_ok"
             await _restore_feige_tab(browser_session, node_name)
+    except asyncio.CancelledError:
+        # ── Diagnostic surface (2026-04-28) ──
+        # ``CancelledError`` is ``BaseException`` (not ``Exception``)
+        # in Python 3.8+, so the bare ``except Exception`` below would
+        # silently let cancellations through with no log.  When the
+        # parent persistent-worker cycle is pre-empted mid-await
+        # (observed 2026-04-28 05:17:27 — cejs HOT-PATH-B's CDP focus
+        # hung 3 s under contention, then the entire run was
+        # cancelled), the executor was torn down without any visible
+        # signal.  Mark the outcome and re-raise so the cancel still
+        # propagates correctly; the ``finally`` below releases the
+        # typing lock.
+        logger.warning(
+            f"[BrowserAutomation] HOT-PATH-B: executor cancelled "
+            f"mid-sequence (cust={customer_key!r}, "
+            f"actions_attempted={outcome.actions_attempted}, node={node_name})"
+        )
+        outcome.ok = False
+        if not outcome.reason:
+            outcome.reason = "cancelled"
+        raise
     except Exception as exc:
         logger.warning(
             f"[BrowserAutomation] HOT-PATH-B: executor exception: {exc}",

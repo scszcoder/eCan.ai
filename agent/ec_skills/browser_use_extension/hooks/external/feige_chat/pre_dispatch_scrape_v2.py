@@ -126,37 +126,140 @@ class ScrapeFunction(Protocol):
 
 
 # JS scaffold for finding the latest customer bubble in Feige's chat
-# thread.  Lifted verbatim from ``dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS``
-# — selectors are Feige-specific (low IP, audit-classified ``local_extract``).
+# thread.
 #
-# Returns ``{ok: bool, msg_id, text, error}``.  Caller does the
-# focus-customer click (via ``primitives.click``) before calling this
-# script if the desired customer's pane isn't already visible.
+# ─── Production-incident note (2026-04-27) ────────────────────────────
+# The earlier version of this snippet used generic selectors
+# (``[data-id][class*="message-item"]``, ``.msg-item[data-id]``,
+# ``li[data-id]``) that matched *zero* elements in Feige's real DOM —
+# Feige wraps each bubble in
+#   ``<div data-qa-id="qa-message-warpper">
+#      <div data-id="<uuid>" class="<obfuscated>">…</div>
+#    </div>``
+# with obfuscated, churning class names (e.g. ``tC9ap6QtAyeCD0jfuMns``).
+# None of the generic selectors matched, so every scrape returned
+# ``no_bubbles_found``, which fed through to ``pre_dispatch_v2._dispatch_one_item``
+# as an empty ``scrape.msg_id``.  That blocked the ``set_last_dispatched_msg_id``
+# recording at the bottom of ``_dispatch_one_item`` (the branch is
+# ``if scrape.msg_id: …``), so **no dedup state was ever persisted**, and
+# the next front-desk tick re-fired the same dispatch ~10–15 s later —
+# producing the duplicate and crosstalk replies reported in production
+# on 2026-04-27.
+#
+# The fix is to port the V1 selectors from
+# ``dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS``, which use the stable
+# ``data-qa-id="qa-message-warpper"`` wrapper and the inline
+# ``flex-direction`` style to tell customer (``row``) from agent
+# (``row-reverse``).  Those selectors have been battle-tested in V1
+# for months and we also now extract attachments so the V2 multimodal
+# path (``pre_dispatch_v2`` L281-295) can still eager-fetch images.
+#
+# If the selector tokens below ever need to change, KEEP THEM IN SYNC
+# with ``dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS`` — the two JS
+# snippets share the same Feige-DOM contract and should evolve
+# together.  See ``tests/test_pre_dispatch_v2.py::
+# FeigeLatestBubbleJsSelectorsTest`` for the regression guard.
+#
+# Returns ``{ok: bool, msg_id, text, attachments, error}``.  Caller does
+# the focus-customer click (via ``primitives.click``) before calling
+# this script if the desired customer's pane isn't already visible.
 _FEIGE_LATEST_BUBBLE_JS = r"""
 (function() {
   try {
-    const bubbles = document.querySelectorAll(
-      '[data-id][class*="message-item"], .msg-item[data-id], li[data-id]'
-    );
-    if (!bubbles || bubbles.length === 0) {
+    function _customerBubble(wrap) {
+      // Customer-side row direction is "row"; agent-side is "row-reverse".
+      // Feige sets flex-direction as an inline style, so reading
+      // style.flexDirection is reliable across both real Feige and any
+      // test emulation DOM.
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (!row) return null;
+      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) {
+        return null;  // agent-side bubble
+      }
+      return row;
+    }
+    function _collectAttachments(row) {
+      if (!row) return [];
+      var atts = [];
+      var imgs = Array.from(row.querySelectorAll('img'));
+      for (var k = 0; k < imgs.length; k++) {
+        var im = imgs[k];
+        var cls = (im.className || '').toString();
+        var alt = (im.getAttribute('alt') || '').trim();
+        // Skip avatar imgs by class (sidebar or in-thread sender avatar).
+        if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+        // Skip avatar imgs by alt (catches future class-name renames).
+        if (alt === '头像') continue;
+        // Prefer the resolved ``.src`` property so relative URLs are
+        // absolutised — the downstream eager-fetch uses aiohttp, which
+        // rejects relative URLs with ``InvalidURL``.
+        var src = im.src || im.getAttribute('src') || '';
+        if (!src) continue;
+        // Skip data: URI fallback avatars (the default-avatar SVG).
+        if (src.indexOf('data:image/svg') === 0) continue;
+        atts.push({ kind: 'image', url: src, alt: alt });
+      }
+      return atts;
+    }
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    if (!wrappers || wrappers.length === 0) {
       return JSON.stringify({ok: false, error: "no_bubbles_found"});
     }
-    // Walk backwards looking for the most recent CUSTOMER bubble (not agent/system).
-    for (let i = bubbles.length - 1; i >= 0; i--) {
-      const node = bubbles[i];
-      const cls = (node.className || "").toString();
-      // Skip agent-side and system bubbles by class name heuristic.
-      if (/agent|system|reply-self|outgoing/i.test(cls)) continue;
-      const msg_id = node.getAttribute("data-id") || "";
-      // Try a handful of common text containers.
-      const textEl = node.querySelector(
-        '.msg-text, .text-content, .content, [class*="message-text"]'
-      );
-      const text = (textEl ? textEl.textContent : node.textContent) || "";
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var row = _customerBubble(wrap);
+      if (!row) continue;                                   // agent-side or system
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var text = '';
+      if (bubble) {
+        if (bubble.classList.contains('messageIsMe')) continue;  // double-check
+        text = (bubble.querySelector('pre') || bubble).textContent.trim();
+      }
+      var attachments = _collectAttachments(row);
+      // A bubble counts as a customer message if it has either text or
+      // a content image.  Image-only bubbles (text === '') must NOT be
+      // silently dropped — customers routinely drag-drop screenshots
+      // without any text.
+      if (!text && attachments.length === 0) continue;
+      // Merge attachments from immediately-prior customer bubbles so
+      // burst-style (image, text) or (text, image, text) sequences don't
+      // lose the image.  Stop at:
+      //   * an agent-side bubble (real reply already happened) → STOP
+      //   * a non-customer-non-agent wrapper (system/notice) → SKIP
+      //   * the look-back cap (3 bubbles) → STOP
+      // We DON'T merge prior bubbles' TEXT (that would conflate two
+      // distinct messages); only images are worth chaining.  Dedup /
+      // msg_id stay anchored on the tail bubble so downstream logic
+      // is unchanged.
+      var lookback = 0, j = i - 1;
+      while (j >= 0 && lookback < 3) {
+        var prevWrap = wrappers[j];
+        var prevRowAny = prevWrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+        if (prevRowAny &&
+            (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
+          break;  // agent reply already happened — don't reach across
+        }
+        var prevRow = _customerBubble(prevWrap);
+        if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
+        var prevAtts = _collectAttachments(prevRow);
+        if (prevAtts.length) {
+          // Prepend so visual order is preserved (older bubble first).
+          attachments = prevAtts.concat(attachments);
+        }
+        lookback++;
+        j--;
+      }
+      // ``data-id`` lives on an inner wrapper (``<div data-id="<uuid>"
+      // class="<obfuscated>">``) inside the ``qa-message-warpper`` div,
+      // not on the wrapper itself — querySelector for the first [data-id]
+      // descendant.
+      var msgIdEl = wrap.querySelector('[data-id]');
+      var msgId = msgIdEl ? (msgIdEl.getAttribute('data-id') || '') : '';
       return JSON.stringify({
         ok: true,
-        msg_id: msg_id,
-        text: text.trim().slice(0, 4000),
+        msg_id: msgId,
+        text: text.slice(0, 4000),
+        attachments: attachments,
       });
     }
     return JSON.stringify({ok: false, error: "no_customer_bubble"});
@@ -230,12 +333,31 @@ async def scrape_customer_bubble_v2(
 
     msg_id = str(parsed.get("msg_id") or "")
     text = str(parsed.get("text") or "")
+    # Defensive: accept missing/non-list attachments and coerce items so
+    # a selector drift in the JS can't push non-dict junk into the
+    # downstream eager-fetch path.
+    raw_atts = parsed.get("attachments") or []
+    attachments: list[dict] = []
+    if isinstance(raw_atts, list):
+        for a in raw_atts:
+            if isinstance(a, dict) and a.get("url"):
+                attachments.append({
+                    "kind": str(a.get("kind") or "image"),
+                    "url": str(a.get("url") or ""),
+                    "alt": str(a.get("alt") or ""),
+                })
     logger.info(
         f"[V2 pre_dispatch_scrape] scraped cust={customer_name!r} "
         f"msg_id=...{msg_id[-8:] if msg_id else ''} "
-        f"text_preview={text[:50]!r}"
+        f"text_preview={text[:50]!r} "
+        f"attachments={len(attachments)}"
     )
-    return ScrapeResult(scrape_ok=True, msg_id=msg_id, text=text)
+    return ScrapeResult(
+        scrape_ok=True,
+        msg_id=msg_id,
+        text=text,
+        attachments=attachments,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

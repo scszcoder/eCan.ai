@@ -648,6 +648,107 @@ def add_to_history(state, messages, max_entries: int = 200):
         state["history"] = state["history"][-max_entries:]
 
 
+def _is_qa_inbound_payload(payload) -> bool:
+    """Return ``True`` when *payload* is a Q&A-worker inbound dispatch.
+
+    Mirrors ``extension_tools_service._is_qa_dispatch`` so the inbound
+    detection (Q&A worker side) and outbound rejection (front-desk side)
+    use the same rule.  A Q&A *inbound* dispatch payload has BOTH
+    ``customer_id`` and ``latest_message`` and lacks ``response_text``
+    (which would mark it as a Q&A *reply* flowing back to front-desk).
+    Returns ``False`` for non-dict payloads so callers can pass any
+    parsed JSON value defensively.
+    """
+    if not isinstance(payload, dict):
+        return False
+    cust = str(payload.get("customer_id") or payload.get("customerId") or "").strip()
+    latest = str(payload.get("latest_message") or "").strip()
+    response = str(payload.get("response_text") or "").strip()
+    return bool(cust and latest and not response)
+
+
+def _reset_qa_history_on_customer_change(
+    state: dict,
+    payload,
+    *,
+    node_name: str = "",
+    logger_=None,
+) -> bool:
+    """Per-customer ``state["history"]`` isolation for Q&A workers.
+
+    Production incident 2026-04-27: a Q&A worker (e.g. ``飞鸽客户应答``)
+    handling multiple customers via round-robin dispatch echoed one
+    customer's answer onto another customer's chat tab.  Symptom:
+    customer B asked "转人工", but the bot typed
+    "您好，红色款是否有货需要帮您核实一下…" into B's tab — that answer
+    belonged to customer A who had asked "有红色的吗？".
+
+    Root cause: ``state["history"]`` is shared across all dispatches to
+    the same agent (the LangGraph state is per chatter-task, and the
+    chatter task is per-agent, not per-customer).  When customer A's
+    ``(HumanMessage, AIMessage)`` pair was still in history at the
+    moment customer B's HumanMessage arrived, the LLM weighted the
+    prior turn heavily and produced an answer shaped by A's turn.
+    The Q&A worker's prompt explicitly instructs "忽略历史，只看本轮的
+    ``{{input}}``" but the model didn't fully comply.
+
+    This helper detects an inbound Q&A dispatch payload (via
+    :func:`_is_qa_inbound_payload`) and, when the ``customer_id`` has
+    changed since the last call, clears ``state["history"]`` so the LLM
+    can't reach across customer boundaries.  The new ``customer_id`` is
+    recorded in ``state["attributes"]["_last_qa_customer_id"]``.
+
+    Returns ``True`` when a reset was performed (so callers / tests
+    can assert), ``False`` otherwise.
+
+    NOTE: deliberately does NOT touch front-desk inbound traffic —
+    front-desk receives Q&A *replies* (which carry ``response_text``)
+    and browser events (which never look like a dispatch), neither of
+    which trip :func:`_is_qa_inbound_payload`.  Front-desk legitimately
+    tracks multi-customer state in its history.
+    """
+    try:
+        if not _is_qa_inbound_payload(payload):
+            return False
+        cust = str(
+            payload.get("customer_id") or payload.get("customerId") or ""
+        ).strip()
+        attrs = state.setdefault("attributes", {}) if isinstance(state, dict) else {}
+        if not isinstance(attrs, dict):
+            # Should never happen — defensive against malformed state.
+            return False
+        last_cust = str(attrs.get("_last_qa_customer_id") or "").strip()
+        did_reset = False
+        if last_cust and last_cust != cust:
+            hist_len = (
+                len(state["history"])
+                if isinstance(state.get("history"), list)
+                else 0
+            )
+            state["history"] = []
+            # Drop the per-turn ``prompts`` accumulator too —
+            # ``standard_post_llm_hook`` extends it with the AIMessage of
+            # each turn; clearing keeps state tidy and prevents
+            # memory-monitor false alarms.
+            if isinstance(state.get("prompts"), list):
+                state["prompts"] = []
+            did_reset = True
+            if logger_ is not None:
+                logger_.info(
+                    f"[{node_name}] Q&A history reset on customer change: "
+                    f"prev={last_cust!r} -> new={cust!r} "
+                    f"(cleared {hist_len} prior history entries)"
+                )
+        attrs["_last_qa_customer_id"] = cust
+        return did_reset
+    except Exception as exc:
+        if logger_ is not None:
+            logger_.debug(
+                f"[{node_name}] Q&A history isolation skipped: {exc}"
+            )
+        return False
+
+
 STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
@@ -1886,9 +1987,46 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     logger.debug("[LLMNode]system_prompt_id:", system_prompt_id)
     logger.debug("[LLMNode]user_prompt_id:", user_prompt_id)
 
-    # Get inline prompt content
+    # ── Skill-author footgun guard: duplicate prompt ids ─────────────
+    # If a skill author accidentally points both ``systemPromptId`` and
+    # ``promptId`` at the same prompt, the prompt body gets loaded as
+    # BOTH the system and user templates, so every ``{{input}}`` slot
+    # and every token of the body is sent to the model twice, and any
+    # inlined attachment ``data_uri`` in ``{{input}}`` blows the system
+    # message up to tens of megabytes.  This caused the Feige Q&A
+    # worker "我看不到图片" regression; keep a loud warning here so the
+    # next misconfiguration is obvious in logs and the skill editor
+    # timeline.
+    if (
+        system_prompt_id
+        and user_prompt_id
+        and system_prompt_id == user_prompt_id
+    ):
+        _dup_msg = (
+            f"[build_llm_node] ⚠️ node={node_name}: systemPromptId and "
+            f"promptId are both set to '{system_prompt_id}'. The prompt "
+            f"body will be used as BOTH system and user prompt, which "
+            f"doubles token cost and inlines attachment data_uri blobs "
+            f"into the system message. Set promptId to a separate "
+            f"user-input template (e.g. one containing just "
+            f"'{{{{input}}}}'), or clear one of the two fields."
+        )
+        logger.warning(_dup_msg)
+        try:
+            send_skill_editor_log("warning", _dup_msg)
+        except Exception:
+            pass
+
+    # Get inline prompt content.
+    # Note: ``inline_user_prompt`` defaults to ``{{input}}`` (NOT
+    # ``STANDARD_SYS_PROMPT``) because this field is the *user-turn*
+    # template — the natural default is to pass the invocation payload
+    # straight through as the human message.  Using the system-prompt
+    # string here was a historical copy-paste; it caused the user turn
+    # to literally read "You are a helpful AI assistant." when the
+    # skill author left the field blank.
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or STANDARD_SYS_PROMPT)
-    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or STANDARD_SYS_PROMPT)
+    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "{{input}}")
 
     logger.debug("[LLMNode]inline_system_prompt:", inline_system_prompt)
     logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
@@ -2592,6 +2730,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 ):
                     from agent.ec_skills.llm_utils.llm_utils import (
                         prep_multi_modal_content,
+                        _strip_data_uri_noise,
                     )
                     _mm_content = prep_multi_modal_content(
                         state,
@@ -2605,6 +2744,63 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             if isinstance(p, dict) and p.get("type") == "image_url"
                         )
                         messages[-1] = HumanMessage(content=_mm_content)
+
+                        # ── Critical: strip inlined data URIs from the text
+                        # streams now that the image is properly delivered as
+                        # an ``image_url`` content part on the HumanMessage.
+                        #
+                        # Why this matters: ``{{input}}`` inside the prompt
+                        # template gets substituted with the raw JSON payload
+                        # which carries ``"data_uri": "data:image/...;base64,
+                        # <up-to-7MB>"`` for each customer attachment.  When
+                        # the same prompt body is used for BOTH the system
+                        # and user templates (e.g. when ``systemPromptId`` and
+                        # ``promptId`` point at the same prompt id, or when
+                        # the prompt body has multiple ``{{input}}`` slots —
+                        # both common in Feige-style Q&A workers), the
+                        # ``final_system_prompt`` and ``final_user_prompt``
+                        # each balloon to tens of megabytes of inline base64.
+                        #
+                        # The model then sees the (real, viewable) image
+                        # AND six garbled base64 strings in the system text
+                        # — and reports back "I can't see a clear image"
+                        # which is exactly its prompted fallback for
+                        # unrecognizable content.  Stripping the data URIs
+                        # from the text streams here keeps the model focused
+                        # on the one canonical ``image_url`` part.
+                        try:
+                            _orig_sys_len = len(final_system_prompt) if final_system_prompt else 0
+                            _orig_usr_len = len(final_user_prompt) if final_user_prompt else 0
+                            if final_system_prompt:
+                                final_system_prompt = _strip_data_uri_noise(final_system_prompt)
+                            if final_user_prompt:
+                                final_user_prompt = _strip_data_uri_noise(final_user_prompt)
+                            # Mirror the strip into messages[0] (SystemMessage)
+                            # since downstream code reads from that as well.
+                            if (
+                                messages
+                                and isinstance(messages[0], SystemMessage)
+                                and isinstance(messages[0].content, str)
+                            ):
+                                messages[0] = SystemMessage(
+                                    content=_strip_data_uri_noise(messages[0].content)
+                                )
+                            _new_sys_len = len(final_system_prompt) if final_system_prompt else 0
+                            _new_usr_len = len(final_user_prompt) if final_user_prompt else 0
+                            logger.info(
+                                f"[multimodal-llm-node] stripped data_uri noise "
+                                f"from prompt text streams: "
+                                f"system {_orig_sys_len:,} -> {_new_sys_len:,} chars, "
+                                f"user {_orig_usr_len:,} -> {_new_usr_len:,} chars "
+                                f"(image now delivered as image_url part)"
+                            )
+                        except Exception as _strip_exc:
+                            logger.warning(
+                                f"[multimodal-llm-node] data_uri strip failed "
+                                f"(non-fatal, continuing): "
+                                f"{type(_strip_exc).__name__}: {_strip_exc}"
+                            )
+
                         logger.info(
                             f"[multimodal-llm-node] node={node_name} "
                             f"upgraded messages[-1] HumanMessage to multimodal "
@@ -6113,6 +6309,19 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             human_text_content = data.get("content")
 
         if human_text_content:
+            # ── Per-customer history isolation for Q&A workers ──────────
+            # See ``_reset_qa_history_on_customer_change`` for the full
+            # incident write-up (2026-04-27 crosstalk).  Short version:
+            # ``state["history"]`` is shared across all dispatches to
+            # the same agent, so without this reset a Q&A worker can
+            # bleed customer A's prior turn into customer B's reply.
+            _qa_payload = data if isinstance(data, dict) else None
+            if _qa_payload is None and isinstance(human_text_content, str):
+                _qa_payload = try_parse_json(human_text_content)
+            _reset_qa_history_on_customer_change(
+                state, _qa_payload, node_name=node_name, logger_=logger,
+            )
+
             # Set state["input"] so _get_human_input() in pre_llm_hook can find it
             state["input"] = human_text_content
             state.setdefault("history", [])

@@ -633,10 +633,28 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
         # selector.  ``get_or_create_cdp_session(target_id=..., focus=True)``
         # is awaited and guarantees ``agent_focus_target_id`` points at
         # the Feige tab before returning.
+        # ── Hang-bound (2026-04-28): same deadlock class as the
+        # ``get_browser_state_summary`` call in
+        # ``browser_node/runner.py:4376-4395`` — under target detach /
+        # high CDP concurrency this await has been observed to block
+        # for 3+ s while the parent persistent-worker run is racing
+        # post-preflight on the same target.  When the parent is then
+        # cancelled mid-await, the ``CancelledError`` propagates past
+        # every ``except Exception`` block in HOT-PATH-B (CancelledError
+        # is BaseException, not Exception in Python 3.8+), which
+        # silently kills the typing into the customer's tab — the
+        # "cejs reply never arrives" regression observed
+        # 2026-04-28 05:17:27 (eCan.log.2 lines 1218-1462).  Bound the
+        # focus call with the same 3 s budget as the state-summary
+        # check; on timeout treat as focus-failure and let the caller
+        # fall back (the legacy event-bus path or the lock-less write).
         try:
             if hasattr(browser_session, "get_or_create_cdp_session"):
-                await browser_session.get_or_create_cdp_session(
-                    target_id=feige_tid, focus=True
+                await _ef_asyncio.wait_for(
+                    browser_session.get_or_create_cdp_session(
+                        target_id=feige_tid, focus=True
+                    ),
+                    timeout=3.0,
                 )
             else:
                 # Fallback for legacy BrowserSession API without the
@@ -644,6 +662,14 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                 from browser_use.browser.events import SwitchTabEvent as _EF_STE
                 await browser_session.event_bus.dispatch(_EF_STE(target_id=feige_tid))
                 await _ef_asyncio.sleep(0.3)
+        except _ef_asyncio.TimeoutError:
+            logger.warning(
+                f"[BrowserAutomation] ensure-feige-tab: focus-target TIMEOUT "
+                f"after 3s (target=...{feige_tid[-6:]}) — CDP session "
+                f"contended; HOT-PATH-B will proceed without focus and "
+                f"may fall back to lock-less write"
+            )
+            return False
         except Exception as _focus_err:
             logger.info(
                 f"[BrowserAutomation] ensure-feige-tab: focus-target failed "
