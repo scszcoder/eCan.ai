@@ -50,6 +50,7 @@ What this module does **not** own
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -541,6 +542,24 @@ async def before_session_setup_hook(
                     # (Typing-lock release now handled inside
                     # feige_chat.hot_path.execute's finally.)
                 break  # Only try first matching rule
+    except asyncio.CancelledError:
+        # ── Diagnostic surface (2026-04-28) ──
+        # ``CancelledError`` is ``BaseException`` (not ``Exception``)
+        # in Python 3.8+, so the previous bare ``except Exception``
+        # below would not log it.  When the parent persistent-worker
+        # cycle is cancelled mid-await (e.g., the CDP focus call in
+        # ``ensure_feige_tab_focused`` hangs under contention and the
+        # supervisor pre-empts), HOT-PATH-B was silently torn down —
+        # producing the "ensure-feige-tab: 1 candidate → silence"
+        # signature that hid the cejs-reply-never-arrives regression
+        # observed 2026-04-28 05:17:27.  Log + re-raise so the cancel
+        # still propagates correctly to the runner.
+        logger.warning(
+            "[BrowserAutomation] HOT-PATH-B: cancelled mid-execute "
+            "(parent cycle pre-empted) — typing-lock release handled "
+            "by hot_path.execute's finally"
+        )
+        raise
     except Exception as _hp_b_err:
         logger.warning(
             f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
