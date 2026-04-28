@@ -562,6 +562,10 @@ class IPCHandlerRegistry:
                 error_message = error_info.get('message', 'Request failed')
                 error_code = error_info.get('code', 'UNKNOWN_ERROR')
                 
+                # Log the full error response for debugging
+                logger.error(f"[registry] Handler {method} returned error: code={error_code}, message={error_message}")
+                logger.error(f"[registry] Full error response: {ipc_response}")
+                
                 # Create exception with error code for proper handling
                 error = RuntimeError(error_message)
                 error.error_code = error_code  # type: ignore
