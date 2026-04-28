@@ -303,6 +303,16 @@ def _extract_actionable_items(
             "chat_url": chat_url,
             # Preserve the original sidebar last_message for the enrich plugin's override.
             "last_message": str(item.get("last_message") or ""),
+            # Preserve the live-monitor's ``identity_key`` (format:
+            # ``<customer_name>|<last_message>``) so successful fastpath
+            # dispatches can stamp ``_dispatched_identity_keys`` and the
+            # later AUTO-DISPATCH filter in actionable_items.py can
+            # recognise this customer as already-dispatched.  Without
+            # this, the same customer message gets dispatched twice —
+            # once via the fastpath here and once via the LLM-side
+            # AUTO-DISPATCH inside ``_run_browser_use`` — causing
+            # duplicate worker invocations and racing replies.
+            "identity_key": str(item.get("identity_key") or ""),
         }
         for extra_key in cfg.assignment_extra_fields:
             ek = str(extra_key)
@@ -491,6 +501,43 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
         payload["tab_id"] = tab_id
     if item.get("customer_name"):
         payload["customer_name"] = item["customer_name"]
+    # ── Fix C: Q&A-compatible payload ────────────────────────────────
+    # Some recipients of this fastpath dispatch are Q&A workers (e.g.
+    # ``飞鸽客户应答``) whose contract requires ``latest_message`` — the
+    # customer's actual original message text — so the worker can answer
+    # the customer's question.  Without it the worker falls back to a
+    # generic "请详细描述一下" clarification template and the customer
+    # never gets a real answer (the LLM-driven ``bu_send_chat`` path
+    # provides this field correctly via Fix A in extension_tools_service,
+    # but this fastpath bypasses ``bu_send_chat`` and so was missing it).
+    #
+    # ``item["last_message"]`` is populated by ``_parse_dispatch_items``
+    # from the monitor snapshot's ``last_message`` field.  We only set
+    # ``latest_message`` when the source value is non-empty so we don't
+    # signal a Q&A dispatch with a blank value (which the worker prompt
+    # treats as "missing").
+    last_msg = str(item.get("last_message") or "").strip()
+    if last_msg:
+        payload["latest_message"] = last_msg
+    # ── Multimodal: customer-attached images ─────────────────────────
+    # The hot-path scraper (``feige_chat.pre_dispatch_v2`` /
+    # ``pre_dispatch_enrich``) populates ``item["last_message_attachments"]``
+    # with a list of dicts ``{"kind": "image", "url": "...", "data_uri":
+    # "data:image/...;base64,...", "alt": "..."}`` — ``data_uri`` present
+    # on successful eager-fetch, ``fetch_error`` present on fallback.
+    # We forward the list verbatim so the Q&A worker side can decide
+    # how to surface it to its LLM (vision content parts when the model
+    # supports vision; descriptive text-only fallback otherwise).
+    atts = item.get("last_message_attachments")
+    if isinstance(atts, list) and atts:
+        # Defensive shallow copy + filter to JSON-serialisable dicts so
+        # a malformed entry can't poison the send_chat envelope.
+        cleaned: list[dict] = []
+        for a in atts:
+            if isinstance(a, dict) and (a.get("data_uri") or a.get("url")):
+                cleaned.append(a)
+        if cleaned:
+            payload["latest_message_attachments"] = cleaned
     for extra_key in cfg.assignment_extra_fields:
         ek = str(extra_key)
         if ek and ek in item and ek not in payload:
@@ -623,6 +670,32 @@ async def _dispatch_one_item(
         }
         if scraped_msg_id:
             ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id
+        # ── Cross-path dedup: stamp the AUTO-DISPATCH identity-key
+        #   table so the LLM-side AUTO-DISPATCH (in
+        #   actionable_items.py) recognises this customer as already
+        #   handled and skips its own dispatch.  Both paths share the
+        #   same ``_dispatched_identity_keys`` dict; they were just
+        #   never wired together.  Best-effort import — if
+        #   actionable_items isn't loaded (non-Feige skill) we silently
+        #   no-op.
+        try:
+            _ident = str(item.get("identity_key") or "").strip()
+            if _ident:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                    _dispatched_identity_keys as _ai_identity_keys,
+                )
+                import time as _t
+                _ai_identity_keys[_ident] = _t.time()
+                logger.debug(
+                    f"[BrowserAutomation] {log_tag} stamped AUTO-DISPATCH "
+                    f"identity_key={_ident!r} so the LLM-side path skips "
+                    f"this customer."
+                )
+        except Exception as _stamp_exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} cross-path identity-key "
+                f"stamp failed (non-fatal): {_stamp_exc}"
+            )
         assigned_row = (
             f"{session_id}->{recipient_agent_id[-6:]} "
             f"msg={str(send_result.get('message_id') or '')[:8]}"

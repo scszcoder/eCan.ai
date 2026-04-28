@@ -16,6 +16,22 @@ CHARS_PER_TOKEN_CJK = 1.6          # Pure Chinese/Japanese/Korean
 CHARS_PER_TOKEN_MIXED = 2.5        # Mixed English + CJK (typical web content)
 CHARS_PER_TOKEN_CODE = 3.0         # Code with symbols and formatting
 
+# Multimodal accounting constants
+# --------------------------------
+# OpenAI / Anthropic-style vision models bill image content as a fixed-ish
+# number of tokens that's essentially INDEPENDENT of the base64 payload size.
+# For OpenAI: "low" detail = 85 tokens; "high" detail = 85 + 170*N_tiles.
+# We use ~255 as a safe single-tile "auto" default — generous enough to
+# never under-budget, tiny compared to the millions of tokens a raw base64
+# blob would otherwise be counted as.
+IMAGE_PART_TOKEN_COST = 255        # Fixed cost per image_url content part
+
+# Regex that matches a full ``data:image/...;base64,<payload>`` URI (greedy on
+# the base64 tail until the next non-base64 char).  Used to strip these blobs
+# from string-form message content before token counting, so a caller that
+# forgot to upgrade to multimodal doesn't blow the context budget.
+_DATA_URI_IMAGE_RE = re.compile(r'data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+')
+
 
 def detect_content_type(text: str) -> str:
     """
@@ -238,13 +254,26 @@ def estimate_tokens_auto(text: str) -> int:
 def estimate_message_tokens(message: Union[str, object]) -> int:
     """
     Estimate tokens for a LangChain message object or string.
-    
-    This is compatible with the existing estimate_tokens functions
-    used in llm_utils.py and other places.
-    
+
+    Multimodal-aware: image content (either as ``image_url`` content-parts in
+    a list, or as ``data:image/...;base64,...`` blobs embedded inside a raw
+    string) is billed as a small fixed cost (``IMAGE_PART_TOKEN_COST``), NOT
+    as the length of the base64 payload.  This prevents a 6 MB inlined image
+    from detonating the context-window filter in ``get_recent_context``.
+
+    Content shapes handled:
+
+    - **str**: strip any ``data:image/...;base64,...`` blobs, count each
+      as ``IMAGE_PART_TOKEN_COST``, then count the remaining text normally.
+    - **list** (OpenAI/Anthropic multimodal format, e.g.
+      ``[{"type":"text","text":"..."}, {"type":"image_url","image_url":{"url":"..."}}]``):
+      count each ``text`` part's ``text`` field via auto-detect, and add
+      ``IMAGE_PART_TOKEN_COST`` per ``image_url`` / ``image`` part.
+    - anything else: fall back to ``str(content)`` → auto-detect.
+
     Args:
         message: LangChain message object or string
-        
+
     Returns:
         Estimated token count
     """
@@ -255,8 +284,48 @@ def estimate_message_tokens(message: Union[str, object]) -> int:
             content = message.content
         else:
             content = str(message)
-        
-        # Use auto-detection for better accuracy
-        return estimate_tokens_auto(content)
+
+        # Multimodal content list: count text parts + flat cost per image.
+        if isinstance(content, list):
+            total = 0
+            for part in content:
+                if isinstance(part, dict):
+                    ptype = part.get('type')
+                    if ptype in ('image_url', 'image'):
+                        total += IMAGE_PART_TOKEN_COST
+                    elif ptype == 'text':
+                        text_val = part.get('text') or ''
+                        if isinstance(text_val, str) and text_val:
+                            total += estimate_tokens_auto(text_val)
+                    else:
+                        # Unknown part type — fall back to its str length,
+                        # but cap to avoid runaway for oddly-shaped parts.
+                        total += estimate_tokens_auto(str(part)[:4000])
+                elif isinstance(part, str):
+                    total += estimate_tokens_auto(part)
+                # Silently skip anything else (None, numbers, etc.)
+            return total
+
+        # String content: strip any inlined image data URIs before counting so
+        # a legacy caller (one that didn't upgrade to multimodal parts) still
+        # gets a sane token estimate.
+        if isinstance(content, str):
+            # Fast path: no data URI → count directly.
+            if 'data:image/' not in content:
+                return estimate_tokens_auto(content)
+            # Count each stripped data URI as one image, then count the
+            # remaining text normally.
+            n_images = 0
+
+            def _sub(_m):
+                nonlocal n_images
+                n_images += 1
+                return ''  # remove the blob from the text used for counting
+
+            stripped = _DATA_URI_IMAGE_RE.sub(_sub, content)
+            return estimate_tokens_auto(stripped) + (n_images * IMAGE_PART_TOKEN_COST)
+
+        # Dict or other exotic content: coerce to str.
+        return estimate_tokens_auto(str(content))
     except Exception:
         return 0

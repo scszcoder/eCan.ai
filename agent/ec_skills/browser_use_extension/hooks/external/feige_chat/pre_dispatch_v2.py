@@ -231,6 +231,29 @@ async def _dispatch_one_item(
             )
             item["last_message"] = scrape.text
 
+    # Multimodal: when the scraped bubble carries image attachments,
+    # eagerly fetch + base64-encode them in parallel here so the Q&A
+    # worker's payload is self-contained and the signed CDN URLs (which
+    # carry ``x-expires``) don't have a chance to expire en route.  On
+    # any per-URL fetch failure we still keep the entry — with a
+    # ``fetch_error`` reason and the original URL — so the worker can
+    # retry with a longer timeout if it has a vision-capable LLM.
+    if scrape.scrape_ok and scrape.attachments:
+        try:
+            from .image_fetch import fetch_attachments  # local import: avoid hard dep at import time
+            enriched = await fetch_attachments(scrape.attachments)
+            if enriched:
+                item["last_message_attachments"] = enriched
+        except Exception as fetch_exc:
+            # Never let an attachment fetch break dispatch — fall back
+            # to passing raw URLs straight through.
+            logger.warning(
+                f"[V2 pre_dispatch] fetch_attachments failed for "
+                f"cust={customer_key!r}: {type(fetch_exc).__name__}: {fetch_exc!r}; "
+                f"forwarding raw URLs"
+            )
+            item["last_message_attachments"] = list(scrape.attachments)
+
     # ── 2. Msg-id dedup (only meaningful when scrape gave us an id) ──
     skip, reason = _check_msg_id_dedup(
         customer_key,
@@ -279,6 +302,13 @@ async def _dispatch_one_item(
         "customer_name": customer_name,
         "last_message": str(item.get("last_message") or ""),
     }
+    # Multimodal: forward eager-fetched attachments verbatim.  Each
+    # entry carries either ``data_uri`` (success) or ``fetch_error``
+    # (fallback to URL).  The Q&A worker side decides whether to
+    # surface them as vision content parts.
+    _atts = item.get("last_message_attachments")
+    if isinstance(_atts, list) and _atts:
+        payload["last_message_attachments"] = _atts
     try:
         result = await ctx.send_chat.send_chat(
             recipient_agent_id,
