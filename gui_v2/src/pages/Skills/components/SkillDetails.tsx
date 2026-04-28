@@ -421,6 +421,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 const oldNameMatch = currentPath ? String(currentPath).replace(/\\/g, '/').match(/\/([^\/]+)_skill\/diagram_dir\//) : null;
                 const oldName = oldNameMatch?.[1];
                 const newName = payload.name;
+                console.log('[Skills] Rename check:', { currentPath, skillId, oldName, newName, isNew, shouldRename: !isNew && currentPath && oldName && newName && oldName !== newName });
                 if (!isNew && currentPath && oldName && newName && oldName !== newName) {
                     const api = IPCAPI.getInstance();
                     // Pass skillId to ensure ID-based DB update
