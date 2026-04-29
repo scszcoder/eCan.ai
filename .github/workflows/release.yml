@@ -1251,12 +1251,32 @@ jobs:
       if: failure()
       shell: pwsh
       run: |
+        Write-Host "=== build.log tail (failure only) ===" -ForegroundColor Cyan
+        if (Test-Path "build.log") {
+          Get-Content "build.log" -Tail 300
+        } else {
+          Write-Host "build.log not found" -ForegroundColor Yellow
+        }
+
         Write-Host "=== dist/ tree (failure only) ===" -ForegroundColor Cyan
         if (Test-Path "dist") {
           Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
         } else {
           Write-Host "dist directory not found" -ForegroundColor Yellow
         }
+
+    - name: Upload Windows build diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-amd64-build-diagnostics-${{ needs.validate-tag.outputs.version }}
+        path: |
+          build.log
+          *.spec
+          dist/
+          build/
+        if-no-files-found: ignore
+        retention-days: 7
 
     # ------------------------------------------------------------------------
     # Step: Generate Ed25519 Signatures for OTA Updates
