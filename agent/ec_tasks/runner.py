@@ -3049,11 +3049,22 @@ class TaskRunner(Generic[Context]):
         # Initialize task state
         logger.info(f"[SUBMIT][{_call_id}] Guard passed for '{task.name}', proceeding to submit...")
 
-        # Initialize task state
-        if task.id not in self._task_states:
-            self._task_states[task.id] = {'justStarted': True}
-        
-        is_initial_run = self._task_states[task.id]['justStarted']
+        # Initialize task state — both ``setdefault`` calls are atomic at
+        # the C-level so they tolerate concurrent mutation from
+        # ``_execute_skill`` (line 3994 ``setdefault(task.id, {})``) and
+        # ``_on_skill_complete`` (line 4389 ``setdefault`` + line 4434
+        # ``pop``).  The previous ``check-then-read`` form had a TOCTOU
+        # window that crashed with ``KeyError: 'justStarted'`` when a
+        # parallel ``SkillExec`` thread popped/recreated the entry
+        # between our ``not in`` check and our ``['justStarted']`` read.
+        # Liveness incident 2026-04-28 14:29:47: cejs's QA reply
+        # ``chat_message`` was silently dropped this way and the
+        # customer's "五一有新品吗？" went unanswered for ~13 minutes.
+        # Default ``True`` matches the prior fresh-init semantic at
+        # line 3054 — a missing ``justStarted`` key means no run has
+        # been recorded yet, so treat as initial.
+        state_entry = self._task_states.setdefault(task.id, {})
+        is_initial_run = state_entry.setdefault('justStarted', True)
         
         # Determine cloud execution mode
         is_hybrid = self._is_hybrid_cloud_task(task)
