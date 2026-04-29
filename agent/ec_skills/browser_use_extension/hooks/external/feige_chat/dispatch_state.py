@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 import time
 
 # ── HOT-PATH-B recent-send dedup cache ───────────────────────────────
@@ -38,6 +39,7 @@ import time
 # cache bounded; after TTL expires a genuinely identical new reply can
 # be re-sent.
 _recent_sends: dict[tuple[str, str], float] = {}
+_recent_sends_lock = threading.Lock()
 DEDUP_TTL_S = 15.0
 
 # ── Last reply HOT-PATH-B typed for each customer ────────────────────
@@ -80,14 +82,52 @@ def was_recently_sent(customer: str, reply_text: str) -> float:
     key = _fingerprint(customer, reply_text)
     if not key[0] or not key[1]:
         return 0.0
-    ts = _recent_sends.get(key)
-    if ts is None:
+    now = time.time()
+    with _recent_sends_lock:
+        ts = _recent_sends.get(key)
+        if ts is None:
+            return 0.0
+        age = now - ts
+        if age > DEDUP_TTL_S:
+            _recent_sends.pop(key, None)
+            return 0.0
+        return age if age > 0.0 else 0.000001
+
+
+def claim_send(customer: str, reply_text: str) -> float:
+    """Atomically reserve a (customer, reply) pair before typing it.
+
+    Returns 0.0 when this caller acquired the claim.  Returns the age of
+    an existing unexpired claim/send when another concurrent hot-path
+    cycle already owns the same pair.
+    """
+    key = _fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
         return 0.0
-    age = time.time() - ts
-    if age > DEDUP_TTL_S:
+    now = time.time()
+    with _recent_sends_lock:
+        ts = _recent_sends.get(key)
+        if ts is not None:
+            age = now - ts
+            if age <= DEDUP_TTL_S:
+                return age if age > 0.0 else 0.000001
+            _recent_sends.pop(key, None)
+        _recent_sends[key] = now
+        _gc_recent_sends_locked(now)
+        return 0.0
+
+
+def unclaim_send(customer: str, reply_text: str) -> None:
+    """Release a pre-send claim after the DOM action failed.
+
+    This lets a later retry deliver the same reply instead of suppressing
+    it for the full dedup TTL.
+    """
+    key = _fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return
+    with _recent_sends_lock:
         _recent_sends.pop(key, None)
-        return 0.0
-    return age
 
 
 def mark_sent(customer: str, reply_text: str) -> None:
@@ -95,10 +135,19 @@ def mark_sent(customer: str, reply_text: str) -> None:
     key = _fingerprint(customer, reply_text)
     if not key[0] or not key[1]:
         return
-    _recent_sends[key] = time.time()
-    # Opportunistic GC to keep the dict bounded under long runs.
-    if len(_recent_sends) > 256:
-        now = time.time()
-        for k in list(_recent_sends.keys()):
-            if now - _recent_sends[k] > DEDUP_TTL_S:
-                _recent_sends.pop(k, None)
+    now = time.time()
+    with _recent_sends_lock:
+        _recent_sends[key] = now
+        _gc_recent_sends_locked(now)
+
+
+def _gc_recent_sends_locked(now: float) -> None:
+    """Opportunistically keep the recent-send cache bounded.
+
+    Caller must hold ``_recent_sends_lock``.
+    """
+    if len(_recent_sends) <= 256:
+        return
+    for k in list(_recent_sends.keys()):
+        if now - _recent_sends[k] > DEDUP_TTL_S:
+            _recent_sends.pop(k, None)

@@ -103,6 +103,9 @@ async def before_session_setup_hook(
     #       ]
     #     }
     #   ]
+    _hp_b_claim_active = False
+    _hp_b_claim_cust = ""
+    _hp_b_claim_reply = ""
     try:
         _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
         _hp_b_actions_list = None
@@ -290,7 +293,9 @@ async def before_session_setup_hook(
                     or ""
                 )
                 _hp_b_dedup_reply = _hp_b_payload.get("response_text") or ""
-                _hp_b_dedup_age = _ds.was_recently_sent(
+                _hp_b_claim_cust = _hp_b_dedup_cust
+                _hp_b_claim_reply = _hp_b_dedup_reply
+                _hp_b_dedup_age = _ds.claim_send(
                     _hp_b_dedup_cust, _hp_b_dedup_reply
                 )
                 if _hp_b_dedup_age > 0:
@@ -315,6 +320,7 @@ async def before_session_setup_hook(
                         "hot_path": True, "hot_path_type": "dedup_skip",
                     }
                     return state
+                _hp_b_claim_active = True
                 # ── Pre-record the outgoing reply text BEFORE send ──
                 # The equality guard in PreDispatch compares the DOM's
                 # sidebar `last_message` against this recorded text to
@@ -354,6 +360,12 @@ async def before_session_setup_hook(
                 )
                 if not _hp_b_session:
                     logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
+                    if _hp_b_claim_active:
+                        try:
+                            _ds.unclaim_send(_hp_b_claim_cust, _hp_b_claim_reply)
+                        except Exception:
+                            pass
+                        _hp_b_claim_active = False
                     break
                 # ── Delegate Feige DOM orchestration to the hook bundle ──
                 # (Phase 4 B-refined cleanup, 2026-04-23.)  The
@@ -404,6 +416,7 @@ async def before_session_setup_hook(
                         _ds.mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
                     except Exception:
                         pass
+                    _hp_b_claim_active = False
                     # Reply text was already pre-recorded before send
                     # (see the `Pre-record the outgoing reply text BEFORE
                     # send` block above). No timer-based cooldown is
@@ -503,6 +516,12 @@ async def before_session_setup_hook(
                     logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={hook_ctx.node_name}")
                     return state
                 else:
+                    if _hp_b_claim_active:
+                        try:
+                            _ds.unclaim_send(_hp_b_claim_cust, _hp_b_claim_reply)
+                        except Exception:
+                            pass
+                        _hp_b_claim_active = False
                     # Any action in the sequence failed (e.g.
                     # feige_open_session returning "Session not
                     # found" when Feige's SPA is transiently in a
@@ -561,6 +580,11 @@ async def before_session_setup_hook(
         )
         raise
     except Exception as _hp_b_err:
+        if _hp_b_claim_active:
+            try:
+                _ds.unclaim_send(_hp_b_claim_cust, _hp_b_claim_reply)
+            except Exception:
+                pass
         logger.warning(
             f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
             exc_info=True,

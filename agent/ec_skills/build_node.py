@@ -7164,7 +7164,7 @@ def _is_dispatch_inflight(customer_key: str) -> float:
     if age > _DISPATCH_INFLIGHT_TTL_S:
         _dispatch_inflight.pop(customer_key, None)
         return 0.0
-    return age
+    return age if age > 0.0 else 0.000001
 
 
 def _mark_dispatch_inflight(customer_key: str) -> None:
