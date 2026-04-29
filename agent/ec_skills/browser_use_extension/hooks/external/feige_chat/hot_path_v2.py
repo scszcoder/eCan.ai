@@ -80,9 +80,9 @@ __all__ = [
 # ── Timing constants (identical to v1 hot_path module) ────────────────────
 TYPING_LOCK_WAIT_ATTEMPTS: int = 30      # 30 × 100 ms = 3 s
 TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
-POST_OPEN_VERIFY_ATTEMPTS: int = 8        # 8 × 75 ms = 600 ms
+POST_OPEN_VERIFY_ATTEMPTS: int = 16       # 16 × 75 ms = 1.2 s
 POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
-PRE_SEND_REVERIFY_ATTEMPTS: int = 8
+PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 
@@ -99,12 +99,19 @@ try:
         FEIGE_ACTIVE_CUSTOMER_JS,
         FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
         _normalize_dispatch_identity_key,
+        _normalize_reply_text,
+        verify_customer_match,
     )
 except Exception:  # pragma: no cover — bundle import side-effects
     FEIGE_ACTIVE_CUSTOMER_JS = "({ok: false, active: ''})"
     FEIGE_LATEST_CUSTOMER_BUBBLE_JS = "({msg_id: '', text: ''})"
     def _normalize_dispatch_identity_key(s: str) -> str:  # type: ignore
         return (s or "").strip().lower()
+    def _normalize_reply_text(s: str) -> str:  # type: ignore
+        return (s or "").strip()[:120]
+    def verify_customer_match(data: dict, expected: str) -> tuple[bool, str]:  # type: ignore
+        active = str(data.get("active") or "").strip()
+        return (active == str(expected or "").strip(), f"legacy-active={active!r}")
 
 
 # ============================================================================
@@ -240,8 +247,21 @@ async def _verify_active_customer(
                 except Exception:
                     data = {}
             if isinstance(data, dict) and data.get("ok"):
-                active_last = str(data.get("active") or "").strip()
-                if expected_as_key:
+                active_last = str(
+                    data.get("active")
+                    or data.get("header_name")
+                    or data.get("sidebar_name")
+                    or ""
+                ).strip()
+                has_split_signals = (
+                    "sidebar_name" in data or "header_name" in data
+                )
+                if has_split_signals:
+                    ok, reason = verify_customer_match(data, expected)
+                    if ok:
+                        return True, active_last
+                    active_last = f"{active_last or '<none>'}; {reason}"
+                elif expected_as_key:
                     if _normalize_dispatch_identity_key(active_last) == expected:
                         return True, active_last
                 else:
@@ -339,6 +359,17 @@ def _source_customer_msg_id(payload: dict) -> str:
     ).strip()
 
 
+def _source_customer_text(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(
+        payload.get("source_latest_message")
+        or payload.get("latest_message")
+        or payload.get("latest_message_text")
+        or ""
+    ).strip()
+
+
 async def _verify_reply_source_turn_v2(
     primitives: BrowserPrimitives,
     payload: dict,
@@ -347,8 +378,7 @@ async def _verify_reply_source_turn_v2(
     outcome: HotPathOutcomeV2,
 ) -> tuple[bool, str]:
     expected_msg_id = _source_customer_msg_id(payload)
-    if not expected_msg_id:
-        return True, ""
+    expected_text = _source_customer_text(payload)
 
     try:
         raw = await primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
@@ -367,7 +397,7 @@ async def _verify_reply_source_turn_v2(
         logger.warning(
             f"[hot_path_v2] source-turn verification eval failed: "
             f"{type(exc).__name__}: {exc}; refusing to type reply for "
-            f"source_msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+            f"source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, node={node_name}"
         )
 
     if actual_msg_id and actual_msg_id == expected_msg_id:
@@ -375,6 +405,24 @@ async def _verify_reply_source_turn_v2(
             f"[hot_path_v2] source-turn verified "
             f"msg_id=...{expected_msg_id[-8:]}, node={node_name}"
         )
+        return True, ""
+
+    if expected_text and _normalize_reply_text(actual_text) == _normalize_reply_text(expected_text):
+        if not expected_msg_id:
+            logger.info(
+                f"[hot_path_v2] source-turn verified by text (no msg_id), "
+                f"text={expected_text[:80]!r}, node={node_name}"
+            )
+            return True, ""
+        if not actual_msg_id:
+            logger.info(
+                f"[hot_path_v2] source-turn verified by text fallback "
+                f"because active msg_id is empty; expected_msg_id="
+                f"...{expected_msg_id[-8:]}, node={node_name}"
+            )
+            return True, ""
+
+    if not expected_msg_id and not expected_text:
         return True, ""
 
     outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
@@ -499,6 +547,7 @@ async def _run_one_action(
 
     # Pre-send re-verify (Fix A in v1, line-for-line preserved).
     if tool_name == "feige_send_message" and customer_key:
+        resolved_args.setdefault("customer_name", customer_key)
         ok, reason = await _pre_send_reverify(
             primitives, invoker, customer_key, node_name,
         )

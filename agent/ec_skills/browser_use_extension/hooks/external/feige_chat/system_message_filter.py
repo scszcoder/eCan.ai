@@ -126,6 +126,15 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "transfer_to_human_label",
         re.compile(r"^\s*转人工\s*$"),
     ),
+    # ── Local compose draft preview ─────────────────────────────────
+    # Feige mirrors unsent text into the sidebar as "[草稿]...".  This is
+    # our own draft, not a customer-authored message; dispatching it
+    # creates self-trigger loops and can route an already-wrong draft to
+    # a Q&A worker.
+    (
+        "draft_preview",
+        re.compile(r"^\s*\[(?:草稿|draft)\]", re.IGNORECASE),
+    ),
     # ── Order/shipment platform alerts ───────────────────────────────
     # Generic platform notices about delivery/refund deadlines that
     # appear inline in the chat thread.  These have very specific
