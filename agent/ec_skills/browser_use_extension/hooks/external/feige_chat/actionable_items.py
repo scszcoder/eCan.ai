@@ -167,6 +167,28 @@ def _build_pre_dispatch_guard_state(item_count: int) -> dict:
     }
 
 
+def _pre_dispatch_suppresses_prompt_auto_dispatch(
+    *,
+    inputs: dict,
+    parser,
+    evt_type: str,
+    auto_dispatch_cfg: dict | None,
+) -> bool:
+    """Whether prompt-build autoDispatch should defer to late PreDispatch.
+
+    The before-prompt hook runs before the browser session is fully prepared
+    and before the late ``front_desk`` PreDispatch hook.  Returning a
+    short-circuit guard here prevents PreDispatch from ever running, which
+    can swallow live-site browser events.  Treat this as an autoDispatch-only
+    suppression flag instead: late PreDispatch gets first shot, and if it
+    returns ``None`` the injected actionable-items prompt remains as fallback.
+    """
+    return (
+        _pre_dispatch_enabled_for_browser_event(inputs, parser, evt_type)
+        and not _auto_dispatch_allows_pre_dispatch(auto_dispatch_cfg)
+    )
+
+
 def _get_agent_load(agent_id: str, mainwin) -> int:
     """Return the number of non-done tasks queued for *agent_id*.
 
@@ -715,28 +737,24 @@ async def before_prompt_build_hook(
             + f" node={node_name}"
         )
 
-    _pre_dispatch_owns_event = _pre_dispatch_enabled_for_browser_event(
-        inputs,
-        getattr(hook_ctx, "parse_json_input", None),
-        evt_type,
-    )
     _auto_dispatch_guard_cfg = _read_jsonish_input(
         inputs,
         "autoDispatch",
         getattr(hook_ctx, "parse_json_input", None),
     )
-    if (
-        _pre_dispatch_owns_event
-        and not _auto_dispatch_allows_pre_dispatch(_auto_dispatch_guard_cfg)
-    ):
+    _pre_dispatch_blocks_prompt_auto = _pre_dispatch_suppresses_prompt_auto_dispatch(
+        inputs=inputs,
+        parser=getattr(hook_ctx, "parse_json_input", None),
+        evt_type=evt_type,
+        auto_dispatch_cfg=_auto_dispatch_guard_cfg,
+    )
+    if _pre_dispatch_blocks_prompt_auto:
         logger.info(
-            f"[BrowserAutomation] PreDispatch owns browser_event; "
-            f"suppressing actionable_items autoDispatch/LLM fallback "
+            f"[BrowserAutomation] PreDispatch enabled for browser_event; "
+            f"deferring prompt-build autoDispatch while preserving "
+            f"actionable_items fallback "
             f"(actionable={len(_actionable)}, total={len(compact_items)}), "
             f"node={node_name}"
-        )
-        return PromptBuildResult(
-            short_circuit_state=_build_pre_dispatch_guard_state(len(_actionable))
         )
 
     _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)
@@ -841,7 +859,13 @@ async def before_prompt_build_hook(
                 _ad_cfg = json.loads(_ad_raw)
             elif isinstance(_ad_raw, dict):
                 _ad_cfg = _ad_raw
-            if _ad_cfg and _all_agents and _caller_id and mainwin:
+            if (
+                _ad_cfg
+                and not _pre_dispatch_blocks_prompt_auto
+                and _all_agents
+                and _caller_id
+                and mainwin
+            ):
                 _ad_state = await _try_auto_dispatch(
                     config=_ad_cfg,
                     actionable=_actionable,
