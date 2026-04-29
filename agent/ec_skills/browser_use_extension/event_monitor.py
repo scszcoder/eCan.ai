@@ -120,12 +120,16 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
 
         mutation_state["_mon_cdp_client"] = client
         mutation_state["_mon_cdp_session_id"] = sid
+        mutation_state.pop("_mon_cdp_attach_failed_target_id", None)
+        mutation_state.pop("_mon_cdp_last_error", None)
         logger.info(
             f"[EventMonitor] Independent CDP connection established: "
             f"target=...{target_id[-6:]}, sessionId=...{sid[-6:] if sid else 'None'}"
         )
         return client, sid
     except Exception as exc:
+        mutation_state["_mon_cdp_attach_failed_target_id"] = str(target_id or "")
+        mutation_state["_mon_cdp_last_error"] = str(exc)
         logger.warning(f"[EventMonitor] Failed to create independent CDP connection: {exc}")
         return None, None
 
@@ -457,6 +461,105 @@ def _monitor_url_matches(actual_url: str, pattern: str) -> bool:
     if not actual or not wanted:
         return False
     return wanted in actual
+
+
+def _target_info_get(target_info: Any, key: str, default: Any = "") -> Any:
+    if isinstance(target_info, dict):
+        return target_info.get(key, default)
+    return getattr(target_info, key, default)
+
+
+def _target_info_matches_patterns(target_info: Any, patterns: List[str]) -> bool:
+    target_type = str(_target_info_get(target_info, "type") or _target_info_get(target_info, "target_type") or "")
+    if target_type not in ("page", "tab"):
+        return False
+    target_url = str(_target_info_get(target_info, "url") or "")
+    if not patterns:
+        return True
+    return any(_monitor_url_matches(target_url, pat) for pat in patterns)
+
+
+async def _resolve_monitor_target_id_live(
+    session: Any,
+    cfg: EventMonitorConfig,
+    extractor_cfg: Dict[str, Any],
+    *,
+    avoid_target_id: str = "",
+) -> str:
+    """Resolve target from BrowserSession state, then Chrome's live target list.
+
+    SessionManager is normally enough, but a tab can be replaced or detached
+    without the monitor's cached target_id being refreshed yet.  On attach
+    failures, query Target.getTargets directly so a DOM monitor can recover
+    from a dead target instead of polling the missing id forever.
+    """
+    avoid_target_id = str(avoid_target_id or "")
+    try:
+        candidate = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+    except Exception:
+        candidate = ""
+    candidate = str(candidate or "")
+    if candidate and candidate != avoid_target_id:
+        return candidate
+
+    root = getattr(session, "_cdp_client_root", None)
+    if root is None:
+        return ""
+
+    patterns = [p for p in (extractor_cfg.get("page_url_patterns") or []) if isinstance(p, str) and p.strip()]
+    try:
+        targets_result = await root.send.Target.getTargets()
+    except Exception as exc:
+        logger.debug(f"[EventMonitor] Live target refresh failed for '{cfg.label}': {exc}")
+        return ""
+
+    target_infos = []
+    if isinstance(targets_result, dict):
+        target_infos = list(targets_result.get("targetInfos") or [])
+    else:
+        target_infos = list(getattr(targets_result, "targetInfos", None) or [])
+
+    focus_target_id = str(getattr(session, "agent_focus_target_id", "") or "")
+    for target_info in target_infos:
+        tid = str(_target_info_get(target_info, "targetId") or _target_info_get(target_info, "target_id") or "")
+        if tid and tid == focus_target_id and tid != avoid_target_id and _target_info_matches_patterns(target_info, patterns):
+            return tid
+
+    for target_info in target_infos:
+        tid = str(_target_info_get(target_info, "targetId") or _target_info_get(target_info, "target_id") or "")
+        if tid and tid != avoid_target_id and _target_info_matches_patterns(target_info, patterns):
+            return tid
+    return ""
+
+
+async def _retarget_monitor_target(
+    mutation_state: Dict[str, Any],
+    session: Any,
+    cfg: EventMonitorConfig,
+    extractor_cfg: Dict[str, Any],
+    target_id: str,
+    *,
+    reason: str,
+    avoid_target_id: str = "",
+) -> str:
+    fresh_target = await _resolve_monitor_target_id_live(
+        session,
+        cfg,
+        extractor_cfg,
+        avoid_target_id=avoid_target_id,
+    )
+    if fresh_target and fresh_target != target_id:
+        logger.info(
+            f"[EventMonitor] Re-targeted '{cfg.label}' monitor after {reason}: "
+            f"old=...{target_id[-6:] if target_id else 'None'}, "
+            f"new=...{fresh_target[-6:]}"
+        )
+        await _cleanup_monitor_cdp(mutation_state)
+        mutation_state["target_id"] = fresh_target
+        mutation_state.pop("_mon_cdp_attach_failed_target_id", None)
+        mutation_state.pop("_mon_cdp_last_error", None)
+        return fresh_target
+    return target_id
 
 
 async def _ensure_monitor_cdp_ready(session: Any, mutation_state: Dict[str, Any], label: str) -> bool:
@@ -1649,23 +1752,22 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
             mutation_state["target_id"] = target_id
 
-        # For chat monitors, re-resolve target if the cached one doesn't match
-        # (the agent may not have navigated to the chat tab when the monitor started)
+        # For chat monitors, periodically re-resolve target if the cached one
+        # doesn't match (the agent may not have navigated to the chat tab when
+        # the monitor started).  Other monitors recover on attach failure below.
         if cfg.label == "chat_message_added" and target_id:
             _retarget_interval = 5.0  # seconds between re-resolve attempts
             _last_retarget = float(mutation_state.get("_last_retarget_check") or 0)
             if time.time() - _last_retarget > _retarget_interval:
                 mutation_state["_last_retarget_check"] = time.time()
-                fresh_target = _resolve_monitor_target_id(session, cfg, extractor_cfg)
-                if fresh_target and fresh_target != target_id:
-                    logger.info(
-                        f"[EventMonitor] Re-targeted '{cfg.label}' monitor: "
-                        f"old=...{target_id[-6:]}, new=...{fresh_target[-6:]}"
-                    )
-                    # Clean up old CDP connection so it reconnects to new target
-                    await _cleanup_monitor_cdp(mutation_state)
-                    target_id = fresh_target
-                    mutation_state["target_id"] = target_id
+                target_id = await _retarget_monitor_target(
+                    mutation_state,
+                    session,
+                    cfg,
+                    extractor_cfg,
+                    target_id,
+                    reason="periodic_check",
+                )
 
         if not await _ensure_monitor_cdp_ready(session, mutation_state, cfg.label):
             logger.debug(f"[EventMonitor] CDP still not ready for monitor '{cfg.label}', deferring check")
@@ -1674,6 +1776,19 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # --- Independent CDP connection (does NOT share the agent's CDP client) ---
         mon_client, mon_sid = await _get_monitor_cdp(mutation_state, session, target_id)
         if not mon_client or not mon_sid:
+            failed_target = str(mutation_state.get("_mon_cdp_attach_failed_target_id") or "")
+            if failed_target and failed_target == target_id:
+                new_target = await _retarget_monitor_target(
+                    mutation_state,
+                    session,
+                    cfg,
+                    extractor_cfg,
+                    target_id,
+                    reason="attach_failed",
+                    avoid_target_id=target_id,
+                )
+                if new_target != target_id:
+                    return
             logger.debug(f"[EventMonitor] Independent CDP not available for '{cfg.label}', deferring")
             return
 
