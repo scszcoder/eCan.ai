@@ -310,6 +310,31 @@ async def before_session_setup_hook_v2(
             f"node={ctx.node_name}"
         )
 
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match,
+            )
+            system_reason = first_system_row_match(payload)
+            if system_reason:
+                logger.warning(
+                    f"[HOT-PATH-B-V2] dropped system/non-customer reply payload "
+                    f"reason={system_reason!r}, "
+                    f"customer={payload.get('customer_name') or payload.get('customer_id')!r}, "
+                    f"node={ctx.node_name}"
+                )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "system_reply_drop",
+                }
+                return state
+        except Exception as system_err:
+            logger.debug(
+                f"[HOT-PATH-B-V2] system-payload filter failed "
+                f"(non-fatal): {system_err}"
+            )
+
         if not isinstance(actions_list, list) or not actions_list:
             return None
 

@@ -87,10 +87,9 @@ PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 
 # ── Selectors / DOM contracts ─────────────────────────────────────────────
-# Feige's "最近联系" recent-contacts sub-tab.  Restored after a
-# successful send so future DOM reads see ``pending_timer`` (invisible
-# on the ``当前会话`` tab).
-RECENT_CONTACTS_TAB_SELECTOR: str = '[data-qa-id="qa-last-chat-tab"]'
+# Feige's current-conversation sub-tab. Keep the SPA on the live queue; the
+# recent-contacts tab contains history/system rows with the same selectors.
+CURRENT_CONVERSATION_TAB_SELECTOR: str = '[data-qa-id="qa-active-chat-tab"]'
 
 # JS snippet that returns ``{ok, active}`` — the active customer's
 # normalised name on the current Feige page.  Imported from the
@@ -391,17 +390,17 @@ async def _verify_reply_source_turn_v2(
     return False, "stale_reply_source_msg_id"
 
 
-async def _restore_recent_contacts_tab(
+async def _restore_current_conversation_tab(
     primitives: BrowserPrimitives,
     node_name: str,
 ) -> None:
-    """Click Feige's '最近联系' sub-tab; non-fatal on failure."""
+    """Click Feige's current-conversation sub-tab; non-fatal on failure."""
     try:
-        clicked = await primitives.click(RECENT_CONTACTS_TAB_SELECTOR)
+        clicked = await primitives.click(CURRENT_CONVERSATION_TAB_SELECTOR)
         if clicked:
             await asyncio.sleep(POST_SEND_TAB_RESTORE_SLEEP_S)
             logger.info(
-                f"[hot_path_v2] switched back to '最近联系' tab, node={node_name}"
+                f"[hot_path_v2] switched back to current-conversation tab, node={node_name}"
             )
     except Exception as exc:
         logger.debug(f"[hot_path_v2] tab switch failed: {exc}")
@@ -570,7 +569,7 @@ async def execute_v2(
        * Pre-send re-verify on ``feige_send_message`` with re-open recovery.
        * Post-open crosstalk-guard verification on ``feige_open_session``.
        * Per-action settle delay (``delay_after_ms``, default 300).
-    3. On full success: click ``最近联系`` to restore tab state.
+    3. On full success: click ``当前会话`` to restore tab state.
     4. ``finally``: release typing lock on every exit path.
 
     Differences from v1 are documented in module docstring; none of
@@ -600,7 +599,7 @@ async def execute_v2(
             # v1's "empty sequence = success" behaviour.
             outcome.ok = True
             outcome.reason = "all_ok"
-            await _restore_recent_contacts_tab(primitives, node_name)
+            await _restore_current_conversation_tab(primitives, node_name)
     except Exception as exc:
         logger.warning(
             f"[hot_path_v2] executor exception: {exc}", exc_info=True,

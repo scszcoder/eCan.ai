@@ -256,6 +256,30 @@ async def before_session_setup_hook(
             f"rules_configured={len(_hp_b_actions_list) if isinstance(_hp_b_actions_list, list) else 0}, "
             f"node={hook_ctx.node_name}"
         )
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match as _hp_b_system_row_match,
+            )
+            _hp_b_system_reason = _hp_b_system_row_match(_hp_b_payload)
+            if _hp_b_system_reason:
+                logger.warning(
+                    f"[BrowserAutomation] HOT-PATH-B: dropped system/non-customer "
+                    f"reply payload reason={_hp_b_system_reason!r}, "
+                    f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}, "
+                    f"node={hook_ctx.node_name}"
+                )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "system_reply_drop",
+                }
+                return state
+        except Exception as _hp_b_system_err:
+            logger.debug(
+                f"[BrowserAutomation] HOT-PATH-B: system-payload filter failed "
+                f"(non-fatal): {_hp_b_system_err}"
+            )
         if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
 
             for _hp_b_rule in _hp_b_actions_list:

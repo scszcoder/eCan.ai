@@ -252,8 +252,17 @@ async def _dispatch_one_item(
     # bookkeeping is touched.
     try:
         from .system_message_filter import (
+            first_system_row_match as _first_row_match,
             first_matching_pattern as _first_pat,
         )
+        _row_hit = _first_row_match(item)
+        if _row_hit:
+            logger.info(
+                f"[V2 pre_dispatch] system-message filter SKIP for "
+                f"cust={customer_key!r} reason={_row_hit!r}"
+            )
+            outcome.skip_reason = _row_hit
+            return outcome
         _candidate_text = str(item.get("last_message") or "")
         _hit = _first_pat(_candidate_text)
         if _hit:

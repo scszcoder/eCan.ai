@@ -2428,7 +2428,16 @@ _FEIGE_UNREAD = '.rxAvaVFJHvpEGMc1ejm1'
 
 _FEIGE_LIST_SESSIONS_JS = r"""
 (function(includeRead, maxSessions) {
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allItems.filter(rowIsCurrent);
   var results = [];
   for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
     var el = items[i];
@@ -2501,7 +2510,16 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
 
 _FEIGE_OPEN_SESSION_JS = r"""
 (function(customerName, sessionIndex) {
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allItems.filter(rowIsCurrent);
   var target = null;
   if (customerName) {
     for (var i = 0; i < items.length; i++) {
@@ -2517,7 +2535,12 @@ _FEIGE_OPEN_SESSION_JS = r"""
   if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
     target = items[sessionIndex];
   }
-  if (!target) return JSON.stringify({ clicked: false, error: 'Session not found' });
+  if (!target) return JSON.stringify({
+    clicked: false,
+    error: 'Session not found in current conversations',
+    current_visible: items.length,
+    total_visible: allItems.length
+  });
   target.click();
   var nameEl = target.querySelector('.MP1bk3ccfHC9V2SnPCGD');
   var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();

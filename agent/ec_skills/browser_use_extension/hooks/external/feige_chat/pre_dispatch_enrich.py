@@ -280,8 +280,20 @@ async def enrich_item(
     # dedup against a system-noise turn we accidentally remembered.
     try:
         from .system_message_filter import (
+            first_system_row_match as _first_row_match,
             first_matching_pattern as _first_pat,
         )
+        _row_hit = _first_row_match(item)
+        if _row_hit:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} system-message filter "
+                f"SKIP for cust={customer_key!r} reason={_row_hit!r}"
+            )
+            return EnrichResult(
+                skip=True,
+                skip_reason=_row_hit,
+                scraped_msg_id=scraped_msg_id,
+            )
         _candidate_text = str(item.get("last_message") or "")
         _smf_hit = _first_pat(_candidate_text)
         if _smf_hit:

@@ -282,6 +282,23 @@ def _extract_actionable_items(
     for item in raw_items or []:
         if not isinstance(item, dict):
             continue
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match,
+            )
+            system_reason = first_system_row_match(item)
+            if system_reason:
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} filtered system row "
+                    f"before dispatch reason={system_reason!r} "
+                    f"customer={item.get('customer_name')!r} "
+                    f"last_message={str(item.get('last_message') or '')[:80]!r}"
+                )
+                continue
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {cfg.log_tag} system-row filter failed: {exc}"
+            )
         session_id = _pick_first(item, cfg.session_keys)
         if not session_id:
             continue

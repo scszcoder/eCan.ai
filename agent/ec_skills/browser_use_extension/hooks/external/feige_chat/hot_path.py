@@ -9,7 +9,7 @@ What this module owns
 ---------------------
 
 * **Pre-action tab focus** — switch the session to a Feige tab and
-  click the ``最近联系`` inner sub-tab if needed.  Delegates to
+  click the ``当前会话`` inner sub-tab if needed.  Delegates to
   :func:`dom_assets.ensure_feige_tab_focused`.
 
 * **Typing lock** — claim the Feige active-session for this customer
@@ -29,8 +29,8 @@ What this module owns
     (CDP/render race), re-open and poll again.  If recovery fails,
     ABORT the send.
 
-* **Post-success tab restore** — click ``最近联系`` again so future
-  DOM reads show pending_timer (invisible on ``当前会话`` tab).
+* **Post-success tab restore** — click ``当前会话`` again so future DOM
+  reads stay on the live customer queue, not recent-contact history.
 
 * **Typing-lock release on all exit paths** — including the defensive
   outer ``except`` so a mid-sequence exception can't leave the lock
@@ -345,22 +345,19 @@ async def _post_open_verify(
 
 
 async def _restore_feige_tab(browser_session, node_name: str) -> None:
-    """Click Feige's ``最近联系`` sub-tab after a successful send so
-    future DOM reads see the ``pending_timer`` (invisible on the
-    ``当前会话`` tab).  Failures are debug-logged and non-fatal.
-    """
+    """Click Feige's current-conversation sub-tab after a successful send."""
     try:
         page = await browser_session.get_current_page()
         if not page:
             return
-        tab = await page.query_selector('[data-qa-id="qa-last-chat-tab"]')
+        tab = await page.query_selector('[data-qa-id="qa-active-chat-tab"]')
         if not tab:
             return
         await tab.click()
         await asyncio.sleep(POST_SEND_TAB_RESTORE_SLEEP_S)
         logger.info(
             f"[BrowserAutomation] HOT-PATH-B: switched back to "
-            f"'最近联系' tab, node={node_name}"
+            f"current-conversation tab, node={node_name}"
         )
     except Exception as exc:
         logger.debug(
@@ -497,7 +494,7 @@ async def execute(
         async def eval_js(_browser_session, _script):
             raise RuntimeError(f"_evaluate_js import failed: {imp_err}")
 
-    # Pre-action: ensure on the Feige tab + recent-contacts sub-tab.
+    # Pre-action: ensure on the Feige tab + current-conversation sub-tab.
     try:
         await ensure_feige_tab_focused(browser_session)
     except Exception as pretab_err:
