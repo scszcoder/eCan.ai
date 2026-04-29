@@ -77,6 +77,8 @@ from .dom_assets import (
     FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
     ensure_feige_tab_focused,
     _normalize_dispatch_identity_key,
+    _normalize_reply_text,
+    verify_customer_match,
 )
 
 logger = logging.getLogger("eCan")
@@ -88,9 +90,9 @@ __all__ = ["HotPathOutcome", "execute"]
 # future test can monkey-patch them without touching the executor body.
 TYPING_LOCK_WAIT_ATTEMPTS: int = 30      # 30 × 100 ms = 3 s
 TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
-POST_OPEN_VERIFY_ATTEMPTS: int = 8        # 8 × 75 ms = 600 ms
+POST_OPEN_VERIFY_ATTEMPTS: int = 16       # 16 × 75 ms = 1.2 s
 POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
-PRE_SEND_REVERIFY_ATTEMPTS: int = 8
+PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 
@@ -258,8 +260,12 @@ async def _verify_reply_source_turn(
     on the same customer-bubble msg_id that was dispatched to Q&A.
     """
     expected_msg_id = _source_customer_msg_id(payload)
-    if not expected_msg_id:
-        return True, ""
+    expected_text = str(
+        payload.get("source_latest_message")
+        or payload.get("latest_message")
+        or payload.get("latest_message_text")
+        or ""
+    ).strip()
 
     try:
         raw = await eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
@@ -278,7 +284,7 @@ async def _verify_reply_source_turn(
         logger.warning(
             f"[BrowserAutomation] HOT-PATH-B: source-turn verification "
             f"eval failed: {type(exc).__name__}: {exc}; refusing to type "
-            f"reply for source_msg_id=...{expected_msg_id[-8:]}, "
+            f"reply for source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, "
             f"node={node_name}"
         )
 
@@ -287,6 +293,25 @@ async def _verify_reply_source_turn(
             f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
             f"msg_id=...{expected_msg_id[-8:]}, node={node_name}"
         )
+        return True, ""
+
+    if expected_text and _normalize_reply_text(actual_text) == _normalize_reply_text(expected_text):
+        if not expected_msg_id:
+            logger.info(
+                f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+                f"by text (no msg_id), text={expected_text[:80]!r}, "
+                f"node={node_name}"
+            )
+            return True, ""
+        if not actual_msg_id:
+            logger.info(
+                f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+                f"by text fallback because active msg_id is empty; "
+                f"expected_msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+            )
+            return True, ""
+
+    if not expected_msg_id and not expected_text:
         return True, ""
 
     outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
@@ -398,6 +423,7 @@ async def _run_one_action(
 
     # Pre-send re-verify (2026-04-22 Fix A).
     if tool_name == "feige_send_message" and customer_key:
+        resolved_args.setdefault("customer_name", customer_key)
         ok, reason = await _pre_send_reverify(
             browser_session, eval_js, customer_key, actions_registry, node_name
         )
@@ -598,8 +624,21 @@ async def _verify_active_customer(
                 except Exception:
                     data = {}
             if isinstance(data, dict) and data.get("ok"):
-                active_last = str(data.get("active") or "").strip()
-                if expected_as_key:
+                active_last = str(
+                    data.get("active")
+                    or data.get("header_name")
+                    or data.get("sidebar_name")
+                    or ""
+                ).strip()
+                has_split_signals = (
+                    "sidebar_name" in data or "header_name" in data
+                )
+                if has_split_signals:
+                    ok, reason = verify_customer_match(data, expected)
+                    if ok:
+                        return True, active_last
+                    active_last = f"{active_last or '<none>'}; {reason}"
+                elif expected_as_key:
                     if _normalize_dispatch_identity_key(active_last) == expected:
                         return True, active_last
                 else:

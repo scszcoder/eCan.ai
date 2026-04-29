@@ -2219,6 +2219,76 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     for item in added_items
                 ] if key_field or key_fields else added_keys[:len(added_items)]
 
+        # Feige-specific platform/draft filter at the monitor edge.  The
+        # downstream dispatch path has the same guard, but filtering here
+        # avoids waking the front-desk graph for "[草稿]..." sidebar echoes
+        # and other non-customer platform rows.
+        if added_items and (
+            "im.jinritemai.com" in (current_url or "")
+            or any(
+                isinstance(item, dict)
+                and (
+                    "sidebar_scope" in item
+                    or "pending_timer" in item
+                    or "closed_marker" in item
+                )
+                for item in added_items
+            )
+        ):
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                    last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
+                    normalize_reply_text as _feige_normalize_reply_text,
+                )
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                    _normalize_dispatch_identity_key as _feige_normalize_customer_key,
+                )
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                    first_system_row_match as _feige_first_system_row_match,
+                )
+                _kept_items = []
+                _dropped_reasons = []
+                for _item in added_items:
+                    _reason = _feige_first_system_row_match(_item)
+                    if not _reason and isinstance(_item, dict):
+                        _cust_key = _feige_normalize_customer_key(
+                            str(
+                                _item.get("customer_name")
+                                or _item.get("customer_id")
+                                or _item.get("name")
+                                or ""
+                            )
+                        )
+                        _last_msg_norm = _feige_normalize_reply_text(
+                            str(_item.get("last_message") or "")
+                        )
+                        if (
+                            _cust_key
+                            and _last_msg_norm
+                            and _feige_last_agent_reply_by_customer.get(_cust_key) == _last_msg_norm
+                        ):
+                            _reason = "dom_echo:last_agent_reply"
+                    if _reason:
+                        _dropped_reasons.append(_reason)
+                    else:
+                        _kept_items.append(_item)
+                if _dropped_reasons:
+                    logger.info(
+                        f"[EventMonitor] Feige filter dropped "
+                        f"{len(_dropped_reasons)} non-customer item(s): "
+                        f"{_dropped_reasons[:5]}"
+                    )
+                    added_items = _kept_items
+                    added_keys = [
+                        str(item.get(key_field) or item.get("identity_key") or "").strip()
+                        for item in added_items
+                    ] if key_field or key_fields else added_keys[:len(added_items)]
+            except Exception as _feige_filter_exc:
+                logger.debug(
+                    f"[EventMonitor] Feige system-message filter failed "
+                    f"(non-fatal): {_feige_filter_exc}"
+                )
+
         # -----------------------------------------------------------------
         # Tier-1 Instant ACK: send a canned reply via CDP BEFORE routing
         # to LangGraph.  This stops the SLA clock on the platform while
