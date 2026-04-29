@@ -5320,7 +5320,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             next_tool_input = (
                 llm_result.get('next_tool_input')
                 or llm_result.get('tool_input')
+                or llm_result.get('input')
                 or nested_tool.get('tool_input')
+                or nested_tool.get('input')
                 or {}
             )
 
@@ -5810,7 +5812,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if not isinstance(_item, dict):
                     continue
                 _tn = (_item.get('tool_name') or _item.get('next_tool_name') or '').strip()
-                _ti = _item.get('tool_input') or _item.get('next_tool_input') or {}
+                _ti = (
+                    _item.get('tool_input')
+                    or _item.get('next_tool_input')
+                    or _item.get('input')
+                    or {}
+                )
                 if not isinstance(_ti, dict):
                     _ti = {}
                 _pipe_to = _item.get('pipe_output_to')   # Option B: field name string or None
@@ -7164,7 +7171,7 @@ def _is_dispatch_inflight(customer_key: str) -> float:
     if age > _DISPATCH_INFLIGHT_TTL_S:
         _dispatch_inflight.pop(customer_key, None)
         return 0.0
-    return age
+    return age if age > 0.0 else 0.000001
 
 
 def _mark_dispatch_inflight(customer_key: str) -> None:

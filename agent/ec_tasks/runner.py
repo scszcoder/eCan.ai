@@ -99,6 +99,85 @@ def _classify_queue_event(msg: Any) -> str:
         return ""
 
 
+def _browser_event_label(msg: Any) -> str:
+    """Return the browser_event label/sub_type for queue coalescing."""
+    try:
+        if isinstance(msg, dict):
+            return str(msg.get("sub_type") or _safe_get(msg, "context.sub_type") or "")
+    except Exception:
+        pass
+    return ""
+
+
+def _browser_event_snapshot_body(msg: Any) -> dict:
+    """Return snapshot-style browser_event body, or {} for raw CDP events.
+
+    Config-driven DOM monitors emit a full current snapshot under
+    ``params.body``.  A newer snapshot supersedes older queued snapshots
+    for the same label, so these are safe to coalesce.
+    """
+    if not isinstance(msg, dict):
+        return {}
+    if _classify_queue_event(msg) not in ("", "browser_event") and msg.get("type") != "browser_event":
+        return {}
+    body = msg.get("body")
+    if not isinstance(body, dict):
+        params = msg.get("params") or {}
+        raw_body = params.get("body") if isinstance(params, dict) else None
+        if isinstance(raw_body, dict):
+            body = raw_body
+        elif isinstance(raw_body, str) and raw_body.strip().startswith("{"):
+            try:
+                body = json.loads(raw_body)
+            except Exception:
+                body = {}
+    if not isinstance(body, dict):
+        return {}
+    if isinstance(body.get("items"), list):
+        return body
+    return {}
+
+
+def _coalesce_queued_browser_events(q: Queue, new_msg: Any) -> int:
+    """Drop older snapshot browser_events for the same label before enqueue.
+
+    This keeps real-time DOM monitors from building a stale backlog while a
+    task is working.  Chat messages and raw/non-snapshot browser events are
+    left untouched.
+    """
+    if _classify_queue_event(new_msg) != "browser_event":
+        return 0
+    label = _browser_event_label(new_msg)
+    if not label or not _browser_event_snapshot_body(new_msg):
+        return 0
+    dropped = 0
+    try:
+        with q.mutex:
+            kept = []
+            for old_msg in list(q.queue):
+                if (
+                    _classify_queue_event(old_msg) == "browser_event"
+                    and _browser_event_label(old_msg) == label
+                    and _browser_event_snapshot_body(old_msg)
+                ):
+                    dropped += 1
+                    continue
+                kept.append(old_msg)
+            if dropped:
+                q.queue.clear()
+                q.queue.extend(kept)
+                try:
+                    q.unfinished_tasks = max(0, q.unfinished_tasks - dropped)
+                    if q.unfinished_tasks == 0:
+                        q.all_tasks_done.notify_all()
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.debug(f"[QUEUE] browser_event coalescing failed (non-fatal): {exc}")
+        return 0
+    return dropped
+
+
 def _describe_queue_msg(msg: Any) -> str:
     """Return a short human-readable summary of a queued request for diagnostics.
 
@@ -142,6 +221,19 @@ def _describe_queue_msg(msg: Any) -> str:
             sub_type = str(msg.get("sub_type") or "")
             ctx = msg.get("context") or {}
             chat_id = str(ctx.get("chatId", "") or "")
+            body = _browser_event_snapshot_body(msg)
+            items = body.get("items") if isinstance(body, dict) else None
+            if isinstance(items, list) and items:
+                bits = []
+                for item in items[:2]:
+                    if not isinstance(item, dict):
+                        continue
+                    name = str(item.get("customer_name") or item.get("name") or "").strip()
+                    last = str(item.get("last_message") or "").strip()
+                    if name or last:
+                        bits.append(f"{name}|{last}"[:60])
+                if bits:
+                    preview = " ; ".join(bits)[:60]
         # --- A2A executor dict shape ---
         params = _get(msg, "params", None)
         if params is not None:
@@ -2127,6 +2219,14 @@ class TaskRunner(Generic[Context]):
 
                 try:
                     _tag_queue_event_type(request, event_type)
+                    if event_type == "browser_event":
+                        _dropped = _coalesce_queued_browser_events(target_task.queue, request)
+                        if _dropped:
+                            logger.info(
+                                f"[QUEUE] Coalesced {_dropped} stale browser_event "
+                                f"snapshot(s) for task={target_task.name} "
+                                f"label={_browser_event_label(request)!r}"
+                            )
                     target_task.queue.put_nowait(request)
                     # [QUEUE-TRACE] Dump full queue state right after enqueue so we can
                     # tell whether a subsequently-"lost" chat_message ever actually
