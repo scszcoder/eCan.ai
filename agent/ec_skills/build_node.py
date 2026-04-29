@@ -1066,6 +1066,249 @@ def _section_label(section: dict) -> str:
     return sec_type.replace("_", " ").title()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Native function-calling support (Step 1 pilot — opt-in QA worker migration)
+#
+# Background: until 2026-04, MCP auto-select nodes relied entirely on parsing
+# the LLM's free-text JSON output to extract ``tool_name``/``tool_input``.  This
+# proved fragile — gpt-5/o-series models occasionally slip into the OpenAI
+# Harmony channel format (``to=send_chat ... =json\n{...}``), causing the
+# strict parser to silently drop tool calls.  Liveness incident 2026-04-29 lost
+# customer ``陆地飞鱼``'s reply this way.
+#
+# The structurally-correct fix is to use the LLM provider's native tool/function
+# calling API — i.e. pass the MCP tool schemas via ``bind_tools`` and read the
+# typed ``response.tool_calls`` field instead of re-parsing free-text content.
+# Format slips in a structured channel are impossible.
+#
+# This helper set is the OPT-IN bridge for the pilot rollout:
+#   * gate by env ``ECAN_NATIVE_TOOL_CALLS=1`` or skill mapping_rules
+#     ``use_native_tool_calls=true``
+#   * applies only when the LLM node has a non-empty ``tools_to_use`` section
+#   * falls back transparently to the legacy text-parse path (incl. the
+#     Harmony fallback added in the same incident response) when:
+#       - the gate is off
+#       - the provider does not expose ``bind_tools``
+#       - the LLM responds without a ``tool_calls`` field
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Observability counters (Step 2): in-memory metric for how often the native
+# path is exercised vs the legacy text-parse path.  Persistent stats are out
+# of scope for the pilot — these counters are read by tests and surfaced via
+# the ``[NativeToolCalls]`` log lines below.
+_NATIVE_TOOL_CALL_METRICS: dict[str, int] = {
+    "bind_attempted": 0,        # native binding decision was reached
+    "bind_succeeded": 0,        # bind_tools call returned without raising
+    "bind_skipped_gate": 0,     # gate was off
+    "bind_skipped_no_tools": 0, # no tools_to_use names resolved
+    "bind_skipped_proxy": 0,    # Lambda proxy LLM (no native binding)
+    "bind_skipped_unsupported": 0,  # LLM lacked bind_tools attr
+    "bind_failed": 0,           # bind_tools raised
+    "response_native": 0,       # LLM returned typed tool_calls
+    "response_text_fallback": 0, # bound LLM returned no tool_calls (fell back)
+}
+
+
+def _native_tool_call_metric_inc(key: str, n: int = 1) -> None:
+    """Increment a native-tool-calls metric; never raises."""
+    try:
+        _NATIVE_TOOL_CALL_METRICS[key] = _NATIVE_TOOL_CALL_METRICS.get(key, 0) + n
+    except Exception:
+        pass
+
+
+def get_native_tool_call_metrics() -> dict:
+    """Return a snapshot of the native-tool-calls observability counters."""
+    try:
+        return dict(_NATIVE_TOOL_CALL_METRICS)
+    except Exception:
+        return {}
+
+
+def _extract_tools_to_use_names(
+    prompt_selection: str,
+    inline_system: str,
+    *,
+    skill_owner: str = "",
+) -> list[str]:
+    """Return the flat list of MCP tool names declared in ``tools_to_use``
+    sections of the resolved prompt.
+
+    Used by the native function-calling bridge to know which tools to pass to
+    ``llm.bind_tools(...)``.  When the prompt uses the ``{{tools_schema}}``
+    placeholder, returns the names of ALL registered MCP tools.
+
+    Returns an empty list when the prompt has no structured ``tools_to_use``
+    section (e.g. inline-only prompts that embed tool docs in free text).  The
+    caller treats empty-list as "skip native binding, use legacy text parse".
+    """
+    selection = (prompt_selection or "inline").strip()
+    if selection in ("", "inline"):
+        # Inline prompts don't expose a structured tools_to_use list.  Native
+        # binding is opt-in only for promptId-based flows during the pilot.
+        return []
+
+    try:
+        prompt_data, normalizer = _load_prompt_data(selection, skill_owner=skill_owner)
+    except Exception:
+        return []
+    if not prompt_data:
+        return []
+
+    normalized = prompt_data
+    # Accept any of the three section-bearing keys without requiring
+    # normalization.  Fall back to the normalizer (if available) only when
+    # none of them is present.
+    _has_any_sections = isinstance(normalized, dict) and any(
+        normalized.get(k) for k in ("sections", "systemSections", "userSections")
+    )
+    if not _has_any_sections:
+        if normalizer is None:
+            return []
+        try:
+            normalized = normalizer._normalize_prompt(
+                prompt_data,
+                source=str(prompt_data.get("source") or "inline"),
+                read_only=bool(prompt_data.get("readOnly")),
+                last_modified_ts=None,
+            )
+        except Exception:
+            return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def _consume_section(sec: dict) -> bool:
+        """Return True if a {{tools_schema}} placeholder was hit (=> bind ALL)."""
+        items = sec.get("items") if isinstance(sec.get("items"), list) else []
+        for item in items:
+            if _is_tools_schema_placeholder(item):
+                return True
+            for n in _parse_tools_to_use_item(item):
+                if n and n not in seen:
+                    seen.add(n)
+                    names.append(n)
+        return False
+
+    bind_all = False
+    for section_key in ("sections", "systemSections", "userSections"):
+        for sec in (normalized.get(section_key) or []):
+            if not isinstance(sec, dict):
+                continue
+            if str(sec.get("type") or "").strip().lower() != "tools_to_use":
+                continue
+            if _consume_section(sec):
+                bind_all = True
+
+    if bind_all:
+        all_names: list[str] = []
+        seen_all: set[str] = set()
+        for s in (_get_all_tool_schemas() or []):
+            sn = getattr(s, "name", None) or (s.get("name") if isinstance(s, dict) else None)
+            if sn and sn not in seen_all:
+                seen_all.add(sn)
+                all_names.append(sn)
+        # Merge any explicitly-listed names too (defensive).
+        for n in names:
+            if n not in seen_all:
+                seen_all.add(n)
+                all_names.append(n)
+        return all_names
+
+    return names
+
+
+def _schemas_to_function_tools(schemas: list[dict]) -> list[dict]:
+    """Convert MCP tool schemas (``{name, description, inputSchema}``) into the
+    OpenAI/LangChain function-tool dict shape expected by ``bind_tools``:
+
+        {"type": "function",
+         "function": {"name": ..., "description": ..., "parameters": <JSONSchema>}}
+
+    LangChain ``BaseChatModel.bind_tools`` accepts this dict shape directly and
+    translates it into each provider's native tool-call protocol (OpenAI tools
+    parameter, Anthropic tool_use blocks, Bedrock Converse toolConfig, etc.).
+    """
+    out: list[dict] = []
+    for s in schemas or []:
+        if not isinstance(s, dict):
+            continue
+        name = s.get("name")
+        if not name:
+            continue
+        params = s.get("inputSchema") or {"type": "object", "properties": {}}
+        # Normalize: providers expect a JSONSchema object with a top-level
+        # ``type`` key.  MCP schemas already comply, but defensively coerce.
+        if not isinstance(params, dict):
+            params = {"type": "object", "properties": {}}
+        if "type" not in params:
+            params = {"type": "object", **params}
+        out.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": s.get("description") or "",
+                "parameters": params,
+            },
+        })
+    return out
+
+
+def _should_use_native_tool_calls(
+    skill_name: str,
+    mainwin: Any,
+    inputs: dict | None = None,
+) -> bool:
+    """Decide whether the native function-calling path is enabled for this
+    skill/node invocation.
+
+    Order of precedence (first match wins):
+      1. Node-level inputs flag ``useNativeToolCalls`` (truthy)
+      2. Env override ``ECAN_NATIVE_TOOL_CALLS`` set to a truthy value
+      3. Skill-level ``mapping_rules.use_native_tool_calls`` truthy
+      4. Default: False
+    """
+    # 1. Node config
+    try:
+        if isinstance(inputs, dict):
+            v = inputs.get("useNativeToolCalls")
+            if isinstance(v, bool) and v:
+                return True
+            if isinstance(v, str) and v.strip().lower() in ("1", "true", "yes", "on"):
+                return True
+    except Exception:
+        pass
+
+    # 2. Env override
+    try:
+        env_val = os.getenv("ECAN_NATIVE_TOOL_CALLS", "").strip().lower()
+        if env_val in ("1", "true", "yes", "on"):
+            return True
+        if env_val in ("0", "false", "no", "off"):
+            return False  # explicit disable beats skill-level enable
+    except Exception:
+        pass
+
+    # 3. Skill mapping_rules
+    try:
+        if mainwin and skill_name:
+            for sk in (getattr(mainwin, "agent_skills", None) or []):
+                if getattr(sk, "name", "") != skill_name:
+                    continue
+                mr = getattr(sk, "mapping_rules", None) or {}
+                if isinstance(mr, dict):
+                    flag = mr.get("use_native_tool_calls")
+                    if isinstance(flag, bool):
+                        return flag
+                    if isinstance(flag, str) and flag.strip().lower() in ("1", "true", "yes", "on"):
+                        return True
+                break
+    except Exception:
+        pass
+
+    return False
+
+
 def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str, *, skill_owner: str = "") -> tuple[str, str, dict]:
     """Resolve system/user prompt templates based on selection.
 
@@ -3036,6 +3279,96 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 state['error'] = err
                 return state
 
+            # ── Native function-calling pilot: bind MCP tool schemas ──
+            # Step 1 of the migration away from text-JSON-as-tool-call.  When
+            # the gate is on AND we can resolve the node's ``tools_to_use``
+            # list, attach those schemas to the LLM via LangChain
+            # ``bind_tools``.  The provider then uses its native tool-call
+            # protocol (OpenAI tools=[...], Anthropic tool_use, ...) and the
+            # response will carry a typed ``tool_calls`` field instead of
+            # relying on the model serializing JSON correctly into ``content``.
+            #
+            # Track for the bridge below — set on the *outer* function scope so
+            # the post-invoke overlay knows whether to look at tool_calls.
+            _native_tc_active = False
+            try:
+                _gate = _should_use_native_tool_calls(skill_name, _mainwin, inputs)
+                if not _gate:
+                    _native_tool_call_metric_inc("bind_skipped_gate")
+                else:
+                    _native_tool_call_metric_inc("bind_attempted")
+                    if _should_use_proxy(inputs):
+                        # Lambda proxy LLM doesn't expose a langchain bind_tools;
+                        # leave it on the legacy path.
+                        _native_tool_call_metric_inc("bind_skipped_proxy")
+                        logger.info(
+                            "[NativeToolCalls] gate=on but Lambda proxy LLM in use; "
+                            f"skipping bind_tools for node={full_node_name}"
+                        )
+                    elif not hasattr(llm, "bind_tools"):
+                        _native_tool_call_metric_inc("bind_skipped_unsupported")
+                        logger.warning(
+                            f"[NativeToolCalls] gate=on but LLM type={type(llm).__name__} "
+                            f"has no bind_tools attribute; falling back to text parse "
+                            f"for node={full_node_name}"
+                        )
+                    else:
+                        _tool_names = _extract_tools_to_use_names(
+                            prompt_selection,
+                            inline_system_prompt,
+                            skill_owner=owner or "",
+                        )
+                        if not _tool_names:
+                            _native_tool_call_metric_inc("bind_skipped_no_tools")
+                            logger.info(
+                                f"[NativeToolCalls] gate=on but no tools_to_use names "
+                                f"resolved for node={full_node_name} "
+                                f"(prompt_selection={prompt_selection!r}); "
+                                "falling back to text parse"
+                            )
+                        else:
+                            _tool_schemas = _get_tool_schemas_for_names(_tool_names)
+                            _function_tools = _schemas_to_function_tools(_tool_schemas)
+                            if not _function_tools:
+                                _native_tool_call_metric_inc("bind_skipped_no_tools")
+                                logger.warning(
+                                    f"[NativeToolCalls] gate=on but tool schemas could "
+                                    f"not be loaded for names={_tool_names} "
+                                    f"(node={full_node_name}); falling back to text parse"
+                                )
+                            else:
+                                try:
+                                    llm = llm.bind_tools(_function_tools, tool_choice="auto")
+                                    _native_tc_active = True
+                                    _native_tool_call_metric_inc("bind_succeeded")
+                                    logger.info(
+                                        f"[NativeToolCalls] bound {len(_function_tools)} "
+                                        f"tools to LLM for node={full_node_name} "
+                                        f"(provider={llm_provider}, model={model_name}, "
+                                        f"names={[t['function']['name'] for t in _function_tools]})"
+                                    )
+                                    send_skill_editor_log(
+                                        "log",
+                                        f"[NativeToolCalls] bound {len(_function_tools)} tools "
+                                        f"({', '.join(t['function']['name'] for t in _function_tools)})"
+                                    )
+                                except Exception as _bind_err:
+                                    _native_tool_call_metric_inc("bind_failed")
+                                    logger.warning(
+                                        f"[NativeToolCalls] bind_tools failed for "
+                                        f"node={full_node_name} "
+                                        f"(provider={llm_provider}): {_bind_err}; "
+                                        "falling back to text parse"
+                                    )
+            except Exception as _ntc_err:
+                # Never let the native-tools path crash the LLM node — always
+                # fall through to legacy text parsing on any unexpected error.
+                logger.warning(
+                    f"[NativeToolCalls] gating logic raised "
+                    f"(non-fatal, falling back to text parse): {_ntc_err}"
+                )
+                _native_tc_active = False
+
             # so far we have get API key, LLM model setup among difference possible choices.
 
             # Log LLM configuration for debugging
@@ -3388,6 +3721,85 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 _t_stage = _time.perf_counter()
                 run_post_llm_hook(full_node_name, agent, state, response)
                 _perf_llm("post_hook", _t_stage)
+
+                # ── Native function-calling bridge ────────────────────────
+                # When tools were bound above, the provider may have returned
+                # a typed ``tool_calls`` list on the response.  Overlay it
+                # onto ``state['result']['llm_result']`` in the same shape
+                # the legacy text-parser would have produced (tool_name,
+                # tool_input, OR multi-tool ``tool`` list).  Drop ``message``
+                # so the MCP auto-select parser at ``_run_use_mcp_node``
+                # short-circuits the JSON-walk and uses the structured
+                # fields directly — eliminating the class of bugs where the
+                # LLM serialized its tool call into a non-canonical text
+                # format (e.g. OpenAI Harmony ``to=send_chat`` headers).
+                #
+                # If the bound LLM returned NO tool_calls (e.g. it answered
+                # in plain content), leave ``llm_result`` as the standard
+                # post-hook produced it; the legacy parser still runs and
+                # picks up any ``message``/``all_done`` JSON in content.
+                try:
+                    if _native_tc_active:
+                        _resp_tcs = getattr(response, "tool_calls", None) or []
+                        if _resp_tcs:
+                            _native_tool_call_metric_inc("response_native")
+                            _llm_res = (state.get("result") or {}).get("llm_result")
+                            if not isinstance(_llm_res, dict):
+                                _llm_res = {}
+                            if len(_resp_tcs) == 1:
+                                _tc = _resp_tcs[0] or {}
+                                _llm_res["tool_name"] = _tc.get("name") or ""
+                                _llm_res["tool_input"] = _tc.get("args") or {}
+                                logger.info(
+                                    f"[NativeToolCalls] bridged single tool_call "
+                                    f"name={_tc.get('name')!r} "
+                                    f"args_keys={list((_tc.get('args') or {}).keys())} "
+                                    f"node={full_node_name}"
+                                )
+                            else:
+                                _llm_res["tool"] = [
+                                    {"tool_name": (tc or {}).get("name") or "",
+                                     "tool_input": (tc or {}).get("args") or {}}
+                                    for tc in _resp_tcs
+                                ]
+                                _llm_res["multi_tool_calls"] = "serial"
+                                logger.info(
+                                    f"[NativeToolCalls] bridged {len(_resp_tcs)} "
+                                    f"serial tool_calls "
+                                    f"names={[(tc or {}).get('name') for tc in _resp_tcs]} "
+                                    f"node={full_node_name}"
+                                )
+                            # Drop ``message`` so the legacy text parser at
+                            # ``_run_use_mcp_node`` line ~4708 sees structured
+                            # fields and skips the JSON-walk path entirely.
+                            _llm_res.pop("message", None)
+
+                            if isinstance(state.get("result"), dict):
+                                state["result"]["llm_result"] = _llm_res
+                                # Promote tool_name/tool_input to the top of
+                                # state['result'] for condition-edge readers
+                                # (mirrors what standard_post_llm_hook does).
+                                if _llm_res.get("tool_name"):
+                                    state["result"]["tool_name"] = _llm_res["tool_name"]
+                                    if _llm_res.get("tool_input") is not None:
+                                        state["result"]["tool_input"] = _llm_res["tool_input"]
+                        else:
+                            _native_tool_call_metric_inc("response_text_fallback")
+                            logger.info(
+                                f"[NativeToolCalls] bound LLM returned no tool_calls "
+                                f"(falling through to text parse) node={full_node_name} "
+                                f"content_len={len(getattr(response, 'content', '') or '')}"
+                            )
+                except Exception as _bridge_err:
+                    # Bridge failure must not break the LLM node.  Log and
+                    # leave ``state['result']['llm_result']`` exactly as the
+                    # standard post-hook produced it; the legacy parser will
+                    # take over from there (incl. the Harmony fallback).
+                    logger.warning(
+                        f"[NativeToolCalls] bridge raised "
+                        f"(non-fatal, leaving legacy llm_result): {_bridge_err}"
+                    )
+
                 logger.debug(f"llm_node finished..... {state}")
 
                 # Total time for llm_node_callable (best-effort)
