@@ -1252,23 +1252,57 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
     try:
         ctx = get_handler_context(request, params)
         
-        if not params or 'cacheData' not in params:
+        # DEBUG: Log incoming data to identify the rename issue
+        logger.warning(f"[AutoSave][DEBUG] Incoming params keys: {list(params.keys()) if params else None}")
+        logger.warning(f"[AutoSave][DEBUG] Raw params: {str(params)[:500]}")
+        
+        # Support multiple nesting levels due to GraphQL/frontend quirks
+        # Possible formats:
+        # 1. { cacheData: { skillInfo, currentFilePath } }
+        # 2. { cacheData: { cacheData: { skillInfo, currentFilePath } } }
+        # 3. { input: { cacheData: { skillInfo, currentFilePath } } }
+        cache_data = None
+        if params:
+            direct_data = params.get('cacheData')
+            if direct_data:
+                # Check if it's double-nested
+                if isinstance(direct_data, dict) and 'cacheData' in direct_data:
+                    cache_data = direct_data.get('cacheData')
+                elif isinstance(direct_data, dict) and 'skillInfo' in direct_data:
+                    cache_data = direct_data
+            elif 'input' in params and isinstance(params['input'], dict):
+                inner = params['input'].get('cacheData')
+                if isinstance(inner, dict) and 'skillInfo' in inner:
+                    cache_data = inner
+                elif isinstance(inner, dict) and 'cacheData' in inner:
+                    cache_data = inner.get('cacheData')
+        
+        if not cache_data:
+            logger.error(f"[AutoSave][DEBUG] Failed to extract cache_data from params")
             return create_error_response(request, 'INVALID_PARAMS', 'cacheData is required')
         
-        cache_data = params['cacheData']
         current_file_path = cache_data.get('currentFilePath')
         skill_info = cache_data.get('skillInfo')
         sheets_data = cache_data.get('sheets', {})
         
+        logger.warning(f"[AutoSave][DEBUG] currentFilePath: {current_file_path}")
+        logger.warning(f"[AutoSave][DEBUG] skillInfo keys: {list(skill_info.keys()) if skill_info else None}")
+        logger.warning(f"[AutoSave][DEBUG] skillInfo.skillName: {skill_info.get('skillName') if skill_info else None}")
+        
         # NEW ARCHITECTURE: Save directly to file, no cache layer
         if current_file_path and skill_info:
             skill_file = Path(current_file_path)
+            logger.info(f"[AutoSave] === RENAME CHECK ===")
+            logger.info(f"[AutoSave] currentFilePath: {current_file_path}")
+            logger.info(f"[AutoSave] skill_file resolved: {skill_file}")
+            logger.info(f"[AutoSave] skill_file.exists(): {skill_file.exists()}")
             
             # Convert relative path to absolute path
             if not skill_file.is_absolute():
                 from config.app_info import app_info
                 base_dir = Path(app_info.appdata_path)
                 skill_file = base_dir / skill_file
+                logger.info(f"[AutoSave] Converted to absolute: {skill_file}")
             
             # Check if skillName changed - need to rename directory and files
             new_skill_name = skill_info.get('skillName', '')
@@ -1284,12 +1318,15 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                 # Extract current skill name from path
                 # Path format: .../xxx_skill/diagram_dir/xxx_skill.json
                 current_file_stem = skill_file.stem  # e.g., "ff_skill"
+                logger.info(f"[AutoSave] current_file_stem: {current_file_stem}")
+                logger.info(f"[AutoSave] new_skill_name: {new_skill_name}")
                 
                 # Normalize names for comparison (both should end with _skill)
                 expected_new_stem = new_skill_name if new_skill_name.endswith('_skill') else f"{new_skill_name}_skill"
+                logger.info(f"[AutoSave] expected_new_stem: {expected_new_stem}")
                 
                 if current_file_stem != expected_new_stem:
-                    logger.info(f"[AutoSave] Skill name changed: {current_file_stem} -> {expected_new_stem}")
+                    logger.info(f"[AutoSave] ✅ Skill name changed: {current_file_stem} -> {expected_new_stem}")
                     
                     # Rename directory and files
                     try:
@@ -1307,6 +1344,13 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                         if new_skill_root.exists() and new_skill_root != old_skill_root:
                             logger.warning(f"[AutoSave] Cannot rename: target directory already exists: {new_skill_root}")
                         else:
+                            logger.info(f"[AutoSave] Starting rename operation...")
+                            logger.info(f"[AutoSave] old_skill_root: {old_skill_root}")
+                            logger.info(f"[AutoSave] new_skill_root: {new_skill_root}")
+                            logger.info(f"[AutoSave] old_skill_root exists: {old_skill_root.exists()}")
+                            logger.info(f"[AutoSave] new_skill_root exists: {new_skill_root.exists()}")
+                            logger.info(f"[AutoSave] old_skill_root != new_skill_root: {old_skill_root != new_skill_root}")
+                            
                             # Rename the skill root directory
                             if old_skill_root != new_skill_root:
                                 import shutil
@@ -1329,6 +1373,17 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                             skill_file = new_skill_file
                             new_file_path = str(new_skill_file)
                             renamed = True
+
+                            # CRITICAL: Update skill_info with new name BEFORE writing file
+                            # The skill_info dict contains the JSON to be written, so it must have the correct skillName
+                            if new_skill_name:
+                                skill_info['skillName'] = new_skill_name
+                                logger.info(f"[AutoSave] Updated skill_info.skillName -> {new_skill_name}")
+                            # Also update skillId in the JSON data (the id field)
+                            if skill_id_from_info:
+                                skill_info['skillId'] = skill_id_from_info
+                                if 'id' in skill_info:
+                                    skill_info['id'] = skill_id_from_info
                             
                             # Update database record and in-memory skill
                             try:
@@ -1431,7 +1486,20 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                         logger.warning(f"[AutoSave] No agent_skills in memory")
                             except Exception as db_err:
                                 logger.warning(f"[AutoSave] ⚠️ Error updating database/memory: {db_err}")
-                            
+
+                            # Trigger cloud sync after successful rename by calling the standardized save flow.
+                            # This ensures: DB update, memory update, cloud sync, S3 upload, and history save.
+                            try:
+                                _sync_skill_after_rename(
+                                    new_skill_file=str(new_skill_file),
+                                    skill_id=skill_id_from_info,
+                                    new_skill_name=new_base_name,
+                                    old_skill_name=old_base_name,
+                                    ctx=ctx
+                                )
+                            except Exception as sync_err:
+                                logger.warning(f"[AutoSave] Error in rename sync: {sync_err}")
+
                     except Exception as rename_err:
                         logger.error(f"[AutoSave] Failed to rename skill: {rename_err}")
                         # Continue with original path
@@ -1540,6 +1608,66 @@ def _build_bundle_data(sheets_data: Dict[str, Any]) -> Dict[str, Any]:
         "openTabs": open_tabs,
         "activeSheetId": active_sheet_id,
     }
+
+
+def _sync_skill_after_rename(new_skill_file, skill_id, new_skill_name, old_skill_name, ctx):
+    """Sync skill after rename by calling the standardized save flow."""
+    try:
+        from gui.ipc.w2p_handlers.skill_handler import prepare_skill_info_from_json, handle_save_agent_skill
+        from gui.ipc.types import IPCRequest
+        from app_context import AppContext
+        import uuid
+
+        # Get username from AppContext (which has auth_manager.current_user)
+        username = None
+        try:
+            login = AppContext.get_login()
+            if login and hasattr(login, 'auth_manager'):
+                username = login.auth_manager.current_user
+                logger.info(f"[AutoSave][_sync] AppContext.get_login().auth_manager.current_user: {username}")
+        except Exception as e:
+            logger.info(f"[AutoSave][_sync] AppContext.get_login() failed: {e}")
+        
+        if not username:
+            # Try from context as fallback
+            if ctx:
+                try:
+                    username = ctx.get_username()
+                    logger.info(f"[AutoSave][_sync] ctx.get_username(): {username}")
+                except Exception as e:
+                    logger.info(f"[AutoSave][_sync] ctx.get_username() failed: {e}")
+        
+        if not username:
+            # Skip cloud sync if no username (not logged in)
+            logger.warning(f"[AutoSave] Skipping cloud sync - no logged in user")
+            return
+
+        logger.info(f"[AutoSave][_sync] Using username for sync: {username}")
+        
+        skill_info = prepare_skill_info_from_json(new_skill_file, skill_id, new_skill_name)
+
+        # Create mock request with all required fields for create_error_response
+        mock_request = {
+            'id': str(uuid.uuid4()),
+            'method': 'save_agent_skill',
+            'params': {'username': username, 'skill_info': skill_info}
+        }
+        result = handle_save_agent_skill(mock_request, {'username': username, 'skill_info': skill_info})
+
+        logger.info(f"[AutoSave][_sync] result type: {type(result)}, status: {result.get('status') if isinstance(result, dict) else 'N/A'}")
+
+        # Check for success - handle both IPC response format and direct dict format
+        is_success = (
+            (isinstance(result, dict) and result.get('status') == 'success') or
+            (isinstance(result, dict) and result.get('success') is True)
+        )
+        
+        if is_success:
+            logger.info(f"[AutoSave] ✅ Skill synced after rename: {old_skill_name} -> {new_skill_name}")
+        else:
+            logger.warning(f"[AutoSave] Skill sync failed after rename: {result}")
+    except Exception as e:
+        logger.warning(f"[AutoSave] Rename sync failed for {old_skill_name} -> {new_skill_name}: {e}")
 
 
 @IPCHandlerRegistry.background_handler('load_editor_cache')

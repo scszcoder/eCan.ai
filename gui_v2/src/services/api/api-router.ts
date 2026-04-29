@@ -330,6 +330,8 @@ export class APIRouter {
           };
         }
         
+        console.error(`[APIRouter] GraphQL error for ${method}: code=${errorCode}, message=${error.message}, extensions=`, error.extensions);
+        
         return {
           success: false,
           error: {
