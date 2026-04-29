@@ -80,6 +80,93 @@ _AUTO_DISPATCH_COOLDOWN_S = 10.0
 
 # ==================== Helpers ====================
 
+def _truthy_config_value(value: Any) -> bool:
+    """Return True for common bool-ish config values."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return False
+
+
+def _read_jsonish_input(inputs: dict, key: str, parser=None) -> Any:
+    """Read a Flowgram-style JSON input using the runtime parser when available."""
+    if callable(parser):
+        try:
+            parsed = parser(inputs, key)
+            if parsed is not None:
+                if not (
+                    isinstance(parsed, dict)
+                    and set(parsed.keys()) == {"content"}
+                ):
+                    return parsed
+                raw = parsed.get("content")
+                if raw in (None, ""):
+                    return None
+                if isinstance(raw, (dict, list)):
+                    return raw
+                if isinstance(raw, str):
+                    try:
+                        return json.loads(raw.strip())
+                    except Exception:
+                        return None
+                return None
+        except Exception:
+            pass
+    raw = (inputs.get(key) or {}).get("content") if isinstance(inputs, dict) else None
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw.strip())
+        except Exception:
+            return None
+    return None
+
+
+def _pre_dispatch_enabled_for_browser_event(inputs: dict, parser, evt_type: str) -> bool:
+    if evt_type != "browser_event":
+        return False
+    cfg = _read_jsonish_input(inputs, "preDispatch", parser)
+    return isinstance(cfg, dict) and _truthy_config_value(cfg.get("enabled"))
+
+
+def _auto_dispatch_allows_pre_dispatch(auto_dispatch_cfg: dict | None) -> bool:
+    """Explicit escape hatch for legacy configs that still want both paths."""
+    if not isinstance(auto_dispatch_cfg, dict):
+        return False
+    for key in ("allow_with_preDispatch", "allow_with_pre_dispatch", "allowWithPreDispatch"):
+        if _truthy_config_value(auto_dispatch_cfg.get(key)):
+            return True
+    dispatch_cfg = auto_dispatch_cfg.get("dispatch")
+    if isinstance(dispatch_cfg, dict):
+        for key in ("allow_with_preDispatch", "allow_with_pre_dispatch", "allowWithPreDispatch"):
+            if _truthy_config_value(dispatch_cfg.get(key)):
+                return True
+    return False
+
+
+def _build_pre_dispatch_guard_state(item_count: int) -> dict:
+    return {
+        "result": {
+            "llm_result": {
+                "all_done": True,
+                "work_done": False,
+                "hot_path": True,
+                "hot_path_type": "predispatch_guard",
+                "message": (
+                    "preDispatch is enabled; suppressing autoDispatch/LLM "
+                    f"fallback for browser_event ({item_count} actionable item(s))."
+                ),
+            }
+        }
+    }
+
+
 def _get_agent_load(agent_id: str, mainwin) -> int:
     """Return the number of non-done tasks queued for *agent_id*.
 
@@ -626,6 +713,30 @@ async def before_prompt_build_hook(
             f"(kept {len(_actionable)} of {len(actionable_raw)}): "
             + ", ".join(f"{c}({r})" for c, r in _filtered_out)
             + f" node={node_name}"
+        )
+
+    _pre_dispatch_owns_event = _pre_dispatch_enabled_for_browser_event(
+        inputs,
+        getattr(hook_ctx, "parse_json_input", None),
+        evt_type,
+    )
+    _auto_dispatch_guard_cfg = _read_jsonish_input(
+        inputs,
+        "autoDispatch",
+        getattr(hook_ctx, "parse_json_input", None),
+    )
+    if (
+        _pre_dispatch_owns_event
+        and not _auto_dispatch_allows_pre_dispatch(_auto_dispatch_guard_cfg)
+    ):
+        logger.info(
+            f"[BrowserAutomation] PreDispatch owns browser_event; "
+            f"suppressing actionable_items autoDispatch/LLM fallback "
+            f"(actionable={len(_actionable)}, total={len(compact_items)}), "
+            f"node={node_name}"
+        )
+        return PromptBuildResult(
+            short_circuit_state=_build_pre_dispatch_guard_state(len(_actionable))
         )
 
     _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)

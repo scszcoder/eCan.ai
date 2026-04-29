@@ -5320,7 +5320,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             next_tool_input = (
                 llm_result.get('next_tool_input')
                 or llm_result.get('tool_input')
+                or llm_result.get('input')
                 or nested_tool.get('tool_input')
+                or nested_tool.get('input')
                 or {}
             )
 
@@ -5810,7 +5812,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if not isinstance(_item, dict):
                     continue
                 _tn = (_item.get('tool_name') or _item.get('next_tool_name') or '').strip()
-                _ti = _item.get('tool_input') or _item.get('next_tool_input') or {}
+                _ti = (
+                    _item.get('tool_input')
+                    or _item.get('next_tool_input')
+                    or _item.get('input')
+                    or {}
+                )
                 if not isinstance(_ti, dict):
                     _ti = {}
                 _pipe_to = _item.get('pipe_output_to')   # Option B: field name string or None
