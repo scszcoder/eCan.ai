@@ -240,6 +240,25 @@ def _safe_json_loads(raw: Any) -> Any:
         return None
 
 
+_FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS = r"""
+(async function() {
+  try {
+    var current = document.querySelector('[data-qa-id="qa-active-chat-tab"]');
+    if (!current) return;
+    var tabBtn = current.closest('[role="tab"]');
+    var tabWrap = current.closest('.auxo-tabs-tab, .tab');
+    var selected =
+      (tabBtn && tabBtn.getAttribute('aria-selected') === 'true') ||
+      (tabWrap && /\b(auxo-tabs-tab-active|active)\b/.test(String(tabWrap.className || '')));
+    if (!selected) {
+      current.click();
+      await new Promise(function(resolve) { setTimeout(resolve, 160); });
+    }
+  } catch (e) {}
+})()
+"""
+
+
 def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     selectors = [s.strip() for s in (cfg.dom_selector or "").split(",") if s and s.strip()]
     for fallback_selector in (
@@ -262,6 +281,7 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     return {
         "version": 1,
         "page_url_patterns": page_patterns,  # empty = match any page
+        "before_extract_js": _FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS,
         "roots": selectors or ["body"],
         "items": [
             # ── Feige (飞鸽) sessions ─────────────────────────────────────────
@@ -298,6 +318,12 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
                     "timestamp": {
                         "source": "text",
                         "selector": ".CEnLM8MEGksTdgi_8Lqf",
+                    },
+                    "sidebar_scope": {
+                        "source": "attr",
+                        "attr": "data-btm-id",
+                        "regex": r"\.([A-Za-z]+)$",
+                        "group": 1,
                     },
                 },
             },
@@ -910,6 +936,21 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                         let skipReason = '';
                         if (itemFilters.from_equals && normalizeText(item.from) !== normalizeText(itemFilters.from_equals)) {{
                             skipReason = `from_mismatch:${{normalizeText(item.from)}}!=${{normalizeText(itemFilters.from_equals)}}`;
+                        }}
+                        if (!skipReason && String((spec && spec.selector) || '') === '[data-qa-id="qa-conversation-chat-item"]') {{
+                            const btmId = node && node.getAttribute ? String(node.getAttribute('data-btm-id') || '') : '';
+                            const inCurrentList = !!(
+                                (node && node.closest && node.closest('.pigeonChatNotScrollBox')) ||
+                                btmId.endsWith('.current')
+                            );
+                            const inRecentList = !!(
+                                (node && node.closest && node.closest('.pigeonChatScrollBox')) ||
+                                btmId.endsWith('.recent') ||
+                                btmId.endsWith('.systemConv')
+                            );
+                            if (inRecentList && !inCurrentList) {{
+                                skipReason = 'feige_non_current_sidebar';
+                            }}
                         }}
                         let itemKey = '';
                         if (keyFields.length > 0) {{

@@ -45,6 +45,9 @@ from agent.ec_skills.browser_node.contexts import (
     PromptBuildContext,
     PromptBuildResult,
 )
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+    first_system_row_match,
+)
 
 logger = logging.getLogger("ecan.hooks.feige_chat.v2")
 
@@ -216,6 +219,10 @@ def _evaluate_item_filter_pure(
         now = time.time()
     cfg = filter_cfg or {}
     resolved = resolved or {}
+
+    system_reason = first_system_row_match(item, resolved)
+    if system_reason:
+        return False, system_reason
 
     # 1. Required fields
     for rf in (cfg.get("required_fields") or []):

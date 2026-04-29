@@ -40,6 +40,9 @@ from agent.ec_skills.build_node import (
     _resolve_template,
     register_before_prompt_build_hook,
 )
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+    first_system_row_match,
+)
 
 logger = logging.getLogger("eCan")
 
@@ -258,6 +261,10 @@ def _evaluate_item_filter(
         now = time.time()
     cfg = filter_cfg or {}
     resolved = resolved or {}
+
+    system_reason = first_system_row_match(item, resolved)
+    if system_reason:
+        return False, system_reason
 
     # 1. Required fields — must resolve to non-empty in resolved or item.
     for rf in (cfg.get("required_fields") or []):
