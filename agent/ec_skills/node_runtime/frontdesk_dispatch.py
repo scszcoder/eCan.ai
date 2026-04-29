@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -863,18 +864,35 @@ async def run(
             import threading
             fp_lock = threading.Lock()
             dispatch_state["_lock"] = fp_lock
-        if not fp_lock.acquire(blocking=False):
+        lock_acquired = fp_lock.acquire(blocking=False)
+        if not lock_acquired:
             logger.info(
                 f"[BrowserAutomation] {cfg.log_tag} skipped: another "
-                f"invocation already running"
+                f"invocation already running; waiting briefly"
             )
-            setattr(session, cfg.flag_attr, True)
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+                lock_acquired = fp_lock.acquire(blocking=False)
+                if lock_acquired:
+                    logger.info(
+                        f"[BrowserAutomation] {cfg.log_tag} acquired lock "
+                        f"after waiting for concurrent invocation"
+                    )
+                    break
+        if not lock_acquired:
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} busy: concurrent "
+                f"invocation still running; short-circuiting without "
+                f"marking dispatch handled"
+            )
             return {
                 "final": json.dumps({
                     "all_done": True,
-                    "message": f"{cfg.log_tag} handled by another invocation",
-                }),
-                "history": f"{cfg.history_prefix}:dedup",
+                    "work_done": False,
+                    "message": f"{cfg.log_tag} busy: another invocation is running",
+                }, ensure_ascii=False),
+                "history": f"{cfg.history_prefix}:busy",
             }
 
         try:

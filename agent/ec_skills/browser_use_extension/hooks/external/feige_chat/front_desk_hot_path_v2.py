@@ -279,6 +279,9 @@ async def before_session_setup_hook_v2(
       * a populated ``state`` dict with ``state["result"]["llm_result"]``
         set when HOT-PATH-B handled the event (short-circuits the LLM)
     """
+    claim_active = False
+    claim_cust = ""
+    claim_reply = ""
     try:
         # ── Parse hotPathActions config ──
         hp_raw = (inputs.get("hotPathActions") or {}).get("content")
@@ -336,7 +339,9 @@ async def before_session_setup_hook_v2(
                 or ""
             )
             dedup_reply = payload.get("response_text") or ""
-            dedup_age = _ds.was_recently_sent(dedup_cust, dedup_reply)
+            claim_cust = dedup_cust
+            claim_reply = dedup_reply
+            dedup_age = _ds.claim_send(dedup_cust, dedup_reply)
             if dedup_age > 0:
                 logger.info(
                     f"[HOT-PATH-B-V2] dedup skip cust={dedup_cust!r} "
@@ -358,6 +363,7 @@ async def before_session_setup_hook_v2(
                     "hot_path_type": "dedup_skip",
                 }
                 return state
+            claim_active = True
 
             # ── Pre-record reply BEFORE send ──
             # PreDispatch's equality guard compares the DOM's sidebar
@@ -389,9 +395,21 @@ async def before_session_setup_hook_v2(
                     f"[HOT-PATH-B-V2] no hot_path_executor wired; cannot type "
                     f"reply, node={ctx.node_name}"
                 )
+                if claim_active:
+                    try:
+                        _ds.unclaim_send(claim_cust, claim_reply)
+                    except Exception:
+                        pass
+                    claim_active = False
                 return None
             if ctx.primitives is None:
                 logger.warning(f"[HOT-PATH-B-V2] no primitives, node={ctx.node_name}")
+                if claim_active:
+                    try:
+                        _ds.unclaim_send(claim_cust, claim_reply)
+                    except Exception:
+                        pass
+                    claim_active = False
                 return None
 
             typing_cust = ctx.normalize_dispatch_identity_key(
@@ -421,6 +439,7 @@ async def before_session_setup_hook_v2(
                     _ds.mark_sent(dedup_cust, dedup_reply)
                 except Exception:
                     pass
+                claim_active = False
 
                 # Release qa_response_pending lock — soft-import: the call
                 # is mainwin/cloud-orchestrator-coupled in the legacy
@@ -482,6 +501,13 @@ async def before_session_setup_hook_v2(
                 return state
 
             # ── Failure path ──
+            if claim_active:
+                try:
+                    _ds.unclaim_send(claim_cust, claim_reply)
+                except Exception:
+                    pass
+                claim_active = False
+
             # Release inflight lock so PreDispatch isn't blocked for the full TTL.
             try:
                 fail_cust = ctx.normalize_dispatch_identity_key(
@@ -503,6 +529,11 @@ async def before_session_setup_hook_v2(
 
             break  # Only try first matching rule
     except Exception as err:
+        if claim_active:
+            try:
+                _ds.unclaim_send(claim_cust, claim_reply)
+            except Exception:
+                pass
         logger.warning(
             f"[HOT-PATH-B-V2] check failed (non-fatal): {err}",
             exc_info=True,
