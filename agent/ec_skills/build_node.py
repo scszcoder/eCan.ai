@@ -4756,6 +4756,70 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     ):
                         _all_tool_objs.append(obj)
 
+                # ── Harmony-channel fallback ─────────────────────────────
+                # GPT-5 / o-series models occasionally slip into the OpenAI
+                # Harmony tool-call dialect, putting the tool name in a
+                # free-text routing header instead of a JSON ``tool_name``
+                # key, e.g.:
+                #
+                #   to=send_chat <hallucinated tokens> =json
+                #   {"input": {...}}
+                #   {"all_done": true, "work_done": true}
+                #   done()
+                #
+                # The body JSON is still valid input but our strict
+                # parser above sees ``{"input": ...}`` with no
+                # ``tool_name`` and silently drops the tool call, while
+                # still capturing the trailing ``{"all_done": true}``
+                # below.  Net effect: the worker reports "all_done"
+                # without ever invoking the tool.
+                #
+                # Liveness incident 2026-04-29 09:08:17.176 (eCan.log.1
+                # line 10286): customer ``陆地飞鱼``'s reply to
+                # ``我要买衣服`` was lost this way and stayed
+                # ``already_dispatched`` in the front-desk dedup map for
+                # the rest of the run.
+                #
+                # Adopt the first ``input``-bearing JSON as the tool
+                # call when (a) no proper tool object was found AND
+                # (b) the message contains a Harmony-style ``to=<name>``
+                # header.  This keeps well-formed outputs untouched
+                # while recovering the malformed-but-intent-clear case.
+                if not _all_tool_objs:
+                    _harmony_match = re.search(
+                        r'\bto\s*=\s*([A-Za-z_][A-Za-z0-9_\-]*)',
+                        message_content,
+                    )
+                    if _harmony_match:
+                        _harmony_tool_name = _harmony_match.group(1)
+                        _adopted = None
+                        for obj in parsed_objects:
+                            if not isinstance(obj, dict):
+                                continue
+                            # Skip pure completion-flag objects — those
+                            # belong to the flags collector below.
+                            if set(obj.keys()) <= {'all_done', 'work_done'}:
+                                continue
+                            if 'input' in obj or 'tool_input' in obj:
+                                _adopted = dict(obj)
+                                _adopted['tool_name'] = _harmony_tool_name
+                                _all_tool_objs.append(_adopted)
+                                logger.warning(
+                                    "[MCP Auto-Select] Harmony-style tool call "
+                                    f"recovered: tool_name='{_harmony_tool_name}' "
+                                    f"from `to=` header, body keys={list(obj.keys())}. "
+                                    "LLM emitted non-standard format; treating as "
+                                    "if `tool_name` was present in the JSON."
+                                )
+                                break
+                        if _adopted is None:
+                            logger.warning(
+                                f"[MCP Auto-Select] Detected Harmony header "
+                                f"`to={_harmony_tool_name}` but no input-bearing "
+                                "JSON body found; cannot recover tool call. "
+                                f"Parsed objects: {[list(o.keys()) if isinstance(o, dict) else type(o).__name__ for o in parsed_objects]}"
+                            )
+
                 # Collect completion flags (all_done, work_done) from non-tool
                 # JSON objects.  The LLM often emits these as a separate object
                 # after the tool-call JSON, e.g.:
