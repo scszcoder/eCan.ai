@@ -520,6 +520,13 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     last_msg = str(item.get("last_message") or "").strip()
     if last_msg:
         payload["latest_message"] = last_msg
+    source_msg_id = str(
+        item.get("latest_message_msg_id")
+        or item.get("source_customer_msg_id")
+        or ""
+    ).strip()
+    if source_msg_id:
+        payload["latest_message_msg_id"] = source_msg_id
     # ── Multimodal: customer-attached images ─────────────────────────
     # The hot-path scraper (``feige_chat.pre_dispatch_v2`` /
     # ``pre_dispatch_enrich``) populates ``item["last_message_attachments"]``
@@ -680,6 +687,8 @@ async def _dispatch_one_item(
             )
             return opened_row, "", ""
         scraped_msg_id = enrich.scraped_msg_id
+        if scraped_msg_id:
+            item["latest_message_msg_id"] = scraped_msg_id
         if enrich.should_clear_stale_assignment:
             assigned_sessions.pop(session_id, None)
 

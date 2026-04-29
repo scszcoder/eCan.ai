@@ -74,6 +74,7 @@ from typing import Any, Callable
 from . import typing_lock
 from .dom_assets import (
     FEIGE_ACTIVE_CUSTOMER_JS,
+    FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
     ensure_feige_tab_focused,
     _normalize_dispatch_identity_key,
 )
@@ -231,6 +232,76 @@ async def _pre_send_reverify(
     return True, ""
 
 
+def _source_customer_msg_id(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(
+        payload.get("source_customer_msg_id")
+        or payload.get("latest_message_msg_id")
+        or payload.get("reply_to_msg_id")
+        or ""
+    ).strip()
+
+
+async def _verify_reply_source_turn(
+    browser_session,
+    eval_js: Callable,
+    payload: dict,
+    *,
+    node_name: str,
+    outcome: "HotPathOutcome",
+) -> tuple[bool, str]:
+    """Fail closed when a reply was generated for an older customer bubble.
+
+    Sender/recipient IDs route the Q&A response back to the front-desk
+    agent, but Feige typing still has to prove the visible customer thread is
+    on the same customer-bubble msg_id that was dispatched to Q&A.
+    """
+    expected_msg_id = _source_customer_msg_id(payload)
+    if not expected_msg_id:
+        return True, ""
+
+    try:
+        raw = await eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+        else:
+            data = raw if isinstance(raw, dict) else {}
+        actual_msg_id = str(data.get("msg_id") or "").strip()
+        actual_text = str(data.get("text") or "").strip()
+    except Exception as exc:
+        actual_msg_id = ""
+        actual_text = ""
+        logger.warning(
+            f"[BrowserAutomation] HOT-PATH-B: source-turn verification "
+            f"eval failed: {type(exc).__name__}: {exc}; refusing to type "
+            f"reply for source_msg_id=...{expected_msg_id[-8:]}, "
+            f"node={node_name}"
+        )
+
+    if actual_msg_id and actual_msg_id == expected_msg_id:
+        logger.info(
+            f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+            f"msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+        )
+        return True, ""
+
+    outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
+    outcome.extras["active_customer_msg_id"] = actual_msg_id
+    outcome.extras["active_customer_text_preview"] = actual_text[:80]
+    logger.warning(
+        f"[BrowserAutomation] HOT-PATH-B: DROP stale reply — source "
+        f"customer msg_id=...{expected_msg_id[-8:]} no longer matches "
+        f"latest visible customer bubble msg_id="
+        f"...{actual_msg_id[-8:] if actual_msg_id else '<none>'}; "
+        f"latest_text={actual_text[:80]!r}, node={node_name}"
+    )
+    return False, "stale_reply_source_msg_id"
+
+
 async def _post_open_verify(
     browser_session,
     eval_js: Callable,
@@ -336,6 +407,16 @@ async def _run_one_action(
         if not ok:
             outcome.reason = reason
             return False
+        ok, reason = await _verify_reply_source_turn(
+            browser_session,
+            eval_js,
+            payload,
+            node_name=node_name,
+            outcome=outcome,
+        )
+        if not ok:
+            outcome.reason = reason
+            return False
 
     # Call the tool.
     params = act_obj.param_model(**resolved_args)
@@ -407,8 +488,14 @@ async def execute(
             _evaluate_js as eval_js,
         )
     except Exception as imp_err:
-        outcome.reason = f"exception:eval_import_failed:{imp_err}"
-        return outcome
+        logger.warning(
+            f"[BrowserAutomation] HOT-PATH-B: _evaluate_js import failed; "
+            f"tool actions may run, but DOM verification will fail closed: "
+            f"{imp_err}"
+        )
+
+        async def eval_js(_browser_session, _script):
+            raise RuntimeError(f"_evaluate_js import failed: {imp_err}")
 
     # Pre-action: ensure on the Feige tab + recent-contacts sub-tab.
     try:

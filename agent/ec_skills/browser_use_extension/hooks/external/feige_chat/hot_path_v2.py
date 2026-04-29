@@ -98,10 +98,12 @@ RECENT_CONTACTS_TAB_SELECTOR: str = '[data-qa-id="qa-last-chat-tab"]'
 try:
     from .dom_assets import (
         FEIGE_ACTIVE_CUSTOMER_JS,
+        FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
         _normalize_dispatch_identity_key,
     )
 except Exception:  # pragma: no cover — bundle import side-effects
     FEIGE_ACTIVE_CUSTOMER_JS = "({ok: false, active: ''})"
+    FEIGE_LATEST_CUSTOMER_BUBBLE_JS = "({msg_id: '', text: ''})"
     def _normalize_dispatch_identity_key(s: str) -> str:  # type: ignore
         return (s or "").strip().lower()
 
@@ -327,6 +329,68 @@ async def _pre_send_reverify(
     return True, ""
 
 
+def _source_customer_msg_id(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(
+        payload.get("source_customer_msg_id")
+        or payload.get("latest_message_msg_id")
+        or payload.get("reply_to_msg_id")
+        or ""
+    ).strip()
+
+
+async def _verify_reply_source_turn_v2(
+    primitives: BrowserPrimitives,
+    payload: dict,
+    *,
+    node_name: str,
+    outcome: HotPathOutcomeV2,
+) -> tuple[bool, str]:
+    expected_msg_id = _source_customer_msg_id(payload)
+    if not expected_msg_id:
+        return True, ""
+
+    try:
+        raw = await primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+        else:
+            data = raw if isinstance(raw, dict) else {}
+        actual_msg_id = str(data.get("msg_id") or "").strip()
+        actual_text = str(data.get("text") or "").strip()
+    except Exception as exc:
+        actual_msg_id = ""
+        actual_text = ""
+        logger.warning(
+            f"[hot_path_v2] source-turn verification eval failed: "
+            f"{type(exc).__name__}: {exc}; refusing to type reply for "
+            f"source_msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+        )
+
+    if actual_msg_id and actual_msg_id == expected_msg_id:
+        logger.info(
+            f"[hot_path_v2] source-turn verified "
+            f"msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+        )
+        return True, ""
+
+    outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
+    outcome.extras["active_customer_msg_id"] = actual_msg_id
+    outcome.extras["active_customer_text_preview"] = actual_text[:80]
+    logger.warning(
+        f"[hot_path_v2] DROP stale reply — source customer msg_id="
+        f"...{expected_msg_id[-8:]} no longer matches latest visible "
+        f"customer bubble msg_id=..."
+        f"{actual_msg_id[-8:] if actual_msg_id else '<none>'}; "
+        f"latest_text={actual_text[:80]!r}, node={node_name}"
+    )
+    return False, "stale_reply_source_msg_id"
+
+
 async def _restore_recent_contacts_tab(
     primitives: BrowserPrimitives,
     node_name: str,
@@ -438,6 +502,15 @@ async def _run_one_action(
     if tool_name == "feige_send_message" and customer_key:
         ok, reason = await _pre_send_reverify(
             primitives, invoker, customer_key, node_name,
+        )
+        if not ok:
+            outcome.reason = reason
+            return False
+        ok, reason = await _verify_reply_source_turn_v2(
+            primitives,
+            payload,
+            node_name=node_name,
+            outcome=outcome,
         )
         if not ok:
             outcome.reason = reason
