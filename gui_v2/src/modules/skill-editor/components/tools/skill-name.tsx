@@ -152,6 +152,51 @@ export const SkillName: React.FC = () => {
     setSkillInfo({ ...skillInfo, skillName: trimmed });
     setHasUnsavedChanges(true);
     setEditing(false);
+
+    // Trigger immediate save when skill name changes
+    // This ensures the rename is persisted to file, DB, and cloud
+    setTimeout(async () => {
+      try {
+        const { useSheetsStore } = await import('../../stores/sheets-store');
+        const ipcApi = (await import('../../../../services/ipc/api')).IPCAPI.getInstance();
+        const sheetsStore = useSheetsStore.getState();
+        const { skillInfo: latestSkillInfo, currentFilePath } = useSkillInfoStore.getState();
+
+        // Get latest skillInfo from store (not from closure which has stale value)
+        const skillInfoToSave = latestSkillInfo;
+        const currentPath = currentFilePath;
+
+        const sheetsData = {
+          sheets: sheetsStore.sheets,
+          order: sheetsStore.order,
+          openTabs: sheetsStore.openTabs,
+          activeSheetId: sheetsStore.activeSheetId,
+        };
+
+        console.log('[SkillName] Saving with skillName:', skillInfoToSave?.skillName, '->', trimmed, 'path:', currentPath);
+
+        // Call backend directly - bypasses auto-save enabled check
+        const response = await ipcApi.saveEditorCache({
+          cacheData: {
+            skillInfo: { ...skillInfoToSave, skillName: trimmed, lastModified: new Date().toISOString() },
+            sheets: sheetsData,
+            currentFilePath: currentPath,
+          },
+        });
+
+        if (response.success) {
+          const data = response.data as any;
+          if (data?.renamed && data?.newFilePath) {
+            useSkillInfoStore.getState().setCurrentFilePath(data.newFilePath);
+          }
+          console.log('[SkillName] Skill name saved:', value, '->', trimmed);
+        } else {
+          console.error('[SkillName] Save failed:', response.error);
+        }
+      } catch (err) {
+        console.error('[SkillName] Failed to save after rename:', err);
+      }
+    }, 100);
   };
 
   const startEditing = () => {
