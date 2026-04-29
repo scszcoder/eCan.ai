@@ -342,6 +342,11 @@ async def _dispatch_one_item(
         "customer_name": customer_name,
         "last_message": str(item.get("last_message") or ""),
     }
+    if scrape.msg_id:
+        payload["latest_message_msg_id"] = scrape.msg_id
+    latest_msg = str(item.get("last_message") or "").strip()
+    if latest_msg:
+        payload["latest_message"] = latest_msg
     # Multimodal: forward eager-fetched attachments verbatim.  Each
     # entry carries either ``data_uri`` (success) or ``fetch_error``
     # (fallback to URL).  The Q&A worker side decides whether to

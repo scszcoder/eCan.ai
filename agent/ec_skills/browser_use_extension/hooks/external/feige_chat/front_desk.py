@@ -407,6 +407,63 @@ async def before_session_setup_hook(
 
                 # (Feige action-loop body moved to
                 # ``feige_chat.hot_path.execute`` — see above.)
+                if (
+                    not _hp_b_all_ok
+                    and _hp_b_outcome.reason == "stale_reply_source_msg_id"
+                ):
+                    # The reply reached the front desk correctly, but it
+                    # answers an older Feige customer bubble.  Treat it as
+                    # handled/dropped, leave the recent-send claim in place
+                    # briefly to suppress replays, and do not clear a newer
+                    # dispatch inflight lock for the same customer.
+                    _hp_b_claim_active = False
+                    try:
+                        _stale_cust = hook_ctx.normalize_dispatch_identity_key(
+                            _hp_b_payload.get("customer_name")
+                            or _hp_b_payload.get("customer_id")
+                            or ""
+                        )
+                        _expected_msg_id = str(
+                            _hp_b_payload.get("source_customer_msg_id")
+                            or _hp_b_payload.get("latest_message_msg_id")
+                            or _hp_b_payload.get("reply_to_msg_id")
+                            or ""
+                        ).strip()
+                        _current_msg_id = _ds.last_dispatched_msg_id_by_customer.get(
+                            _stale_cust, ""
+                        )
+                        if _stale_cust and (
+                            not _current_msg_id or _current_msg_id == _expected_msg_id
+                        ):
+                            hook_ctx.clear_dispatch_inflight(_stale_cust)
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH-B: cleared "
+                                f"dispatch_inflight after stale reply drop "
+                                f"for cust={_stale_cust!r}, node={hook_ctx.node_name}"
+                            )
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH-B: kept "
+                                f"dispatch_inflight after stale reply drop "
+                                f"for cust={_stale_cust!r} because newer "
+                                f"msg_id is recorded, node={hook_ctx.node_name}"
+                            )
+                    except Exception as _hp_b_stale_err:
+                        logger.debug(
+                            f"[BrowserAutomation] HOT-PATH-B: stale-drop "
+                            f"inflight handling failed: {_hp_b_stale_err}"
+                        )
+                    state.setdefault("result", {})["llm_result"] = {
+                        "all_done": False,
+                        "work_done": False,
+                        "hot_path": True,
+                        "hot_path_type": "stale_reply_drop",
+                    }
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH-B: dropped stale "
+                        f"reply instead of typing it, node={hook_ctx.node_name}"
+                    )
+                    return state
                 if _hp_b_all_ok:
                     # Mark this (cust, reply) as sent so any immediate
                     # replay of the same chat_message (from
