@@ -59,8 +59,16 @@ from typing import Iterable
 
 __all__ = [
     "is_platform_or_system_message",
+    "is_platform_or_system_customer",
     "first_matching_pattern",
+    "first_system_row_match",
 ]
+
+
+_SYSTEM_CUSTOMER_NAMES = {
+    "\u667a\u80fd\u5ba2\u670d",  # 智能客服
+    "\u7cfb\u7edf\u901a\u77e5",  # 系统通知
+}
 
 
 # Each entry is a ``re.compile(... , re.IGNORECASE)`` pattern.  Order
@@ -72,6 +80,10 @@ __all__ = [
 # real customers.  Each entry below contains a verbatim platform/system
 # phrase that customers do not naturally type.
 _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "winback_template_config",
+        re.compile(r"\u633d\u5355\u65b9\u6848\u914d\u7f6e|\u50ac\u53d1\u8d27\u8bdd\u672f\u914d\u7f6e", re.IGNORECASE),
+    ),
     # ── IM platform-injected stall warning ───────────────────────────
     # Observed verbatim:
     #   "当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。"
@@ -113,6 +125,15 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "transfer_to_human_label",
         re.compile(r"^\s*转人工\s*$"),
+    ),
+    # ── Local compose draft preview ─────────────────────────────────
+    # Feige mirrors unsent text into the sidebar as "[草稿]...".  This is
+    # our own draft, not a customer-authored message; dispatching it
+    # creates self-trigger loops and can route an already-wrong draft to
+    # a Q&A worker.
+    (
+        "draft_preview",
+        re.compile(r"^\s*\[(?:草稿|draft)\]", re.IGNORECASE),
     ),
     # ── Order/shipment platform alerts ───────────────────────────────
     # Generic platform notices about delivery/refund deadlines that
@@ -159,6 +180,35 @@ def is_platform_or_system_message(text: str) -> bool:
     inside this filter).
     """
     return first_matching_pattern(text) is not None
+
+
+def is_platform_or_system_customer(name: str) -> bool:
+    """Return True for Feige pseudo-conversations, not real shoppers."""
+    if not name or not isinstance(name, str):
+        return False
+    return name.strip() in _SYSTEM_CUSTOMER_NAMES
+
+
+def first_system_row_match(item: dict, resolved: dict | None = None) -> str | None:
+    """Return a diagnostic reason if a monitor/action row is platform noise."""
+    if not isinstance(item, dict):
+        return None
+    resolved = resolved if isinstance(resolved, dict) else {}
+
+    for field in ("customer_name", "customer_id", "name"):
+        val = str(resolved.get(field) or item.get(field) or "").strip()
+        if val and is_platform_or_system_customer(val):
+            return f"system_customer:{field}"
+
+    for field in ("last_message", "latest_message", "message", "source_latest_message"):
+        val = str(resolved.get(field) or item.get(field) or "").strip()
+        if not val:
+            continue
+        pattern = first_matching_pattern(val)
+        if pattern:
+            return f"system_message:{field}:{pattern}"
+
+    return None
 
 
 def is_platform_or_system_message_strict(

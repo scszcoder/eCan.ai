@@ -919,15 +919,20 @@ async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
         raise RuntimeError("No CDP client available")
 
     session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
+    eval_params = {
+        "expression": expression,
+        "awaitPromise": True,
+        "returnByValue": True,
+    }
     if session_id:
         await cdp_client.send.Runtime.enable(session_id=session_id)
         result = await cdp_client.send.Runtime.evaluate(
-            params={"expression": expression},
+            params=eval_params,
             session_id=session_id,
         )
     else:
         await cdp_client.send.Runtime.enable()
-        result = await cdp_client.send.Runtime.evaluate(params={"expression": expression})
+        result = await cdp_client.send.Runtime.evaluate(params=eval_params)
     value = result.get("result", {}).get("value", "")
     if isinstance(value, str):
         try:
@@ -2428,7 +2433,16 @@ _FEIGE_UNREAD = '.rxAvaVFJHvpEGMc1ejm1'
 
 _FEIGE_LIST_SESSIONS_JS = r"""
 (function(includeRead, maxSessions) {
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allItems.filter(rowIsCurrent);
   var results = [];
   for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
     var el = items[i];
@@ -2501,7 +2515,16 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
 
 _FEIGE_OPEN_SESSION_JS = r"""
 (function(customerName, sessionIndex) {
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allItems.filter(rowIsCurrent);
   var target = null;
   if (customerName) {
     for (var i = 0; i < items.length; i++) {
@@ -2517,7 +2540,12 @@ _FEIGE_OPEN_SESSION_JS = r"""
   if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
     target = items[sessionIndex];
   }
-  if (!target) return JSON.stringify({ clicked: false, error: 'Session not found' });
+  if (!target) return JSON.stringify({
+    clicked: false,
+    error: 'Session not found in current conversations',
+    current_visible: items.length,
+    total_visible: allItems.length
+  });
   target.click();
   var nameEl = target.querySelector('.MP1bk3ccfHC9V2SnPCGD');
   var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
@@ -2532,7 +2560,7 @@ _FEIGE_OPEN_SESSION_JS = r"""
 )
 async def feige_open_session(params: FeigeOpenSessionAction, browser_session: BrowserSession) -> ActionResult:
     try:
-        name_js = f'"{params.customer_name}"' if params.customer_name else "null"
+        name_js = json.dumps(params.customer_name, ensure_ascii=False) if params.customer_name else "null"
         idx_js = str(params.session_index) if params.session_index is not None else "-1"
         js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
         data = await _evaluate_js(browser_session, js)
@@ -2651,56 +2679,126 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(function(text) {
-  // Confirmed from live DOM: input is a <textarea data-qa-id="qa-send-message-textarea">
-  // Send button is <div data-qa-id="qa-send-message-button" role="button">
+(async function(text) {
+  function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+  function visible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    var rect = el.getBoundingClientRect();
+    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    return rect.width > 0 && rect.height > 0 &&
+      (!style || (style.display !== 'none' && style.visibility !== 'hidden'));
+  }
+  function readValue(el) {
+    if (!el) return '';
+    if ('value' in el) return String(el.value || '');
+    return String(el.textContent || '');
+  }
+  function setValue(el, val) {
+    if (!el) return;
+    el.focus();
+    if (el.tagName === 'TEXTAREA') {
+      var taSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+      if (taSetter && taSetter.set) taSetter.set.call(el, val);
+      else el.value = val;
+    } else if (el.tagName === 'INPUT') {
+      var inSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      if (inSetter && inSetter.set) inSetter.set.call(el, val);
+      else el.value = val;
+    } else {
+      el.textContent = val;
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function latestAgentBubbleText() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
+      return (bubble.querySelector('pre') || bubble).textContent.trim();
+    }
+    return '';
+  }
+  function sameText(a, b) {
+    function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
+    return norm(a) === norm(b);
+  }
+
   var inputSelectors = [
     '[data-qa-id="qa-send-message-textarea"]',
     'textarea[placeholder*="发送"]',
     'textarea',
-    '[contenteditable="true"]',
+    '[contenteditable="true"]'
   ];
   var input = null;
   for (var s = 0; s < inputSelectors.length; s++) {
     var candidates = Array.from(document.querySelectorAll(inputSelectors[s]));
     for (var c = 0; c < candidates.length; c++) {
-      var el = candidates[c];
-      var rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) { input = el; break; }
+      if (visible(candidates[c])) { input = candidates[c]; break; }
     }
     if (input) break;
   }
   if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
 
-  // Set text on textarea using React's native setter so React state updates
-  input.focus();
-  var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-  if (nativeSetter && nativeSetter.set) {
-    nativeSetter.set.call(input, text);
-  } else {
-    input.value = text;
+  var beforeAgentText = latestAgentBubbleText();
+  setValue(input, text);
+  await sleep(80);
+  if (!sameText(readValue(input), text)) {
+    return JSON.stringify({
+      sent: false,
+      error: 'Input did not accept message text',
+      input_value_preview: readValue(input).slice(0, 120)
+    });
   }
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Try confirmed send button first: <div data-qa-id="qa-send-message-button">
   var sendSelectors = [
     '[data-qa-id="qa-send-message-button"]',
     '[data-qa-id="qa-send-btn"]',
-    'button[class*="send"]',
+    'button[class*="send"]'
   ];
   var sendBtn = null;
+  var selector = '';
   for (var sb = 0; sb < sendSelectors.length; sb++) {
-    sendBtn = document.querySelector(sendSelectors[sb]);
-    if (sendBtn) break;
+    var btn = document.querySelector(sendSelectors[sb]);
+    if (btn && visible(btn)) {
+      sendBtn = btn;
+      selector = sendSelectors[sb];
+      break;
+    }
   }
+
+  var method = '';
   if (sendBtn) {
+    sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+    sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
     sendBtn.click();
-    return JSON.stringify({ sent: true, method: 'button_click', selector: sendSelectors[sb] });
+    method = 'button_click';
+  } else {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    method = 'enter_key';
   }
-  // Fallback: simulate Enter keypress on the textarea
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-  return JSON.stringify({ sent: true, method: 'enter_key' });
+
+  for (var poll = 0; poll < 18; poll++) {
+    await sleep(100);
+    var currentValue = readValue(input);
+    var afterAgentText = latestAgentBubbleText();
+    if (!currentValue.trim()) {
+      return JSON.stringify({ sent: true, method: method, selector: selector, verified: 'input_cleared' });
+    }
+    if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
+      return JSON.stringify({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
+    }
+  }
+
+  return JSON.stringify({
+    sent: false,
+    error: 'Send did not clear input or create outgoing bubble',
+    method: method,
+    selector: selector,
+    input_value_preview: readValue(input).slice(0, 120)
+  });
 })(MESSAGE_TEXT);
 """
 
@@ -2711,16 +2809,52 @@ _FEIGE_SEND_MESSAGE_JS = r"""
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
     try:
+        expected_customer = str(params.customer_name or "").strip()
+        if expected_customer:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                    FEIGE_ACTIVE_CUSTOMER_JS,
+                    verify_customer_match,
+                )
+                verify_data = await _evaluate_js(browser_session, FEIGE_ACTIVE_CUSTOMER_JS)
+                if isinstance(verify_data, str):
+                    try:
+                        verify_data = json.loads(verify_data)
+                    except Exception:
+                        verify_data = {}
+                ok, reason = verify_customer_match(
+                    verify_data if isinstance(verify_data, dict) else {},
+                    expected_customer,
+                )
+                if not ok:
+                    return ActionResult(
+                        error=(
+                            "feige_send_message: active customer mismatch; "
+                            f"{reason}"
+                        )
+                    )
+            except Exception as verify_exc:
+                return ActionResult(
+                    error=(
+                        "feige_send_message: active customer verification "
+                        f"failed: {type(verify_exc).__name__}: {verify_exc}"
+                    )
+                )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
-        text_json = json.dumps(params.text)
+        text_json = json.dumps(params.text, ensure_ascii=False)
         js = _FEIGE_SEND_MESSAGE_JS.replace("MESSAGE_TEXT", text_json)
         data = await _evaluate_js(browser_session, js)
         if isinstance(data, str):
             data = json.loads(data)
         if isinstance(data, dict) and data.get("sent"):
             method = data.get("method", "unknown")
-            logger.info(f"[Feige] Sent message via {method}: {params.text[:60]}")
-            return ActionResult(extracted_content=f"Message sent (method: {method}).")
+            verified = data.get("verified", "unknown")
+            logger.info(
+                f"[Feige] Sent message via {method}/{verified}: {params.text[:60]}"
+            )
+            return ActionResult(
+                extracted_content=f"Message sent (method: {method}, verified: {verified})."
+            )
         err = data.get("error") if isinstance(data, dict) else str(data)
         return ActionResult(error=f"feige_send_message: {err}")
     except Exception as e:

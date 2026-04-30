@@ -29,7 +29,7 @@ Contents
 
 * ``ensure_feige_tab_focused(browser_session)``
     Async — switches the session to a Feige tab (by ``im.jinritemai.com``
-    URL match) and clicks the ``最近联系`` sub-tab if present.
+    URL match) and keeps the sidebar on ``当前会话``.
 
 * ``scrape_latest_customer_bubble(browser_session, customer_name, *, typing_holder_getter=None)``
     Async — focuses the given customer's chat pane and extracts the
@@ -149,9 +149,17 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
   } catch (e) { result.diagnostics.header_err = String(e); }
 
   // ───── Signal 1: sidebar (cross-check) ─────
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
   var items = Array.from(document.querySelectorAll(
     '[data-qa-id="qa-conversation-chat-item"], .chat-item'
-  ));
+  )).filter(rowIsCurrent);
   result.diagnostics.item_count = items.length;
 
   function readName(row) {
@@ -406,7 +414,16 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
     }
     return '';
   }
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+    .filter(rowIsCurrent);
   var target = null;
   var seenNames = [];
   for (var i = 0; i < items.length; i++) {
@@ -478,6 +495,76 @@ def verify_customer_match(verify_result: dict, expected_name: str) -> tuple[bool
     )
 
 
+_FEIGE_SELECT_CURRENT_TAB_JS: str = r"""
+(function() {
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  function countCurrentRows() {
+    return Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+      .filter(rowIsCurrent).length;
+  }
+  var current = document.querySelector('[data-qa-id="qa-active-chat-tab"]');
+  if (!current) {
+    return JSON.stringify({ ok: false, reason: 'current_tab_not_found', current_rows: countCurrentRows() });
+  }
+  var tabBtn = current.closest('[role="tab"]');
+  var tabWrap = current.closest('.auxo-tabs-tab, .tab');
+  var selected =
+    (tabBtn && tabBtn.getAttribute('aria-selected') === 'true') ||
+    (tabWrap && /\b(auxo-tabs-tab-active|active)\b/.test(String(tabWrap.className || '')));
+  if (!selected) current.click();
+  return JSON.stringify({ ok: true, clicked: !selected, current_rows: countCurrentRows() });
+})()
+"""
+
+
+async def _ensure_feige_current_subtab(browser_session) -> None:
+    """Best-effort keep Feige on the live Current Conversations sidebar."""
+    import asyncio as _ct_asyncio
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js as _ct_eval_js,
+        )
+    except Exception as _imp_err:
+        logger.debug(
+            f"[BrowserAutomation] ensure-feige-current-tab: _evaluate_js import failed: {_imp_err}"
+        )
+        return
+
+    try:
+        raw = await _ct_eval_js(browser_session, _FEIGE_SELECT_CURRENT_TAB_JS)
+        data = raw
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+        if isinstance(data, dict) and data.get("clicked"):
+            await _ct_asyncio.sleep(0.2)
+            logger.info(
+                f"[BrowserAutomation] ensure-feige-current-tab: clicked current tab "
+                f"(current_rows_before={data.get('current_rows')})"
+            )
+        elif isinstance(data, dict) and data.get("ok"):
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-current-tab: already on current tab "
+                f"(current_rows={data.get('current_rows')})"
+            )
+        else:
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-current-tab: no current tab "
+                f"(result={data!r})"
+            )
+    except Exception as _err:
+        logger.debug(f"[BrowserAutomation] ensure-feige-current-tab failed: {_err}")
+
+
 # ---------------------------------------------------------------------------
 # Tab-focus helper — ensure the session is on a Feige tab before running
 # any DOM query.  Without this the JS below silently returns empty and
@@ -489,10 +576,9 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
     page contains ``im.jinritemai.com`` in its URL after the call,
     ``False`` otherwise (e.g. no Feige tab open).
 
-    Also clicks the ``最近联系`` (recent-contacts) inner sub-tab if one
-    is found, because the Feige SPA may be sitting on ``待回复`` /
-    ``人工接待`` / some other sub-tab where the sidebar selector
-    ``[data-qa-id="qa-conversation-chat-item"]`` returns zero elements.
+    Also clicks the current-conversation inner sub-tab when present.  Recent
+    Contacts uses the same row selectors for historical/system rows, so it is
+    not a safe source for real-time dispatch.
     """
     import asyncio as _ef_asyncio
     try:
@@ -503,6 +589,7 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
         except Exception:
             cur_url = ""
         if "im.jinritemai.com" in (cur_url or ""):
+            await _ensure_feige_current_subtab(browser_session)
             return True
         sm = getattr(browser_session, "session_manager", None)
         all_targets = sm.get_all_targets() if sm else {}
@@ -680,6 +767,8 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
             f"[BrowserAutomation] ensure-feige-tab: focused Feige tab "
             f"(target=...{feige_tid[-6:]}, was cur_url={cur_url!r})"
         )
+        await _ensure_feige_current_subtab(browser_session)
+        return True
         # ── Sub-tab resolution (rewritten 2026-04-23) ──
         # The sidebar row selector ``[data-qa-id="qa-conversation-chat-item"]``
         # only returns rows on specific sub-tabs.  The emulator has two:

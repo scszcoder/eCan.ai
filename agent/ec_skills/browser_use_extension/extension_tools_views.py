@@ -399,6 +399,10 @@ class FeigeSendMessageAction(BaseModel):
 	text: str = Field(
 		description="Message text to send to the customer.",
 	)
+	customer_name: Optional[str] = Field(
+		default=None,
+		description="Optional expected active customer name. When provided, the action refuses to type unless the open Feige chat matches.",
+	)
 
 
 class RagQueryAction(BaseModel):
