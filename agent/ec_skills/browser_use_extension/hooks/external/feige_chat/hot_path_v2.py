@@ -74,6 +74,7 @@ __all__ = [
     "PRE_SEND_REVERIFY_ATTEMPTS",
     "PRE_SEND_REVERIFY_INTERVAL_S",
     "POST_SEND_TAB_RESTORE_SLEEP_S",
+    "HOT_PATH_TOOL_TIMEOUT_S",
 ]
 
 
@@ -85,6 +86,7 @@ POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
+HOT_PATH_TOOL_TIMEOUT_S: float = 4.0
 
 # ── Selectors / DOM contracts ─────────────────────────────────────────────
 # Feige's current-conversation sub-tab. Keep the SPA on the live queue; the
@@ -179,11 +181,20 @@ class RegistryToolInvoker:
             import inspect as _inspect
             sig = _inspect.signature(act_obj.function)
             if "browser_session" in sig.parameters:
-                raw = await act_obj.function(
-                    params=params, browser_session=self._sess,
+                raw = await asyncio.wait_for(
+                    act_obj.function(params=params, browser_session=self._sess),
+                    timeout=HOT_PATH_TOOL_TIMEOUT_S,
                 )
             else:
-                raw = await act_obj.function(params=params)
+                raw = await asyncio.wait_for(
+                    act_obj.function(params=params),
+                    timeout=HOT_PATH_TOOL_TIMEOUT_S,
+                )
+        except asyncio.TimeoutError:
+            return ToolResult(
+                ok=False,
+                error=f"tool timed out after {HOT_PATH_TOOL_TIMEOUT_S:.1f}s",
+            )
         except Exception as exc:
             return ToolResult(ok=False, error=f"tool_raised:{exc}")
         if raw is None:
@@ -567,6 +578,17 @@ async def _run_one_action(
     # Invoke the tool.
     result = await invoker.invoke(tool_name, resolved_args)
     if not result.ok:
+        if (
+            tool_name == "feige_open_session"
+            and "timed out after" in (result.error or "")
+        ):
+            outcome.last_tool_error = result.error
+            outcome.extras["open_session_timeout"] = result.error
+            logger.warning(
+                f"[hot_path_v2] {tool_name} timed out args={resolved_args}; "
+                f"continuing to feige_send_message self-open fallback"
+            )
+            return True
         # Distinguish missing tool vs failure.
         if result.error.startswith("tool_not_found:"):
             outcome.reason = result.error

@@ -1,4 +1,5 @@
 import hashlib
+import asyncio
 import json
 import os
 import shutil
@@ -39,6 +40,8 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     SendChatAction,
     UpsertSessionMonitorAction,
 )
+
+_CDP_EVALUATE_TIMEOUT_S = float(os.getenv("ECAN_CDP_EVALUATE_TIMEOUT_S", "6.0"))
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
@@ -908,31 +911,38 @@ def _stable_hash(parts: List[str]) -> str:
 
 
 async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
-    cdp_session = None
-    cdp_client = None
-    if hasattr(browser_session, "get_or_create_cdp_session"):
-        cdp_session = await browser_session.get_or_create_cdp_session()
-        cdp_client = cdp_session.cdp_client if cdp_session else None
-    elif hasattr(browser_session, "cdp_client"):
-        cdp_client = browser_session.cdp_client
-    if not cdp_client:
-        raise RuntimeError("No CDP client available")
+    async def _run_eval() -> Any:
+        cdp_session = None
+        cdp_client = None
+        if hasattr(browser_session, "get_or_create_cdp_session"):
+            cdp_session = await browser_session.get_or_create_cdp_session()
+            cdp_client = cdp_session.cdp_client if cdp_session else None
+        elif hasattr(browser_session, "cdp_client"):
+            cdp_client = browser_session.cdp_client
+        if not cdp_client:
+            raise RuntimeError("No CDP client available")
 
-    session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
-    eval_params = {
-        "expression": expression,
-        "awaitPromise": True,
-        "returnByValue": True,
-    }
-    if session_id:
-        await cdp_client.send.Runtime.enable(session_id=session_id)
-        result = await cdp_client.send.Runtime.evaluate(
-            params=eval_params,
-            session_id=session_id,
-        )
-    else:
+        session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
+        eval_params = {
+            "expression": expression,
+            "awaitPromise": True,
+            "returnByValue": True,
+        }
+        if session_id:
+            await cdp_client.send.Runtime.enable(session_id=session_id)
+            return await cdp_client.send.Runtime.evaluate(
+                params=eval_params,
+                session_id=session_id,
+            )
         await cdp_client.send.Runtime.enable()
-        result = await cdp_client.send.Runtime.evaluate(params=eval_params)
+        return await cdp_client.send.Runtime.evaluate(params=eval_params)
+
+    try:
+        result = await asyncio.wait_for(_run_eval(), timeout=_CDP_EVALUATE_TIMEOUT_S)
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s"
+        ) from exc
     value = result.get("result", {}).get("value", "")
     if isinstance(value, str):
         try:
@@ -2679,7 +2689,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text) {
+(async function(text, expectedCustomer) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   function visible(el) {
     if (!el || !el.getBoundingClientRect) return false;
@@ -2723,6 +2733,90 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   function sameText(a, b) {
     function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
     return norm(a) === norm(b);
+  }
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  function readRowName(row) {
+    var wrap = row && row.querySelector ? row.querySelector('.MP1bk3ccfHC9V2SnPCGD') : null;
+    if (wrap) {
+      var t = (wrap.getAttribute('title') || wrap.textContent || '').trim();
+      if (t) return t;
+    }
+    var span = row && row.querySelector ? row.querySelector('.Jv6FtqUv5VoYARd2pp4y') : null;
+    return span ? (span.textContent || '').trim() : '';
+  }
+  function readHeaderName() {
+    var topbar = document.querySelector('#topbar-left-info');
+    if (!topbar) return '';
+    var cands = topbar.querySelectorAll('div, span');
+    for (var hi = 0; hi < cands.length; hi++) {
+      var ht = (cands[hi].textContent || '').trim();
+      if (!ht || ht === '添加备注' || ht.length > 60) continue;
+      if (cands[hi].children.length === 0) return ht;
+    }
+    var btm = topbar.querySelector('div[data-btm-id]');
+    return btm ? (btm.textContent || '').trim() : '';
+  }
+  function currentActiveRowName(items) {
+    for (var i = 0; i < items.length; i++) {
+      var cn = String(items[i].className || '').toLowerCase();
+      if (cn.indexOf('active') >= 0 || items[i].classList.contains('wmvLQcpt39Hk9PSISrlN')) {
+        return readRowName(items[i]);
+      }
+    }
+    return '';
+  }
+  function activeMatches(expected, items) {
+    if (!expected) return { ok: true, header: '', sidebar: '' };
+    var header = readHeaderName();
+    var sidebar = currentActiveRowName(items || []);
+    var headerConflict = header && header !== expected;
+    var sidebarConflict = sidebar && sidebar !== expected;
+    return {
+      ok: !headerConflict && !sidebarConflict && (header === expected || sidebar === expected),
+      header: header,
+      sidebar: sidebar
+    };
+  }
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+    .filter(rowIsCurrent);
+  if (expectedCustomer) {
+    var target = null;
+    for (var oi = 0; oi < items.length; oi++) {
+      if (readRowName(items[oi]) === expectedCustomer) { target = items[oi]; break; }
+    }
+    if (!target) {
+      return JSON.stringify({
+        sent: false,
+        error: 'Session not found in current conversations',
+        expected_customer: expectedCustomer,
+        current_visible: items.length,
+        seen_names: items.slice(0, 20).map(readRowName)
+      });
+    }
+    var beforeMatch = activeMatches(expectedCustomer, items);
+    if (!beforeMatch.ok) {
+      target.click();
+      await sleep(260);
+      items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+        .filter(rowIsCurrent);
+    }
+    var afterMatch = activeMatches(expectedCustomer, items);
+    if (!afterMatch.ok) {
+      return JSON.stringify({
+        sent: false,
+        error: 'Active customer mismatch after open',
+        expected_customer: expectedCustomer,
+        header_name: afterMatch.header,
+        sidebar_name: afterMatch.sidebar
+      });
+    }
   }
 
   var inputSelectors = [
@@ -2799,7 +2893,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     selector: selector,
     input_value_preview: readValue(input).slice(0, 120)
   });
-})(MESSAGE_TEXT);
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER);
 """
 
 
@@ -2810,39 +2904,14 @@ _FEIGE_SEND_MESSAGE_JS = r"""
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
     try:
         expected_customer = str(params.customer_name or "").strip()
-        if expected_customer:
-            try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                    FEIGE_ACTIVE_CUSTOMER_JS,
-                    verify_customer_match,
-                )
-                verify_data = await _evaluate_js(browser_session, FEIGE_ACTIVE_CUSTOMER_JS)
-                if isinstance(verify_data, str):
-                    try:
-                        verify_data = json.loads(verify_data)
-                    except Exception:
-                        verify_data = {}
-                ok, reason = verify_customer_match(
-                    verify_data if isinstance(verify_data, dict) else {},
-                    expected_customer,
-                )
-                if not ok:
-                    return ActionResult(
-                        error=(
-                            "feige_send_message: active customer mismatch; "
-                            f"{reason}"
-                        )
-                    )
-            except Exception as verify_exc:
-                return ActionResult(
-                    error=(
-                        "feige_send_message: active customer verification "
-                        f"failed: {type(verify_exc).__name__}: {verify_exc}"
-                    )
-                )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
         text_json = json.dumps(params.text, ensure_ascii=False)
-        js = _FEIGE_SEND_MESSAGE_JS.replace("MESSAGE_TEXT", text_json)
+        expected_json = json.dumps(expected_customer, ensure_ascii=False)
+        js = (
+            _FEIGE_SEND_MESSAGE_JS
+            .replace("MESSAGE_TEXT", text_json)
+            .replace("EXPECTED_CUSTOMER", expected_json)
+        )
         data = await _evaluate_js(browser_session, js)
         if isinstance(data, str):
             data = json.loads(data)
