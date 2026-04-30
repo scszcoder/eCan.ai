@@ -310,6 +310,31 @@ async def before_session_setup_hook_v2(
             f"node={ctx.node_name}"
         )
 
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match,
+            )
+            system_reason = first_system_row_match(payload)
+            if system_reason:
+                logger.warning(
+                    f"[HOT-PATH-B-V2] dropped system/non-customer reply payload "
+                    f"reason={system_reason!r}, "
+                    f"customer={payload.get('customer_name') or payload.get('customer_id')!r}, "
+                    f"node={ctx.node_name}"
+                )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "system_reply_drop",
+                }
+                return state
+        except Exception as system_err:
+            logger.debug(
+                f"[HOT-PATH-B-V2] system-payload filter failed "
+                f"(non-fatal): {system_err}"
+            )
+
         if not isinstance(actions_list, list) or not actions_list:
             return None
 
@@ -432,6 +457,58 @@ async def before_session_setup_hook_v2(
                 f"last_tool_error={outcome.last_tool_error!r}, "
                 f"node={ctx.node_name}"
             )
+
+            if not outcome.ok and outcome.reason == "stale_reply_source_msg_id":
+                # Keep the recent-send claim so this stale response is not
+                # replayed, but avoid clearing a newer dispatch lock if the
+                # customer has already been re-dispatched for a later bubble.
+                claim_active = False
+                try:
+                    stale_cust = ctx.normalize_dispatch_identity_key(
+                        payload.get("customer_name")
+                        or payload.get("customer_id")
+                        or ""
+                    )
+                    expected_msg_id = str(
+                        payload.get("source_customer_msg_id")
+                        or payload.get("latest_message_msg_id")
+                        or payload.get("reply_to_msg_id")
+                        or ""
+                    ).strip()
+                    current_msg_id = ctx.dispatch_state.get_last_dispatched_msg_id(
+                        stale_cust
+                    )
+                    if stale_cust and (
+                        not current_msg_id or current_msg_id == expected_msg_id
+                    ):
+                        ctx.dispatch_state.clear_inflight(stale_cust)
+                        logger.info(
+                            f"[HOT-PATH-B-V2] cleared dispatch_inflight after "
+                            f"stale reply drop for cust={stale_cust!r}, "
+                            f"node={ctx.node_name}"
+                        )
+                    else:
+                        logger.info(
+                            f"[HOT-PATH-B-V2] kept dispatch_inflight after "
+                            f"stale reply drop for cust={stale_cust!r} "
+                            f"because newer msg_id is recorded, node={ctx.node_name}"
+                        )
+                except Exception as stale_err:
+                    logger.debug(
+                        f"[HOT-PATH-B-V2] stale-drop inflight handling failed: "
+                        f"{stale_err}"
+                    )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "stale_reply_drop",
+                }
+                logger.warning(
+                    f"[HOT-PATH-B-V2] dropped stale reply instead of typing it, "
+                    f"node={ctx.node_name}"
+                )
+                return state
 
             if outcome.ok:
                 # Mark (cust, reply) as sent so an immediate replay is deduped.

@@ -737,6 +737,129 @@ def _is_qa_inbound_payload(payload) -> bool:
     return bool(cust and latest and not response)
 
 
+def _parse_jsonish_dict(value) -> dict:
+    """Best-effort parse for JSON dict payloads carried in state fields."""
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _state_current_event_human_payload(state: dict) -> dict:
+    """Return the current turn's human payload from prompt_refs/events/input.
+
+    Q&A replies are generated from a front-desk assignment payload.  That
+    payload may carry Feige's source customer-bubble msg_id; we need to
+    propagate it into the response envelope so the front desk can reject a
+    stale answer if the customer sends a newer bubble before the LLM returns.
+    """
+    if not isinstance(state, dict):
+        return {}
+
+    candidates: list[object] = []
+
+    pr_events = (state.get("prompt_refs") or {}).get("events", "")
+    if isinstance(pr_events, str) and pr_events.strip():
+        evt = _parse_jsonish_dict(pr_events)
+        if evt:
+            candidates.append(evt.get("human_text"))
+
+    for evt in reversed(state.get("events") or []):
+        if not isinstance(evt, dict):
+            continue
+        data = evt.get("data") or {}
+        if isinstance(data, dict):
+            candidates.append(data.get("human_text"))
+
+    candidates.append(state.get("input", ""))
+
+    for msg in reversed(state.get("history") or []):
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            candidates.append(content)
+
+    for candidate in candidates:
+        parsed = _parse_jsonish_dict(candidate)
+        if parsed:
+            return parsed
+    return {}
+
+
+def _augment_send_chat_reply_with_source_turn(actual_tool_input, state: dict):
+    """Attach source customer-bubble metadata to Q&A send_chat replies.
+
+    The Q&A prompt intentionally keeps the visible `message` JSON small.
+    This hidden runtime enrichment preserves turn correlation without asking
+    the LLM to remember or emit extra fields.
+    """
+    if not isinstance(actual_tool_input, dict):
+        return actual_tool_input
+
+    target = actual_tool_input.get("input")
+    if not isinstance(target, dict) or "message" not in target:
+        target = actual_tool_input
+    if not isinstance(target, dict):
+        return actual_tool_input
+
+    msg_text = target.get("message")
+    msg_obj = _parse_jsonish_dict(msg_text)
+    if not msg_obj or not str(msg_obj.get("response_text") or "").strip():
+        return actual_tool_input
+
+    inbound = _state_current_event_human_payload(state)
+    if not _is_qa_inbound_payload(inbound):
+        return actual_tool_input
+
+    source_msg_id = str(
+        inbound.get("source_customer_msg_id")
+        or inbound.get("latest_message_msg_id")
+        or inbound.get("reply_to_msg_id")
+        or ""
+    ).strip()
+    if not source_msg_id:
+        return actual_tool_input
+
+    out_cust = str(
+        msg_obj.get("customer_id")
+        or msg_obj.get("customer_name")
+        or ""
+    ).strip()
+    in_cust = str(
+        inbound.get("customer_id")
+        or inbound.get("customer_name")
+        or ""
+    ).strip()
+    try:
+        if out_cust and in_cust:
+            if _normalize_dispatch_identity_key(out_cust) != _normalize_dispatch_identity_key(in_cust):
+                logger.warning(
+                    "[MCP Auto-Select] Not attaching source_customer_msg_id: "
+                    f"response customer {out_cust!r} != inbound customer {in_cust!r}"
+                )
+                return actual_tool_input
+    except Exception:
+        if out_cust and in_cust and out_cust != in_cust:
+            return actual_tool_input
+
+    if not msg_obj.get("source_customer_msg_id"):
+        msg_obj["source_customer_msg_id"] = source_msg_id
+    latest_text = str(inbound.get("latest_message") or "").strip()
+    if latest_text and not msg_obj.get("source_latest_message"):
+        msg_obj["source_latest_message"] = latest_text
+
+    target["message"] = json.dumps(msg_obj, ensure_ascii=False, separators=(",", ":"))
+    logger.info(
+        "[MCP Auto-Select] Attached source_customer_msg_id to send_chat "
+        f"reply for customer={out_cust or in_cust!r} msg_id=...{source_msg_id[-8:]}"
+    )
+    return actual_tool_input
+
+
 def _reset_qa_history_on_customer_change(
     state: dict,
     payload,
@@ -5477,6 +5600,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             except Exception:
                 pass
 
+            if actual_tool_name == 'send_chat':
+                actual_tool_input = _augment_send_chat_reply_with_source_turn(
+                    actual_tool_input, state
+                )
+
             # Preserve both legacy (dict with 'input') and per-node tool_input maps.
             try:
                 existing_ti = state.get('tool_input') if isinstance(state, dict) else None
@@ -5864,6 +5992,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                         logger.info(f"[MCP Multi-Tool Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender_mt} for tool={_tn}")
                 except Exception:
                     pass
+                if _tn == 'send_chat':
+                    _ti = _augment_send_chat_reply_with_source_turn(_ti, state)
                 _tool_calls_to_run.append((_tn, _ti, _pipe_to, _alias))
 
             if not _tool_calls_to_run:

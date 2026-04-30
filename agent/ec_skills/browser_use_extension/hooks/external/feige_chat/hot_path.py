@@ -9,7 +9,7 @@ What this module owns
 ---------------------
 
 * **Pre-action tab focus** — switch the session to a Feige tab and
-  click the ``最近联系`` inner sub-tab if needed.  Delegates to
+  click the ``当前会话`` inner sub-tab if needed.  Delegates to
   :func:`dom_assets.ensure_feige_tab_focused`.
 
 * **Typing lock** — claim the Feige active-session for this customer
@@ -29,8 +29,8 @@ What this module owns
     (CDP/render race), re-open and poll again.  If recovery fails,
     ABORT the send.
 
-* **Post-success tab restore** — click ``最近联系`` again so future
-  DOM reads show pending_timer (invisible on ``当前会话`` tab).
+* **Post-success tab restore** — click ``当前会话`` again so future DOM
+  reads stay on the live customer queue, not recent-contact history.
 
 * **Typing-lock release on all exit paths** — including the defensive
   outer ``except`` so a mid-sequence exception can't leave the lock
@@ -74,8 +74,11 @@ from typing import Any, Callable
 from . import typing_lock
 from .dom_assets import (
     FEIGE_ACTIVE_CUSTOMER_JS,
+    FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
     ensure_feige_tab_focused,
     _normalize_dispatch_identity_key,
+    _normalize_reply_text,
+    verify_customer_match,
 )
 
 logger = logging.getLogger("eCan")
@@ -87,9 +90,9 @@ __all__ = ["HotPathOutcome", "execute"]
 # future test can monkey-patch them without touching the executor body.
 TYPING_LOCK_WAIT_ATTEMPTS: int = 30      # 30 × 100 ms = 3 s
 TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
-POST_OPEN_VERIFY_ATTEMPTS: int = 8        # 8 × 75 ms = 600 ms
+POST_OPEN_VERIFY_ATTEMPTS: int = 16       # 16 × 75 ms = 1.2 s
 POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
-PRE_SEND_REVERIFY_ATTEMPTS: int = 8
+PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 
@@ -231,6 +234,99 @@ async def _pre_send_reverify(
     return True, ""
 
 
+def _source_customer_msg_id(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(
+        payload.get("source_customer_msg_id")
+        or payload.get("latest_message_msg_id")
+        or payload.get("reply_to_msg_id")
+        or ""
+    ).strip()
+
+
+async def _verify_reply_source_turn(
+    browser_session,
+    eval_js: Callable,
+    payload: dict,
+    *,
+    node_name: str,
+    outcome: "HotPathOutcome",
+) -> tuple[bool, str]:
+    """Fail closed when a reply was generated for an older customer bubble.
+
+    Sender/recipient IDs route the Q&A response back to the front-desk
+    agent, but Feige typing still has to prove the visible customer thread is
+    on the same customer-bubble msg_id that was dispatched to Q&A.
+    """
+    expected_msg_id = _source_customer_msg_id(payload)
+    expected_text = str(
+        payload.get("source_latest_message")
+        or payload.get("latest_message")
+        or payload.get("latest_message_text")
+        or ""
+    ).strip()
+
+    try:
+        raw = await eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+        else:
+            data = raw if isinstance(raw, dict) else {}
+        actual_msg_id = str(data.get("msg_id") or "").strip()
+        actual_text = str(data.get("text") or "").strip()
+    except Exception as exc:
+        actual_msg_id = ""
+        actual_text = ""
+        logger.warning(
+            f"[BrowserAutomation] HOT-PATH-B: source-turn verification "
+            f"eval failed: {type(exc).__name__}: {exc}; refusing to type "
+            f"reply for source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, "
+            f"node={node_name}"
+        )
+
+    if actual_msg_id and actual_msg_id == expected_msg_id:
+        logger.info(
+            f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+            f"msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+        )
+        return True, ""
+
+    if expected_text and _normalize_reply_text(actual_text) == _normalize_reply_text(expected_text):
+        if not expected_msg_id:
+            logger.info(
+                f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+                f"by text (no msg_id), text={expected_text[:80]!r}, "
+                f"node={node_name}"
+            )
+            return True, ""
+        if not actual_msg_id:
+            logger.info(
+                f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+                f"by text fallback because active msg_id is empty; "
+                f"expected_msg_id=...{expected_msg_id[-8:]}, node={node_name}"
+            )
+            return True, ""
+
+    if not expected_msg_id and not expected_text:
+        return True, ""
+
+    outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
+    outcome.extras["active_customer_msg_id"] = actual_msg_id
+    outcome.extras["active_customer_text_preview"] = actual_text[:80]
+    logger.warning(
+        f"[BrowserAutomation] HOT-PATH-B: DROP stale reply — source "
+        f"customer msg_id=...{expected_msg_id[-8:]} no longer matches "
+        f"latest visible customer bubble msg_id="
+        f"...{actual_msg_id[-8:] if actual_msg_id else '<none>'}; "
+        f"latest_text={actual_text[:80]!r}, node={node_name}"
+    )
+    return False, "stale_reply_source_msg_id"
+
+
 async def _post_open_verify(
     browser_session,
     eval_js: Callable,
@@ -274,22 +370,19 @@ async def _post_open_verify(
 
 
 async def _restore_feige_tab(browser_session, node_name: str) -> None:
-    """Click Feige's ``最近联系`` sub-tab after a successful send so
-    future DOM reads see the ``pending_timer`` (invisible on the
-    ``当前会话`` tab).  Failures are debug-logged and non-fatal.
-    """
+    """Click Feige's current-conversation sub-tab after a successful send."""
     try:
         page = await browser_session.get_current_page()
         if not page:
             return
-        tab = await page.query_selector('[data-qa-id="qa-last-chat-tab"]')
+        tab = await page.query_selector('[data-qa-id="qa-active-chat-tab"]')
         if not tab:
             return
         await tab.click()
         await asyncio.sleep(POST_SEND_TAB_RESTORE_SLEEP_S)
         logger.info(
             f"[BrowserAutomation] HOT-PATH-B: switched back to "
-            f"'最近联系' tab, node={node_name}"
+            f"current-conversation tab, node={node_name}"
         )
     except Exception as exc:
         logger.debug(
@@ -330,8 +423,19 @@ async def _run_one_action(
 
     # Pre-send re-verify (2026-04-22 Fix A).
     if tool_name == "feige_send_message" and customer_key:
+        resolved_args.setdefault("customer_name", customer_key)
         ok, reason = await _pre_send_reverify(
             browser_session, eval_js, customer_key, actions_registry, node_name
+        )
+        if not ok:
+            outcome.reason = reason
+            return False
+        ok, reason = await _verify_reply_source_turn(
+            browser_session,
+            eval_js,
+            payload,
+            node_name=node_name,
+            outcome=outcome,
         )
         if not ok:
             outcome.reason = reason
@@ -407,10 +511,16 @@ async def execute(
             _evaluate_js as eval_js,
         )
     except Exception as imp_err:
-        outcome.reason = f"exception:eval_import_failed:{imp_err}"
-        return outcome
+        logger.warning(
+            f"[BrowserAutomation] HOT-PATH-B: _evaluate_js import failed; "
+            f"tool actions may run, but DOM verification will fail closed: "
+            f"{imp_err}"
+        )
 
-    # Pre-action: ensure on the Feige tab + recent-contacts sub-tab.
+        async def eval_js(_browser_session, _script):
+            raise RuntimeError(f"_evaluate_js import failed: {imp_err}")
+
+    # Pre-action: ensure on the Feige tab + current-conversation sub-tab.
     try:
         await ensure_feige_tab_focused(browser_session)
     except Exception as pretab_err:
@@ -514,8 +624,21 @@ async def _verify_active_customer(
                 except Exception:
                     data = {}
             if isinstance(data, dict) and data.get("ok"):
-                active_last = str(data.get("active") or "").strip()
-                if expected_as_key:
+                active_last = str(
+                    data.get("active")
+                    or data.get("header_name")
+                    or data.get("sidebar_name")
+                    or ""
+                ).strip()
+                has_split_signals = (
+                    "sidebar_name" in data or "header_name" in data
+                )
+                if has_split_signals:
+                    ok, reason = verify_customer_match(data, expected)
+                    if ok:
+                        return True, active_last
+                    active_last = f"{active_last or '<none>'}; {reason}"
+                elif expected_as_key:
                     if _normalize_dispatch_identity_key(active_last) == expected:
                         return True, active_last
                 else:

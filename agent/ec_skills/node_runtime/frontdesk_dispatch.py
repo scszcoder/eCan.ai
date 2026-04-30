@@ -282,6 +282,23 @@ def _extract_actionable_items(
     for item in raw_items or []:
         if not isinstance(item, dict):
             continue
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match,
+            )
+            system_reason = first_system_row_match(item)
+            if system_reason:
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} filtered system row "
+                    f"before dispatch reason={system_reason!r} "
+                    f"customer={item.get('customer_name')!r} "
+                    f"last_message={str(item.get('last_message') or '')[:80]!r}"
+                )
+                continue
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {cfg.log_tag} system-row filter failed: {exc}"
+            )
         session_id = _pick_first(item, cfg.session_keys)
         if not session_id:
             continue
@@ -520,6 +537,13 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     last_msg = str(item.get("last_message") or "").strip()
     if last_msg:
         payload["latest_message"] = last_msg
+    source_msg_id = str(
+        item.get("latest_message_msg_id")
+        or item.get("source_customer_msg_id")
+        or ""
+    ).strip()
+    if source_msg_id:
+        payload["latest_message_msg_id"] = source_msg_id
     # ── Multimodal: customer-attached images ─────────────────────────
     # The hot-path scraper (``feige_chat.pre_dispatch_v2`` /
     # ``pre_dispatch_enrich``) populates ``item["last_message_attachments"]``
@@ -680,6 +704,8 @@ async def _dispatch_one_item(
             )
             return opened_row, "", ""
         scraped_msg_id = enrich.scraped_msg_id
+        if scraped_msg_id:
+            item["latest_message_msg_id"] = scraped_msg_id
         if enrich.should_clear_stale_assignment:
             assigned_sessions.pop(session_id, None)
 
