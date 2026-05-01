@@ -106,6 +106,7 @@ async def before_session_setup_hook(
     _hp_b_claim_active = False
     _hp_b_claim_cust = ""
     _hp_b_claim_reply = ""
+    _hp_b_claim_source_msg_id = ""
     try:
         _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
         _hp_b_actions_list = None
@@ -191,6 +192,45 @@ async def before_session_setup_hook(
                             _hp_b_payload_src = "state.input[legacy-fallback]"
                     except Exception:
                         pass
+            # --- 4. Response-payload fallback ---
+            # Under bursty queues prompt_refs.events can be empty while a
+            # stale browser_event remains in state.  If the current input is
+            # clearly a Q&A reply, recover it here and force HOT-PATH-B.
+            if not _hp_b_payload:
+                _hp_b_candidates = []
+                _hp_b_input = state.get("input", "")
+                if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                    _hp_b_candidates.append(_hp_b_input)
+                _hp_b_messages = state.get("messages")
+                if isinstance(_hp_b_messages, list) and len(_hp_b_messages) > 4:
+                    _hp_b_msg_input = _hp_b_messages[4]
+                    if isinstance(_hp_b_msg_input, str) and _hp_b_msg_input.strip():
+                        _hp_b_candidates.append(_hp_b_msg_input)
+                for _hp_b_candidate in _hp_b_candidates:
+                    try:
+                        _hp_b_parsed = json.loads(_hp_b_candidate)
+                    except Exception:
+                        continue
+                    if not isinstance(_hp_b_parsed, dict):
+                        continue
+                    if (
+                        str(_hp_b_parsed.get("response_text") or "").strip()
+                        and str(
+                            _hp_b_parsed.get("customer_name")
+                            or _hp_b_parsed.get("customer_id")
+                            or ""
+                        ).strip()
+                    ):
+                        _hp_b_payload = _hp_b_parsed
+                        _hp_b_payload_src = "state.input[response-fallback]"
+                        _hp_b_evt_type = "chat_message"
+                        logger.warning(
+                            f"[BrowserAutomation] HOT-PATH-B: recovered "
+                            f"chat_message response payload from state input "
+                            f"while prompt_refs/events were stale or empty; "
+                            f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}"
+                        )
+                        break
         # Cross-customer bleed detection: if prompt_refs.events (cycle
         # truth) disagrees with state.events[-1] (accumulated tail), WARN
         # loudly and trust prompt_refs. Previously we trusted tail first,
@@ -269,7 +309,7 @@ async def before_session_setup_hook(
                     f"node={hook_ctx.node_name}"
                 )
                 state.setdefault("result", {})["llm_result"] = {
-                    "all_done": False,
+                    "all_done": True,
                     "work_done": False,
                     "hot_path": True,
                     "hot_path_type": "system_reply_drop",
@@ -317,10 +357,17 @@ async def before_session_setup_hook(
                     or ""
                 )
                 _hp_b_dedup_reply = _hp_b_payload.get("response_text") or ""
+                _hp_b_source_msg_id = str(
+                    _hp_b_payload.get("source_customer_msg_id")
+                    or _hp_b_payload.get("latest_message_msg_id")
+                    or _hp_b_payload.get("reply_to_msg_id")
+                    or ""
+                ).strip()
                 _hp_b_claim_cust = _hp_b_dedup_cust
                 _hp_b_claim_reply = _hp_b_dedup_reply
-                _hp_b_dedup_age = _ds.claim_send(
-                    _hp_b_dedup_cust, _hp_b_dedup_reply
+                _hp_b_claim_source_msg_id = _hp_b_source_msg_id
+                _hp_b_dedup_age = _ds.claim_send_for_turn(
+                    _hp_b_dedup_cust, _hp_b_dedup_reply, _hp_b_source_msg_id
                 )
                 if _hp_b_dedup_age > 0:
                     logger.info(
@@ -328,7 +375,8 @@ async def before_session_setup_hook(
                         f"cust={_hp_b_dedup_cust!r} reply_len="
                         f"{len(_hp_b_dedup_reply)} (identical reply already "
                         f"sent {_hp_b_dedup_age:.1f}s ago, "
-                        f"ttl={_ds.DEDUP_TTL_S}s), node={hook_ctx.node_name}"
+                        f"source_msg_id={_hp_b_source_msg_id!r}), "
+                        f"node={hook_ctx.node_name}"
                     )
                     # Release the cross-scope inflight lock so the
                     # *next* genuine customer turn isn't blocked by
@@ -340,7 +388,7 @@ async def before_session_setup_hook(
                     except Exception:
                         pass
                     state.setdefault("result", {})["llm_result"] = {
-                        "all_done": False, "work_done": False,
+                        "all_done": True, "work_done": False,
                         "hot_path": True, "hot_path_type": "dedup_skip",
                     }
                     return state
@@ -362,11 +410,11 @@ async def before_session_setup_hook(
                         or _hp_b_payload.get("customer_id")
                         or ""
                     )
-                    _hp_b_pre_reply = _ds.normalize_reply_text(
+                    _hp_b_pre_reply = _ds.remember_agent_reply(
+                        _hp_b_pre_cust,
                         _hp_b_payload.get("response_text") or ""
                     )
                     if _hp_b_pre_cust and _hp_b_pre_reply:
-                        _ds.last_agent_reply_by_customer[_hp_b_pre_cust] = _hp_b_pre_reply
                         logger.info(
                             f"[BrowserAutomation] HOT-PATH-B: pre-recorded "
                             f"last_agent_reply for '{_hp_b_pre_cust}' "
@@ -386,7 +434,11 @@ async def before_session_setup_hook(
                     logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
                     if _hp_b_claim_active:
                         try:
-                            _ds.unclaim_send(_hp_b_claim_cust, _hp_b_claim_reply)
+                            _ds.unclaim_send_for_turn(
+                                _hp_b_claim_cust,
+                                _hp_b_claim_reply,
+                                _hp_b_claim_source_msg_id,
+                            )
                         except Exception:
                             pass
                         _hp_b_claim_active = False
@@ -478,7 +530,7 @@ async def before_session_setup_hook(
                             f"inflight handling failed: {_hp_b_stale_err}"
                         )
                     state.setdefault("result", {})["llm_result"] = {
-                        "all_done": False,
+                        "all_done": True,
                         "work_done": False,
                         "hot_path": True,
                         "hot_path_type": "stale_reply_drop",
@@ -494,7 +546,11 @@ async def before_session_setup_hook(
                     # send_response_back fallback path) is deduped
                     # by the guard at the top of HOT-PATH-B.
                     try:
-                        _ds.mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
+                        _ds.mark_sent_for_turn(
+                            _hp_b_dedup_cust,
+                            _hp_b_dedup_reply,
+                            _hp_b_source_msg_id,
+                        )
                     except Exception:
                         pass
                     _hp_b_claim_active = False
@@ -591,7 +647,7 @@ async def before_session_setup_hook(
                     # (Tab restore + typing-lock release now
                     # handled inside feige_chat.hot_path.execute.)
                     state.setdefault("result", {})["llm_result"] = {
-                        "all_done": False, "work_done": False,
+                        "all_done": True, "work_done": False,
                         "hot_path": True, "hot_path_type": "configurable",
                     }
                     logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={hook_ctx.node_name}")
@@ -599,7 +655,11 @@ async def before_session_setup_hook(
                 else:
                     if _hp_b_claim_active:
                         try:
-                            _ds.unclaim_send(_hp_b_claim_cust, _hp_b_claim_reply)
+                            _ds.unclaim_send_for_turn(
+                                _hp_b_claim_cust,
+                                _hp_b_claim_reply,
+                                _hp_b_claim_source_msg_id,
+                            )
                         except Exception:
                             pass
                         _hp_b_claim_active = False
@@ -663,7 +723,11 @@ async def before_session_setup_hook(
     except Exception as _hp_b_err:
         if _hp_b_claim_active:
             try:
-                _ds.unclaim_send(_hp_b_claim_cust, _hp_b_claim_reply)
+                _ds.unclaim_send_for_turn(
+                    _hp_b_claim_cust,
+                    _hp_b_claim_reply,
+                    _hp_b_claim_source_msg_id,
+                )
             except Exception:
                 pass
         logger.warning(

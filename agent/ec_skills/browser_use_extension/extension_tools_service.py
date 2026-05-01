@@ -910,12 +910,32 @@ def _stable_hash(parts: List[str]) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
+async def _evaluate_js(
+    browser_session: BrowserSession,
+    expression: str,
+    *,
+    target_id: str | None = None,
+    focus: bool = True,
+) -> Any:
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+            session_cdp_operation_lock as _session_cdp_operation_lock,
+        )
+        operation_lock = _session_cdp_operation_lock(browser_session)
+    except Exception:
+        operation_lock = None
+
     async def _run_eval() -> Any:
         cdp_session = None
         cdp_client = None
         if hasattr(browser_session, "get_or_create_cdp_session"):
-            cdp_session = await browser_session.get_or_create_cdp_session()
+            if target_id:
+                cdp_session = await browser_session.get_or_create_cdp_session(
+                    target_id=target_id,
+                    focus=focus,
+                )
+            else:
+                cdp_session = await browser_session.get_or_create_cdp_session()
             cdp_client = cdp_session.cdp_client if cdp_session else None
         elif hasattr(browser_session, "cdp_client"):
             cdp_client = browser_session.cdp_client
@@ -938,7 +958,14 @@ async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
         return await cdp_client.send.Runtime.evaluate(params=eval_params)
 
     try:
-        result = await asyncio.wait_for(_run_eval(), timeout=_CDP_EVALUATE_TIMEOUT_S)
+        if operation_lock is not None:
+            async with operation_lock:
+                result = await asyncio.wait_for(
+                    _run_eval(),
+                    timeout=_CDP_EVALUATE_TIMEOUT_S,
+                )
+        else:
+            result = await asyncio.wait_for(_run_eval(), timeout=_CDP_EVALUATE_TIMEOUT_S)
     except asyncio.TimeoutError as exc:
         raise TimeoutError(
             f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s"
@@ -2689,7 +2716,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text, expectedCustomer) {
+(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   function visible(el) {
     if (!el || !el.getBoundingClientRect) return false;
@@ -2729,6 +2756,43 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       return (bubble.querySelector('pre') || bubble).textContent.trim();
     }
     return '';
+  }
+  function latestCustomerBubble() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (!row) continue;
+      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var text = '';
+      if (bubble) {
+        if (bubble.classList.contains('messageIsMe')) continue;
+        text = (bubble.querySelector('pre') || bubble).textContent.trim();
+      }
+      var hasContentImage = false;
+      var imgs = Array.from(row.querySelectorAll('img'));
+      for (var k = 0; k < imgs.length; k++) {
+        var im = imgs[k];
+        var cls = (im.className || '').toString();
+        var alt = (im.getAttribute('alt') || '').trim();
+        if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+        if (alt === '头像') continue;
+        var src = im.src || im.getAttribute('src') || '';
+        if (src && src.indexOf('data:image/svg') !== 0) {
+          hasContentImage = true;
+          break;
+        }
+      }
+      if (!text && !hasContentImage) continue;
+      var idEl = wrap.querySelector('[data-id]');
+      return {
+        found: true,
+        text: text,
+        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : ''
+      };
+    }
+    return { found: false, text: '', msg_id: '' };
   }
   function sameText(a, b) {
     function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
@@ -2819,6 +2883,40 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
   }
 
+  var sourceMsgId = String(expectedSourceMsgId || '').trim();
+  var sourceText = String(expectedSourceText || '').trim();
+  if (sourceMsgId || sourceText) {
+    var latest = { found: false, text: '', msg_id: '' };
+    var sourceOk = false;
+    for (var guardPoll = 0; guardPoll < 10; guardPoll++) {
+      latest = latestCustomerBubble();
+      if (latest.found) {
+        if (sourceMsgId && latest.msg_id && latest.msg_id === sourceMsgId) sourceOk = true;
+        if (!sourceOk && sourceText && sameText(latest.text, sourceText)) sourceOk = true;
+        if (sourceOk) break;
+      }
+      if (guardPoll < 9) await sleep(100);
+    }
+    if (!latest.found) {
+      return JSON.stringify({
+        sent: false,
+        error: 'source_turn_not_found',
+        expected_source_msg_id: sourceMsgId,
+        expected_source_text: sourceText
+      });
+    }
+    if (!sourceOk) {
+      return JSON.stringify({
+        sent: false,
+        error: 'stale_reply_source_msg_id',
+        expected_source_msg_id: sourceMsgId,
+        active_source_msg_id: latest.msg_id || '',
+        expected_source_text: sourceText,
+        active_source_text: (latest.text || '').slice(0, 160)
+      });
+    }
+  }
+
   var inputSelectors = [
     '[data-qa-id="qa-send-message-textarea"]',
     'textarea[placeholder*="发送"]',
@@ -2874,7 +2972,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     method = 'enter_key';
   }
 
-  for (var poll = 0; poll < 18; poll++) {
+  for (var poll = 0; poll < 8; poll++) {
     await sleep(100);
     var currentValue = readValue(input);
     var afterAgentText = latestAgentBubbleText();
@@ -2893,7 +2991,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     selector: selector,
     input_value_preview: readValue(input).slice(0, 120)
   });
-})(MESSAGE_TEXT, EXPECTED_CUSTOMER);
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
 """
 
 
@@ -2902,17 +3000,103 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # Process-global typing-lock serialization (added 2026-04-30 21:00).
+    # Concurrent feige_send_message calls from different callers (Q&A
+    # workers, direct-delivery, HOT-PATH-B) all run JS through Chrome's
+    # single-threaded renderer.  When two sends overlap the renderer
+    # saturates and unrelated CDP Runtime.evaluate calls (e.g. PreDispatch
+    # sidebar-click scrapes) timeout at 6s.  The process-wide typing_lock
+    # module already exists for the cross-customer race guard; acquire it
+    # here so all callers serialize regardless of whether they remembered
+    # to lock at their level.  Re-entrant for same key, so callers that
+    # already hold it (HOT-PATH-B / direct-delivery) pass straight through.
+    # The finally: block below calls release(_send_lock_key) when this
+    # function acquired the lock itself.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            typing_lock as _send_typing_lock,
+        )
+    except Exception:
+        _send_typing_lock = None
+    _send_lock_key = str(getattr(params, "customer_name", "") or "").strip()
+    _send_acquired = False
+    _send_has_lock = False
+    _feige_ledger = None
+    if _send_typing_lock is not None and _send_lock_key:
+        import asyncio as _send_asyncio
+        try:
+            _already_holding = _send_typing_lock.holder() == _send_lock_key
+        except Exception:
+            _already_holding = False
+        # Poll up to 10s for the lock; the Feige typing-lock TTL self-heals
+        # stale holders after the guarded send timeout window.
+        for _send_attempt in range(100):
+            if _send_typing_lock.try_acquire(_send_lock_key):
+                _send_has_lock = True
+                _send_acquired = not _already_holding
+                break
+            await _send_asyncio.sleep(0.1)
+        if not _send_has_lock:
+            logger.warning(
+                f"[Feige] feige_send_message: typing-lock contention persisted "
+                f"10s for {_send_lock_key!r} (current holder={_send_typing_lock.holder()!r}); "
+                f"proceeding without lock"
+            )
     try:
         expected_customer = str(params.customer_name or "").strip()
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                log_event as _feige_ledger,
+            )
+        except Exception:
+            _feige_ledger = None
+        if _feige_ledger is not None:
+            _feige_ledger(
+                "feige_send_tool_start",
+                customer=expected_customer,
+                source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                response_preview=str(getattr(params, "text", "") or ""),
+                response_len=len(str(getattr(params, "text", "") or "")),
+            )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
         text_json = json.dumps(params.text, ensure_ascii=False)
         expected_json = json.dumps(expected_customer, ensure_ascii=False)
+        source_msg_id = str(getattr(params, "source_customer_msg_id", "") or "").strip()
+        source_text = str(getattr(params, "source_latest_message", "") or "").strip()
+        source_msg_id_json = json.dumps(source_msg_id, ensure_ascii=False)
+        source_text_json = json.dumps(source_text, ensure_ascii=False)
         js = (
             _FEIGE_SEND_MESSAGE_JS
             .replace("MESSAGE_TEXT", text_json)
             .replace("EXPECTED_CUSTOMER", expected_json)
+            .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
+            .replace("EXPECTED_SOURCE_TEXT", source_text_json)
         )
-        data = await _evaluate_js(browser_session, js)
+        target_id = ""
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                resolve_feige_tab_target_id,
+            )
+            target_id = await resolve_feige_tab_target_id(browser_session)
+        except Exception as _target_err:
+            logger.debug(
+                f"[Feige] feige_send_message: Feige target resolve failed: {_target_err}"
+            )
+            target_id = ""
+        if target_id:
+            data = await _evaluate_js(
+                browser_session,
+                js,
+                target_id=target_id,
+                focus=False,
+            )
+        else:
+            logger.warning(
+                "[Feige] feige_send_message: no Feige target id resolved; "
+                "falling back to focused tab evaluation"
+            )
+            data = await _evaluate_js(browser_session, js)
         if isinstance(data, str):
             data = json.loads(data)
         if isinstance(data, dict) and data.get("sent"):
@@ -2921,14 +3105,52 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             logger.info(
                 f"[Feige] Sent message via {method}/{verified}: {params.text[:60]}"
             )
+            if _feige_ledger is not None:
+                _feige_ledger(
+                    "feige_send_tool_success",
+                    customer=expected_customer,
+                    source_msg_id=source_msg_id,
+                    latest_preview=source_text,
+                    response_preview=str(getattr(params, "text", "") or ""),
+                    method=str(method),
+                    verified=str(verified),
+                )
             return ActionResult(
                 extracted_content=f"Message sent (method: {method}, verified: {verified})."
             )
         err = data.get("error") if isinstance(data, dict) else str(data)
+        if _feige_ledger is not None:
+            _feige_ledger(
+                "feige_send_tool_failed",
+                customer=expected_customer,
+                source_msg_id=source_msg_id,
+                latest_preview=source_text,
+                response_preview=str(getattr(params, "text", "") or ""),
+                error=str(err),
+                result_preview=str(data),
+            )
         return ActionResult(error=f"feige_send_message: {err}")
     except Exception as e:
         logger.error(f"[Feige] feige_send_message error: {e}")
+        try:
+            if _feige_ledger is not None:
+                _feige_ledger(
+                    "feige_send_tool_exception",
+                    customer=str(getattr(params, "customer_name", "") or ""),
+                    source_msg_id=str(getattr(params, "source_customer_msg_id", "") or ""),
+                    latest_preview=str(getattr(params, "source_latest_message", "") or ""),
+                    response_preview=str(getattr(params, "text", "") or ""),
+                    error=str(e),
+                )
+        except Exception:
+            pass
         return ActionResult(error=f"feige_send_message failed: {e}")
+    finally:
+        if _send_acquired and _send_typing_lock is not None:
+            try:
+                _send_typing_lock.release(_send_lock_key)
+            except Exception:
+                pass
 
 
 # Log registered custom actions at module load time for debugging

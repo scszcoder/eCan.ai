@@ -48,6 +48,9 @@ from agent.ec_skills.browser_node.contexts import (
 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
     first_system_row_match,
 )
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+    log_event,
+)
 
 logger = logging.getLogger("ecan.hooks.feige_chat.v2")
 
@@ -621,8 +624,41 @@ async def before_prompt_build_hook_v2(
         )
         if _keep:
             _actionable.append(_it)
+            log_event(
+                "actionable_keep",
+                customer=_cust_id,
+                customer_id=str(_it.get("customer_id") or ""),
+                customer_name=str(_it.get("customer_name") or _it.get("name") or ""),
+                session_id=str(_it.get("session_id") or _it.get("identity_key") or ""),
+                source_msg_id=str(_it.get("latest_message_msg_id") or _it.get("msg_id") or ""),
+                latest_preview=str(
+                    _it.get("latest_message")
+                    or _it.get("last_message")
+                    or _it.get("message")
+                    or ""
+                ),
+                node=node_name,
+                event_type=evt_type,
+            )
         else:
             _filtered_out.append((_cust_id or "?", _reason))
+            log_event(
+                "actionable_skip",
+                customer=_cust_id,
+                customer_id=str(_it.get("customer_id") or ""),
+                customer_name=str(_it.get("customer_name") or _it.get("name") or ""),
+                session_id=str(_it.get("session_id") or _it.get("identity_key") or ""),
+                source_msg_id=str(_it.get("latest_message_msg_id") or _it.get("msg_id") or ""),
+                latest_preview=str(
+                    _it.get("latest_message")
+                    or _it.get("last_message")
+                    or _it.get("message")
+                    or ""
+                ),
+                reason=_reason,
+                node=node_name,
+                event_type=evt_type,
+            )
     if _filtered_out:
         logger.info(
             f"[V2 actionable_items] filtered {len(_filtered_out)} entry/entries "
@@ -643,6 +679,13 @@ async def before_prompt_build_hook_v2(
         auto_dispatch_cfg=_auto_dispatch_guard_cfg,
     )
     if _pre_dispatch_blocks_prompt_auto:
+        try:
+            state["_ecan_predispatch_actionable_items"] = [
+                dict(_it) for _it in _actionable if isinstance(_it, dict)
+            ]
+            state["_ecan_predispatch_actionable_items_ts"] = time.time()
+        except Exception:
+            pass
         logger.info(
             f"[V2 actionable_items] PreDispatch enabled for browser_event; "
             f"deferring prompt-build autoDispatch while preserving "

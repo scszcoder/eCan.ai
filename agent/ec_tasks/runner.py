@@ -73,6 +73,67 @@ DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"
 _EVT_TYPE_ATTR = "__ec_queue_event_type__"
 _PRIORITY_LOW_EVENT_TYPES = {"browser_event"}
 _PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_message"}
+_DIRECT_FEIGE_DELIVERY_LOCK = threading.Lock()
+# Dedicated background worker for Feige direct delivery.
+#
+# This must not be bound to a skill-run event loop. Q&A/browser skills are
+# executed on transient loops; when the originating skill finishes, that loop
+# can stop while replies are still queued.  Keep one daemon loop alive for the
+# process so "direct_job_queued" is always followed by a worker attempt.
+_DIRECT_FEIGE_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
+_DIRECT_FEIGE_ASYNC_WORKER_LOCK = threading.Lock()
+try:
+    _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "12.0"))
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_JOB_TIMEOUT_S = 12.0
+try:
+    _DIRECT_FEIGE_MAX_RETRIES = max(0, int(os.getenv("DIRECT_FEIGE_MAX_RETRIES", "0")))
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_MAX_RETRIES = 0
+try:
+    _DIRECT_FEIGE_RETRY_DELAY_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_RETRY_DELAY_S", "0.75"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_RETRY_DELAY_S = 0.75
+try:
+    _DIRECT_FEIGE_TASK_IDLE_WAIT_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_TASK_IDLE_WAIT_S", "0.0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_TASK_IDLE_WAIT_S = 0.0
+try:
+    _DIRECT_FEIGE_FOCUS_RETRIES = max(
+        0, int(os.getenv("DIRECT_FEIGE_FOCUS_RETRIES", "2"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_FOCUS_RETRIES = 2
+try:
+    _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_FOCUS_RETRY_DELAY_S", "0.5"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S = 0.5
+try:
+    _DIRECT_FEIGE_REQUEUE_LIMIT = max(
+        0, int(os.getenv("DIRECT_FEIGE_REQUEUE_LIMIT", "3"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_REQUEUE_LIMIT = 3
+try:
+    _DIRECT_FEIGE_REQUEUE_DELAY_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_REQUEUE_DELAY_S", "0.75"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_REQUEUE_DELAY_S = 0.75
+_DIRECT_FEIGE_RETRYABLE_REASONS = {
+    "tab_focus_failed",
+    "tab_focus_timeout",
+    "typing_lock_busy",
+    "post_open_verify_failed",
+    "pre_send_reverify_failed",
+    "tool_failed:feige_send_message",
+}
 
 
 def _tag_queue_event_type(request: Any, event_type: str) -> None:
@@ -442,6 +503,90 @@ def _release_dispatch_locks_on_skill_failure(response: Any) -> None:
     except Exception as _outer:
         logger.debug(
             f"[COMPLETE] _release_dispatch_locks_on_skill_failure: {_outer}"
+        )
+
+
+def _cleanup_feige_delivery_state(customer_name: str, customer_id: str = "") -> None:
+    """Release front-desk dispatch state after a Feige reply is delivered.
+
+    Direct delivery bypasses the browser-node HOT-PATH-B hook, so it must do
+    the same cleanup itself: clear the cross-scope inflight lock and evict the
+    stale ``assigned_sessions`` entry.  Otherwise a later customer turn can be
+    suppressed as "same message already assigned" even after we already sent
+    the answer.
+    """
+    raw_candidates: list[str] = []
+    for raw in (customer_name, customer_id):
+        text = str(raw or "").strip()
+        if text and text not in raw_candidates:
+            raw_candidates.append(text)
+    if not raw_candidates:
+        return
+
+    try:
+        from agent.ec_skills import build_node as _build_node
+    except Exception as exc:
+        logger.debug(
+            f"[DIRECT-DELIVERY] Feige cleanup skipped: build_node unavailable: {exc}"
+        )
+        return
+
+    try:
+        normalize = getattr(_build_node, "_normalize_dispatch_identity_key")
+    except Exception:
+        normalize = lambda x: str(x or "").strip()  # type: ignore[assignment]
+
+    normalized: set[str] = set()
+    for raw in raw_candidates:
+        try:
+            key = str(normalize(raw) or "").strip()
+        except Exception:
+            key = raw
+        if key:
+            normalized.add(key)
+
+    try:
+        clear_inflight = getattr(_build_node, "_clear_dispatch_inflight", None)
+        if callable(clear_inflight):
+            for key in sorted(normalized):
+                clear_inflight(key)
+                logger.info(
+                    f"[DIRECT-DELIVERY] Cleared dispatch_inflight for "
+                    f"customer_key={key!r}"
+                )
+    except Exception as exc:
+        logger.debug(
+            f"[DIRECT-DELIVERY] dispatch_inflight cleanup failed: {exc}"
+        )
+
+    try:
+        ds_by_agent = getattr(_build_node, "_dispatch_state_by_agent", {})
+        if not isinstance(ds_by_agent, dict):
+            return
+        evicted = 0
+        for state in list(ds_by_agent.values()):
+            if not isinstance(state, dict):
+                continue
+            assigned = state.get("assigned_sessions")
+            if not isinstance(assigned, dict):
+                continue
+            for sid in list(assigned.keys()):
+                sid_text = str(sid or "").strip()
+                try:
+                    sid_key = str(normalize(sid_text) or "").strip()
+                except Exception:
+                    sid_key = sid_text
+                if sid_text in raw_candidates or (sid_key and sid_key in normalized):
+                    assigned.pop(sid, None)
+                    evicted += 1
+        if evicted:
+            logger.info(
+                f"[DIRECT-DELIVERY] Evicted {evicted} assigned_sessions "
+                f"record(s) for customers={raw_candidates!r}"
+            )
+    except Exception as exc:
+        logger.debug(
+            f"[DIRECT-DELIVERY] assigned_sessions cleanup failed: {exc}"
         )
 
 
@@ -1987,6 +2132,22 @@ class TaskRunner(Generic[Context]):
                             has_active_execution = False
 
             if is_terminal or not has_active_execution:
+                if event_type in _PRIORITY_HIGH_EVENT_TYPES and hasattr(task, "reset_failures"):
+                    try:
+                        if (
+                            hasattr(task, "is_max_failures_reached")
+                            and task.is_max_failures_reached()
+                        ):
+                            logger.info(
+                                f"[ensure_task_execution_alive] Resetting failure guard for "
+                                f"task '{task.name}' because a real {event_type} message arrived"
+                            )
+                        task.reset_failures()
+                    except Exception as _reset_err:
+                        logger.debug(
+                            f"[ensure_task_execution_alive] Could not reset failures for "
+                            f"task '{getattr(task, 'name', '?')}': {_reset_err}"
+                        )
                 logger.info(
                     f"[ensure_task_execution_alive] Task '{task.name}' is "
                     f"status={task_status}, active={has_active_execution}; restarting execution loop"
@@ -2190,6 +2351,31 @@ class TaskRunner(Generic[Context]):
                     logger.error(f"[QUEUE] Target task has no queue: {target_task.name}")
                     return
 
+                if event_type == "chat_message":
+                    try:
+                        from agent.ec_tasks.resume import normalize_event as _ledger_normalize_event
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                            log_payload as _ledger_payload,
+                            parse_jsonish_dict as _ledger_parse_json,
+                        )
+
+                        _ledger_evt = _ledger_normalize_event(
+                            "chat_message", request, src="runner_queue"
+                        )
+                        _ledger_payload_obj = _ledger_parse_json(
+                            (_ledger_evt.get("data") or {}).get("human_text", "")
+                        )
+                        if _ledger_payload_obj:
+                            _ledger_payload(
+                                "runner_chat_message_routed",
+                                _ledger_payload_obj,
+                                runner_agent=getattr(self.agent.card, "name", ""),
+                                target_task=target_task.name,
+                                source=source,
+                            )
+                    except Exception:
+                        pass
+
                 # ── Direct delivery fast-path ──
                 # When a chat_message carrying a structured response arrives for a
                 # task whose browser session has feige tools, deliver the reply
@@ -2200,7 +2386,7 @@ class TaskRunner(Generic[Context]):
                         _dd_ok = self._try_direct_feige_delivery(target_task, request)
                         if _dd_ok:
                             logger.info(
-                                f"[QUEUE] Direct delivery succeeded for task={target_task.name}, "
+                                f"[QUEUE] Direct delivery accepted for task={target_task.name}, "
                                 f"skipping queue (msg={_describe_queue_msg(request)})"
                             )
                             return
@@ -2308,8 +2494,8 @@ class TaskRunner(Generic[Context]):
         desk, we call feige_open_session + feige_send_message on the cached
         browser session immediately, cutting ~30s of queue + LLM latency.
         """
-        import json as _json
         import asyncio as _asyncio
+        import json as _json
 
         # 1. Extract response_text and customer_name from the request payload
         _human_text = ""
@@ -2334,20 +2520,117 @@ class TaskRunner(Generic[Context]):
             _parsed.get("customer_name") or _parsed.get("customer_id") or ""
         ).strip()
         if not _response_text or not _customer_name:
+            logger.info(
+                "[DIRECT-DELIVERY] Skipping: chat_message is not a Feige "
+                f"response payload task={target_task.name}"
+            )
             return False
 
-        # 2. Find a cached browser session with feige tools
         try:
-            from agent.ec_skills.build_node import _cached_browser_sessions
-        except ImportError:
-            return False
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                log_payload as _feige_ledger_payload,
+            )
+        except Exception:
+            _feige_ledger_payload = None
 
+        _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
+        _direct_job_id = f"dd_{int(time.time() * 1000)}_{abs(hash((_customer_name, _source_msg_id, _response_text))) % 100000}"
+
+        def _ledger(_stage: str, **_fields: Any) -> None:
+            if _feige_ledger_payload is None:
+                return
+            try:
+                _feige_ledger_payload(
+                    _stage,
+                    _parsed,
+                    direct_job_id=_direct_job_id,
+                    target_task=getattr(target_task, "name", ""),
+                    response_len=len(_response_text),
+                    **_fields,
+                )
+            except Exception:
+                pass
+
+        _ledger("direct_reply_received")
+
+        # Share HOT-PATH-B's replay cache. This avoids duplicate sends if
+        # the same Q&A answer re-enters through the normal front-desk queue.
+        _feige_ds = None
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                dispatch_state as _feige_ds,
+            )
+            _dedup_age = _feige_ds.claim_send_for_turn(
+                _customer_name,
+                _response_text,
+                _source_msg_id,
+            )
+            if _dedup_age:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Dedup skip for customer={_customer_name!r} "
+                    f"age={_dedup_age:.2f}s task={target_task.name}"
+                )
+                _ledger("direct_dedup_skip", dedup_age_s=_dedup_age)
+                return True
+            try:
+                _reply_norm = _feige_ds.remember_agent_reply(
+                    _customer_name,
+                    _response_text,
+                )
+                if _reply_norm:
+                    logger.info(
+                        f"[DIRECT-DELIVERY] Pre-recorded last_agent_reply "
+                        f"customer={_customer_name!r} len={len(_reply_norm)} "
+                        "before queued Feige send"
+                    )
+                    _ledger(
+                        "direct_agent_reply_prerecorded",
+                        response_len=len(_reply_norm),
+                    )
+            except Exception as _pre_record_err:
+                logger.debug(
+                    f"[DIRECT-DELIVERY] pre-record reply failed "
+                    f"customer={_customer_name!r}: {_pre_record_err}"
+                )
+        except Exception:
+            _feige_ds = None
+
+        # 2. Find a cached browser session with Feige tools. The live cache
+        # moved to browser_node.build_helpers during the browser-node split;
+        # keep the older build_node lookup as a fallback for compatibility.
         _session = None
-        for _key, _sess in _cached_browser_sessions.items():
-            if _sess is not None:
-                _session = _sess
+        _cache_sources = []
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _browser_helpers
+            _cache_sources.append(("build_helpers", getattr(_browser_helpers, "cached_browser_sessions", {})))
+        except Exception:
+            pass
+        try:
+            from agent.ec_skills import build_node as _build_node
+            _cache_sources.append(("build_node", getattr(_build_node, "_cached_browser_sessions", {})))
+        except Exception:
+            pass
+        for _cache_name, _cache in _cache_sources:
+            if not isinstance(_cache, dict):
+                continue
+            for _key, _sess in list(_cache.items()):
+                if _sess is not None:
+                    _session = _sess
+                    logger.info(
+                        f"[DIRECT-DELIVERY] Using cached browser session "
+                        f"source={_cache_name} key={_key!r} customer={_customer_name!r}"
+                    )
+                    break
+            if _session is not None:
                 break
         if _session is None:
+            if _feige_ds is not None:
+                _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: no cached browser session "
+                f"customer={_customer_name!r} task={target_task.name}"
+            )
+            _ledger("direct_no_browser_session")
             return False
 
         # 3. Look up feige_open_session + feige_send_message tools
@@ -2357,80 +2640,671 @@ class TaskRunner(Generic[Context]):
             )
             _actions = _ctrl.registry.registry.actions
         except Exception:
+            if _feige_ds is not None:
+                _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+            _ledger("direct_tools_unavailable", reason="controller_registry_error")
             return False
 
-        _open_fn = None
-        _send_fn = None
-        for _name, _act in _actions.items():
-            if _name.endswith("_open_session"):
-                _open_fn = (_name, _act)
-            elif _name.endswith("_send_message"):
-                _send_fn = (_name, _act)
+        _open_fn = _actions.get("feige_open_session")
+        _send_fn = _actions.get("feige_send_message")
         if not _open_fn or not _send_fn:
+            if _feige_ds is not None:
+                _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: Feige tools unavailable "
+                f"open={bool(_open_fn)} send={bool(_send_fn)}"
+            )
+            _ledger("direct_tools_unavailable", has_open=bool(_open_fn), has_send=bool(_send_fn))
             return False
 
-        # 4. Execute open_session + send_message
-        _open_name, _open_act = _open_fn
-        _send_name, _send_act = _send_fn
+        # 4. Send directly at queue ingress.  Avoid the HOT-PATH-B
+        # open-session + separate active-customer reverify chain here: under
+        # flood those extra CDP round trips are exactly what jammed the
+        # direct-delivery queue.  ``feige_send_message`` now performs the
+        # customer open/match and source-turn guard inside one renderer eval.
+        async def _do_guarded_direct_delivery():
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                hot_path_v2 as _hot_path_v2,
+                typing_lock as _typing_lock,
+            )
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                resolve_feige_tab_target_id as _resolve_feige_tab_target_id,
+            )
 
-        async def _do_direct_delivery():
-            _open_params = _open_act.param_model(customer_name=_customer_name)
-            _open_result = await _open_act.function(
-                params=_open_params, browser_session=_session
-            )
-            _open_ok = _open_result and not getattr(_open_result, "error", None)
-            logger.info(
-                f"[DIRECT-DELIVERY] {_open_name} → "
-                f"{'OK' if _open_ok else 'FAIL'}: "
-                f"{getattr(_open_result, 'extracted_content', '') or getattr(_open_result, 'error', '')}"
-            )
-            if not _open_ok:
-                return False
-
-            await _asyncio.sleep(0.5)
-            _send_params = _send_act.param_model(text=_response_text)
-            _send_result = await _send_act.function(
-                params=_send_params, browser_session=_session
-            )
-            _send_ok = _send_result and not getattr(_send_result, "error", None)
-            logger.info(
-                f"[DIRECT-DELIVERY] {_send_name} → "
-                f"{'OK' if _send_ok else 'FAIL'}: "
-                f"{getattr(_send_result, 'extracted_content', '') or getattr(_send_result, 'error', '')}"
-            )
-            return _send_ok
-
-        # NOTE: Direct delivery from sync_task_wait_in_line is unreliable
-        # because the browser session's CDP connection is bound to the main
-        # event loop, which may be blocked by the A2A executor calling us
-        # synchronously.  The configurable hotPathActions in build_node.py
-        # handles direct delivery in the correct async context instead.
-        # This code path is kept as a last-resort attempt for callers
-        # that run from a separate thread (e.g., channel bridges).
-        try:
-            _loop = _asyncio.get_running_loop()
-            if _loop.is_running():
-                # We're in the event loop thread — can't block here.
-                # Let the message fall through to the queue; the Phase-2
-                # hot-path in build_node.py will handle direct delivery.
-                logger.debug(
-                    f"[DIRECT-DELIVERY] Skipping: event loop is running "
-                    f"(will use Phase-2 hot-path in build_node instead), "
-                    f"task={target_task.name}"
+            _ledger("direct_guarded_send_start")
+            try:
+                _feige_target_id = await _asyncio.wait_for(
+                    _resolve_feige_tab_target_id(_session),
+                    timeout=2.0,
                 )
-                return False
-        except RuntimeError:
-            pass  # No running loop — safe to create one
+            except _asyncio.TimeoutError:
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Feige tab target resolve timed out "
+                    f"customer={_customer_name!r}"
+                )
+                _ledger("direct_tab_focus_failed", reason="tab_focus_timeout")
+                return _hot_path_v2.HotPathOutcomeV2(
+                    ok=False,
+                    reason="tab_focus_timeout",
+                )
+            except Exception as _focus_err:
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Feige tab target resolve failed "
+                    f"customer={_customer_name!r}: {_focus_err}"
+                )
+                _ledger("direct_tab_focus_failed", reason="tab_focus_failed", error=str(_focus_err))
+                return _hot_path_v2.HotPathOutcomeV2(
+                    ok=False,
+                    reason="tab_focus_failed",
+                )
+            if not _feige_target_id:
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Feige tab target not found "
+                    f"customer={_customer_name!r}"
+                )
+                _ledger("direct_tab_focus_failed", reason="tab_focus_false")
+                return _hot_path_v2.HotPathOutcomeV2(
+                    ok=False,
+                    reason="tab_focus_failed",
+                )
+            _ledger("direct_tab_target_resolved", target_id=str(_feige_target_id))
 
-        try:
-            _result = _asyncio.run(_do_direct_delivery())
-            if _result:
+            _outcome = _hot_path_v2.HotPathOutcomeV2()
+            _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
+                _typing_lock,
+                _customer_name,
+                "direct_feige_delivery",
+            )
+            if _customer_name and not _outcome.typing_acquired:
+                _outcome.ok = False
+                _outcome.reason = "typing_lock_busy"
+                _ledger("direct_typing_lock_failed", holder=str(_typing_lock.holder() or ""))
+                return _outcome
+            _ledger("direct_typing_lock_acquired")
+
+            try:
+                _outcome.actions_attempted = 1
+                _source_text = str(
+                    _parsed.get("source_latest_message")
+                    or _parsed.get("latest_message")
+                    or _parsed.get("latest_message_text")
+                    or ""
+                ).strip()
+                _send_args = {
+                    "text": _response_text,
+                    "customer_name": _customer_name,
+                }
+                if _source_msg_id:
+                    _send_args["source_customer_msg_id"] = _source_msg_id
+                if _source_text:
+                    _send_args["source_latest_message"] = _source_text
+                _ledger(
+                    "direct_feige_send_start",
+                    source_latest_preview=_source_text,
+                )
+                _send_params = _send_fn.param_model(**_send_args)
+
+                import inspect as _inspect
+
+                _sig = _inspect.signature(_send_fn.function)
+                if "browser_session" in _sig.parameters:
+                    _raw = await _send_fn.function(
+                        params=_send_params,
+                        browser_session=_session,
+                    )
+                else:
+                    _raw = await _send_fn.function(params=_send_params)
+
+                _err = str(getattr(_raw, "error", "") or "")
+                if _err:
+                    _outcome.ok = False
+                    _outcome.last_tool_error = _err
+                    if "stale_reply_source_msg_id" in _err:
+                        _outcome.reason = "stale_reply_source_msg_id"
+                    elif "source_turn_not_found" in _err:
+                        _outcome.reason = "source_turn_not_found"
+                    else:
+                        _outcome.reason = "tool_failed:feige_send_message"
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] feige_send_message failed "
+                        f"customer={_customer_name!r} error={_err!r}"
+                    )
+                    _ledger(
+                        "direct_feige_send_failed",
+                        reason=_outcome.reason,
+                        error=_err,
+                    )
+                    return _outcome
+
+                _outcome.ok = True
+                _outcome.reason = "all_ok"
+                _ledger("direct_feige_send_success")
+                return _outcome
+            except Exception as _send_err:
+                _outcome.ok = False
+                _outcome.reason = f"exception:{_send_err}"
+                _outcome.last_tool_error = str(_send_err)
+                logger.warning(
+                    f"[DIRECT-DELIVERY] direct feige_send_message exception "
+                    f"customer={_customer_name!r}: {_send_err}"
+                )
+                _ledger("direct_feige_send_exception", error=str(_send_err))
+                return _outcome
+            finally:
+                if _outcome.typing_acquired and _customer_name:
+                    try:
+                        _typing_lock.release(_customer_name)
+                    except Exception:
+                        pass
+
+        def _direct_failure_is_retryable(_reason: str) -> bool:
+            if not _reason:
+                return False
+            return _reason in _DIRECT_FEIGE_RETRYABLE_REASONS
+
+        def _direct_failure_is_focus_retryable(_reason: str) -> bool:
+            return _reason in {"tab_focus_failed", "tab_focus_timeout"}
+
+        async def _wait_for_frontdesk_browser_idle(_attempt: int) -> bool:
+            if _DIRECT_FEIGE_TASK_IDLE_WAIT_S <= 0:
+                return True
+            _deadline = time.monotonic() + _DIRECT_FEIGE_TASK_IDLE_WAIT_S
+            _logged = False
+            while True:
+                _state = getattr(getattr(target_task, "status", None), "state", None)
+                if _state != TaskState.working:
+                    return True
+                if not _logged:
+                    logger.info(
+                        f"[DIRECT-DELIVERY] Waiting for front-desk browser task "
+                        f"to go idle before guarded send customer={_customer_name!r} "
+                        f"attempt={_attempt + 1} state={_state!r}"
+                    )
+                    _logged = True
+                if time.monotonic() >= _deadline:
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Front-desk browser task still working "
+                        f"after {_DIRECT_FEIGE_TASK_IDLE_WAIT_S:.1f}s; deferring "
+                        f"direct send customer={_customer_name!r} "
+                        f"attempt={_attempt + 1}"
+                    )
+                    return False
+                await _asyncio.sleep(0.25)
+
+        def _handle_direct_outcome(_outcome: Any, *, release_on_failure: bool = True) -> bool:
+            _ok = bool(getattr(_outcome, "ok", False))
+            _reason = str(getattr(_outcome, "reason", "") or "")
+            logger.info(
+                f"[DIRECT-DELIVERY] outcome ok={_ok} reason={_reason!r} "
+                f"customer={_customer_name!r} actions={getattr(_outcome, 'actions_attempted', 0)}"
+            )
+            _ledger(
+                "direct_outcome",
+                ok=_ok,
+                reason=_reason,
+                actions=getattr(_outcome, "actions_attempted", 0),
+            )
+            if _ok:
+                if _feige_ds is not None:
+                    _feige_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
+                    try:
+                        _feige_ds.remember_agent_reply(_customer_name, _response_text)
+                    except Exception:
+                        pass
+                _cleanup_feige_delivery_state(
+                    _customer_name,
+                    str(_parsed.get("customer_id") or ""),
+                )
                 logger.info(
                     f"[DIRECT-DELIVERY] Reply sent to {_customer_name} "
-                    f"(bypassed queue+LLM), task={target_task.name}"
+                    f"(bypassed front-desk queue), task={target_task.name}"
                 )
-            return bool(_result)
-        except Exception:
+                _ledger("direct_sent_and_cleaned")
+                return True
+            if _reason == "stale_reply_source_msg_id":
+                _cleanup_feige_delivery_state(
+                    _customer_name,
+                    str(_parsed.get("customer_id") or ""),
+                )
+                logger.info(
+                    f"[DIRECT-DELIVERY] Dropping stale reply for {_customer_name}; "
+                    "newer customer bubble is visible"
+                )
+                _ledger("direct_stale_dropped")
+                return True
+            if release_on_failure and _feige_ds is not None:
+                _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+            return False
+
+        def _enqueue_direct_fallback(_reason: str) -> None:
+            try:
+                _tag_queue_event_type(request, "chat_message")
+                target_task.queue.put_nowait(request)
+                logger.info(
+                    f"[DIRECT-DELIVERY] Background fallback queued for "
+                    f"customer={_customer_name!r} reason={_reason} "
+                    f"queue={_snapshot_queue(target_task.queue, limit=10)}"
+                )
+                _ledger("direct_fallback_queued", reason=_reason)
+                self._ensure_task_execution_alive(target_task, "chat_message")
+            except Exception as _fallback_err:
+                logger.error(
+                    f"[DIRECT-DELIVERY] Background fallback enqueue failed "
+                    f"customer={_customer_name!r}: {_fallback_err}"
+                )
+
+        _direct_requeue_state = {"count": 0}
+
+        def _should_requeue_direct(_reason: str, _error: str = "") -> bool:
+            if _reason in {"tab_focus_failed", "tab_focus_timeout", "typing_lock_busy"}:
+                return True
+            if _reason == "tool_failed:feige_send_message":
+                if not _error:
+                    return True
+                transient_markers = (
+                    "CDP Runtime.evaluate timed out",
+                    "Input box not found",
+                    "Session not found",
+                    "Active customer mismatch",
+                    "Send did not clear input",
+                    "No valid agent focus",
+                    "target may have detached",
+                )
+                return any(marker in _error for marker in transient_markers)
+            return False
+
+        def _schedule_direct_requeue(_queue: Any, _reason: str) -> bool:
+            if _queue is None:
+                return False
+            if _direct_requeue_state["count"] >= _DIRECT_FEIGE_REQUEUE_LIMIT:
+                return False
+            _direct_requeue_state["count"] += 1
+            _count = _direct_requeue_state["count"]
+            _delay = _DIRECT_FEIGE_REQUEUE_DELAY_S * _count
+
+            def _put_again() -> None:
+                try:
+                    _queue.put_nowait(lambda: _async_direct_delivery_job(_queue))
+                except Exception as _put_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] Direct requeue failed "
+                        f"customer={_customer_name!r}: {_put_err}"
+                    )
+
+            try:
+                _loop = _asyncio.get_running_loop()
+                if _delay > 0:
+                    _loop.call_later(_delay, _put_again)
+                else:
+                    _loop.call_soon(_put_again)
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Requeued direct delivery to queue tail "
+                    f"customer={_customer_name!r} reason={_reason!r} "
+                    f"requeue={_count}/{_DIRECT_FEIGE_REQUEUE_LIMIT} "
+                    f"delay={_delay:.2f}s"
+                )
+                _ledger(
+                    "direct_requeue_scheduled",
+                    reason=_reason,
+                    requeue_count=_count,
+                    delay_s=_delay,
+                )
+                return True
+            except Exception as _sched_err:
+                logger.error(
+                    f"[DIRECT-DELIVERY] Direct requeue scheduling failed "
+                    f"customer={_customer_name!r}: {_sched_err}"
+                )
+                return False
+
+        def _run_direct_delivery_blocking() -> bool:
+            _lock = _DIRECT_FEIGE_DELIVERY_LOCK
+            if not _lock.acquire(timeout=20.0):
+                if _feige_ds is not None:
+                    _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Skipping: direct delivery lock timeout "
+                    f"customer={_customer_name!r} task={target_task.name}"
+                )
+                _ledger("direct_blocking_lock_timeout")
+                return False
+            try:
+                _ledger("direct_blocking_job_start")
+                for _attempt in range(_DIRECT_FEIGE_MAX_RETRIES + 1):
+                    _outcome = _asyncio.run(
+                        _asyncio.wait_for(
+                            _do_guarded_direct_delivery(),
+                            timeout=_DIRECT_FEIGE_JOB_TIMEOUT_S,
+                        )
+                    )
+                    _reason = str(getattr(_outcome, "reason", "") or "")
+                    _retry = (
+                        _attempt < _DIRECT_FEIGE_MAX_RETRIES
+                        and not bool(getattr(_outcome, "ok", False))
+                        and _direct_failure_is_retryable(_reason)
+                    )
+                    if _handle_direct_outcome(_outcome, release_on_failure=not _retry):
+                        return True
+                    if not _retry:
+                        return False
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Blocking retry "
+                        f"{_attempt + 1}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                        f"customer={_customer_name!r} reason={_reason!r}"
+                    )
+                    time.sleep(_DIRECT_FEIGE_RETRY_DELAY_S * (_attempt + 1))
+                return False
+            except _asyncio.TimeoutError:
+                if _feige_ds is not None:
+                    _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Blocking job timed out after "
+                    f"{_DIRECT_FEIGE_JOB_TIMEOUT_S:.1f}s; will fall back to queue "
+                    f"customer={_customer_name!r}"
+                )
+                return False
+            except Exception as _direct_err:
+                if _feige_ds is not None:
+                    _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+                logger.info(
+                    f"[DIRECT-DELIVERY] Exception, will fall back to queue: "
+                    f"{_direct_err} customer={_customer_name!r}"
+                )
+                return False
+            finally:
+                try:
+                    _lock.release()
+                except Exception:
+                    pass
+
+        async def _async_direct_delivery_job(_queue: Any = None) -> None:
+            _ledger("direct_job_start")
+            try:
+                _attempt = 0
+                _generic_retries = 0
+                _focus_retries = 0
+                while True:
+                    _frontdesk_idle = await _wait_for_frontdesk_browser_idle(_attempt)
+                    if not _frontdesk_idle:
+                        if _schedule_direct_requeue(_queue, "frontdesk_browser_busy"):
+                            return
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Front-desk stayed busy and "
+                            f"direct requeue limit exhausted; proceeding with "
+                            f"guarded send customer={_customer_name!r}"
+                        )
+                    try:
+                        _outcome = await _asyncio.wait_for(
+                            _do_guarded_direct_delivery(),
+                            timeout=_DIRECT_FEIGE_JOB_TIMEOUT_S,
+                        )
+                    except _asyncio.TimeoutError:
+                        if _generic_retries < _DIRECT_FEIGE_MAX_RETRIES:
+                            _generic_retries += 1
+                            _attempt += 1
+                            logger.warning(
+                                f"[DIRECT-DELIVERY] Async timeout retry "
+                                f"{_generic_retries}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                                f"after {_DIRECT_FEIGE_JOB_TIMEOUT_S:.1f}s "
+                                f"customer={_customer_name!r}"
+                            )
+                            await _asyncio.sleep(
+                                _DIRECT_FEIGE_RETRY_DELAY_S * _generic_retries
+                            )
+                            continue
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Async job timed out after "
+                            f"{_DIRECT_FEIGE_JOB_TIMEOUT_S:.1f}s "
+                            f"customer={_customer_name!r}"
+                        )
+                        if _schedule_direct_requeue(_queue, "direct_delivery_timeout"):
+                            return
+                        if _feige_ds is not None:
+                            _feige_ds.unclaim_send_for_turn(
+                                _customer_name,
+                                _response_text,
+                                _source_msg_id,
+                            )
+                        _enqueue_direct_fallback("direct_delivery_timeout")
+                        return
+                    except Exception as _direct_err:
+                        if _generic_retries < _DIRECT_FEIGE_MAX_RETRIES:
+                            _generic_retries += 1
+                            _attempt += 1
+                            logger.warning(
+                                f"[DIRECT-DELIVERY] Async exception retry "
+                                f"{_generic_retries}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                                f"customer={_customer_name!r}: {_direct_err}"
+                            )
+                            await _asyncio.sleep(
+                                _DIRECT_FEIGE_RETRY_DELAY_S * _generic_retries
+                            )
+                            continue
+                        logger.info(
+                            f"[DIRECT-DELIVERY] Async exception, will fall back to queue: "
+                            f"{_direct_err} customer={_customer_name!r}"
+                        )
+                        if _schedule_direct_requeue(_queue, "direct_delivery_exception"):
+                            return
+                        if _feige_ds is not None:
+                            _feige_ds.unclaim_send_for_turn(
+                                _customer_name,
+                                _response_text,
+                                _source_msg_id,
+                            )
+                        _enqueue_direct_fallback("direct_delivery_exception")
+                        return
+
+                    _reason = str(getattr(_outcome, "reason", "") or "")
+                    _error = str(getattr(_outcome, "last_tool_error", "") or "")
+                    _requeue = (
+                        not bool(getattr(_outcome, "ok", False))
+                        and _should_requeue_direct(_reason, _error)
+                    )
+                    _retry = False
+                    _focus_retry = (
+                        _focus_retries < _DIRECT_FEIGE_FOCUS_RETRIES
+                        and not bool(getattr(_outcome, "ok", False))
+                        and _direct_failure_is_focus_retryable(_reason)
+                    )
+                    if _focus_retry:
+                        _retry = True
+                    else:
+                        _retry = (
+                            _generic_retries < _DIRECT_FEIGE_MAX_RETRIES
+                            and not bool(getattr(_outcome, "ok", False))
+                            and _direct_failure_is_retryable(_reason)
+                        )
+                    if _handle_direct_outcome(
+                        _outcome,
+                        release_on_failure=not (_retry or _requeue),
+                    ):
+                        return
+                    if _requeue:
+                        if _schedule_direct_requeue(_queue, _reason):
+                            return
+                        if _feige_ds is not None:
+                            _feige_ds.unclaim_send_for_turn(
+                                _customer_name,
+                                _response_text,
+                                _source_msg_id,
+                            )
+                        _enqueue_direct_fallback("direct_delivery_requeue_exhausted")
+                        return
+                    if not _retry:
+                        _enqueue_direct_fallback("direct_delivery_failed")
+                        return
+                    _attempt += 1
+                    if _focus_retry:
+                        _focus_retries += 1
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Async focus retry "
+                            f"{_focus_retries}/{_DIRECT_FEIGE_FOCUS_RETRIES} "
+                            f"customer={_customer_name!r} reason={_reason!r}"
+                        )
+                        await _asyncio.sleep(
+                            _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S * _focus_retries
+                        )
+                        continue
+                    _generic_retries += 1
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Async retry "
+                        f"{_generic_retries}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                        f"customer={_customer_name!r} reason={_reason!r}"
+                    )
+                    await _asyncio.sleep(
+                        _DIRECT_FEIGE_RETRY_DELAY_S * _generic_retries
+                    )
+            finally:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Direct delivery job finished "
+                    f"customer={_customer_name!r}"
+                )
+                _ledger("direct_job_finished")
+
+        async def _async_direct_delivery_worker(_queue: Any) -> None:
+            while True:
+                _job = await _queue.get()
+                try:
+                    await _job()
+                except Exception as _worker_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] Async worker job failed: {_worker_err}"
+                    )
+                finally:
+                    try:
+                        _queue.task_done()
+                    except Exception:
+                        pass
+
+        def _submit_loop_direct_delivery(_caller_loop: Any = None) -> None:
+            global _DIRECT_FEIGE_ASYNC_WORKER
+            with _DIRECT_FEIGE_ASYNC_WORKER_LOCK:
+                _entry = _DIRECT_FEIGE_ASYNC_WORKER
+                _worker_loop = _entry[0] if _entry is not None else None
+                _worker_task = _entry[2] if _entry is not None else None
+                _worker_thread = _entry[3] if _entry is not None and len(_entry) > 3 else None
+                _worker_dead = (
+                    _entry is None
+                    or getattr(_worker_loop, "is_closed", lambda: True)()
+                    or not getattr(_worker_loop, "is_running", lambda: False)()
+                    or getattr(_worker_task, "done", lambda: True)()
+                    or (
+                        _worker_thread is not None
+                        and not getattr(_worker_thread, "is_alive", lambda: False)()
+                    )
+                )
+                if _worker_dead:
+                    import threading as _threading
+
+                    _ready = _threading.Event()
+                    _holder: dict[str, Any] = {}
+
+                    def _worker_thread_main() -> None:
+                        _loop = _asyncio.new_event_loop()
+                        _asyncio.set_event_loop(_loop)
+                        _queue = _asyncio.Queue()
+                        _task = _loop.create_task(_async_direct_delivery_worker(_queue))
+                        _holder.update({"loop": _loop, "queue": _queue, "task": _task})
+                        _ready.set()
+                        try:
+                            _loop.run_forever()
+                        finally:
+                            try:
+                                _task.cancel()
+                                _loop.run_until_complete(
+                                    _asyncio.gather(_task, return_exceptions=True)
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                _loop.close()
+                            except Exception:
+                                pass
+
+                    _thread = _threading.Thread(
+                        target=_worker_thread_main,
+                        name="FeigeDirectDelivery",
+                        daemon=True,
+                    )
+                    _thread.start()
+                    if not _ready.wait(timeout=2.0):
+                        raise RuntimeError("direct delivery worker did not start")
+                    _worker_loop = _holder["loop"]
+                    _queue = _holder["queue"]
+                    _task = _holder["task"]
+                    _DIRECT_FEIGE_ASYNC_WORKER = (
+                        _worker_loop,
+                        _queue,
+                        _task,
+                        _thread,
+                    )
+                    logger.info(
+                        f"[DIRECT-DELIVERY] Started background async delivery worker "
+                        f"loop_id={id(_worker_loop)}"
+                    )
+                else:
+                    _worker_loop, _queue, _task = _entry[:3]
+            try:
+                _depth = _queue.qsize() + 1
+            except Exception:
+                _depth = -1
+            try:
+                _caller_loop_id = id(_caller_loop) if _caller_loop is not None else 0
+            except Exception:
+                _caller_loop_id = 0
+            logger.info(
+                f"[DIRECT-DELIVERY] Queued background direct delivery "
+                f"customer={_customer_name!r} async_queue_depth={_depth} "
+                f"worker_loop_id={id(_worker_loop)} "
+                f"caller_loop_id={_caller_loop_id}"
+            )
+            _ledger(
+                "direct_job_queued",
+                async_queue_depth=_depth,
+                worker_loop_id=id(_worker_loop),
+                caller_loop_id=_caller_loop_id,
+            )
+            try:
+                _worker_loop.call_soon_threadsafe(
+                    _queue.put_nowait,
+                    lambda: _async_direct_delivery_job(_queue),
+                )
+            except Exception as _enqueue_err:
+                _ledger("direct_job_enqueue_failed", error=str(_enqueue_err))
+                raise
+
+        _caller_loop = None
+        try:
+            _candidate_loop = _asyncio.get_running_loop()
+            if _candidate_loop.is_running():
+                _caller_loop = _candidate_loop
+        except RuntimeError:
+            pass
+
+        try:
+            logger.info(
+                f"[DIRECT-DELIVERY] Submitting background direct delivery "
+                f"customer={_customer_name!r} task={target_task.name}"
+            )
+            _submit_loop_direct_delivery(_caller_loop)
+            return True
+        except Exception as _bg_submit_err:
+            logger.warning(
+                f"[DIRECT-DELIVERY] Background worker submit failed; "
+                f"falling back to blocking direct delivery "
+                f"customer={_customer_name!r}: {_bg_submit_err}"
+            )
+
+        try:
+            return _run_direct_delivery_blocking()
+        except Exception as _direct_err:
+            if _feige_ds is not None:
+                _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
+            logger.info(
+                f"[DIRECT-DELIVERY] Exception, will fall back to queue: "
+                f"{_direct_err} customer={_customer_name!r}"
+            )
             return False
 
     def _route_async_callback(self, request: Any) -> bool:
@@ -4367,6 +5241,89 @@ class TaskRunner(Generic[Context]):
             # below so the loop stays alive waiting for resume events.
             _step_data = response.get("step") if isinstance(response, dict) else None
             _is_interrupt = isinstance(_step_data, dict) and "__interrupt__" in _step_data
+
+            def _false_response_has_completed_send(_response: Any) -> bool:
+                """Detect graph false-negatives after a successful send_chat.
+
+                Some loop/condition graphs return ``success=False`` when the
+                loop condition evaluates false after work is already complete.
+                In the flood logs this happened after ``send_chat`` succeeded
+                and ``llm_result.all_done`` was true, so the Q&A service task
+                was incorrectly counted as failed and eventually disabled by
+                the max-failure guard.
+                """
+                if not isinstance(_response, dict) or _response.get("success") is not False:
+                    return False
+                if _response.get("Error") or _response.get("error"):
+                    return False
+
+                roots: list[Any] = [_response.get("step")]
+                cp = _response.get("cp")
+                cp_values = getattr(cp, "values", None)
+                if isinstance(cp_values, dict):
+                    roots.append(cp_values)
+
+                seen: set[int] = set()
+                stack: list[tuple[Any, int]] = [(r, 0) for r in roots if r is not None]
+                inspected = 0
+                while stack and inspected < 500:
+                    obj, depth = stack.pop()
+                    oid = id(obj)
+                    if oid in seen:
+                        continue
+                    seen.add(oid)
+                    inspected += 1
+                    if depth > 7:
+                        continue
+                    if isinstance(obj, dict):
+                        llm_result = obj.get("llm_result")
+                        if isinstance(llm_result, dict):
+                            work_result = llm_result.get("work_result")
+                            if not isinstance(work_result, dict):
+                                work_result = {}
+                            if (
+                                llm_result.get("all_done") is True
+                                and (
+                                    str(llm_result.get("tool_name") or "") == "send_chat"
+                                    or work_result.get("last_action_succeeded") is True
+                                    or work_result.get("chat_sent") is True
+                                )
+                            ):
+                                return True
+
+                        send_chat_result = obj.get("send_chat_result")
+                        if (
+                            isinstance(send_chat_result, dict)
+                            and send_chat_result.get("success") is True
+                        ):
+                            return True
+
+                        for key, val in obj.items():
+                            if key in {"prompts", "history", "messages", "threads", "events"}:
+                                continue
+                            if isinstance(val, (dict, list, tuple)):
+                                stack.append((val, depth + 1))
+                        continue
+
+                    if isinstance(obj, (list, tuple)):
+                        for val in obj:
+                            if isinstance(val, (dict, list, tuple)):
+                                stack.append((val, depth + 1))
+                return False
+
+            if (
+                isinstance(response, dict)
+                and response.get("success") is False
+                and not _is_interrupt
+                and _false_response_has_completed_send(response)
+            ):
+                logger.info(
+                    f"[COMPLETE] Treating success=False as completed for "
+                    f"waiter={waiter_task_id}: send_chat already succeeded"
+                )
+                response = dict(response)
+                response["success"] = True
+
             if isinstance(response, dict) and response.get("success") is False and not _is_interrupt:
                 err_text = str(response.get("Error") or response.get("error") or response)
                 logger.error(f"[COMPLETE] Skill failed for waiter={waiter_task_id}: {err_text}")

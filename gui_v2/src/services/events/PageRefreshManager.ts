@@ -97,18 +97,24 @@ export class PageRefreshManager {
         PageRefreshManager.safeSet(PageRefreshManager.STORAGE_PAGE_WAS_REFRESH, isAppRestart ? 'false' : 'true');
         
         if (isAppRestart) {
-            // Check if we just came from the OAuth callback which already
-            // stored valid session data in sessionStorage + localStorage.
-            // In that case, do NOT clear user data — treat as post-login.
+            // Check if we just came from the OAuth callback, which already
+            // stored valid session data. In that case, preserve user data.
             const hasWebAuth = !!sessionStorage.getItem('web_auth_access_token');
             if (hasWebAuth) {
                 logger.info('App first launch with existing web auth session (post-login redirect), preserving data');
                 this.isEnabled = true;
             } else {
-                // 应用首次启动：清除 localStorage，强制显示登录界面
-                logger.info('App first launch detected, clearing user session data');
-                userStorageManager.clearAllUserData();
-                this.isEnabled = false;
+                // Desktop restarts should preserve a valid persisted login;
+                // only clear storage when there is no restorable session.
+                const restored = userStorageManager.restoreUserState();
+                if (restored) {
+                    logger.info('App first launch with valid persisted user session, preserving data');
+                    this.isEnabled = true;
+                } else {
+                    logger.info('App first launch detected without valid session, clearing user session data');
+                    userStorageManager.clearAllUserData();
+                    this.isEnabled = false;
+                }
             }
             // 标记会话已激活
             sessionStorage.setItem('app_session_active', 'true');
@@ -341,4 +347,4 @@ export class PageRefreshManager {
 }
 
 // Export singleton instance
-export const pageRefreshManager = PageRefreshManager.getInstance(); 
+export const pageRefreshManager = PageRefreshManager.getInstance();
