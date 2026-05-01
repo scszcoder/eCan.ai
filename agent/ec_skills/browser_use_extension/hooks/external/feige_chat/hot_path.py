@@ -95,6 +95,7 @@ POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
+HOT_PATH_TOOL_TIMEOUT_S: float = 4.0
 
 
 @dataclass
@@ -441,16 +442,39 @@ async def _run_one_action(
             outcome.reason = reason
             return False
 
-    # Call the tool.
+    # Call the tool.  Bound each browser action so a contended CDP
+    # Runtime.evaluate cannot park HOT-PATH-B until the whole task
+    # times out while the customer waits.
     params = act_obj.param_model(**resolved_args)
-    result = await _invoke_tool(act_obj, params, browser_session)
+    timed_out = False
+    try:
+        result = await asyncio.wait_for(
+            _invoke_tool(act_obj, params, browser_session),
+            timeout=HOT_PATH_TOOL_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        timed_out = True
+        result = None
     action_ok = result and not getattr(result, "error", None)
     if not action_ok:
         err_msg = (
             getattr(result, "error", None)
             if result is not None
-            else "action returned None"
+            else (
+                f"tool timed out after {HOT_PATH_TOOL_TIMEOUT_S:.1f}s"
+                if timed_out
+                else "action returned None"
+            )
         )
+        if tool_name == "feige_open_session" and timed_out:
+            outcome.last_tool_error = str(err_msg or "")
+            outcome.extras["open_session_timeout"] = str(err_msg or "")
+            logger.warning(
+                f"[BrowserAutomation] HOT-PATH-B: {tool_name} timed out "
+                f"args={resolved_args}; continuing to "
+                f"feige_send_message self-open fallback"
+            )
+            return True
         logger.warning(
             f"[BrowserAutomation] HOT-PATH-B: {tool_name} → FAIL "
             f"args={resolved_args} error={err_msg!r}"

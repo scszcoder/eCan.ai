@@ -5,8 +5,8 @@ decision flow that:
 
 1. Asks local to scrape each customer's latest bubble (via
    :class:`ScrapeFunction` proxy)
-2. Applies dedup guards (msg-id strict, dom-echo fallback, legacy
-   assigned_sessions fallback)
+2. Applies dedup guards (msg-id strict, dom-echo fallback,
+   assigned_sessions same-message fallback)
 3. Acquires the cross-customer inflight lock
 4. Routes to a Q&A worker via ``ctx.send_chat``
 5. Records last-dispatched-msg-id for the next cycle's dedup
@@ -33,6 +33,7 @@ What stays identical
 --------------------
 
 * Three-stage dedup: msg-id strict → dom-echo text → assigned_sessions
+  same-message text
 * Inflight-acquire-before-send protocol (closes the 100-500ms window
   v1 docstring identifies as a duplicate-fire risk)
 * On send_chat success: record last-dispatched-msg-id; on failure:
@@ -158,11 +159,17 @@ def _check_dom_echo_fallback(
     state_get: Callable[[str, Any], Any],
 ) -> tuple[bool, str]:
     """Two secondary defences when the chat-thread scrape failed:
-    text-based dom-echo, and legacy assigned_sessions heuristic.
+    text-based dom-echo, and assigned_sessions same-message dedup.
     """
     # (a) text-based dom-echo
     last_reply = state_get(_LAST_AGENT_REPLY_PREFIX + customer_key, "") or ""
-    item_last_norm = _normalize_reply_text(item.get("last_message") or "")
+    item_last_raw = str(
+        item.get("last_message")
+        or item.get("latest_message")
+        or item.get("message")
+        or ""
+    )
+    item_last_norm = _normalize_reply_text(item_last_raw)
     if last_reply and item_last_norm and item_last_norm == last_reply:
         logger.info(
             f"[V2 pre_dispatch] dom-echo skip session={session_id!r} "
@@ -171,14 +178,32 @@ def _check_dom_echo_fallback(
         )
         return True, "dom_echo"
 
-    # (b) legacy assigned_sessions
+    # (b) assigned_sessions same-message guard
     assigned = state_get(_ASSIGNED_SESSION_PREFIX + session_id, None)
     if assigned:
+        prior_text = ""
+        if isinstance(assigned, dict):
+            prior_text = str(
+                assigned.get("latest_message")
+                or assigned.get("last_message")
+                or assigned.get("source_latest_message")
+                or ""
+            )
+        prior_norm = _normalize_reply_text(prior_text) if prior_text else ""
+        if prior_norm and item_last_norm and prior_norm == item_last_norm:
+            logger.info(
+                f"[V2 pre_dispatch] assigned-sessions skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(same message already assigned; prior assignment={assigned})"
+            )
+            return True, "assigned_sessions_same_message"
         logger.info(
-            f"[V2 pre_dispatch] assigned-sessions skip session={session_id!r} "
-            f"cust={customer_key!r} (prior assignment={assigned})"
+            f"[V2 pre_dispatch] assigned-sessions supersede "
+            f"session={session_id!r} cust={customer_key!r} "
+            f"(current sidebar text differs from prior assignment, "
+            f"allowing dispatch; current={item_last_raw[:80]!r}, "
+            f"prior={prior_text[:80]!r}, prior assignment={assigned})"
         )
-        return True, "assigned_sessions_legacy"
 
     return False, ""
 
@@ -410,6 +435,9 @@ async def _dispatch_one_item(
         {
             "recipient_agent_id": recipient_agent_id,
             "message_id": outcome.message_id,
+            "latest_message": latest_msg,
+            "last_message": latest_msg,
+            "latest_message_msg_id": scrape.msg_id,
         },
     )
 
