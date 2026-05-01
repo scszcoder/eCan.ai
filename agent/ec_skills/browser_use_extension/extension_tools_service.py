@@ -2757,6 +2757,61 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     return '';
   }
+  function latestVisibleBubble() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      if (!bubble) continue;
+      var text = (bubble.querySelector('pre') || bubble).textContent.trim();
+      if (bubble.classList.contains('messageIsMe')) {
+        if (!text) continue;
+        return { found: true, sender: 'agent', text: text };
+      }
+      if (bubble.classList.contains('messageNotMe')) {
+        if (!text) {
+          var customerRow = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+          var customerImgs = Array.from(customerRow ? customerRow.querySelectorAll('img') : []);
+          for (var ci = 0; ci < customerImgs.length; ci++) {
+            var cim = customerImgs[ci];
+            var ccls = (cim.className || '').toString();
+            var calt = (cim.getAttribute('alt') || '').trim();
+            if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(ccls)) continue;
+            if (calt === 'å¤´åƒ') continue;
+            var csrc = cim.src || cim.getAttribute('src') || '';
+            if (csrc && csrc.indexOf('data:image/svg') !== 0) {
+              return { found: true, sender: 'customer', text: '' };
+            }
+          }
+          continue;
+        }
+        return { found: true, sender: 'customer', text: text };
+      }
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      var direction = row ? String(row.style.flexDirection || '') : '';
+      if (!text && direction.indexOf('reverse') === -1) {
+        var imgs = Array.from(row ? row.querySelectorAll('img') : []);
+        for (var k = 0; k < imgs.length; k++) {
+          var im = imgs[k];
+          var cls = (im.className || '').toString();
+          var alt = (im.getAttribute('alt') || '').trim();
+          if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+          if (alt === 'å¤´åƒ') continue;
+          var src = im.src || im.getAttribute('src') || '';
+          if (src && src.indexOf('data:image/svg') !== 0) {
+            return { found: true, sender: 'customer', text: '' };
+          }
+        }
+      }
+      if (!text) continue;
+      return {
+        found: true,
+        sender: direction.indexOf('reverse') !== -1 ? 'agent' : 'customer',
+        text: text
+      };
+    }
+    return { found: false, sender: '', text: '' };
+  }
   function latestCustomerBubble() {
     var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
     for (var i = wrappers.length - 1; i >= 0; i--) {
@@ -2934,6 +2989,19 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
 
   var beforeAgentText = latestAgentBubbleText();
+  var latestBeforeInput = latestVisibleBubble();
+  if (
+    latestBeforeInput.found &&
+    latestBeforeInput.sender === 'agent' &&
+    sameText(latestBeforeInput.text, text)
+  ) {
+    return JSON.stringify({
+      sent: true,
+      method: 'dedup_latest_agent_bubble',
+      selector: '',
+      verified: 'already_sent_bubble'
+    });
+  }
   setValue(input, text);
   await sleep(80);
   if (!sameText(readValue(input), text)) {
