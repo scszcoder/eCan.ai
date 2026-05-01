@@ -758,6 +758,11 @@ async def _dispatch_one_item(
             "recipient_agent_id": recipient_agent_id,
             "message_id": str(send_result.get("message_id") or ""),
             "timestamp": int(send_result.get("timestamp") or 0),
+            "latest_message": str(assignment_payload.get("latest_message") or ""),
+            "last_message": str(assignment_payload.get("latest_message") or ""),
+            "latest_message_msg_id": str(
+                assignment_payload.get("latest_message_msg_id") or ""
+            ),
         }
         if scraped_msg_id:
             ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id

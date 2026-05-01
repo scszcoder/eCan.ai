@@ -38,8 +38,11 @@ For each item the front-desk fast-path is about to dispatch:
    - **text-based dom-echo**: skip if the sidebar ``last_message``
      (whitespace-normalised, prefix-limited) matches the reply that
      HOT-PATH-B pre-recorded just before it typed.
-   - **legacy assigned_sessions heuristic**: skip if this
-     ``session_id`` already has an active assignment record.
+   - **assigned_sessions text match**: skip only if this
+     ``session_id`` already has an active assignment record for the
+     same sidebar/customer text.  A newer sidebar preview must
+     supersede the prior assignment even when thread scraping is
+     temporarily unavailable.
 
 Contract
 --------
@@ -202,13 +205,20 @@ def _check_dom_echo_fallback(
     failed to return a usable msg-id.
 
     Returns ``(skip, reason)``.  Reasons: ``"dom_echo"`` (text match
-    against our pre-recorded reply) or ``"assigned_sessions_legacy"``
-    (legacy per-session dedup).
+    against our pre-recorded reply) or
+    ``"assigned_sessions_same_message"``.
     """
+    item_last_raw = str(
+        item.get("last_message")
+        or item.get("latest_message")
+        or item.get("message")
+        or ""
+    )
+    item_last_norm = ""
     # (a) text-based dom-echo.
     try:
         last_agent_reply = last_agent_reply_cache.get(customer_key, "")
-        item_last_norm = normalize_reply_text(item.get("last_message") or "")
+        item_last_norm = normalize_reply_text(item_last_raw)
         if (
             last_agent_reply
             and item_last_norm
@@ -228,15 +238,42 @@ def _check_dom_echo_fallback(
             f"failed: {exc}"
         )
 
-    # (b) legacy assigned_sessions heuristic.
-    if assigned_sessions.get(session_id):
+    # (b) assigned_sessions text-match heuristic.
+    #
+    # Older code skipped on *any* prior assignment when thread scraping
+    # failed.  That is unsafe under CDP contention: a customer can send
+    # a newer sidebar-visible message while the stale assignment remains
+    # present, and the front desk will silently suppress the new turn.
+    # Only dedup when the prior assignment recorded the same message
+    # text; otherwise the newer sidebar preview supersedes the pending
+    # assignment.
+    assigned = assigned_sessions.get(session_id)
+    if assigned:
+        prior_text = ""
+        if isinstance(assigned, dict):
+            prior_text = str(
+                assigned.get("latest_message")
+                or assigned.get("last_message")
+                or assigned.get("source_latest_message")
+                or ""
+            )
+        prior_norm = normalize_reply_text(prior_text) if prior_text else ""
+        if prior_norm and item_last_norm and prior_norm == item_last_norm:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} assigned-sessions skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(thread-scrape unavailable; same message already "
+                f"assigned; prior assignment={assigned})"
+            )
+            return True, "assigned_sessions_same_message"
         logger.info(
-            f"[BrowserAutomation] {log_tag} assigned-sessions skip "
+            f"[BrowserAutomation] {log_tag} assigned-sessions supersede "
             f"session={session_id!r} cust={customer_key!r} "
-            f"(thread-scrape unavailable, falling back to legacy "
-            f"dedup; prior assignment={assigned_sessions.get(session_id)})"
+            f"(thread-scrape unavailable; current sidebar text differs "
+            f"from prior assignment, allowing dispatch; "
+            f"current={item_last_raw[:80]!r}, prior={prior_text[:80]!r}, "
+            f"prior assignment={assigned})"
         )
-        return True, "assigned_sessions_legacy"
     return False, ""
 
 
