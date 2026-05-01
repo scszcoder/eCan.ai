@@ -11,6 +11,7 @@ This module provides the main TaskRunner class that manages:
 import asyncio
 import concurrent.futures
 import json
+import logging
 import os
 import re
 import shutil
@@ -126,6 +127,12 @@ try:
     )
 except (TypeError, ValueError):
     _DIRECT_FEIGE_REQUEUE_DELAY_S = 0.75
+try:
+    _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = max(
+        0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 0
 _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
@@ -333,6 +340,137 @@ def _snapshot_queue(q: Queue, limit: int = 10) -> str:
         return f"depth={depth} [{' | '.join(summaries)}]{more}"
     except Exception as _e:
         return f"snapshot_error={_e}"
+
+
+def _task_execution_future_running(task: Any) -> bool:
+    """Return True while a task's current skill execution future is still active."""
+    try:
+        future = getattr(task, "future", None)
+        if future is None:
+            return False
+        done = getattr(future, "done", None)
+        if callable(done):
+            return not bool(done())
+        return False
+    except Exception:
+        # If the Future object is in an odd state, prefer preserving queued
+        # messages over starting a second execution that can overwrite state.
+        return True
+
+
+def _queue_msg_text(msg: Any) -> str:
+    """Best-effort text extraction for queue/A2A messages without side effects."""
+    try:
+        if isinstance(msg, dict):
+            for key in ("human_text", "text", "content"):
+                value = msg.get(key)
+                if isinstance(value, str) and value:
+                    return value
+            data = msg.get("data")
+            if isinstance(data, dict):
+                value = data.get("human_text") or data.get("text")
+                if isinstance(value, str) and value:
+                    return value
+            params = msg.get("params")
+            if isinstance(params, dict):
+                value = params.get("content")
+                if isinstance(value, str) and value:
+                    return value
+                message = params.get("message")
+                if isinstance(message, dict):
+                    parts = message.get("parts")
+                    if isinstance(parts, list) and parts:
+                        first = parts[0]
+                        if isinstance(first, dict):
+                            root = first.get("root")
+                            if isinstance(root, dict) and isinstance(root.get("text"), str):
+                                return root["text"]
+                            if isinstance(first.get("text"), str):
+                                return first["text"]
+
+        params = getattr(msg, "params", None)
+        message = getattr(params, "message", None) if params is not None else None
+        if message is None:
+            message = getattr(msg, "message", None)
+        parts = getattr(message, "parts", None)
+        if isinstance(parts, list) and parts:
+            first = parts[0]
+            text = getattr(first, "text", None)
+            if isinstance(text, str) and text:
+                return text
+            root = getattr(first, "root", None)
+            text = getattr(root, "text", None)
+            if isinstance(text, str) and text:
+                return text
+            if isinstance(first, dict):
+                root = first.get("root")
+                if isinstance(root, dict) and isinstance(root.get("text"), str):
+                    return root["text"]
+                if isinstance(first.get("text"), str):
+                    return first["text"]
+    except Exception:
+        return ""
+    return ""
+
+
+def _feige_payload_from_queue_msg(msg: Any) -> dict[str, Any]:
+    """Extract the structured Feige customer payload from a queued message."""
+    try:
+        if isinstance(msg, dict) and (
+            msg.get("customer_id") or msg.get("customer_name")
+        ):
+            return dict(msg)
+        text = _queue_msg_text(msg)
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        if not (
+            parsed.get("customer_id")
+            or parsed.get("customer_name")
+            or parsed.get("response_text")
+        ):
+            return {}
+        return parsed
+    except Exception:
+        return {}
+
+
+def _log_feige_runner_stage(
+    stage: str,
+    msg: Any,
+    *,
+    task: Any = None,
+    level: int = logging.INFO,
+    **fields: Any,
+) -> None:
+    """Best-effort Feige ledger logging for runner queue/submit transitions."""
+    try:
+        payload = _feige_payload_from_queue_msg(msg)
+        if not payload:
+            return
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+            log_payload as _ledger_payload,
+        )
+
+        extra = dict(fields)
+        if task is not None:
+            extra.setdefault("target_task", getattr(task, "name", ""))
+            extra.setdefault("task_id", getattr(task, "id", ""))
+            try:
+                extra.setdefault(
+                    "task_state",
+                    str(getattr(getattr(task, "status", None), "state", "")),
+                )
+            except Exception:
+                pass
+        _ledger_payload(stage, payload, level=level, **extra)
+    except Exception:
+        return
 
 
 def _priority_dequeue(q: Queue, timeout: float) -> Any:
@@ -650,6 +788,7 @@ class TaskRunner(Generic[Context]):
         
         # Per-task state for concurrent execution
         self._task_states: Dict[str, dict] = {}
+        self._task_execution_lock = threading.RLock()
         
         # Dev runner for debugging
         self.dev_runner = DevRunner()
@@ -2420,10 +2559,18 @@ class TaskRunner(Generic[Context]):
                     # with the dequeue-skip-when-working branch below.
                     try:
                         _ts_state = getattr(getattr(target_task, "status", None), "state", None)
+                        _queue_depth = target_task.queue.qsize()
                         logger.info(
                             f"[QUEUE] Message queued for task={target_task.name} "
                             f"enqueued={_describe_queue_msg(request)} task_state={_ts_state!r} "
                             f"queue={_snapshot_queue(target_task.queue, limit=10)}"
+                        )
+                        _log_feige_runner_stage(
+                            "runner_queue_enqueued",
+                            request,
+                            task=target_task,
+                            event_type=event_type,
+                            queue_depth=_queue_depth,
                         )
                     except Exception:
                         logger.info(f"[QUEUE] Message queued for task={target_task.name}")
@@ -2657,11 +2804,11 @@ class TaskRunner(Generic[Context]):
             _ledger("direct_tools_unavailable", has_open=bool(_open_fn), has_send=bool(_send_fn))
             return False
 
-        # 4. Send directly at queue ingress.  Avoid the HOT-PATH-B
+        # 4. Send directly at queue ingress. Avoid the HOT-PATH-B
         # open-session + separate active-customer reverify chain here: under
         # flood those extra CDP round trips are exactly what jammed the
-        # direct-delivery queue.  ``feige_send_message`` now performs the
-        # customer open/match and source-turn guard inside one renderer eval.
+        # direct-delivery queue. ``feige_send_message`` performs the customer
+        # open/match and source-turn guard inside one renderer eval.
         async def _do_guarded_direct_delivery():
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 hot_path_v2 as _hot_path_v2,
@@ -2709,6 +2856,13 @@ class TaskRunner(Generic[Context]):
                 )
             _ledger("direct_tab_target_resolved", target_id=str(_feige_target_id))
 
+            _source_text = str(
+                _parsed.get("source_latest_message")
+                or _parsed.get("latest_message")
+                or _parsed.get("latest_message_text")
+                or ""
+            ).strip()
+
             _outcome = _hot_path_v2.HotPathOutcomeV2()
             _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
                 _typing_lock,
@@ -2718,18 +2872,15 @@ class TaskRunner(Generic[Context]):
             if _customer_name and not _outcome.typing_acquired:
                 _outcome.ok = False
                 _outcome.reason = "typing_lock_busy"
-                _ledger("direct_typing_lock_failed", holder=str(_typing_lock.holder() or ""))
+                _ledger(
+                    "direct_typing_lock_failed",
+                    holder=str(_typing_lock.holder() or ""),
+                )
                 return _outcome
             _ledger("direct_typing_lock_acquired")
 
             try:
                 _outcome.actions_attempted = 1
-                _source_text = str(
-                    _parsed.get("source_latest_message")
-                    or _parsed.get("latest_message")
-                    or _parsed.get("latest_message_text")
-                    or ""
-                ).strip()
                 _send_args = {
                     "text": _response_text,
                     "customer_name": _customer_name,
@@ -2741,6 +2892,7 @@ class TaskRunner(Generic[Context]):
                 _ledger(
                     "direct_feige_send_start",
                     source_latest_preview=_source_text,
+                    executor="feige_send_message_self_open",
                 )
                 _send_params = _send_fn.param_model(**_send_args)
 
@@ -2748,12 +2900,16 @@ class TaskRunner(Generic[Context]):
 
                 _sig = _inspect.signature(_send_fn.function)
                 if "browser_session" in _sig.parameters:
-                    _raw = await _send_fn.function(
+                    _raw_call = _send_fn.function(
                         params=_send_params,
                         browser_session=_session,
                     )
                 else:
-                    _raw = await _send_fn.function(params=_send_params)
+                    _raw_call = _send_fn.function(params=_send_params)
+                if _inspect.isawaitable(_raw_call):
+                    _raw = await _raw_call
+                else:
+                    _raw = _raw_call
 
                 _err = str(getattr(_raw, "error", "") or "")
                 if _err:
@@ -2773,12 +2929,16 @@ class TaskRunner(Generic[Context]):
                         "direct_feige_send_failed",
                         reason=_outcome.reason,
                         error=_err,
+                        executor="feige_send_message_self_open",
                     )
                     return _outcome
 
                 _outcome.ok = True
                 _outcome.reason = "all_ok"
-                _ledger("direct_feige_send_success")
+                _ledger(
+                    "direct_feige_send_success",
+                    executor="feige_send_message_self_open",
+                )
                 return _outcome
             except Exception as _send_err:
                 _outcome.ok = False
@@ -2788,7 +2948,11 @@ class TaskRunner(Generic[Context]):
                     f"[DIRECT-DELIVERY] direct feige_send_message exception "
                     f"customer={_customer_name!r}: {_send_err}"
                 )
-                _ledger("direct_feige_send_exception", error=str(_send_err))
+                _ledger(
+                    "direct_feige_send_exception",
+                    error=str(_send_err),
+                    executor="feige_send_message_self_open",
+                )
                 return _outcome
             finally:
                 if _outcome.typing_acquired and _customer_name:
@@ -2901,8 +3065,24 @@ class TaskRunner(Generic[Context]):
             if _reason == "tool_failed:feige_send_message":
                 if not _error:
                     return True
+                # A CDP Runtime.evaluate timeout means the browser renderer did
+                # not answer the send script within the hard eval timeout. In
+                # flood tests, immediate requeues of this exact failure never
+                # recovered, but they consumed the single direct-delivery worker
+                # for another 6s per attempt and blocked fresh replies behind
+                # doomed retries. Let the normal front-desk fallback path take
+                # over instead of head-of-line blocking the direct queue.
+                if (
+                    "CDP Runtime.evaluate timed out" in _error
+                ):
+                    _ledger(
+                        "direct_requeue_suppressed",
+                        reason=_reason,
+                        error=_error,
+                        policy="browser_eval_timeout_no_direct_requeue",
+                    )
+                    return False
                 transient_markers = (
-                    "CDP Runtime.evaluate timed out",
                     "Input box not found",
                     "Session not found",
                     "Active customer mismatch",
@@ -3177,7 +3357,7 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         pass
 
-        def _submit_loop_direct_delivery(_caller_loop: Any = None) -> None:
+        def _submit_loop_direct_delivery(_caller_loop: Any = None) -> bool:
             global _DIRECT_FEIGE_ASYNC_WORKER
             with _DIRECT_FEIGE_ASYNC_WORKER_LOCK:
                 _entry = _DIRECT_FEIGE_ASYNC_WORKER
@@ -3253,6 +3433,26 @@ class TaskRunner(Generic[Context]):
                 _caller_loop_id = id(_caller_loop) if _caller_loop is not None else 0
             except Exception:
                 _caller_loop_id = 0
+            if (
+                _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH > 0
+                and _depth > _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH
+            ):
+                logger.warning(
+                    f"[DIRECT-DELIVERY] Bypassing direct delivery due to "
+                    f"async queue backpressure customer={_customer_name!r} "
+                    f"async_queue_depth={_depth} "
+                    f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
+                    f"worker_loop_id={id(_worker_loop)} "
+                    f"caller_loop_id={_caller_loop_id}"
+                )
+                _ledger(
+                    "direct_backpressure_bypass",
+                    async_queue_depth=_depth,
+                    max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
+                    worker_loop_id=id(_worker_loop),
+                    caller_loop_id=_caller_loop_id,
+                )
+                return False
             logger.info(
                 f"[DIRECT-DELIVERY] Queued background direct delivery "
                 f"customer={_customer_name!r} async_queue_depth={_depth} "
@@ -3273,6 +3473,7 @@ class TaskRunner(Generic[Context]):
             except Exception as _enqueue_err:
                 _ledger("direct_job_enqueue_failed", error=str(_enqueue_err))
                 raise
+            return True
 
         _caller_loop = None
         try:
@@ -3287,8 +3488,15 @@ class TaskRunner(Generic[Context]):
                 f"[DIRECT-DELIVERY] Submitting background direct delivery "
                 f"customer={_customer_name!r} task={target_task.name}"
             )
-            _submit_loop_direct_delivery(_caller_loop)
-            return True
+            if _submit_loop_direct_delivery(_caller_loop):
+                return True
+            if _feige_ds is not None:
+                _feige_ds.unclaim_send_for_turn(
+                    _customer_name,
+                    _response_text,
+                    _source_msg_id,
+                )
+            return False
         except Exception as _bg_submit_err:
             logger.warning(
                 f"[DIRECT-DELIVERY] Background worker submit failed; "
@@ -3772,7 +3980,8 @@ class TaskRunner(Generic[Context]):
             # Wait until the task is idle (input_required / completed / failed)
             # so the next dequeue can actually be processed.
             _cur_state = getattr(getattr(current_task, "status", None), "state", None)
-            if _cur_state == TaskState.working:
+            _future_running = _task_execution_future_running(current_task)
+            if _cur_state == TaskState.working or _future_running:
                 # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
                 # the most likely place a chat_message sits stranded: task is still
                 # working so we do not touch the queue. Throttle to avoid spam (~1/s).
@@ -3784,9 +3993,24 @@ class TaskRunner(Generic[Context]):
                         _now = _t_busy.time()
                         if _now - _last_log_t.get(current_task.id, 0.0) > 1.0:
                             logger.info(
-                                f"[QUEUE-TRACE] dequeue SKIPPED (task state=working): "
+                                f"[QUEUE-TRACE] dequeue SKIPPED (task busy): "
+                                f"state={_cur_state!r} future_running={_future_running} "
                                 f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
                             )
+                            try:
+                                with current_task.queue.mutex:
+                                    _head_msg = current_task.queue.queue[0] if current_task.queue.queue else None
+                                if _head_msg is not None:
+                                    _log_feige_runner_stage(
+                                        "runner_queue_busy_wait",
+                                        _head_msg,
+                                        task=current_task,
+                                        task_state=str(_cur_state),
+                                        future_running=bool(_future_running),
+                                        queue_depth=_qd,
+                                    )
+                            except Exception:
+                                pass
                             _last_log_t[current_task.id] = _now
                             self._last_busy_skip_log_t = _last_log_t
                 except Exception:
@@ -3802,6 +4026,16 @@ class TaskRunner(Generic[Context]):
                 if isinstance(msg, dict):
                     msg["__trigger_source__"] = "message"
 
+                try:
+                    _log_feige_runner_stage(
+                        "runner_queue_dequeued",
+                        msg,
+                        task=current_task,
+                        trigger_type="message",
+                        remaining_queue_depth=current_task.queue.qsize(),
+                    )
+                except Exception:
+                    pass
                 return current_task, msg, True
 
             except Empty:
@@ -3963,6 +4197,54 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
+        try:
+            _log_feige_runner_stage(
+                "runner_submit_enter",
+                msg,
+                task=task,
+                call_id=_call_id,
+                trigger_type=trigger_type,
+                has_real_message=bool(_has_real_message),
+                future_running=_task_execution_future_running(task),
+                queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
+            )
+        except Exception:
+            pass
+
+        # TaskState can briefly read input_required while the previous
+        # resume/LLM execution future is still active. Under message floods that
+        # allowed multiple SkillExec futures for the same Q&A task to mutate the
+        # same LangGraph checkpoint/state concurrently, so a dequeued customer
+        # turn could be overwritten before reaching the LLM node. Treat the
+        # execution Future as the source of truth for per-task serialization.
+        if _task_execution_future_running(task):
+            if _has_real_message:
+                try:
+                    task.queue.put_nowait(msg)
+                    logger.info(
+                        f"[SUBMIT][{_call_id}] Re-queued message for '{task.name}' "
+                        f"because prior execution future is still running; "
+                        f"queue={_snapshot_queue(task.queue, limit=10)}"
+                    )
+                    _log_feige_runner_stage(
+                        "runner_submit_future_busy_requeued",
+                        msg,
+                        task=task,
+                        call_id=_call_id,
+                        trigger_type=trigger_type,
+                        queue_depth=task.queue.qsize(),
+                    )
+                except Exception as _requeue_err:
+                    logger.error(
+                        f"[SUBMIT][{_call_id}] Failed to re-queue message for "
+                        f"'{task.name}' while prior execution future is running: {_requeue_err}"
+                    )
+                return
+            logger.info(
+                f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
+                f"execution future is still running"
+            )
+            return
         
         # Block re-submission while already working. A second concurrent execution
         # shares the cached browser-use agent object and other module-level state,
@@ -4001,6 +4283,14 @@ class TaskRunner(Generic[Context]):
             try:
                 task.queue.put_nowait(msg)
                 logger.info(f"[SUBMIT][{_call_id}] Re-queued message for '{task.name}'")
+                _log_feige_runner_stage(
+                    "runner_submit_state_working_requeued",
+                    msg,
+                    task=task,
+                    call_id=_call_id,
+                    trigger_type=trigger_type,
+                    queue_depth=task.queue.qsize(),
+                )
             except Exception as _requeue_err:
                 logger.error(f"[SUBMIT][{_call_id}] Failed to re-queue message for '{task.name}': {_requeue_err}")
             return
@@ -4104,18 +4394,66 @@ class TaskRunner(Generic[Context]):
             pass
 
         def _execute():
+            _exec_start = time_module.time()
+            try:
+                _log_feige_runner_stage(
+                    "runner_execution_start",
+                    msg,
+                    task=task,
+                    call_id=_call_id,
+                    trigger_type=trigger_type,
+                    is_initial_run=bool(is_initial_run),
+                    mode="hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local"),
+                )
+            except Exception:
+                pass
             try:
                 if is_hybrid:
                     return self._execute_hybrid_cloud_task(task, msg, trigger_type, is_initial_run, dev_init_state)
                 if is_pure_cloud:
                     return self._execute_pure_cloud_task(task, trigger_type)
                 return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
+            except Exception as _exec_err:
+                _log_feige_runner_stage(
+                    "runner_execution_exception",
+                    msg,
+                    task=task,
+                    level=logging.ERROR,
+                    call_id=_call_id,
+                    trigger_type=trigger_type,
+                    error=str(_exec_err),
+                )
+                raise
             finally:
+                try:
+                    _log_feige_runner_stage(
+                        "runner_execution_finish",
+                        msg,
+                        task=task,
+                        call_id=_call_id,
+                        trigger_type=trigger_type,
+                        duration_ms=int((time_module.time() - _exec_start) * 1000),
+                    )
+                except Exception:
+                    pass
                 # Mark task done in state tracker
                 if task.id in self._task_states:
                     self._task_states[task.id]["_done"] = True
 
         def _on_complete(future):
+            try:
+                _future_exc = future.exception()
+            except Exception:
+                _future_exc = None
+            _log_feige_runner_stage(
+                "runner_future_callback",
+                msg,
+                task=task,
+                call_id=_call_id,
+                trigger_type=trigger_type,
+                future_done=True,
+                future_exception=str(_future_exc) if _future_exc else "",
+            )
             self._on_skill_complete(future, task, waiter_task_id, trigger_type)
         
         # Prevent idle sleep while task is running
@@ -4131,18 +4469,68 @@ class TaskRunner(Generic[Context]):
         #
         # Clearing is now done INSIDE _execute_skill (below), ONLY when this is
         # a genuine fresh initial run (is_initial_run=True), not a resume.
-        future = self._skill_executor.submit(_execute)
-        future.add_done_callback(_on_complete)
-        
-        # CRITICAL: Save Future reference to task so cancel() can work
-        task.future = future
-        logger.debug(f"[SUBMIT] Saved Future reference to task {task.name} for cancellation support")
-        
-        # Mark task as running (in-memory + IPC to frontend)
-        try:
-            task.status.state = TaskState.working
-        except Exception:
-            pass
+        _submit_lock = getattr(self, "_task_execution_lock", None)
+        if _submit_lock is None:
+            _submit_lock = threading.RLock()
+            try:
+                self._task_execution_lock = _submit_lock
+            except Exception:
+                pass
+
+        with _submit_lock:
+            if _task_execution_future_running(task):
+                if _has_real_message:
+                    try:
+                        task.queue.put_nowait(msg)
+                        logger.info(
+                            f"[SUBMIT][{_call_id}] Re-queued message for '{task.name}' "
+                            f"at submit lock because prior execution future is still running; "
+                            f"queue={_snapshot_queue(task.queue, limit=10)}"
+                        )
+                        _log_feige_runner_stage(
+                            "runner_submit_future_busy_requeued",
+                            msg,
+                            task=task,
+                            call_id=_call_id,
+                            trigger_type=trigger_type,
+                            queue_depth=task.queue.qsize(),
+                            submit_lock=True,
+                        )
+                    except Exception as _requeue_err:
+                        logger.error(
+                            f"[SUBMIT][{_call_id}] Failed to re-queue message for "
+                            f"'{task.name}' at submit lock: {_requeue_err}"
+                        )
+                    return
+                logger.info(
+                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' at submit lock "
+                    f"because prior execution future is still running"
+                )
+                return
+
+            future = self._skill_executor.submit(_execute)
+
+            # CRITICAL: Save Future reference to task so cancel() can work, and
+            # so the queue loop can serialize subsequent messages for this task.
+            task.future = future
+            logger.debug(f"[SUBMIT] Saved Future reference to task {task.name} for cancellation support")
+
+            # Mark task as running (in-memory + IPC to frontend)
+            try:
+                task.status.state = TaskState.working
+            except Exception:
+                pass
+            _log_feige_runner_stage(
+                "runner_submit_accepted",
+                msg,
+                task=task,
+                call_id=_call_id,
+                trigger_type=trigger_type,
+                future_id=id(future),
+                is_initial_run=bool(is_initial_run),
+                mode="hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local"),
+            )
+            future.add_done_callback(_on_complete)
         self._emit_task_status(task, "running")
 
         task_mode = "hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local")
@@ -5250,7 +5638,9 @@ class TaskRunner(Generic[Context]):
                 In the flood logs this happened after ``send_chat`` succeeded
                 and ``llm_result.all_done`` was true, so the Q&A service task
                 was incorrectly counted as failed and eventually disabled by
-                the max-failure guard.
+                the max-failure guard.  The same false-negative shape also
+                appears when a configurable hot path finishes a browser send
+                and parks the long-running task back on ``pend_event``.
                 """
                 if not isinstance(_response, dict) or _response.get("success") is not False:
                     return False
@@ -5282,9 +5672,18 @@ class TaskRunner(Generic[Context]):
                             if not isinstance(work_result, dict):
                                 work_result = {}
                             if (
+                                llm_result.get("Error")
+                                or llm_result.get("error")
+                                or work_result.get("Error")
+                                or work_result.get("error")
+                            ):
+                                continue
+                            if (
                                 llm_result.get("all_done") is True
                                 and (
-                                    str(llm_result.get("tool_name") or "") == "send_chat"
+                                    llm_result.get("hot_path") is True
+                                    or str(llm_result.get("tool_name") or "") == "send_chat"
+                                    or str(llm_result.get("hot_path_type") or "") == "configurable"
                                     or work_result.get("last_action_succeeded") is True
                                     or work_result.get("chat_sent") is True
                                 )
@@ -5319,7 +5718,7 @@ class TaskRunner(Generic[Context]):
             ):
                 logger.info(
                     f"[COMPLETE] Treating success=False as completed for "
-                    f"waiter={waiter_task_id}: send_chat already succeeded"
+                    f"waiter={waiter_task_id}: work already completed"
                 )
                 response = dict(response)
                 response["success"] = True

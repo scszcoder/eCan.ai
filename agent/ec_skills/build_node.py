@@ -847,7 +847,8 @@ def _augment_send_chat_reply_with_source_turn(actual_tool_input, state: dict):
         or inbound.get("reply_to_msg_id")
         or ""
     ).strip()
-    if not source_msg_id:
+    latest_text = str(inbound.get("latest_message") or "").strip()
+    if not source_msg_id and not latest_text:
         return actual_tool_input
 
     out_cust = str(
@@ -872,17 +873,22 @@ def _augment_send_chat_reply_with_source_turn(actual_tool_input, state: dict):
         if out_cust and in_cust and out_cust != in_cust:
             return actual_tool_input
 
-    if not msg_obj.get("source_customer_msg_id"):
+    if source_msg_id and not msg_obj.get("source_customer_msg_id"):
         msg_obj["source_customer_msg_id"] = source_msg_id
-    latest_text = str(inbound.get("latest_message") or "").strip()
     if latest_text and not msg_obj.get("source_latest_message"):
         msg_obj["source_latest_message"] = latest_text
 
     target["message"] = json.dumps(msg_obj, ensure_ascii=False, separators=(",", ":"))
-    logger.info(
-        "[MCP Auto-Select] Attached source_customer_msg_id to send_chat "
-        f"reply for customer={out_cust or in_cust!r} msg_id=...{source_msg_id[-8:]}"
-    )
+    if source_msg_id:
+        logger.info(
+            "[MCP Auto-Select] Attached source_customer_msg_id to send_chat "
+            f"reply for customer={out_cust or in_cust!r} msg_id=...{source_msg_id[-8:]}"
+        )
+    else:
+        logger.info(
+            "[MCP Auto-Select] Attached source_latest_message to send_chat "
+            f"reply for customer={out_cust or in_cust!r}"
+        )
     return actual_tool_input
 
 
