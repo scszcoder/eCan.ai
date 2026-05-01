@@ -47,6 +47,9 @@ except ImportError:
 # Used for cleanup when sessions close or runners shut down
 _active_monitor_sets: Dict[str, ActiveMonitorSet] = {}
 _session_start_locks: Dict[int, asyncio.Lock] = {}
+_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S = float(
+    os.getenv("ECAN_MONITOR_CDP_EVALUATE_TIMEOUT_S", "3.0")
+)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +146,42 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             await client.stop()
         except Exception:
             pass
+
+
+async def _monitor_runtime_evaluate(
+    session: Any,
+    mon_client: Any,
+    params: Dict[str, Any],
+    *,
+    session_id: str,
+) -> Dict[str, Any]:
+    """Run monitor Runtime.evaluate without racing Feige send/scrape evals."""
+
+    async def _send_eval() -> Dict[str, Any]:
+        return await mon_client.send_raw(
+            "Runtime.evaluate",
+            params,
+            session_id=session_id,
+        )
+
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+            session_cdp_operation_lock,
+        )
+        operation_lock = session_cdp_operation_lock(session)
+    except Exception:
+        operation_lock = None
+
+    if operation_lock is not None:
+        async with operation_lock:
+            return await asyncio.wait_for(
+                _send_eval(),
+                timeout=_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S,
+            )
+    return await asyncio.wait_for(
+        _send_eval(),
+        timeout=_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S,
+    )
 
 
 def register_monitor_set(monitor_set: ActiveMonitorSet) -> None:
@@ -1836,8 +1875,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # ── Only fetch URL if actually going to poll (moved after interval check) ──
         current_url = "unknown"
         try:
-            url_result = await mon_client.send_raw(
-                "Runtime.evaluate",
+            url_result = await _monitor_runtime_evaluate(
+                session,
+                mon_client,
                 {"expression": "window.location.href"},
                 session_id=mon_sid,
             )
@@ -1853,8 +1893,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         try:
             if not runtime_expr:
                 runtime_expr = _build_dom_runtime_expression(extractor_cfg)
-            result = await mon_client.send_raw(
-                "Runtime.evaluate",
+            result = await _monitor_runtime_evaluate(
+                session,
+                mon_client,
                 {"expression": runtime_expr, "awaitPromise": True},
                 session_id=mon_sid,
             )
@@ -2047,8 +2088,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
 }})()
 """
                     mutation_state["_dom_debug_dump_expr"] = _dump_expr
-                _dump_result = await mon_client.send_raw(
-                    "Runtime.evaluate",
+                _dump_result = await _monitor_runtime_evaluate(
+                    session,
+                    mon_client,
                     {"expression": _dump_expr},
                     session_id=mon_sid,
                 )
@@ -2239,6 +2281,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
                     last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
                     normalize_reply_text as _feige_normalize_reply_text,
+                    reply_echo_matches as _feige_reply_echo_matches,
                 )
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
                     _normalize_dispatch_identity_key as _feige_normalize_customer_key,
@@ -2265,7 +2308,10 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         if (
                             _cust_key
                             and _last_msg_norm
-                            and _feige_last_agent_reply_by_customer.get(_cust_key) == _last_msg_norm
+                            and _feige_reply_echo_matches(
+                                _last_msg_norm,
+                                _feige_last_agent_reply_by_customer.get(_cust_key, ""),
+                            )
                         ):
                             _reason = "dom_echo:last_agent_reply"
                     if _reason:
@@ -2332,8 +2378,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                             "  return 'NO_SEND_BTN';"
                             "})()"
                         )
-                        _ack_result = await _ack_client.send_raw(
-                            "Runtime.evaluate",
+                        _ack_result = await _monitor_runtime_evaluate(
+                            session,
+                            _ack_client,
                             {"expression": _ack_js, "returnByValue": True},
                             session_id=_ack_sid,
                         )
@@ -2432,6 +2479,44 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     "previous_count": current_count,
                 }
             }
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                    log_event as _feige_ledger,
+                )
+
+                for _item in added_items:
+                    if not isinstance(_item, dict):
+                        continue
+                    _cust = (
+                        _item.get("customer_id")
+                        or _item.get("customer_name")
+                        or _item.get("name")
+                        or ""
+                    )
+                    if not _cust:
+                        continue
+                    _feige_ledger(
+                        "dom_observed",
+                        customer=str(_cust),
+                        customer_id=str(_item.get("customer_id") or ""),
+                        customer_name=str(_item.get("customer_name") or _item.get("name") or ""),
+                        session_id=str(_item.get("session_id") or _item.get("identity_key") or ""),
+                        source_msg_id=str(_item.get("latest_message_msg_id") or _item.get("msg_id") or ""),
+                        latest_preview=str(
+                            _item.get("latest_message")
+                            or _item.get("last_message")
+                            or _item.get("message")
+                            or ""
+                        ),
+                        monitor_label=str(cfg.label or ""),
+                        sub_id=sub_id,
+                        emit_on=emit_on,
+                        item_key=str(_item.get(key_field) or _item.get("identity_key") or ""),
+                        added_count=len(added_items),
+                        total_count=customer_count,
+                    )
+            except Exception:
+                pass
             _dispatch_to_runners(
                 cfg.label,
                 event_data,

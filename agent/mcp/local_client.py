@@ -62,27 +62,34 @@ class MCPClientManager:
         
         try:
             # First, try using a persistent session for efficiency
-            try:
-                mgr = Streamable_HTTP_Manager.get(url)
-                # Quick check if persistent session is available
-                logger.debug(f"[MCP] Getting persistent session for '{tool_name}'...")
-                session = await asyncio.wait_for(mgr.session(), timeout=persistent_session_timeout)
-                logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
-                # Use full timeout for the actual tool call
-                result = await asyncio.wait_for(
-                    session.call_tool(tool_name, arguments),
-                    timeout=timeout
+            use_persistent_session = tool_name != "send_chat"
+            if use_persistent_session:
+                try:
+                    mgr = Streamable_HTTP_Manager.get(url)
+                    # Quick check if persistent session is available
+                    logger.debug(f"[MCP] Getting persistent session for '{tool_name}'...")
+                    session = await asyncio.wait_for(mgr.session(), timeout=persistent_session_timeout)
+                    logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
+                    # Use full timeout for the actual tool call
+                    result = await asyncio.wait_for(
+                        session.call_tool(tool_name, arguments),
+                        timeout=timeout
+                    )
+                    logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
+                    return result
+                except asyncio.TimeoutError:
+                    logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
+                    # Reset persistent session so next call can try to recreate it
+                    Streamable_HTTP_Manager.reset()
+                except BaseException as mgr_err:
+                    logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
+                    # Reset persistent session so next call can try to recreate it
+                    Streamable_HTTP_Manager.reset()
+            else:
+                logger.debug(
+                    "[MCP] Skipping persistent session for hot-path send_chat; "
+                    "using isolated ephemeral session"
                 )
-                logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
-                return result
-            except asyncio.TimeoutError:
-                logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
-                # Reset persistent session so next call can try to recreate it
-                Streamable_HTTP_Manager.reset()
-            except BaseException as mgr_err:
-                logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
-                # Reset persistent session so next call can try to recreate it
-                Streamable_HTTP_Manager.reset()
             
             # Fallback to a temporary (ephemeral) session
             try:

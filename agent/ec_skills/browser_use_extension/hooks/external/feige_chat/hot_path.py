@@ -88,7 +88,7 @@ __all__ = ["HotPathOutcome", "execute"]
 
 # Timeouts / retry counts are module-level constants so the caller or a
 # future test can monkey-patch them without touching the executor body.
-TYPING_LOCK_WAIT_ATTEMPTS: int = 30      # 30 × 100 ms = 3 s
+TYPING_LOCK_WAIT_ATTEMPTS: int = 120     # 120 × 100 ms = 12 s
 TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
 POST_OPEN_VERIFY_ATTEMPTS: int = 16       # 16 × 75 ms = 1.2 s
 POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
@@ -136,10 +136,10 @@ class HotPathOutcome:
 async def _acquire_typing_lock(customer_key: str, node_name: str) -> bool:
     """Claim Feige's per-customer typing lock with a bounded wait.
 
-    Waits up to ``TYPING_LOCK_WAIT_ATTEMPTS × INTERVAL_S`` for a prior
-    holder to release.  Returns ``True`` on success, ``False`` if the
-    timeout elapsed (caller proceeds lock-less — degrades to
-    pre-2026-04-22 behaviour with a visible WARN).
+    Waits up to ``TYPING_LOCK_WAIT_ATTEMPTS x INTERVAL_S`` for a prior
+    holder to release. Returns ``True`` on success, ``False`` if the
+    timeout elapsed. Callers must fail closed rather than type without
+    the guard.
     """
     if not customer_key:
         return False
@@ -155,8 +155,8 @@ async def _acquire_typing_lock(customer_key: str, node_name: str) -> bool:
         f"[BrowserAutomation] HOT-PATH-B: could not acquire Feige typing "
         f"lock for cust={customer_key!r} within "
         f"{TYPING_LOCK_WAIT_ATTEMPTS * TYPING_LOCK_WAIT_INTERVAL_S:.1f}s "
-        f"(current holder={typing_lock.holder()!r}); proceeding anyway — "
-        f"race guard bypassed, node={node_name}"
+        f"(current holder={typing_lock.holder()!r}); aborting guarded send, "
+        f"node={node_name}"
     )
     return False
 
@@ -555,6 +555,10 @@ async def execute(
         )
 
     outcome.typing_acquired = await _acquire_typing_lock(customer_key, node_name)
+    if customer_key and not outcome.typing_acquired:
+        outcome.ok = False
+        outcome.reason = "typing_lock_busy"
+        return outcome
 
     try:
         for act in action_seq:

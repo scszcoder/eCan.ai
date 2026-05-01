@@ -41,6 +41,13 @@ from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
 
+_PROMPT_ACTIONABLE_ITEMS_KEY = "_ecan_predispatch_actionable_items"
+_PROMPT_ACTIONABLE_ITEMS_TS_KEY = "_ecan_predispatch_actionable_items_ts"
+_PROMPT_ACTIONABLE_ITEMS_TTL_S = 10.0
+_FEIGE_TYPING_LOCK_WAIT_S = 3.0
+_FEIGE_TYPING_LOCK_POLL_S = 0.05
+_TYPING_LOCK_ACTIVE_SENTINEL = "__typing_lock_active__"
+
 __all__ = [
     "DispatchConfig",
     "DispatchContext",
@@ -181,6 +188,39 @@ def _should_skip_for_event_type(state: dict, log_tag: str) -> bool:
     return False
 
 
+def _event_type_from_state(state: dict) -> str:
+    """Best-effort event type extraction across legacy/current state shapes."""
+    if not isinstance(state, dict):
+        return ""
+
+    def _nested(obj: Any, *path: str) -> Any:
+        cur = obj
+        for key in path:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(key)
+        return cur
+
+    candidates = [
+        state.get("event_type"),
+        _nested(state, "event", "type"),
+        _nested(state, "_event_envelope", "type"),
+        _nested(state, "prompt_refs", "events", "event_type"),
+        _nested(state, "prompt_refs", "events", "type"),
+        _nested(state, "attributes", "browser_event", "event_type"),
+        _nested(state, "attributes", "browser_event", "type"),
+    ]
+    for value in candidates:
+        text = str(value or "").strip().lower()
+        if text:
+            return text
+    return ""
+
+
+def _is_browser_event_trigger(state: dict) -> bool:
+    return _event_type_from_state(state) == "browser_event"
+
+
 def _find_active_monitor(
     agent_obj, ctx: DispatchContext, cfg: DispatchConfig
 ) -> tuple[Any, dict, Any] | tuple[None, None, None]:
@@ -243,6 +283,124 @@ def _validate_monitor_ready(control_state: dict, cfg: DispatchConfig) -> bool:
     return True
 
 
+def _monitor_state_detail(control_state: dict | None, cfg: DispatchConfig) -> str:
+    if not isinstance(control_state, dict):
+        return "no control_state"
+    status = str(control_state.get("last_status") or "").strip().lower()
+    current_url = str(control_state.get("last_current_url") or "").strip()
+    return (
+        f"status={status}, current_url={current_url}, "
+        f"require_path={cfg.require_url_path!r}"
+    )
+
+
+def _get_prompt_actionable_fallback(state: dict) -> tuple[bool, list[dict]]:
+    """Return same-invocation actionable items computed by the prompt hook.
+
+    The prompt-build hook runs before this late PreDispatch hook. During
+    Feige flood tests it can successfully compute actionable DOM rows, while
+    the live monitor's control state is briefly ``starting`` by the time this
+    hook asks for it. Use the prompt-hook rows as a short-lived fallback so
+    transient monitor churn does not fall through into the slow browser-use
+    LLM path.
+    """
+    if not isinstance(state, dict) or _PROMPT_ACTIONABLE_ITEMS_KEY not in state:
+        return False, []
+    raw_items = state.get(_PROMPT_ACTIONABLE_ITEMS_KEY)
+    if not isinstance(raw_items, list):
+        return False, []
+    try:
+        ts = float(state.get(_PROMPT_ACTIONABLE_ITEMS_TS_KEY) or 0.0)
+    except Exception:
+        ts = 0.0
+    if ts <= 0.0 or (time.time() - ts) > _PROMPT_ACTIONABLE_ITEMS_TTL_S:
+        return False, []
+    return True, [dict(item) for item in raw_items if isinstance(item, dict)]
+
+
+def _build_deferred_result(
+    cfg: DispatchConfig,
+    *,
+    reason: str,
+    detail: str = "",
+) -> dict:
+    payload = {
+        "all_done": True,
+        "work_done": False,
+        "hot_path": True,
+        "hot_path_type": "pre_dispatch_deferred",
+        "reason": reason,
+        "message": (
+            f"{cfg.log_tag} deferred before LLM/browser-use fallback"
+            + (f": {detail}" if detail else "")
+        ),
+    }
+    if detail:
+        payload["detail"] = detail
+    return {
+        "final": json.dumps(payload, ensure_ascii=False),
+        "history": f"{cfg.history_prefix}:deferred:{reason}",
+    }
+
+
+def _current_feige_typing_holder(ctx: DispatchContext) -> str:
+    getter = getattr(ctx, "feige_typing_holder_getter", None)
+    if not callable(getter):
+        return ""
+    try:
+        return str(getter() or "").strip()
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] Feige typing-lock holder check failed: {exc}"
+        )
+        return ""
+
+
+async def _wait_for_feige_typing_lock_clear(
+    ctx: DispatchContext,
+    cfg: DispatchConfig,
+    *,
+    wait_s: float = _FEIGE_TYPING_LOCK_WAIT_S,
+) -> str:
+    """Return empty when Feige is safe to scrape; otherwise the holder.
+
+    PreDispatch reads and clicks the same Feige browser session used by
+    response delivery.  If a reply is being typed, scraping sidebar rows
+    would either steal focus or consume stale previews.  Wait briefly for
+    normal sends, then defer so the loop can retry instead of marking the
+    snapshot handled.
+    """
+    holder = _current_feige_typing_holder(ctx)
+    if not holder:
+        return ""
+    deadline = time.monotonic() + max(0.0, wait_s)
+    while time.monotonic() < deadline:
+        await asyncio.sleep(_FEIGE_TYPING_LOCK_POLL_S)
+        holder = _current_feige_typing_holder(ctx)
+        if not holder:
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} resumed after Feige "
+                "typing lock cleared"
+            )
+            return ""
+    logger.info(
+        f"[BrowserAutomation] {cfg.log_tag} deferred: Feige typing lock "
+        f"held by {holder!r}; not scraping sidebar rows while a reply is "
+        "being typed"
+    )
+    return holder
+
+
+def _fallback_session(agent_obj, ctx: DispatchContext):
+    session = getattr(agent_obj, "browser_session", None)
+    if session:
+        return session
+    try:
+        return ctx.cached_browser_sessions.get(ctx.scope_key)
+    except Exception:
+        return None
+
+
 def _resolve_dispatch_state(
     session, ctx: DispatchContext, cfg: DispatchConfig
 ) -> dict:
@@ -288,13 +446,28 @@ def _extract_actionable_items(
             )
             system_reason = first_system_row_match(item)
             if system_reason:
-                logger.info(
-                    f"[BrowserAutomation] {cfg.log_tag} filtered system row "
-                    f"before dispatch reason={system_reason!r} "
-                    f"customer={item.get('customer_name')!r} "
-                    f"last_message={str(item.get('last_message') or '')[:80]!r}"
+                pending_marker = any(
+                    str(item.get(k) or "").strip()
+                    for k in (
+                        "pending_timer",
+                        "unread_badge",
+                        "unread",
+                        "needs_action",
+                    )
                 )
-                continue
+                if not pending_marker:
+                    logger.info(
+                        f"[BrowserAutomation] {cfg.log_tag} filtered system row "
+                        f"before dispatch reason={system_reason!r} "
+                        f"customer={item.get('customer_name')!r} "
+                        f"last_message={str(item.get('last_message') or '')[:80]!r}"
+                    )
+                    continue
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} keeping pending "
+                    f"system-looking row for thread enrichment "
+                    f"reason={system_reason!r} customer={item.get('customer_name')!r}"
+                )
         except Exception as exc:
             logger.debug(
                 f"[BrowserAutomation] {cfg.log_tag} system-row filter failed: {exc}"
@@ -699,9 +872,10 @@ async def _dispatch_one_item(
             _release_inflight_on_early_exit(f"enrich_raised:{type(exc).__name__}")
             return opened_row, "", ""
         if enrich.skip:
-            _release_inflight_on_early_exit(
-                f"enrich_skip:{enrich.skip_reason or 'unspecified'}"
-            )
+            skip_reason = enrich.skip_reason or "unspecified"
+            _release_inflight_on_early_exit(f"enrich_skip:{skip_reason}")
+            if skip_reason == "typing_lock_active":
+                return "", "", _TYPING_LOCK_ACTIVE_SENTINEL
             return opened_row, "", ""
         scraped_msg_id = enrich.scraped_msg_id
         if scraped_msg_id:
@@ -865,20 +1039,63 @@ async def run(
         return None
     if _should_skip_for_event_type(ctx.state, cfg.log_tag):
         return None
-    if not getattr(agent_obj, "browser_session", None):
+    is_browser_event = _is_browser_event_trigger(ctx.state)
+    fallback_session = _fallback_session(agent_obj, ctx)
+    if not fallback_session:
         logger.info(
             f"[BrowserAutomation] {cfg.log_tag} skipped: no browser session on agent"
         )
+        if is_browser_event:
+            return _build_deferred_result(
+                cfg,
+                reason="no_browser_session",
+                detail="no browser session available for browser_event",
+            )
         return None
 
     try:
         monitor_set, control_state, session = _find_active_monitor(agent_obj, ctx, cfg)
         if not monitor_set or not control_state:
-            return None
-        if not _validate_monitor_ready(control_state, cfg):
-            return None
+            has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
+            if has_fallback and is_browser_event:
+                session = session or fallback_session
+                raw_items = fallback_items
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} using prompt-hook "
+                    f"actionable fallback: count={len(raw_items)} "
+                    f"scope={ctx.scope_key}"
+                )
+            elif is_browser_event:
+                return _build_deferred_result(
+                    cfg,
+                    reason="monitor_missing",
+                    detail=(
+                        f"no active monitor with label={cfg.source_monitor_label!r}"
+                    ),
+                )
+            else:
+                return None
+        elif not _validate_monitor_ready(control_state, cfg):
+            has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
+            if has_fallback and is_browser_event:
+                session = session or fallback_session
+                raw_items = fallback_items
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} using prompt-hook "
+                    f"actionable fallback while monitor not ready: "
+                    f"count={len(raw_items)} {_monitor_state_detail(control_state, cfg)}"
+                )
+            elif is_browser_event:
+                return _build_deferred_result(
+                    cfg,
+                    reason="monitor_not_ready",
+                    detail=_monitor_state_detail(control_state, cfg),
+                )
+            else:
+                return None
+        else:
+            raw_items = control_state.get("last_items") or []
 
-        raw_items = control_state.get("last_items") or []
         if not isinstance(raw_items, list):
             raw_items = []
         logger.info(
@@ -901,7 +1118,12 @@ async def run(
                 f"[BrowserAutomation] {cfg.log_tag} skipped: another "
                 f"invocation already running; waiting briefly"
             )
-            deadline = time.monotonic() + 1.5
+            # Flood tests can legitimately overlap browser_event invocations:
+            # one pass may spend several seconds thread-scraping many sessions
+            # while the monitor queues a newer snapshot behind it.  Treat that
+            # as backpressure, not as "handled"; wait long enough for the
+            # in-flight pass to finish so the newer snapshot is still processed.
+            deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 await asyncio.sleep(0.05)
                 lock_acquired = fp_lock.acquire(blocking=False)
@@ -921,6 +1143,8 @@ async def run(
                 "final": json.dumps({
                     "all_done": True,
                     "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "pre_dispatch_busy",
                     "message": f"{cfg.log_tag} busy: another invocation is running",
                 }, ensure_ascii=False),
                 "history": f"{cfg.history_prefix}:busy",
@@ -938,6 +1162,12 @@ async def run(
                     pass
     except Exception as exc:
         logger.warning(f"[BrowserAutomation] {cfg.log_tag} failed: {exc}")
+        if _is_browser_event_trigger(ctx.state):
+            return _build_deferred_result(
+                cfg,
+                reason="exception",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
         return None
 
 

@@ -136,6 +136,34 @@ async def _scrape_and_override_last_message(
     orig_last = str(item.get("last_message") or "")
     new_last = str(scraped.get("text", "") or "")
     if new_last and new_last != orig_last:
+        try:
+            from .system_message_filter import first_matching_pattern
+
+            new_hit = first_matching_pattern(new_last)
+            orig_hit = first_matching_pattern(orig_last)
+            if (
+                new_hit
+                in {
+                    "transfer_to_human_label",
+                    "smart_cs_auto_greeting",
+                    "human_handover_notice",
+                    "store_assignment_notice",
+                }
+                and orig_last
+                and not orig_hit
+            ):
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} thread-scrape ignored "
+                    f"system-looking latest bubble for cust={customer_key!r}: "
+                    f"sidebar={orig_last[:40]!r} thread={new_last[:40]!r} "
+                    f"pattern={new_hit!r}; dispatching sidebar text"
+                )
+                return ""
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} system-looking scrape guard "
+                f"failed for cust={customer_key!r}: {exc}"
+            )
         logger.info(
             f"[BrowserAutomation] {log_tag} thread-scrape overrode "
             f"last_message for cust={customer_key!r}: "
@@ -215,6 +243,10 @@ def _check_dom_echo_fallback(
         or ""
     )
     item_last_norm = ""
+    try:
+        from .dispatch_state import reply_echo_matches as _reply_echo_matches
+    except Exception:
+        _reply_echo_matches = None
     # (a) text-based dom-echo.
     try:
         last_agent_reply = last_agent_reply_cache.get(customer_key, "")
@@ -222,8 +254,20 @@ def _check_dom_echo_fallback(
         if (
             last_agent_reply
             and item_last_norm
-            and item_last_norm == last_agent_reply
+            and (
+                item_last_norm == last_agent_reply
+                or (
+                    _reply_echo_matches is not None
+                    and _reply_echo_matches(item_last_raw, last_agent_reply)
+                )
+            )
         ):
+            if assigned_sessions.pop(session_id, None) is not None:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} dom-echo evicted "
+                    f"assigned_sessions[{session_id!r}] because the agent "
+                    f"reply is now visible in the sidebar"
+                )
             logger.info(
                 f"[BrowserAutomation] {log_tag} dom-echo skip "
                 f"session={session_id!r} cust={customer_key!r} "
@@ -294,13 +338,86 @@ async def enrich_item(
     ground-truth data and apply all Feige-specific skip guards.
 
     See module docstring for the three-stage pipeline.  When
-    *typing_holder_getter* returns a non-empty key different from
-    *customer_key* the thread-scrape yields early to avoid stealing
-    the Feige active session from a concurrent HOT-PATH-B reply.
+    *typing_holder_getter* returns a non-empty key, enrichment skips
+    the thread scrape and uses the sidebar preview so dispatch can
+    continue without stealing focus from a concurrent HOT-PATH-B reply.
     """
-    scraped_msg_id = await _scrape_and_override_last_message(
-        browser_session, item, customer_key, log_tag, typing_holder_getter
-    )
+    # Stage 0: Pre-scrape dom-echo fast-path (added 2026-04-30 20:30).
+    # When the sidebar last_message text already equals our last
+    # recorded agent reply for this customer, we already answered them
+    # and no thread-scrape is required.  This avoids the 6s CDP
+    # Runtime.evaluate timeout that PreDispatch was hitting on every
+    # already-answered customer in the sidebar (observed 2026-04-30
+    # 20:24-20:25 where 5 sequential 6s timeouts produced two 60s
+    # front-desk stalls).  Safe because the sidebar shows the LATEST
+    # entry only -- if the customer had sent a newer message it would
+    # supersede our reply text in last_message.
+    try:
+        _early_last_raw = str(
+            item.get("last_message")
+            or item.get("latest_message")
+            or item.get("message")
+            or ""
+        )
+        _early_prev_reply = auto_dispatch_last_agent_reply.get(customer_key, "")
+        if _early_last_raw and _early_prev_reply:
+            _early_norm = normalize_reply_text(_early_last_raw)
+            try:
+                from .dispatch_state import reply_echo_matches as _reply_echo_matches
+            except Exception:
+                _reply_echo_matches = None
+            if _early_norm and (
+                _early_norm == _early_prev_reply
+                or (
+                    _reply_echo_matches is not None
+                    and _reply_echo_matches(_early_last_raw, _early_prev_reply)
+                )
+            ):
+                if assigned_sessions.pop(session_id, None) is not None:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} pre-scrape "
+                        f"dom-echo evicted assigned_sessions[{session_id!r}] "
+                        f"because the agent reply is now visible in the sidebar"
+                    )
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
+                    f"skip session={session_id!r} cust={customer_key!r} "
+                    f"(sidebar last_message already matches our recorded "
+                    f"reply -- skipping 6s thread scrape)"
+                )
+                return EnrichResult(
+                    skip=True, skip_reason="dom_echo_pre_scrape", scraped_msg_id=""
+                )
+    except Exception as _early_exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
+            f"check failed (non-fatal): {_early_exc}"
+        )
+
+    typing_lock_sidebar_only = False
+    if typing_holder_getter is not None:
+        try:
+            _holder = str(typing_holder_getter() or "").strip()
+        except Exception as _holder_exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} typing-lock check failed "
+                f"(non-fatal): {_holder_exc}"
+            )
+            _holder = ""
+        if _holder:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} typing-lock sidebar-only "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"holder={_holder!r} (not scraping/clicking while Feige "
+                "reply delivery owns the browser)"
+            )
+            typing_lock_sidebar_only = True
+
+    scraped_msg_id = ""
+    if not typing_lock_sidebar_only:
+        scraped_msg_id = await _scrape_and_override_last_message(
+            browser_session, item, customer_key, log_tag, typing_holder_getter
+        )
 
     # Stage 1.5: System / platform message guard.
     #

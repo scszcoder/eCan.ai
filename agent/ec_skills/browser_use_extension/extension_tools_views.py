@@ -403,6 +403,14 @@ class FeigeSendMessageAction(BaseModel):
 		default=None,
 		description="Optional expected active customer name. When provided, the action refuses to type unless the open Feige chat matches.",
 	)
+	source_customer_msg_id: Optional[str] = Field(
+		default=None,
+		description="Optional latest customer message id this reply answers. When provided, the action refuses to send if a newer customer bubble is visible.",
+	)
+	source_latest_message: Optional[str] = Field(
+		default=None,
+		description="Optional latest customer message text this reply answers. Used as a fallback stale-reply guard when message id is unavailable.",
+	)
 
 
 class RagQueryAction(BaseModel):
