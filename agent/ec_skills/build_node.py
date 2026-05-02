@@ -20,7 +20,7 @@ from agent.ec_tasks.pending_events import register_async_operation, resolve_asyn
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_traceback
+from utils.logger_helper import get_traceback, truncate_for_log
 from langgraph.types import interrupt
 from utils.env.secure_store import secure_store, get_current_username
 # REMOVED: from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client  # Moved to lazy import to avoid circular dependency
@@ -718,6 +718,66 @@ def add_to_history(state, messages, max_entries: int = 200):
         state["history"] = state["history"][-max_entries:]
 
 
+def _message_log_summary(msg, *, preview_chars: int = 160) -> dict:
+    """Return a bounded summary for message/state logs."""
+    try:
+        content = getattr(msg, "content", msg)
+        if isinstance(content, list):
+            preview = f"<multimodal parts={len(content)}>"
+            length = sum(len(str(part)) for part in content[:4])
+        else:
+            text = str(content or "")
+            preview = text[:preview_chars]
+            length = len(text)
+        return {
+            "type": type(msg).__name__,
+            "content_len": length,
+            "preview": preview,
+        }
+    except Exception as exc:
+        return {"type": type(msg).__name__, "error": str(exc)}
+
+
+def _sequence_log_summary(items, *, tail: int = 4) -> dict:
+    try:
+        if not isinstance(items, list):
+            return {"type": type(items).__name__, "preview": str(items)[:160]}
+        return {
+            "count": len(items),
+            "tail": [_message_log_summary(m) for m in items[-tail:]],
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _state_log_summary(state: dict) -> dict:
+    """Summarize state without materializing huge prompt/history strings."""
+    try:
+        if not isinstance(state, dict):
+            return {"type": type(state).__name__, "preview": str(state)[:240]}
+        attrs = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+        prompt_refs = state.get("prompt_refs") if isinstance(state.get("prompt_refs"), dict) else {}
+        input_text = str(state.get("input") or "")
+        return {
+            "keys": sorted(str(k) for k in state.keys()),
+            "input_len": len(input_text),
+            "input_preview": input_text[:180],
+            "history": _sequence_log_summary(state.get("history") or []),
+            "prompts": _sequence_log_summary(state.get("prompts") or []),
+            "messages_count": len(state.get("messages") or []) if isinstance(state.get("messages"), list) else None,
+            "events_count": len(state.get("events") or []) if isinstance(state.get("events"), list) else None,
+            "prompt_ref_keys": sorted(str(k) for k in prompt_refs.keys()),
+            "attribute_keys": sorted(str(k) for k in attrs.keys()),
+            "last_qa_customer": attrs.get("_last_qa_customer_id"),
+        }
+    except Exception as exc:
+        return {"error": str(exc), "fallback": str(type(state))}
+
+
+def _format_state_log(state: dict, *, max_length: int = 3000) -> str:
+    return truncate_for_log(_state_log_summary(state), max_length=max_length)
+
+
 def _is_qa_inbound_payload(payload) -> bool:
     """Return ``True`` when *payload* is a Q&A-worker inbound dispatch.
 
@@ -899,7 +959,7 @@ def _reset_qa_history_on_customer_change(
     node_name: str = "",
     logger_=None,
 ) -> bool:
-    """Per-customer ``state["history"]`` isolation for Q&A workers.
+    """Per-turn ``state["history"]`` isolation for Q&A workers.
 
     Production incident 2026-04-27: a Q&A worker (e.g. ``飞鸽客户应答``)
     handling multiple customers via round-robin dispatch echoed one
@@ -918,10 +978,12 @@ def _reset_qa_history_on_customer_change(
     ``{{input}}``" but the model didn't fully comply.
 
     This helper detects an inbound Q&A dispatch payload (via
-    :func:`_is_qa_inbound_payload`) and, when the ``customer_id`` has
-    changed since the last call, clears ``state["history"]`` so the LLM
-    can't reach across customer boundaries.  The new ``customer_id`` is
-    recorded in ``state["attributes"]["_last_qa_customer_id"]``.
+    :func:`_is_qa_inbound_payload`) and clears ``state["history"]`` for
+    every new inbound turn before that turn is appended.  The Q&A worker
+    prompt is explicitly current-turn-only; prior state can only add
+    latency or reintroduce cross-talk.  The new ``customer_id`` is
+    recorded in ``state["attributes"]["_last_qa_customer_id"]`` for
+    observability.
 
     Returns ``True`` when a reset was performed (so callers / tests
     can assert), ``False`` otherwise.
@@ -943,26 +1005,29 @@ def _reset_qa_history_on_customer_change(
             # Should never happen — defensive against malformed state.
             return False
         last_cust = str(attrs.get("_last_qa_customer_id") or "").strip()
-        did_reset = False
-        if last_cust and last_cust != cust:
-            hist_len = (
-                len(state["history"])
-                if isinstance(state.get("history"), list)
-                else 0
-            )
+        hist_len = (
+            len(state["history"])
+            if isinstance(state.get("history"), list)
+            else (1 if "history" in state else 0)
+        )
+        prompts_len = (
+            len(state["prompts"])
+            if isinstance(state.get("prompts"), list)
+            else (1 if "prompts" in state else 0)
+        )
+        did_reset = bool(hist_len or prompts_len)
+        if did_reset:
             state["history"] = []
             # Drop the per-turn ``prompts`` accumulator too —
             # ``standard_post_llm_hook`` extends it with the AIMessage of
             # each turn; clearing keeps state tidy and prevents
             # memory-monitor false alarms.
-            if isinstance(state.get("prompts"), list):
-                state["prompts"] = []
-            did_reset = True
+            state["prompts"] = []
             if logger_ is not None:
                 logger_.info(
-                    f"[{node_name}] Q&A history reset on customer change: "
-                    f"prev={last_cust!r} -> new={cust!r} "
-                    f"(cleared {hist_len} prior history entries)"
+                    f"[{node_name}] Q&A history reset for inbound turn: "
+                    f"prev={last_cust!r} -> current={cust!r} "
+                    f"(cleared history={hist_len}, prompts={prompts_len})"
                 )
         attrs["_last_qa_customer_id"] = cust
         return did_reset
@@ -2989,7 +3054,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         logger.info(log_msg)
         send_skill_editor_log("log", log_msg)
 
-        log_msg = f"State: {state}"
+        log_msg = f"State summary: {_format_state_log(state)}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -3338,7 +3403,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             else:
                 logger.debug(f"[LLM] No explicit prompt on node - preserving history system message for continuity")
 
-            log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
+            log_msg = (
+                f"recent_context summary: "
+                f"{truncate_for_log(_sequence_log_summary(recent_context), max_length=3000)}"
+            )
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
@@ -3650,6 +3718,72 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         send_skill_editor_log("error", timeout_msg)
                         raise TimeoutError(timeout_msg)
 
+                def _invoke_async_with_thread_timeout(llm_to_use, timeout_sec: float):
+                    """Run ainvoke on a disposable loop thread with a caller-side timeout.
+
+                    Some provider wrappers expose ``ainvoke`` but still block the
+                    event loop during network stalls.  In that case
+                    ``asyncio.wait_for`` inside the worker loop cannot fire.
+                    Joining the worker from the caller gives Q&A agents a hard
+                    way to release their queue instead of parking indefinitely.
+                    """
+                    result_holder = {}
+                    error_holder = {}
+                    done = threading.Event()
+
+                    def _worker():
+                        loop = asyncio.new_event_loop()
+                        try:
+                            asyncio.set_event_loop(loop)
+                            result_holder["result"] = loop.run_until_complete(
+                                loop.create_task(_invoke_async(llm_to_use, timeout_sec))
+                            )
+                        except BaseException as exc:
+                            error_holder["error"] = exc
+                        finally:
+                            try:
+                                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                for t in pending:
+                                    t.cancel()
+                                if pending:
+                                    loop.run_until_complete(
+                                        asyncio.gather(*pending, return_exceptions=True)
+                                    )
+                                if hasattr(loop, "shutdown_asyncgens"):
+                                    loop.run_until_complete(loop.shutdown_asyncgens())
+                                if hasattr(loop, "shutdown_default_executor"):
+                                    loop.run_until_complete(loop.shutdown_default_executor())
+                            except Exception:
+                                pass
+                            try:
+                                loop.close()
+                            except Exception:
+                                pass
+                            done.set()
+
+                    start_time = time.time()
+                    thread = threading.Thread(
+                        target=_worker,
+                        name=f"llm-async-timeout-{node_name}",
+                        daemon=True,
+                    )
+                    thread.start()
+                    wait_limit = max(1.0, timeout_sec + 5.0)
+                    if not done.wait(timeout=wait_limit):
+                        elapsed = time.time() - start_time
+                        llm_info = f"{llm_provider}/{model_name}"
+                        base_url_info = f" (base_url: {api_host})" if api_host else ""
+                        timeout_msg = (
+                            f"⏱️ LLM async worker timed out after {elapsed:.1f}s "
+                            f"(limit {timeout_sec}s): {llm_info}{base_url_info}"
+                        )
+                        logger.error(timeout_msg)
+                        send_skill_editor_log("error", timeout_msg)
+                        raise TimeoutError(timeout_msg)
+                    if "error" in error_holder:
+                        raise error_holder["error"]
+                    return result_holder.get("result")
+
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
                     """
                     Hybrid LLM invocation: uses async if in event loop, else sync.
@@ -3668,54 +3802,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if not hasattr(llm_to_use, 'ainvoke'):
                         logger.debug("[HYBRID_LLM] LLM doesn't support ainvoke, using sync")
                         return _invoke_with_thread(llm_to_use, timeout_sec)
-                    
-                    # Try to detect if we're in an async context
-                    try:
-                        loop = asyncio.get_running_loop()
-                        # We're in an async context - use run_coroutine_threadsafe
-                        # to avoid blocking the event loop
-                        logger.debug("[HYBRID_LLM] Running in async context, using ainvoke")
-                        future = asyncio.run_coroutine_threadsafe(
-                            _invoke_async(llm_to_use, timeout_sec),
-                            loop
-                        )
-                        import concurrent.futures as _cf
-                        _poll_interval = 0.5
-                        _deadline = time.time() + timeout_sec + 5
-                        while time.time() < _deadline:
-                            try:
-                                return future.result(timeout=_poll_interval)
-                            except _cf.TimeoutError:
-                                _tid = (state.get("attributes") or {}).get("task_id") if isinstance(state.get("attributes"), dict) else None
-                                if _tid:
-                                    try:
-                                        from agent.ec_tasks import cancellation_registry as _cr
-                                        _evt = _cr.get(_tid)
-                                        if _evt and _evt.is_set():
-                                            future.cancel()
-                                            raise InterruptedError("Task cancelled during LLM call")
-                                    except InterruptedError:
-                                        raise
-                                    except Exception:
-                                        pass
-                        future.cancel()
-                        raise TimeoutError(f"LLM call timed out after {timeout_sec + 5}s")
-                    except RuntimeError:
-                        # No running event loop - we're in sync context
-                        # Try to run async in a new loop (best effort)
-                        try:
-                            logger.debug("[HYBRID_LLM] No event loop, trying new loop for ainvoke")
-                            new_loop = asyncio.new_event_loop()
-                            try:
-                                return new_loop.run_until_complete(
-                                    _invoke_async(llm_to_use, timeout_sec)
-                                )
-                            finally:
-                                new_loop.close()
-                        except Exception as e:
-                            # Fallback to sync
-                            logger.debug(f"[HYBRID_LLM] Async failed ({e}), falling back to sync")
-                            return _invoke_with_thread(llm_to_use, timeout_sec)
+
+                    logger.debug("[HYBRID_LLM] Running ainvoke in timeout-bounded worker thread")
+                    return _invoke_async_with_thread_timeout(llm_to_use, timeout_sec)
 
                 # ── Cancellation check: abort if task was cancelled before LLM call ──
                 task_id_for_cancel = (state.get("attributes") or {}).get("task_id") if isinstance(state.get("attributes"), dict) else None
@@ -3800,34 +3889,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Execute LLM call with optional hard timeout
                 if use_hard_timeout:
-                    import asyncio
                     log_msg = f"[LLM_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
                     logger.info(log_msg)
                     send_skill_editor_log("log", log_msg)
                     try:
-                        # Hard timeout: cancel operation if it exceeds timeout
-                        async def _invoke_with_hard_timeout():
-                            return await asyncio.wait_for(
-                                _invoke_async(llm, effective_timeout),
-                                timeout=effective_timeout
-                            )
-                        
-                        # Run in event loop (sync context)
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                # Use run_async_in_sync for nested event loop
-                                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                                response = run_async_in_sync(_invoke_with_hard_timeout())
-                            else:
-                                response = loop.run_until_complete(_invoke_with_hard_timeout())
-                        except RuntimeError:
-                            new_loop = asyncio.new_event_loop()
-                            try:
-                                response = new_loop.run_until_complete(_invoke_with_hard_timeout())
-                            finally:
-                                new_loop.close()
-                    except asyncio.TimeoutError:
+                        # Use the same caller-side hard stop as the normal
+                        # async path; provider ``ainvoke`` wrappers can block
+                        # their worker event loop, which prevents inner
+                        # ``asyncio.wait_for`` cancellation from firing.
+                        response = _invoke_async_with_thread_timeout(llm, effective_timeout)
+                    except TimeoutError as exc:
                         error_msg = f"LLM call timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[LLM_HARD_TIMEOUT] {error_msg}")
                         send_skill_editor_log("error", error_msg)
@@ -3840,7 +3911,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                 task.record_failure()
                         except Exception:
                             pass
-                        raise TimeoutError(error_msg)
+                        raise TimeoutError(error_msg) from exc
                 else:
                     response = _invoke_hybrid(llm, effective_timeout)
                 
@@ -3997,7 +4068,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         f"(non-fatal, leaving legacy llm_result): {_bridge_err}"
                     )
 
-                logger.debug(f"llm_node finished..... {state}")
+                logger.debug(f"llm_node finished..... {_format_state_log(state)}")
 
                 # Total time for llm_node_callable (best-effort)
                 _perf_llm("total", _t0)
@@ -4111,6 +4182,72 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     'model': model_name,
                     'error_message': error_msg
                 }
+
+                try:
+                    _qa_payload = locals().get("_feige_qa_payload") or {}
+                    if _is_qa_inbound_payload(_qa_payload):
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                            log_payload as _feige_ledger_payload,
+                        )
+
+                        _feige_ledger_payload(
+                            "qa_llm_failed",
+                            _qa_payload,
+                            node=f"{owner}:{skill_name}:{node_name}",
+                            provider=llm_provider,
+                            model=model_name,
+                            error_type=error_type,
+                            error_preview=error_msg[:240],
+                        )
+
+                        _cust_id = str(_qa_payload.get("customer_id") or "").strip()
+                        _cust_name = str(
+                            _qa_payload.get("customer_name") or _cust_id
+                        ).strip()
+                        _latest = str(_qa_payload.get("latest_message") or "").strip()
+                        _source_msg_id = str(
+                            _qa_payload.get("latest_message_msg_id")
+                            or _qa_payload.get("source_customer_msg_id")
+                            or ""
+                        ).strip()
+                        _fallback_reply = (
+                            "您好，当前咨询较多，我已经收到您的问题，"
+                            "正在帮您确认，请稍等一下。"
+                        )
+                        _reply_payload = {
+                            "customer_id": _cust_id,
+                            "customer_name": _cust_name,
+                            "response_text": _fallback_reply,
+                        }
+                        if _source_msg_id:
+                            _reply_payload["source_customer_msg_id"] = _source_msg_id
+                        if _latest:
+                            _reply_payload["source_latest_message"] = _latest
+                        _fallback_llm_result = {
+                            "tool_name": "send_chat",
+                            "tool_input": {
+                                "input": {
+                                    "sender_agent_id": "",
+                                    "recipient_agent_id": "",
+                                    "message": json.dumps(
+                                        _reply_payload,
+                                        ensure_ascii=False,
+                                    ),
+                                }
+                            },
+                            "all_done": True,
+                            "work_done": True,
+                        }
+                        state["result"] = {
+                            "llm_result": _fallback_llm_result,
+                            "tool_name": "send_chat",
+                            "tool_input": _fallback_llm_result["tool_input"],
+                        }
+                except Exception as _qa_fail_log_err:
+                    logger.debug(
+                        f"[FEIGE-LEDGER] qa_llm_failed/fallback logging failed: "
+                        f"{_qa_fail_log_err}"
+                    )
         else:
             # Cloud worker / no-agent mode: state["messages"] is empty (no GUI agent_id).
             # Still invoke the LLM with the already-formatted base prompts so the graph
@@ -6984,7 +7121,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         except Exception:
             pass
 
-        log_msg = f"[pend_event_node] resume payload after deep merge: {resume_payload}"
+        log_msg = (
+            "[pend_event_node] resume payload after deep merge: "
+            f"{truncate_for_log(resume_payload, max_length=3000)}"
+        )
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -7098,7 +7238,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         except Exception:
             pass
 
-        log_msg = f"[pend_event_node] resumed, state: {state}"
+        log_msg = f"[pend_event_node] resumed, state summary: {_format_state_log(state)}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -7150,7 +7290,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             state["history"].append(HumanMessage(content=human_text_content))
             logger.debug(f"[{node_name}] added human message to history and input: {human_text_content[:100]}...")
 
-        logger.debug(f"[{node_name}] exit state: {state}")
+        logger.debug(f"[{node_name}] exit state summary: {_format_state_log(state)}")
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
