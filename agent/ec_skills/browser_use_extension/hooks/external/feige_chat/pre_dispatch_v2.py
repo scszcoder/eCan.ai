@@ -53,6 +53,7 @@ from agent.ec_skills.browser_node.contexts import (
     PromptBuildResult,
 )
 from .pre_dispatch_scrape_v2 import ScrapeFunction, ScrapeResult
+from .trace_ledger import log_event, log_payload, short_text
 
 logger = logging.getLogger("ecan.hooks.feige_chat.v2")
 
@@ -170,7 +171,17 @@ def _check_dom_echo_fallback(
         or ""
     )
     item_last_norm = _normalize_reply_text(item_last_raw)
-    if last_reply and item_last_norm and item_last_norm == last_reply:
+    try:
+        from .dispatch_state import reply_echo_matches as _reply_echo_matches
+    except Exception:
+        _reply_echo_matches = None
+    if last_reply and item_last_norm and (
+        item_last_norm == last_reply
+        or (
+            _reply_echo_matches is not None
+            and _reply_echo_matches(item_last_raw, last_reply)
+        )
+    ):
         logger.info(
             f"[V2 pre_dispatch] dom-echo skip session={session_id!r} "
             f"cust={customer_key!r} (sidebar last_message matches our "
@@ -231,8 +242,39 @@ async def _dispatch_one_item(
 
     outcome = _ItemOutcome(session_id=session_id, customer_key=customer_key)
 
+    def _ledger_skip(reason: str, **extra: Any) -> None:
+        log_event(
+            "predispatch_skip",
+            customer=customer_key or customer_name or customer_id,
+            customer_id=customer_id,
+            customer_name=customer_name,
+            session_id=session_id,
+            source_msg_id=str(
+                extra.pop("source_msg_id", "")
+                or item.get("latest_message_msg_id")
+                or item.get("msg_id")
+                or ""
+            ),
+            latest_preview=str(item.get("last_message") or item.get("latest_message") or ""),
+            reason=reason,
+            node=node_name,
+            **extra,
+        )
+
+    log_event(
+        "predispatch_item_start",
+        customer=customer_key or customer_name or customer_id,
+        customer_id=customer_id,
+        customer_name=customer_name,
+        session_id=session_id,
+        source_msg_id=str(item.get("latest_message_msg_id") or item.get("msg_id") or ""),
+        latest_preview=str(item.get("last_message") or item.get("latest_message") or ""),
+        node=node_name,
+    )
+
     if not customer_key:
         outcome.skip_reason = "no_customer_key"
+        _ledger_skip("no_customer_key")
         return outcome
 
     # ── 1. Local DOM scrape (the only cross-tier call) ──
@@ -244,6 +286,20 @@ async def _dispatch_one_item(
             f"{type(exc).__name__}: {exc!r}"
         )
         scrape = ScrapeResult(scrape_ok=False, error=f"scrape_call_error:{exc}")
+
+    log_event(
+        "predispatch_scrape_result",
+        customer=customer_key,
+        customer_id=customer_id,
+        customer_name=customer_name,
+        session_id=session_id,
+        source_msg_id=scrape.msg_id,
+        latest_preview=scrape.text or str(item.get("last_message") or ""),
+        scrape_ok=bool(scrape.scrape_ok),
+        scrape_error=str(scrape.error or ""),
+        attachments=len(scrape.attachments or []),
+        node=node_name,
+    )
 
     # If scrape succeeded, override item['last_message'] with ground-truth text.
     if scrape.scrape_ok and scrape.text:
@@ -287,6 +343,7 @@ async def _dispatch_one_item(
                 f"cust={customer_key!r} reason={_row_hit!r}"
             )
             outcome.skip_reason = _row_hit
+            _ledger_skip(_row_hit, source_msg_id=scrape.msg_id)
             return outcome
         _candidate_text = str(item.get("last_message") or "")
         _hit = _first_pat(_candidate_text)
@@ -297,6 +354,7 @@ async def _dispatch_one_item(
                 f"text={_candidate_text[:80]!r}"
             )
             outcome.skip_reason = f"system_message:{_hit}"
+            _ledger_skip(f"system_message:{_hit}", source_msg_id=scrape.msg_id)
             return outcome
     except Exception as _smf_exc:
         # Defence-in-depth: a filter failure must not abort dispatch.
@@ -336,6 +394,7 @@ async def _dispatch_one_item(
     )
     if skip:
         outcome.skip_reason = reason
+        _ledger_skip(reason, source_msg_id=scrape.msg_id)
         return outcome
 
     # ── 3. Scrape-failure fallback guards ──
@@ -345,28 +404,69 @@ async def _dispatch_one_item(
         )
         if skip:
             outcome.skip_reason = reason
+            _ledger_skip(reason, source_msg_id=scrape.msg_id)
             return outcome
 
     # ── 4. Inflight check ──
-    if ctx.dispatch_state.is_inflight(customer_key) > 0:
+    inflight_age = ctx.dispatch_state.is_inflight(customer_key)
+    if inflight_age > 0:
         outcome.skip_reason = "inflight"
+        _ledger_skip("inflight", source_msg_id=scrape.msg_id, inflight_age_s=inflight_age)
         return outcome
 
     # ── 5. Recipient pick (round-robin) ──
     if not recipient_pool:
         outcome.skip_reason = "no_recipients"
+        _ledger_skip("no_recipients", source_msg_id=scrape.msg_id)
         return outcome
     rr_idx = int(ctx.state.get(rr_idx_key, 0) or 0)
     recipient_agent_id = recipient_pool[rr_idx % len(recipient_pool)]
     ctx.state.set(rr_idx_key, rr_idx + 1)
     outcome.recipient_agent_id = recipient_agent_id
+    log_event(
+        "predispatch_recipient_selected",
+        customer=customer_key,
+        customer_id=customer_id,
+        customer_name=customer_name,
+        session_id=session_id,
+        source_msg_id=scrape.msg_id,
+        latest_preview=str(item.get("last_message") or ""),
+        recipient_agent_id=recipient_agent_id,
+        rr_index=rr_idx,
+        recipient_pool_size=len(recipient_pool),
+        node=node_name,
+    )
 
     # ── 6. Mark inflight BEFORE send (closes duplicate-fire window) ──
     try:
         ctx.dispatch_state.mark_inflight(customer_key)
+        log_event(
+            "predispatch_inflight_marked",
+            customer=customer_key,
+            customer_id=customer_id,
+            customer_name=customer_name,
+            session_id=session_id,
+            source_msg_id=scrape.msg_id,
+            latest_preview=str(item.get("last_message") or ""),
+            recipient_agent_id=recipient_agent_id,
+            node=node_name,
+        )
     except Exception as exc:
         logger.debug(
             f"[V2 pre_dispatch] mark_inflight failed for {customer_key!r}: {exc}"
+        )
+        log_event(
+            "predispatch_inflight_mark_failed",
+            customer=customer_key,
+            customer_id=customer_id,
+            customer_name=customer_name,
+            session_id=session_id,
+            source_msg_id=scrape.msg_id,
+            latest_preview=str(item.get("last_message") or ""),
+            recipient_agent_id=recipient_agent_id,
+            error=str(exc),
+            node=node_name,
+            level=logging.WARNING,
         )
 
     # ── 7. send_chat ──
@@ -388,6 +488,12 @@ async def _dispatch_one_item(
     _atts = item.get("last_message_attachments")
     if isinstance(_atts, list) and _atts:
         payload["last_message_attachments"] = _atts
+    log_payload(
+        "predispatch_send_chat_start",
+        payload,
+        recipient_agent_id=recipient_agent_id,
+        node=node_name,
+    )
     try:
         result = await ctx.send_chat.send_chat(
             recipient_agent_id,
@@ -405,6 +511,14 @@ async def _dispatch_one_item(
         except Exception:
             pass
         outcome.error = f"send_chat_exception:{type(exc).__name__}:{exc}"
+        log_payload(
+            "predispatch_send_chat_exception",
+            payload,
+            recipient_agent_id=recipient_agent_id,
+            error=outcome.error,
+            node=node_name,
+            level=logging.WARNING,
+        )
         return outcome
 
     if not result.get("success"):
@@ -414,19 +528,53 @@ async def _dispatch_one_item(
         except Exception:
             pass
         outcome.error = str(result.get("error") or "send_chat_failed")
+        log_payload(
+            "predispatch_send_chat_failed",
+            payload,
+            recipient_agent_id=recipient_agent_id,
+            error=outcome.error,
+            result_preview=short_text(result),
+            node=node_name,
+            level=logging.WARNING,
+        )
         return outcome
 
     # ── 8. Record success state ──
     outcome.message_id = str(result.get("task_id") or result.get("message_id") or "")
+    log_payload(
+        "predispatch_send_chat_success",
+        payload,
+        recipient_agent_id=recipient_agent_id,
+        message_id=outcome.message_id,
+        resolved_recipient_id=str(result.get("recipient_id") or result.get("recipient") or ""),
+        resolved_recipient_name=str(result.get("recipient_name") or ""),
+        node=node_name,
+    )
 
     # Record last-dispatched msg_id (only when scrape gave us one — the
     # next cycle's strict dedup needs this).
     if scrape.msg_id:
         try:
             ctx.dispatch_state.set_last_dispatched_msg_id(customer_key, scrape.msg_id)
+            log_payload(
+                "predispatch_last_dispatched_recorded",
+                payload,
+                recipient_agent_id=recipient_agent_id,
+                message_id=outcome.message_id,
+                node=node_name,
+            )
         except Exception as exc:
             logger.debug(
                 f"[V2 pre_dispatch] set_last_dispatched_msg_id failed: {exc}"
+            )
+            log_payload(
+                "predispatch_last_dispatched_record_failed",
+                payload,
+                recipient_agent_id=recipient_agent_id,
+                message_id=outcome.message_id,
+                error=str(exc),
+                node=node_name,
+                level=logging.WARNING,
             )
 
     # Update assigned_sessions cache (for the dom-echo fallback path).

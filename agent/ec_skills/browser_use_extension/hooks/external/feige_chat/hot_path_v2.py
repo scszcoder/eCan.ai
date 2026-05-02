@@ -57,7 +57,7 @@ from agent.ec_skills.browser_node.contexts import (
     TypingLock,
 )
 
-logger = logging.getLogger("ecan.feige.hot_path_v2")
+logger = logging.getLogger("eCan")
 
 __all__ = [
     "ToolInvoker",
@@ -79,7 +79,7 @@ __all__ = [
 
 
 # ── Timing constants (identical to v1 hot_path module) ────────────────────
-TYPING_LOCK_WAIT_ATTEMPTS: int = 30      # 30 × 100 ms = 3 s
+TYPING_LOCK_WAIT_ATTEMPTS: int = 120     # 120 × 100 ms = 12 s
 TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
 POST_OPEN_VERIFY_ATTEMPTS: int = 16       # 16 × 75 ms = 1.2 s
 POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
@@ -87,6 +87,8 @@ PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 HOT_PATH_TOOL_TIMEOUT_S: float = 4.0
+ACTIVE_CUSTOMER_EVAL_TIMEOUT_S: float = 0.75
+SOURCE_TURN_EVAL_TIMEOUT_S: float = 1.0
 
 # ── Selectors / DOM contracts ─────────────────────────────────────────────
 # Feige's current-conversation sub-tab. Keep the SPA on the live queue; the
@@ -250,7 +252,10 @@ async def _verify_active_customer(
     active_last = ""
     for _ in range(attempts):
         try:
-            raw = await primitives.eval_js(FEIGE_ACTIVE_CUSTOMER_JS)
+            raw = await asyncio.wait_for(
+                primitives.eval_js(FEIGE_ACTIVE_CUSTOMER_JS),
+                timeout=ACTIVE_CUSTOMER_EVAL_TIMEOUT_S,
+            )
             data = raw
             if isinstance(raw, str):
                 try:
@@ -392,7 +397,10 @@ async def _verify_reply_source_turn_v2(
     expected_text = _source_customer_text(payload)
 
     try:
-        raw = await primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
+        raw = await asyncio.wait_for(
+            primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS),
+            timeout=SOURCE_TURN_EVAL_TIMEOUT_S,
+        )
         if isinstance(raw, str):
             try:
                 data = json.loads(raw)
@@ -455,7 +463,10 @@ async def _restore_current_conversation_tab(
 ) -> None:
     """Click Feige's current-conversation sub-tab; non-fatal on failure."""
     try:
-        clicked = await primitives.click(CURRENT_CONVERSATION_TAB_SELECTOR)
+        clicked = await asyncio.wait_for(
+            primitives.click(CURRENT_CONVERSATION_TAB_SELECTOR),
+            timeout=ACTIVE_CUSTOMER_EVAL_TIMEOUT_S,
+        )
         if clicked:
             await asyncio.sleep(POST_SEND_TAB_RESTORE_SLEEP_S)
             logger.info(
@@ -533,7 +544,7 @@ async def _acquire_typing_lock(
     logger.warning(
         f"[hot_path_v2] could not acquire typing lock cust={customer_key!r} "
         f"within {TYPING_LOCK_WAIT_ATTEMPTS * TYPING_LOCK_WAIT_INTERVAL_S:.1f}s "
-        f"(holder={typing_lock.holder()!r}); proceeding lock-less, node={node_name}"
+        f"(holder={typing_lock.holder()!r}); aborting guarded send, node={node_name}"
     )
     return False
 
@@ -650,6 +661,10 @@ async def execute_v2(
     outcome.typing_acquired = await _acquire_typing_lock(
         typing_lock, customer_key, node_name,
     )
+    if customer_key and not outcome.typing_acquired:
+        outcome.ok = False
+        outcome.reason = "typing_lock_busy"
+        return outcome
 
     try:
         for act in action_seq:
