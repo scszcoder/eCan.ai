@@ -24,6 +24,24 @@ from datetime import datetime, timezone
 
 from utils.logger_helper import logger_helper as logger
 
+try:
+    _SKILL_EDITOR_LOG_MAX_CHARS = max(
+        1000,
+        int(os.getenv("ECAN_SKILL_EDITOR_LOG_MAX_CHARS", "12000")),
+    )
+except Exception:
+    _SKILL_EDITOR_LOG_MAX_CHARS = 12000
+
+
+def _clamp_skill_editor_message(message: Any) -> str:
+    text = str(message)
+    if len(text) <= _SKILL_EDITOR_LOG_MAX_CHARS:
+        return text
+    return (
+        text[:_SKILL_EDITOR_LOG_MAX_CHARS]
+        + f"... [truncated skill-editor log, total {len(text)} chars]"
+    )
+
 
 @dataclass
 class CloudLoggerConfig:
@@ -209,6 +227,7 @@ class SkillEditorLogger:
     def _send(self, level: str, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
         """Send a log message."""
         timestamp = datetime.now(timezone.utc).isoformat()
+        message = _clamp_skill_editor_message(message)
         
         if is_cloud_mode():
             # Cloud mode: queue for AppSync publishing
