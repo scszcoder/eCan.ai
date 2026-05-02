@@ -172,14 +172,14 @@ async def _monitor_runtime_evaluate(
     except Exception:
         operation_lock = None
 
-    if operation_lock is not None:
-        async with operation_lock:
-            return await asyncio.wait_for(
-                _send_eval(),
-                timeout=_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S,
-            )
+    async def _send_with_optional_operation_lock() -> Dict[str, Any]:
+        if operation_lock is not None:
+            async with operation_lock:
+                return await _send_eval()
+        return await _send_eval()
+
     return await asyncio.wait_for(
-        _send_eval(),
+        _send_with_optional_operation_lock(),
         timeout=_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S,
     )
 
