@@ -386,6 +386,11 @@ class SkillEditorAgent:
         self._loaded_context_key: Optional[str] = None
         self._log_analysis_context: Optional[Dict[str, str]] = None  # {file_path, log_content, last_analysis}
         self._pending_log_analysis_info: Optional[Dict[str, Any]] = None  # Pre-analysis info for log analysis
+        # Structured error from the most recent failed skill run — populated by session restore
+        # when the Fargate task reports failure (see _handle_skill_run_result in handler.py).
+        # Shape: {failed_node_id, failed_node_type, error_type, error_message,
+        #         input_at_failure, fix_hypothesis, iteration}
+        self._last_run_error: Optional[Dict[str, Any]] = None
         # --- Taxonomy / domain-aware requirement collection ---
         self._classified_domain: Optional[str] = None
         self._classified_intent_taxonomy: Optional[str] = None
@@ -601,6 +606,7 @@ class SkillEditorAgent:
         last_saved_skill_name: Optional[str] = None,
         cached_flowgram_dict: Optional[Dict[str, Any]] = None,
         user_lang: Optional[str] = None,
+        last_run_error: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Restore agent state from persisted session data (survives app restarts)"""
         try:
@@ -620,6 +626,7 @@ class SkillEditorAgent:
             self._log_analysis_context = log_analysis_context
             self._last_saved_skill_name = last_saved_skill_name
             self._cached_flowgram_dict = cached_flowgram_dict
+            self._last_run_error = last_run_error
 
             # If log analysis info state but no pending info, reset to idle
             if self._pipeline_state == PipelineState.COLLECTING_LOG_ANALYSIS_INFO and not self._pending_log_analysis_info:
@@ -1601,6 +1608,20 @@ class SkillEditorAgent:
 
         questions = []
 
+        # Q0: Which skill(s) are under investigation — searchable typeahead with
+        # multi-pick. Handler fills choices from the user's S3 skill list. The A2UI
+        # frontend renders this as a substring-filtered dropdown so the user can
+        # type a phrase, narrow the list, and select multiple matches.
+        questions.append(ClarificationQuestion(
+            id="skill_names",
+            question="Which skill(s) are you debugging? (type to search)",
+            choices=[],          # handler fills choices from S3 before sending to client
+            context="Type any part of a skill name to filter, then select one or more.",
+            allow_multiple=True,
+            widget_type="searchable_multi_select",
+            data_source="user_skills",
+        ))
+
         # Q1: Log file path (only ask if not already detected)
         if not file_path:
             questions.append(ClarificationQuestion(
@@ -2027,7 +2048,7 @@ class SkillEditorAgent:
 
         # Extract answers from clarification responses
         # Frontend sends two keys per question:
-        #   "{qid}": ["choice_id"]              — the selected choice
+        #   "{qid}": ["choice_id"]              — the selected choice(s)
         #   "freeform_{qid}": ["typed text"]     — optional freeform text for that choice
         file_path = detected_file_path
         user_observation = ""
@@ -2047,6 +2068,14 @@ class SkillEditorAgent:
                 return text.strip()
             return ""
 
+        # Q0: skill names — multi-select, choice IDs are skill names (set by handler)
+        selected_skill_names: List[str] = []
+        raw_skills = clarification_responses.get("skill_names") or []
+        if isinstance(raw_skills, list):
+            # Filter out sentinel IDs, keep non-empty strings that look like skill names
+            selected_skill_names = [s.strip() for s in raw_skills if s and s.strip() and not s.startswith("_")]
+        logger.info(f"[SkillEditorAgent] Selected skill_names: {selected_skill_names}")
+
         # Q1: log file path
         freeform_path = _get_freeform("log_file_path")
         if freeform_path and freeform_path != "path_freeform":
@@ -2060,6 +2089,7 @@ class SkillEditorAgent:
 
         logger.info(
             f"[SkillEditorAgent] Log analysis info collected: file_path={file_path}, "
+            f"skill_names={selected_skill_names}, "
             f"observation_len={len(user_observation)}, expected_len={len(expected_behavior)}"
         )
 
@@ -2068,6 +2098,7 @@ class SkillEditorAgent:
             "log_file_path": file_path,
             "user_observation": user_observation,
             "expected_behavior": expected_behavior,
+            "selected_skill_names": selected_skill_names,
             "_collected": True,
         }
 
@@ -2123,13 +2154,35 @@ class SkillEditorAgent:
         user_observation = ctx.get("user_observation", "")
         expected_behavior = ctx.get("expected_behavior", "")
 
-        # Build an edit request from the analysis
+        # Build an edit request from the analysis.
+        # If structured run-error context is available (populated by Fargate SNS completion),
+        # prepend it so the Coder can apply a targeted fix before reading the full analysis.
         edit_request = (
             "Apply the following fixes to this workflow based on a log analysis.\n\n"
             "**IMPORTANT**: Prefer fixing by improving sub-agent prompts (adding rules, "
             "exceptions, verification steps, output format constraints) over adding new "
             "condition nodes or structural changes. The workflow should be agentic, not RPA.\n\n"
         )
+
+        if self._last_run_error:
+            err = self._last_run_error
+            edit_request += "## Structured Run Error (primary diagnosis signal)\n"
+            if err.get("failed_node_id"):
+                edit_request += f"- **Failed node**: `{err['failed_node_id']}` ({err.get('failed_node_type', 'unknown type')})\n"
+            if err.get("error_type"):
+                edit_request += f"- **Error type**: `{err['error_type']}`\n"
+            if err.get("error_message"):
+                edit_request += f"- **Error message**: {err['error_message']}\n"
+            if err.get("input_at_failure"):
+                import json as _json
+                input_preview = _json.dumps(err["input_at_failure"])[:400]
+                edit_request += f"- **Node input at failure**: `{input_preview}`\n"
+            if err.get("fix_hypothesis"):
+                edit_request += f"- **Hypothesis**: {err['fix_hypothesis']}\n"
+            if err.get("iteration"):
+                edit_request += f"- **Fix attempt**: #{err['iteration']}\n"
+            edit_request += "\nApply a **targeted fix** to the node above first, then check the full analysis below.\n\n"
+
         if user_observation:
             edit_request += f"**User observation (what went wrong):** {user_observation}\n\n"
         if expected_behavior:
