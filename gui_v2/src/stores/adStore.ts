@@ -12,15 +12,27 @@ export interface AdPopupData {
     expiresAt: number; // Unix timestamp in ms
 }
 
+export interface ErrorBannerData {
+    id: string;
+    text: string;
+    // 'error' = red/critical; room to add more severities later if needed.
+    variant: 'error';
+    expiresAt: number; // Unix timestamp in ms
+}
+
 interface AdState {
     bannerAd: AdBannerData | null;
     popupAd: AdPopupData | null;
     isPopupVisible: boolean;
-    
+    // Error banner takes priority over ad banner while set.
+    errorBanner: ErrorBannerData | null;
+
     setBannerAd: (ad: AdBannerData | null) => void;
     setPopupAd: (ad: AdPopupData | null) => void;
     showPopup: () => void;
     hidePopup: () => void;
+    setErrorBanner: (banner: ErrorBannerData | null) => void;
+    clearErrorBanner: () => void;
     clearExpiredAds: () => void;
 }
 
@@ -28,21 +40,27 @@ export const useAdStore = create<AdState>((set, get) => ({
     bannerAd: null,
     popupAd: null,
     isPopupVisible: false,
-    
+    errorBanner: null,
+
     setBannerAd: (ad) => set({ bannerAd: ad }),
     setPopupAd: (ad) => set({ popupAd: ad }),
     showPopup: () => set({ isPopupVisible: true }),
     hidePopup: () => set({ isPopupVisible: false }),
-    
+    setErrorBanner: (banner) => set({ errorBanner: banner }),
+    clearErrorBanner: () => set({ errorBanner: null }),
+
     clearExpiredAds: () => {
         const now = Date.now();
-        const { bannerAd, popupAd } = get();
-        
+        const { bannerAd, popupAd, errorBanner } = get();
+
         if (bannerAd && bannerAd.expiresAt <= now) {
             set({ bannerAd: null });
         }
         if (popupAd && popupAd.expiresAt <= now) {
             set({ popupAd: null, isPopupVisible: false });
+        }
+        if (errorBanner && errorBanner.expiresAt <= now) {
+            set({ errorBanner: null });
         }
     },
 }));
