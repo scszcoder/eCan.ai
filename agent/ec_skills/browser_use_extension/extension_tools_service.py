@@ -41,7 +41,16 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     UpsertSessionMonitorAction,
 )
 
-_CDP_EVALUATE_TIMEOUT_S = float(os.getenv("ECAN_CDP_EVALUATE_TIMEOUT_S", "6.0"))
+try:
+    _CDP_EVALUATE_TIMEOUT_S = float(os.getenv("ECAN_CDP_EVALUATE_TIMEOUT_S", "6.0"))
+except Exception:
+    _CDP_EVALUATE_TIMEOUT_S = 6.0
+try:
+    _FEIGE_TARGET_RESOLVE_TIMEOUT_S = float(
+        os.getenv("ECAN_FEIGE_TARGET_RESOLVE_TIMEOUT_S", "2.0")
+    )
+except Exception:
+    _FEIGE_TARGET_RESOLVE_TIMEOUT_S = 2.0
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
@@ -957,15 +966,17 @@ async def _evaluate_js(
         await cdp_client.send.Runtime.enable()
         return await cdp_client.send.Runtime.evaluate(params=eval_params)
 
-    try:
+    async def _run_with_optional_operation_lock() -> Any:
         if operation_lock is not None:
             async with operation_lock:
-                result = await asyncio.wait_for(
-                    _run_eval(),
-                    timeout=_CDP_EVALUATE_TIMEOUT_S,
-                )
-        else:
-            result = await asyncio.wait_for(_run_eval(), timeout=_CDP_EVALUATE_TIMEOUT_S)
+                return await _run_eval()
+        return await _run_eval()
+
+    try:
+        result = await asyncio.wait_for(
+            _run_with_optional_operation_lock(),
+            timeout=_CDP_EVALUATE_TIMEOUT_S,
+        )
     except asyncio.TimeoutError as exc:
         raise TimeoutError(
             f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s"
@@ -977,6 +988,39 @@ async def _evaluate_js(
         except Exception:
             return value
     return value
+
+
+async def _resolve_feige_tab_target_id_bounded(
+    browser_session: BrowserSession,
+    *,
+    timeout_s: float | None = None,
+    resolver=None,
+) -> str:
+    """Resolve the Feige tab target with a hard timeout.
+
+    Direct delivery already performs this lookup once before calling the
+    send tool.  The send tool still needs its own bounded lookup because a
+    stale Chrome/CDP state can hang here and otherwise keep the Feige typing
+    lock held indefinitely.
+    """
+    timeout = _FEIGE_TARGET_RESOLVE_TIMEOUT_S if timeout_s is None else timeout_s
+    try:
+        if resolver is None:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                resolve_feige_tab_target_id,
+            )
+            resolver = resolve_feige_tab_target_id
+        return str(await asyncio.wait_for(resolver(browser_session), timeout=timeout) or "")
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"[Feige] Feige target id resolve timed out after {timeout:.1f}s"
+        )
+        return ""
+    except Exception as target_err:
+        logger.debug(
+            f"[Feige] Feige target id resolve failed: {target_err}"
+        )
+        return ""
 
 
 def _build_dom_region_inspection_expression(max_regions: int, max_text_length: int, include_html_hint: bool) -> str:
@@ -3141,17 +3185,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
             .replace("EXPECTED_SOURCE_TEXT", source_text_json)
         )
-        target_id = ""
-        try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                resolve_feige_tab_target_id,
-            )
-            target_id = await resolve_feige_tab_target_id(browser_session)
-        except Exception as _target_err:
-            logger.debug(
-                f"[Feige] feige_send_message: Feige target resolve failed: {_target_err}"
-            )
-            target_id = ""
+        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
         if target_id:
             data = await _evaluate_js(
                 browser_session,
