@@ -750,6 +750,32 @@ def _parse_jsonish_dict(value) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _extract_qa_inbound_payload_from_event(data, human_text_content) -> dict:
+    """Return the actual Q&A dispatch payload from a pending-event resume.
+
+    Real A2A resumes wrap the customer payload as ``data["human_text"]``.
+    Passing that wrapper dict directly to ``_reset_qa_history_on_customer_change``
+    makes the Q&A history-isolation guard miss the customer transition.
+    """
+    candidates: list[object] = []
+    if isinstance(data, dict):
+        candidates.append(data)
+        for key in ("human_text", "text", "message"):
+            candidates.append(data.get(key))
+        content = data.get("content")
+        if isinstance(content, dict):
+            candidates.append(content.get("text"))
+        else:
+            candidates.append(content)
+    candidates.append(human_text_content)
+
+    for candidate in candidates:
+        parsed = _parse_jsonish_dict(candidate)
+        if _is_qa_inbound_payload(parsed):
+            return parsed
+    return {}
+
+
 def _state_current_event_human_payload(state: dict) -> dict:
     """Return the current turn's human payload from prompt_refs/events/input.
 
@@ -821,7 +847,8 @@ def _augment_send_chat_reply_with_source_turn(actual_tool_input, state: dict):
         or inbound.get("reply_to_msg_id")
         or ""
     ).strip()
-    if not source_msg_id:
+    latest_text = str(inbound.get("latest_message") or "").strip()
+    if not source_msg_id and not latest_text:
         return actual_tool_input
 
     out_cust = str(
@@ -846,17 +873,22 @@ def _augment_send_chat_reply_with_source_turn(actual_tool_input, state: dict):
         if out_cust and in_cust and out_cust != in_cust:
             return actual_tool_input
 
-    if not msg_obj.get("source_customer_msg_id"):
+    if source_msg_id and not msg_obj.get("source_customer_msg_id"):
         msg_obj["source_customer_msg_id"] = source_msg_id
-    latest_text = str(inbound.get("latest_message") or "").strip()
     if latest_text and not msg_obj.get("source_latest_message"):
         msg_obj["source_latest_message"] = latest_text
 
     target["message"] = json.dumps(msg_obj, ensure_ascii=False, separators=(",", ":"))
-    logger.info(
-        "[MCP Auto-Select] Attached source_customer_msg_id to send_chat "
-        f"reply for customer={out_cust or in_cust!r} msg_id=...{source_msg_id[-8:]}"
-    )
+    if source_msg_id:
+        logger.info(
+            "[MCP Auto-Select] Attached source_customer_msg_id to send_chat "
+            f"reply for customer={out_cust or in_cust!r} msg_id=...{source_msg_id[-8:]}"
+        )
+    else:
+        logger.info(
+            "[MCP Auto-Select] Attached source_latest_message to send_chat "
+            f"reply for customer={out_cust or in_cust!r}"
+        )
     return actual_tool_input
 
 
@@ -3704,6 +3736,27 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Resolve timeout with hybrid precedence (runtime > config > default)
                 full_node_name = f"{owner}:{skill_name}:{node_name}"
+                _feige_qa_payload = {}
+                _feige_qa_llm_start = None
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                        log_payload as _feige_ledger_payload,
+                    )
+
+                    _candidate_payload = _state_current_event_human_payload(state)
+                    if _is_qa_inbound_payload(_candidate_payload):
+                        _feige_qa_payload = _candidate_payload
+                        _feige_qa_llm_start = time.time()
+                        _feige_ledger_payload(
+                            "qa_llm_start",
+                            _feige_qa_payload,
+                            node=full_node_name,
+                            provider=llm_provider,
+                            model=model_name,
+                        )
+                except Exception:
+                    _feige_qa_payload = {}
+                    _feige_qa_llm_start = None
                 effective_timeout = resolve_timeout(
                     node_name=full_node_name,
                     state=state,
@@ -3805,6 +3858,27 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         logger.warning(f"[LLM_GUARDRAIL] Failed to cancel timer: {e}")
                 
                 _perf_llm("invoke", _t_stage)
+                try:
+                    if _feige_qa_payload and _feige_qa_llm_start is not None:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                            log_payload as _feige_ledger_payload,
+                            short_text as _feige_short_text,
+                        )
+
+                        _resp_text = getattr(response, "content", "")
+                        if not isinstance(_resp_text, str) or not _resp_text:
+                            _resp_text = str(response)
+                        _feige_ledger_payload(
+                            "qa_llm_response",
+                            _feige_qa_payload,
+                            node=full_node_name,
+                            provider=llm_provider,
+                            model=model_name,
+                            duration_ms=int((time.time() - _feige_qa_llm_start) * 1000),
+                            response_preview=_feige_short_text(_resp_text),
+                        )
+                except Exception:
+                    pass
 
                 log_msg = f"✅ LLM response received from {llm_provider} {response}"
                 logger.info(log_msg)
@@ -5804,6 +5878,39 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             except Exception:
                 pass
 
+            # send_chat is a local in-process tool.  Under Feige flood tests,
+            # multiple Q&A workers can call it at nearly the same time; routing
+            # those calls through the shared persistent MCP HTTP session can
+            # stall before chat_tools.send_chat is even entered.  Bypass MCP
+            # HTTP for this hot-path tool on the desktop and call the handler
+            # directly with the GUI main window.
+            if _actual_tool_name == "send_chat":
+                try:
+                    from app_context import AppContext
+
+                    _direct_mainwin = AppContext.get_main_window()
+                    if _direct_mainwin is not None:
+                        from agent.mcp.server.chat_utils.chat_tools import async_send_chat
+                        from mcp.types import CallToolResult
+
+                        log_msg = (
+                            "[MCP_DIRECT] Invoking local send_chat directly "
+                            "in-process (bypassing MCP HTTP session)"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                        content_blocks = await async_send_chat(
+                            _direct_mainwin, _actual_tool_input
+                        )
+                        return CallToolResult(content=content_blocks, isError=False)
+                except Exception as _direct_send_chat_err:
+                    log_msg = (
+                        "[MCP_DIRECT] Direct local send_chat failed; "
+                        f"falling back to MCP HTTP: {_direct_send_chat_err}"
+                    )
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
+
             # --- Cloud-worker direct invocation (no local MCP HTTP server) ---
             _is_cloud = os.environ.get("ECAN_MODE") == "worker"
             if not _is_cloud:
@@ -7029,9 +7136,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             # ``state["history"]`` is shared across all dispatches to
             # the same agent, so without this reset a Q&A worker can
             # bleed customer A's prior turn into customer B's reply.
-            _qa_payload = data if isinstance(data, dict) else None
-            if _qa_payload is None and isinstance(human_text_content, str):
-                _qa_payload = try_parse_json(human_text_content)
+            _qa_payload = _extract_qa_inbound_payload_from_event(
+                data,
+                human_text_content,
+            )
             _reset_qa_history_on_customer_change(
                 state, _qa_payload, node_name=node_name, logger_=logger,
             )

@@ -28,6 +28,38 @@ from mcp.types import TextContent
 
 from utils.logger_helper import logger_helper as logger, get_traceback
 
+
+def _feige_ledger_send_chat(stage: str, message_text: Any, **fields: Any) -> None:
+    """Best-effort structured logging for Feige customer-chat payloads."""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+            log_payload,
+            parse_jsonish_dict,
+        )
+
+        payload = parse_jsonish_dict(message_text)
+        if not payload:
+            return
+        has_customer = bool(
+            payload.get("customer_id")
+            or payload.get("customerId")
+            or payload.get("customer_name")
+            or payload.get("customerName")
+            or payload.get("name")
+        )
+        has_feige_turn = bool(
+            payload.get("latest_message")
+            or payload.get("last_message")
+            or payload.get("response_text")
+            or payload.get("latest_message_msg_id")
+            or payload.get("source_customer_msg_id")
+        )
+        if not (has_customer and has_feige_turn):
+            return
+        log_payload(stage, payload, **fields)
+    except Exception:
+        return
+
 # ── Dispatch tracking ──
 # Prevents LLMs from skipping agent discovery and concentrating all work
 # on a single "remembered" agent.  Works for any tool path (bu_send_chat
@@ -442,6 +474,15 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         message_type = config.get("message_type", "text")
         attachments = config.get("attachments", [])
         async_send = config.get("async_send", True)
+        _feige_ledger_send_chat(
+            "send_chat_called",
+            message_text,
+            sender_agent_id=sender_agent_id,
+            requested_recipient_agent_id=recipient_agent_id,
+            requested_recipient_agent_name=recipient_agent_name,
+            chat_id=chat_id,
+            async_send=bool(async_send),
+        )
         
         # Validate required fields
         if not sender_agent_id:
@@ -514,6 +555,15 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
         resolved_sender_id = getattr(getattr(sender_agent, "card", None), "id", "") or sender_agent_id
         resolved_recipient_id = getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id
+        _feige_ledger_send_chat(
+            "send_chat_resolved_recipient",
+            message_text,
+            sender_agent_id=resolved_sender_id,
+            recipient_agent_id=resolved_recipient_id,
+            requested_recipient_agent_id=recipient_agent_id,
+            requested_recipient_agent_name=recipient_agent_name,
+            chat_id=chat_id,
+        )
 
         # ── Dedup: skip if same sender already sent for this customer recently ──
         # Prevents the responder LLM from sending multiple replies for the
@@ -571,6 +621,15 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                                 f"ttl={_QA_RESPONSE_PENDING_TTL_S}s). "
                                 f"Suppressing duplicate from sender={resolved_sender_id}."
                             )
+                            _feige_ledger_send_chat(
+                                "send_chat_dedup_skip",
+                                message_text,
+                                sender_agent_id=resolved_sender_id,
+                                recipient_agent_id=resolved_recipient_id,
+                                chat_id=chat_id,
+                                dedup_reason="qa_response_pending",
+                                pending_age_s=_sc_pending_age,
+                            )
                             return {
                                 "success": True,
                                 "message_id": "",
@@ -604,6 +663,16 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                             f"recipient={resolved_recipient_id} hash={_sc_content_hash} "
                             f"(last sent {_sc_now - _sc_last:.1f}s ago, "
                             f"window={_SEND_CHAT_RESPONSE_DEDUP_S}s)"
+                        )
+                        _feige_ledger_send_chat(
+                            "send_chat_dedup_skip",
+                            message_text,
+                            sender_agent_id=resolved_sender_id,
+                            recipient_agent_id=resolved_recipient_id,
+                            chat_id=chat_id,
+                            dedup_reason="exact_duplicate_response",
+                            dedup_age_s=_sc_now - _sc_last,
+                            content_hash=_sc_content_hash,
                         )
                         return {
                             "success": True,
@@ -673,6 +742,15 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     # Re-resolve recipient agent to the new target
                     recipient_agent = _get_agent_by_id(new_target["id"], mainwin)
                     resolved_recipient_id = new_target["id"]
+                    _feige_ledger_send_chat(
+                        "send_chat_auto_distributed",
+                        message_text,
+                        sender_agent_id=resolved_sender_id,
+                        old_recipient_name=str(old_name or ""),
+                        recipient_agent_id=resolved_recipient_id,
+                        recipient_agent_name=str(new_target.get("name") or ""),
+                        chat_id=chat_id,
+                    )
                     if not recipient_agent:
                         logger.warning(f"[send_chat] Auto-distribute target not found: {new_target['id']}")
                 # else: all peers already received — allow repeat (natural overflow)
@@ -709,6 +787,15 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         
         # Send the message
         msg_id = chat_message["messages"][2]
+        _feige_ledger_send_chat(
+            "send_chat_a2a_send_start",
+            message_text,
+            sender_agent_id=resolved_sender_id,
+            recipient_agent_id=resolved_recipient_id,
+            chat_id=chat_id,
+            message_id=msg_id,
+            async_send=bool(async_send),
+        )
         
         try:
             if async_send:
@@ -724,6 +811,16 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             recipient_card = getattr(recipient_agent, 'card', None)
             if recipient_card:
                 recipient_name = getattr(recipient_card, 'name', '')
+            _feige_ledger_send_chat(
+                "send_chat_a2a_send_success",
+                message_text,
+                sender_agent_id=resolved_sender_id,
+                recipient_agent_id=resolved_recipient_id,
+                recipient_name=recipient_name,
+                chat_id=chat_id,
+                message_id=msg_id,
+                async_send=bool(async_send),
+            )
             
             return {
                 "success": True,
@@ -738,6 +835,15 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             
         except Exception as send_err:
             logger.error(f"[send_chat] Failed to send message: {send_err}")
+            _feige_ledger_send_chat(
+                "send_chat_a2a_send_failed",
+                message_text,
+                sender_agent_id=resolved_sender_id,
+                recipient_agent_id=resolved_recipient_id,
+                chat_id=chat_id,
+                message_id=msg_id,
+                error=str(send_err),
+            )
             return {
                 "success": False,
                 "error": f"Failed to send message: {str(send_err)}",

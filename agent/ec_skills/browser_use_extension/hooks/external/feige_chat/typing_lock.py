@@ -49,11 +49,12 @@ __all__ = [
     "reset",
 ]
 
-# Max time HOT-PATH-B needs from ``feige_open_session`` through the
-# final ``feige_send_message``.  Tuned empirically against the 2026-04
-# emulation + real-Feige runs; exceeding this is evidence of a crashed
-# responder and the lock is considered stale.
-FEIGE_TYPING_LOCK_TTL_S: float = 8.0
+# Max time HOT-PATH-B/direct delivery needs from ``feige_open_session``
+# through the final ``feige_send_message``.  This must exceed
+# runner._DIRECT_FEIGE_JOB_TIMEOUT_S (12s by default), otherwise another
+# guarded send can reclaim the lock while the previous send is still
+# unwinding from a timeout.
+FEIGE_TYPING_LOCK_TTL_S: float = 35.0
 
 _holder: str = ""
 _ts: float = 0.0

@@ -27,6 +27,7 @@ The hook activates only when ``actionable_field`` is set on the node
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -756,6 +757,13 @@ async def before_prompt_build_hook(
         auto_dispatch_cfg=_auto_dispatch_guard_cfg,
     )
     if _pre_dispatch_blocks_prompt_auto:
+        try:
+            state["_ecan_predispatch_actionable_items"] = [
+                dict(_it) for _it in _actionable if isinstance(_it, dict)
+            ]
+            state["_ecan_predispatch_actionable_items_ts"] = time.time()
+        except Exception:
+            pass
         logger.info(
             f"[BrowserAutomation] PreDispatch enabled for browser_event; "
             f"deferring prompt-build autoDispatch while preserving "

@@ -91,6 +91,27 @@ def extract_runtime_invocation_input(state: dict | None) -> str:
         return ""
 
     candidates = []
+
+    pr_events = (state.get("prompt_refs") or {}).get("events", "")
+    if isinstance(pr_events, str) and pr_events.strip():
+        try:
+            evt = json.loads(pr_events)
+            if isinstance(evt, dict):
+                human_text = evt.get("human_text")
+                if isinstance(human_text, str) and human_text.strip():
+                    candidates.append(human_text.strip())
+        except Exception:
+            pass
+
+    current_input = state.get("current_invocation_input")
+    if isinstance(current_input, str) and current_input.strip():
+        candidates.append(current_input.strip())
+
+    attrs = state.get("attributes", {}) if isinstance(state.get("attributes"), dict) else {}
+    attr_current_input = attrs.get("current_invocation_input")
+    if isinstance(attr_current_input, str) and attr_current_input.strip():
+        candidates.append(attr_current_input.strip())
+
     direct_input = state.get("input")
     if isinstance(direct_input, str) and direct_input.strip():
         candidates.append(direct_input.strip())
@@ -101,7 +122,6 @@ def extract_runtime_invocation_input(state: dict | None) -> str:
         if isinstance(msg_payload, str) and msg_payload.strip():
             candidates.append(msg_payload.strip())
 
-    attrs = state.get("attributes", {}) if isinstance(state.get("attributes"), dict) else {}
     params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
     metadata = params.get("metadata", {}) if isinstance(params.get("metadata"), dict) else {}
     meta_params = metadata.get("params", {}) if isinstance(metadata.get("params"), dict) else {}
@@ -240,7 +260,64 @@ def extract_assignment_scope(runtime_input: str) -> dict:
     return {}
 
 
-def resolve_browser_scope_key(state: dict | None = None, *, node_name: str) -> str:
+# ── Front-desk dispatcher pattern: skill-level pin-to-node opt-in ──
+#
+# Stress test 2026-04-30 (20 simultaneous customers, 1 front-desk + 3 Q&A) showed
+# the front-desk skill ``customer_front_desk`` was creating a new browser session
+# per customer because ``state["messages"][1]`` (the customer-id index) leaked
+# into the scope-key resolver below.  Each new session waited 30-35 s on the
+# CDP startup lock for ``cdp_port=9228``, throttling throughput to ~1 customer
+# /min and triggering a positive feedback loop with the focus-preflight
+# state-summary timeouts.
+#
+# A "front-desk dispatcher" needs the OPPOSITE behaviour from a per-chat Q&A
+# bot: one shared browser session, rotated across many customer tabs by tab
+# switches.  The ``pin_browser_scope_to_node`` opt-in below lets a skill author
+# declare this intent in mapping_rules; the resolver then returns ``node:<name>``
+# regardless of any chat-id present in state.
+_PIN_BROWSER_SCOPE_CACHE: dict[str, bool] = {}
+
+
+def _resolve_pin_to_node_from_skill(skill_name: str) -> bool:
+    """Return True if the skill's ``mapping_rules`` opted into node-scoped
+    browser sessions (front-desk dispatcher pattern).  Cached per skill name.
+    """
+    if not skill_name:
+        return False
+    if skill_name in _PIN_BROWSER_SCOPE_CACHE:
+        return _PIN_BROWSER_SCOPE_CACHE[skill_name]
+    pinned = False
+    try:
+        from app_context import AppContext
+        mw = AppContext.get_main_window()
+        if mw:
+            for sk in (getattr(mw, "agent_skills", None) or []):
+                if getattr(sk, "name", "") != skill_name:
+                    continue
+                mr = getattr(sk, "mapping_rules", None) or {}
+                if isinstance(mr, dict):
+                    flag = mr.get("pin_browser_scope_to_node")
+                    if isinstance(flag, bool):
+                        pinned = flag
+                    elif isinstance(flag, str):
+                        pinned = flag.strip().lower() in ("1", "true", "yes", "on")
+                break
+    except Exception:
+        pinned = False
+    _PIN_BROWSER_SCOPE_CACHE[skill_name] = pinned
+    return pinned
+
+
+def reset_pin_browser_scope_cache() -> None:
+    """Clear the per-skill pin-to-node cache.  Used by tests and by mapping-rule
+    edits at runtime so a skill author can flip the flag without restarting."""
+    try:
+        _PIN_BROWSER_SCOPE_CACHE.clear()
+    except Exception:
+        pass
+
+
+def resolve_browser_scope_key(state: dict | None = None, *, node_name: str, pin_to_node: bool | None = None) -> str:
     """Resolve a stable browser scope key from workflow state.
 
     Session-scoped chat tasks must not share browser cache/state with other
@@ -248,7 +325,37 @@ def resolve_browser_scope_key(state: dict | None = None, *, node_name: str) -> s
 
     The ``node_name`` is required (was a closure ref in the original;
     now an explicit kwarg).
+
+    ``pin_to_node`` overrides the chat-id-based scope resolution: when truthy,
+    always returns ``node:<name>``.  Resolution order:
+      1. Explicit ``pin_to_node`` kwarg (tests / programmatic callers).
+      2. ``state["attributes"]["pin_browser_scope_to_node"]`` flag.
+      3. ``state["attributes"]["params"]["pinBrowserScopeToNode"]`` flag.
+      4. Skill ``mapping_rules.pin_browser_scope_to_node`` (cached, looked up
+         via ``state["attributes"]["skill_name"]``).
+      5. Default: chat-id-based scope (existing behaviour).
     """
+    # Pin-to-node opt-in: front-desk dispatcher pattern (one shared browser
+    # session rotated across customer tabs, vs the default per-chat isolation).
+    try:
+        if pin_to_node is True:
+            return f"node:{node_name}"
+        _attrs_pin = state.get("attributes", {}) if isinstance(state, dict) else {}
+        if isinstance(_attrs_pin, dict):
+            _v = _attrs_pin.get("pin_browser_scope_to_node")
+            if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
+                return f"node:{node_name}"
+            _params_pin = _attrs_pin.get("params", {}) if isinstance(_attrs_pin, dict) else {}
+            if isinstance(_params_pin, dict):
+                _v = _params_pin.get("pinBrowserScopeToNode")
+                if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
+                    return f"node:{node_name}"
+            _skill_name = _attrs_pin.get("skill_name") if isinstance(_attrs_pin, dict) else ""
+            if _skill_name and _resolve_pin_to_node_from_skill(_skill_name):
+                return f"node:{node_name}"
+    except Exception:
+        pass
+
     try:
         state = state or {}
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
