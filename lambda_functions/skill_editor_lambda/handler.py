@@ -2410,7 +2410,7 @@ def _build_skills_s3_prefix(env: _Env, owner: str, skill_id: str) -> str:
 # Log Analysis
 # ---------------------------------------------------------------------------
 
-_LOG_ANALYSIS_MAX_BYTES = 128 * 1024   # 128 KB log cap sent to LLM
+_LOG_ANALYSIS_MAX_BYTES = 1024 * 1024  # 1 MB log cap — fits typical 4-part rotation in Sonnet 200K context
 _MAX_FLOWGRAM_INLINE = 64 * 1024       # 64 KB flowgram JSON cap for inline LLM context
 
 
