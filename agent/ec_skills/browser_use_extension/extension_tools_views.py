@@ -193,6 +193,45 @@ class LabelsReformatAction(BaseModel):
 	)
 
 
+class SendSmsAction(BaseModel):
+	"""Send an SMS to a phone number via AWS End User Messaging SMS.
+
+	Use for short notifications, alerts, or 2FA-style confirmations.
+	The phone number MUST be E.164 (e.g. '+14155550100', country code included)."""
+	phone_number: str = Field(
+		description="Recipient phone number in E.164 format (e.g. '+14155550100'). Country code is required."
+	)
+	message: str = Field(
+		description="SMS body. Plain ASCII keeps cost low and delivery reliable. Carriers may segment >160 chars into multiple billed parts."
+	)
+
+
+class SendEmailAction(BaseModel):
+	"""Send an email via AWS SES.
+
+	At least one of body_text or body_html is required.
+	The sender address is configured cloud-side (SES_FROM_EMAIL on the
+	agentScheduler Lambda); the user does not supply it."""
+	to: str = Field(
+		description="Recipient email address."
+	)
+	subject: str = Field(
+		description="Email subject line."
+	)
+	body_text: Optional[str] = Field(
+		default=None,
+		description="Plain-text body. At least one of body_text or body_html must be provided."
+	)
+	body_html: Optional[str] = Field(
+		default=None,
+		description="HTML body. At least one of body_text or body_html must be provided."
+	)
+	reply_to: Optional[str] = Field(
+		default=None,
+		description="Optional reply-to address. Replies will go here instead of the configured sender."
+	)
+
+
 class SendChatAction(BaseModel):
 	"""Send a chat message to another agent via A2A (Agent-to-Agent) protocol.
 	Use list_chat_agents first to discover available agents and their IDs."""
