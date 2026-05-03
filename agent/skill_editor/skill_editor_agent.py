@@ -817,6 +817,41 @@ class SkillEditorAgent:
                 return m.group(0).strip()
         return None
 
+    def _is_fresh_log_analysis_request(self, message: str) -> bool:
+        """True if message looks like a NEW 'analyze my logs' request (not a follow-up).
+
+        Used to clear stale log_analysis_context that was persisted from a
+        previous chat in the same cloud session. A follow-up phrase like
+        "fix it", "explain that node", or "tell me more" should NOT trigger
+        this — only an explicit new request should.
+        """
+        msg = (message or "").strip().lower()
+        if not msg:
+            return False
+
+        # Strong fresh-request keywords (English)
+        fresh_en = [
+            "analyze my log", "analyze the log", "analyze log",
+            "look at my log", "look at the log", "check my log",
+            "diagnose log", "diagnose the log", "debug log", "debug the log",
+            "review my log", "review the log", "examine the log",
+            "inspect the log", "investigate the log",
+        ]
+        if any(k in msg for k in fresh_en):
+            return True
+
+        # Strong fresh-request keywords (Chinese)
+        fresh_zh = [
+            "分析一下log", "分析log", "分析日志", "分析一下日志",
+            "看看日志", "看一下日志", "查看日志", "查日志",
+            "诊断日志", "诊断log", "调试日志", "排查日志",
+            "帮我分析",  # the most common phrasing in user's own logs
+        ]
+        if any(k in msg for k in fresh_zh):
+            return True
+
+        return False
+
     def _is_explain_request(self, message: str) -> bool:
         msg = (message or "").strip().lower()
         if not msg:
@@ -1593,6 +1628,19 @@ class SkillEditorAgent:
                 session_id=session_id,
                 on_event=on_event,
             )
+
+        # --- Fresh "analyze logs" request → reset stale context ---
+        # The cloud session persists log_analysis_context across app restarts.
+        # When the user asks for a NEW analysis (not a follow-up like "fix it"
+        # or "explain that"), we should clear the prior context so the Q&A
+        # form is shown again instead of routing into _run_analyze_log_followup.
+        if self._log_analysis_context and self._is_fresh_log_analysis_request(message):
+            logger.info(
+                "[SkillEditorAgent] Detected fresh log-analysis request — "
+                "clearing stale log_analysis_context and pending_log_analysis_info"
+            )
+            self._log_analysis_context = None
+            self._pending_log_analysis_info = None
 
         # --- Follow-up on a previous log analysis? ---
         file_path = self._extract_file_path_from_message(message)
