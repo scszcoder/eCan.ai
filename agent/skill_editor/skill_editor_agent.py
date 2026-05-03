@@ -789,12 +789,32 @@ class SkillEditorAgent:
             return True
 
         # Even without a file path, if the user explicitly asks to analyze
-        # logs (e.g. "help me analyze the logs", "analyze my run log"),
-        # classify as ANALYZE_LOG — the clarification flow will ask for the path.
-        analyze_verbs = ["analyze", "analyse", "diagnose", "debug", "check", "inspect", "review", "look at", "examine"]
-        log_nouns = ["log", "logs", "run log", "error log", "logfile", "log file"]
-        has_analyze = any(v in msg for v in analyze_verbs)
-        has_log_noun = any(n in msg for n in log_nouns)
+        # logs (e.g. "help me analyze the logs", "analyze my run log",
+        # "帮我分析一下log", "诊断日志"), classify as ANALYZE_LOG — the clarification
+        # flow will ask for the path.
+        analyze_verbs_en = [
+            "analyze", "analyse", "diagnose", "debug", "check",
+            "inspect", "review", "look at", "examine", "investigate",
+            "troubleshoot",
+        ]
+        analyze_verbs_zh = [
+            "分析", "诊断", "调试", "排查", "检查", "审查",
+            "看看", "看一下", "查看", "查一下",
+        ]
+        log_nouns_en = [
+            "log", "logs", "run log", "error log", "logfile", "log file",
+        ]
+        log_nouns_zh = [
+            "日志", "运行日志", "错误日志", "故障日志", "log", "logs",
+        ]
+        has_analyze = (
+            any(v in msg for v in analyze_verbs_en)
+            or any(v in msg for v in analyze_verbs_zh)
+        )
+        has_log_noun = (
+            any(n in msg for n in log_nouns_en)
+            or any(n in msg for n in log_nouns_zh)
+        )
         if has_analyze and has_log_noun:
             return True
 
