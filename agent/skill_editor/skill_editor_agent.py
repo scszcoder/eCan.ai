@@ -1608,15 +1608,17 @@ class SkillEditorAgent:
 
         questions = []
 
+        _lang = self._user_lang
+
         # Q0: Which skill(s) are under investigation — searchable typeahead with
         # multi-pick. Handler fills choices from the user's S3 skill list. The A2UI
         # frontend renders this as a substring-filtered dropdown so the user can
         # type a phrase, narrow the list, and select multiple matches.
         questions.append(ClarificationQuestion(
             id="skill_names",
-            question="Which skill(s) are you debugging? (type to search)",
+            question=t("log_qa_skill_question", _lang),
             choices=[],          # handler fills choices from S3 before sending to client
-            context="Type any part of a skill name to filter, then select one or more.",
+            context=t("log_qa_skill_context", _lang),
             allow_multiple=True,
             widget_type="searchable_multi_select",
             data_source="user_skills",
@@ -1626,57 +1628,57 @@ class SkillEditorAgent:
         if not file_path:
             questions.append(ClarificationQuestion(
                 id="log_file_path",
-                question="What is the full path to the log file you want me to analyze?",
+                question=t("log_qa_path_question", _lang),
                 choices=[
                     ClarificationChoice(
                         id="path_freeform",
-                        label="Type the file path",
-                        description="e.g. C:/Users/me/logs/run.log or /home/user/logs/run.log",
+                        label=t("log_qa_path_freeform_label", _lang),
+                        description=t("log_qa_path_freeform_desc", _lang),
                         allow_freeform=True,
                     ),
                 ],
-                context="I need the exact file path to locate and read the log.",
+                context=t("log_qa_path_context", _lang),
                 allow_multiple=False,
             ))
 
         # Q2: What went wrong
         questions.append(ClarificationQuestion(
             id="user_observation",
-            question="What happened during this skill run? What went wrong?",
+            question=t("log_qa_observation_question", _lang),
             choices=[
-                ClarificationChoice(id="obs_error", label="It crashed / threw an error", allow_freeform=True),
-                ClarificationChoice(id="obs_wrong_result", label="It finished but the result was wrong", allow_freeform=True),
-                ClarificationChoice(id="obs_stuck", label="It got stuck / timed out", allow_freeform=True),
-                ClarificationChoice(id="obs_partial", label="It only partially completed", allow_freeform=True),
-                ClarificationChoice(id="obs_other", label="Something else", allow_freeform=True),
+                ClarificationChoice(id="obs_error",        label=t("log_qa_obs_error", _lang),        allow_freeform=True),
+                ClarificationChoice(id="obs_wrong_result", label=t("log_qa_obs_wrong_result", _lang), allow_freeform=True),
+                ClarificationChoice(id="obs_stuck",        label=t("log_qa_obs_stuck", _lang),        allow_freeform=True),
+                ClarificationChoice(id="obs_partial",      label=t("log_qa_obs_partial", _lang),      allow_freeform=True),
+                ClarificationChoice(id="obs_other",        label=t("log_qa_obs_other", _lang),        allow_freeform=True),
             ],
-            context="Describe what you observed — even a rough description helps narrow down the issue.",
+            context=t("log_qa_observation_context", _lang),
             allow_multiple=False,
         ))
 
         # Q3: Expected behavior
         questions.append(ClarificationQuestion(
             id="expected_behavior",
-            question="What did you expect to happen instead?",
+            question=t("log_qa_expected_question", _lang),
             choices=[
                 ClarificationChoice(
                     id="exp_freeform",
-                    label="Describe expected behavior",
-                    description="e.g. 'should have completed all 5 steps' or 'should have returned a PDF'",
+                    label=t("log_qa_exp_freeform_label", _lang),
+                    description=t("log_qa_exp_freeform_desc", _lang),
                     allow_freeform=True,
                 ),
-                ClarificationChoice(id="exp_unsure", label="Not sure / just want a general analysis"),
+                ClarificationChoice(id="exp_unsure", label=t("log_qa_exp_unsure", _lang)),
             ],
-            context="Knowing the expected outcome helps me compare and pinpoint the failure.",
+            context=t("log_qa_expected_context", _lang),
             allow_multiple=False,
         ))
 
         self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
         self._pending_clarification = questions
 
-        intro = "Before I analyze the log, I'd like to collect a few details to give you a more targeted diagnosis."
+        intro = t("log_qa_intro", _lang)
         if file_path:
-            intro += f"\n\nI detected a file path in your message: **{file_path}**"
+            intro += "\n\n" + t("log_qa_intro_path_detected", _lang, file_path=file_path)
 
         return AgentResponse(
             message=intro,

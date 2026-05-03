@@ -2091,11 +2091,13 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("[sendSkillEditorChatMessage] Publishing stream_end event...")
 
         # Inject dynamic choices into any question with data_source="user_skills"
-        # before serializing — this fills the skill multi-select dropdown.
+        # before serializing — this fills the skill multi-select dropdown. Pass
+        # the agent's user_lang so the fallback "no skills found" entry localizes.
         if getattr(response, "clarification", None):
             try:
+                _ulang = getattr(agent, "user_lang", "en") or "en"
                 response.clarification = _inject_skill_choices_into_clarification(
-                    env, owner, response.clarification
+                    env, owner, response.clarification, user_lang=_ulang
                 )
             except Exception as _inj_err:
                 logger.warning(f"[sendSkillEditorChatMessage] Skill choice injection failed: {_inj_err}")
@@ -3063,7 +3065,8 @@ def _list_user_skills_for_qa(env: _Env, owner: str) -> List[Dict[str, str]]:
 
 
 def _inject_skill_choices_into_clarification(
-    env: _Env, owner: str, clarification: Optional[List[Any]]
+    env: _Env, owner: str, clarification: Optional[List[Any]],
+    user_lang: str = "en",
 ) -> Optional[List[Any]]:
     """Find any ClarificationQuestion with data_source='user_skills' and fill its choices.
 
@@ -3073,6 +3076,7 @@ def _inject_skill_choices_into_clarification(
         return clarification
 
     from agent.skill_editor.schemas import ClarificationChoice
+    from agent.skill_editor.i18n import t as _t
 
     skills = None  # lazy-fetch once
 
@@ -3092,7 +3096,11 @@ def _inject_skill_choices_into_clarification(
                 ClarificationChoice(id=s["id"], label=s["label"], description=s.get("description", ""))
                 for s in skill_list
             ] if skill_list else [
-                ClarificationChoice(id="_none", label="(no skills found)", description="Create a skill first")
+                ClarificationChoice(
+                    id="_none",
+                    label=_t("log_qa_skill_none_label", user_lang),
+                    description=_t("log_qa_skill_none_desc", user_lang),
+                )
             ]
             if is_dict:
                 q = dict(q)
