@@ -34,6 +34,7 @@ const promptService = require("./services/promptService");
 const settingsService = require("./services/settingsService");
 const cloudTaskRunService = require("./services/cloudTaskRunService");
 const relationService = require("./services/relationService");
+const messagingService = require("./services/messagingService");
 
 // const axios = require('axios');
 
@@ -5394,6 +5395,12 @@ async function processEvent(event, context, callback, test_stub) {
               }
               returnData = deleted;
             }
+            break;
+          case "sendEmail":
+            returnData = await messagingService.sendEmail(event.arguments, owner);
+            break;
+          case "sendSms":
+            returnData = await messagingService.sendSms(event.arguments, owner);
             break;
           case "addPrompts":
             {
