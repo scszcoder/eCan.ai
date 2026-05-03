@@ -3898,6 +3898,63 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
 
 
 
+def send_sms_to_cloud(session, token, sms_input, endpoint=None):
+    """Call AppSync sendSms mutation. Returns dict with {success, messageId, error}.
+
+    sms_input: dict with keys phoneNumber (E.164), message
+    """
+    mutation = (
+        "mutation SendSms($input: SendSmsInput!) { "
+        "sendSms(input: $input) { success messageId error } "
+        "}"
+    )
+    variables = {"input": {
+        "phoneNumber": sms_input.get("phoneNumber") or sms_input.get("phone_number") or "",
+        "message": sms_input.get("message") or "",
+    }}
+    try:
+        jresp = appsync_http_request(mutation, session, token, endpoint, variables=variables)
+        if "errors" in jresp:
+            err = (jresp["errors"][0] if jresp["errors"] else {}) or {}
+            return {"success": False, "error": err.get("message", str(err))}
+        data = jresp.get("data") or {}
+        return data.get("sendSms") or {"success": False, "error": "Empty response"}
+    except Exception as e:
+        return {"success": False, "error": get_traceback(e, "ErrorSendSmsToCloud")}
+
+
+def send_email_to_cloud(session, token, email_input, endpoint=None):
+    """Call AppSync sendEmail mutation. Returns dict with {success, messageId, error}.
+
+    email_input: dict with keys to, subject, bodyText, bodyHtml (optional), replyTo (optional)
+    """
+    mutation = (
+        "mutation SendEmail($input: SendEmailInput!) { "
+        "sendEmail(input: $input) { success messageId error } "
+        "}"
+    )
+    payload = {
+        "to": email_input.get("to") or "",
+        "subject": email_input.get("subject") or "",
+    }
+    if email_input.get("bodyText") is not None or email_input.get("body_text") is not None:
+        payload["bodyText"] = email_input.get("bodyText") or email_input.get("body_text")
+    if email_input.get("bodyHtml") is not None or email_input.get("body_html") is not None:
+        payload["bodyHtml"] = email_input.get("bodyHtml") or email_input.get("body_html")
+    if email_input.get("replyTo") or email_input.get("reply_to"):
+        payload["replyTo"] = email_input.get("replyTo") or email_input.get("reply_to")
+    variables = {"input": payload}
+    try:
+        jresp = appsync_http_request(mutation, session, token, endpoint, variables=variables)
+        if "errors" in jresp:
+            err = (jresp["errors"][0] if jresp["errors"] else {}) or {}
+            return {"success": False, "error": err.get("message", str(err))}
+        data = jresp.get("data") or {}
+        return data.get("sendEmail") or {"success": False, "error": "Empty response"}
+    except Exception as e:
+        return {"success": False, "error": get_traceback(e, "ErrorSendEmailToCloud")}
+
+
 def send_query_fom_request_to_cloud(session, token, fom_info, endpoint):
     try:
         queryInfo = gen_query_fom_string(fom_info)

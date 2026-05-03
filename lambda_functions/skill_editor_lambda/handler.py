@@ -77,6 +77,15 @@ class _Env:
     ecs_task_definition: Optional[str] = None
     ecs_subnets: Optional[List[str]] = None
     ecs_security_groups: Optional[List[str]] = None
+    # SNS topic ARN for Fargate-to-Lambda skill run result notifications.
+    # Set SKILL_RUN_RESULT_TOPIC_ARN in Lambda env vars.
+    # The Fargate task must publish to this topic on completion (success or failure).
+    skill_run_result_topic_arn: Optional[str] = None
+    # Aurora Serverless RDS Data API — used by debug workspace for agent_skills queries.
+    # Lambda IAM role must have rds-data:ExecuteStatement + secretsmanager:GetSecretValue.
+    rds_cluster_arn: Optional[str] = None
+    rds_secret_arn: Optional[str] = None
+    rds_database: Optional[str] = None
 
 
 def _utc_now_iso() -> str:
@@ -113,6 +122,10 @@ def _load_env() -> _Env:
         ecs_task_definition=os.environ.get("ECS_TASK_DEFINITION", "").strip() or None,
         ecs_subnets=[s.strip() for s in subnets_str.split(",") if s.strip()] or None,
         ecs_security_groups=[s.strip() for s in security_groups_str.split(",") if s.strip()] or None,
+        skill_run_result_topic_arn=os.environ.get("SKILL_RUN_RESULT_TOPIC_ARN", "").strip() or None,
+        rds_cluster_arn=os.environ.get("DBAuroraClusterArn", "").strip() or None,
+        rds_secret_arn=os.environ.get("DBSecretsStoreArn", "").strip() or None,
+        rds_database=os.environ.get("DatabaseName", "").strip() or None,
     )
 
 
@@ -1993,17 +2006,24 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("[sendSkillEditorChatMessage] Creating SkillEditorAgent...")
         llm_instance = None
         try:
-            from langchain_openai import ChatOpenAI
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            openai_key = os.environ.get("OPENAI_API_KEY")
+            model_name = os.environ.get("SKILL_EDITOR_MODEL", "")
 
-            api_key = os.environ.get("OPENAI_API_KEY")
-            model_name = os.environ.get("SKILL_EDITOR_MODEL", "gpt-5.5")
-            if api_key:
-                llm_instance = ChatOpenAI(model=model_name, api_key=api_key)
-                logger.info(f"[sendSkillEditorChatMessage] Using OpenAI LLM model={model_name}")
+            if anthropic_key:
+                from langchain_community.chat_models import ChatAnthropic
+                effective_model = model_name or "claude-sonnet-4-6"
+                llm_instance = ChatAnthropic(model=effective_model, api_key=anthropic_key, temperature=0)
+                logger.info(f"[sendSkillEditorChatMessage] Using Anthropic LLM model={effective_model}")
+            elif openai_key:
+                from langchain_openai import ChatOpenAI
+                effective_model = model_name or "gpt-5.5"
+                llm_instance = ChatOpenAI(model=effective_model, api_key=openai_key, temperature=0)
+                logger.info(f"[sendSkillEditorChatMessage] Anthropic key absent — using OpenAI fallback model={effective_model}")
             else:
-                logger.warning("[sendSkillEditorChatMessage] OPENAI_API_KEY missing; falling back to default LLM selection")
+                logger.warning("[sendSkillEditorChatMessage] No LLM API key found; agent will use internal LLM selection")
         except Exception as e:
-            logger.warning(f"[sendSkillEditorChatMessage] Failed to init OpenAI LLM: {e}")
+            logger.warning(f"[sendSkillEditorChatMessage] Failed to init LLM: {e}")
 
         agent = SkillEditorAgent(llm=llm_instance, user_name=owner)
 
@@ -2028,6 +2048,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     last_saved_skill_name=session.get("lastSavedSkillName"),
                     cached_flowgram_dict=session.get("cachedFlowgramDict"),
                     user_lang=session.get("userLang"),
+                    last_run_error=session.get("lastRunError"),
                 )
         except Exception as e:
             logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
@@ -2068,6 +2089,17 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f"[sendSkillEditorChatMessage] token_tracker flush failed: {_tok_err}")
 
         logger.info("[sendSkillEditorChatMessage] Publishing stream_end event...")
+
+        # Inject dynamic choices into any question with data_source="user_skills"
+        # before serializing — this fills the skill multi-select dropdown.
+        if getattr(response, "clarification", None):
+            try:
+                response.clarification = _inject_skill_choices_into_clarification(
+                    env, owner, response.clarification
+                )
+            except Exception as _inj_err:
+                logger.warning(f"[sendSkillEditorChatMessage] Skill choice injection failed: {_inj_err}")
+
         try:
             stream_end_payload = {
                 "messageId": assistant_message_id,
@@ -2378,7 +2410,8 @@ def _build_skills_s3_prefix(env: _Env, owner: str, skill_id: str) -> str:
 # Log Analysis
 # ---------------------------------------------------------------------------
 
-_LOG_ANALYSIS_MAX_BYTES = 128 * 1024  # 128 KB cap sent to LLM
+_LOG_ANALYSIS_MAX_BYTES = 1024 * 1024  # 1 MB log cap — fits typical 4-part rotation in Sonnet 200K context
+_MAX_FLOWGRAM_INLINE = 64 * 1024       # 64 KB flowgram JSON cap for inline LLM context
 
 
 def _find_log_file_key(env: _Env, owner: str, log_file_name: str) -> Optional[str]:
@@ -2411,14 +2444,22 @@ def _find_log_file_key(env: _Env, owner: str, log_file_name: str) -> Optional[st
     return None
 
 
-def _read_s3_text(bucket: str, key: str, max_bytes: int = _LOG_ANALYSIS_MAX_BYTES) -> str:
-    """Read a text object from S3, truncating to *max_bytes*."""
+def _read_s3_text(
+    bucket: str, key: str, max_bytes: int = _LOG_ANALYSIS_MAX_BYTES
+) -> tuple:
+    """Read a text object from S3, truncating to *max_bytes*.
+
+    Returns:
+        (content: str, total_bytes: int)  — total_bytes is the full object size.
+    """
     resp = _s3_client().get_object(Bucket=bucket, Key=key)
+    total_bytes: int = resp.get("ContentLength", 0)
     raw = resp["Body"].read(max_bytes)
     try:
-        return raw.decode("utf-8")
+        content = raw.decode("utf-8")
     except UnicodeDecodeError:
-        return raw.decode("latin-1")
+        content = raw.decode("latin-1")
+    return content, total_bytes
 
 
 def _run_sub_agent(
@@ -2427,15 +2468,856 @@ def _run_sub_agent(
     user_message: str,
     *,
     label: str = "sub-agent",
-) -> str:
-    """Run a sub-agent LLM call with a system prompt and return the text response."""
+    tool_schema: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Run a sub-agent LLM call and return structured tool_use output or plain text.
+
+    When *tool_schema* is provided the model is called with tool_choice="required"
+    and the first tool_call args dict is returned (guaranteed structure, no free-text
+    parsing needed).  Falls back to plain text if tool_use fails.
+    """
     from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM
 
-    logger.info(f"[reqLogAnalysis:{label}] Invoking, user_msg_len={len(user_message)}")
+    logger.info(f"[reqLogAnalysis:{label}] Invoking, user_msg_len={len(user_message)}, structured={tool_schema is not None}")
+
+    if tool_schema:
+        try:
+            llm_with_tool = llm.bind_tools([tool_schema], tool_choice={"type": "tool", "name": tool_schema["name"]})
+            resp = llm_with_tool.invoke([_SM(content=system_prompt), _HM(content=user_message)])
+            tool_calls = getattr(resp, "tool_calls", None)
+            if tool_calls:
+                result = tool_calls[0].get("args", {})
+                logger.info(f"[reqLogAnalysis:{label}] Structured result keys={list(result.keys())}")
+                return result
+        except Exception as e:
+            logger.warning(f"[reqLogAnalysis:{label}] Structured tool_use failed ({e}), falling back to text")
+
     resp = llm.invoke([_SM(content=system_prompt), _HM(content=user_message)])
     text = resp.content if hasattr(resp, "content") else str(resp)
-    logger.info(f"[reqLogAnalysis:{label}] Done, response_len={len(text)}")
+    logger.info(f"[reqLogAnalysis:{label}] Text response_len={len(text)}")
     return text
+
+
+# ---------------------------------------------------------------------------
+# Structured output schemas for log-analysis sub-agents
+# ---------------------------------------------------------------------------
+
+_LOG_PARSER_TOOL = {
+    "name": "parsed_log_events",
+    "description": "Structured parse of a skill-run log into timestamped events.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "events": {
+                "type": "array",
+                "description": "Ordered list of log events",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "timestamp": {"type": "string"},
+                        "node_id": {"type": "string"},
+                        "node_type": {"type": "string"},
+                        "level": {"type": "string", "enum": ["info", "warning", "error", "debug"]},
+                        "message": {"type": "string"},
+                        "data": {"type": "object"},
+                    },
+                    "required": ["message", "level"],
+                },
+            },
+            "error_events": {
+                "type": "array",
+                "description": "Subset of events that represent errors or failures",
+                "items": {"type": "object"},
+            },
+            "first_failure_node": {"type": "string", "description": "node_id of the first node that failed, if any"},
+            "summary": {"type": "string", "description": "1-3 sentence summary of what happened"},
+            "was_truncated": {"type": "boolean", "description": "True if the log appeared to be cut off"},
+        },
+        "required": ["events", "summary"],
+    },
+}
+
+_FLOWGRAM_CORRELATOR_TOOL = {
+    "name": "flowgram_correlation",
+    "description": "Maps parsed log events onto flowgram nodes and edges.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "node_execution_order": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "node_ids in the order they executed (as seen in the log)",
+            },
+            "node_outcomes": {
+                "type": "object",
+                "description": "Map of node_id -> {status: success|failure|skipped, error: str|null}",
+            },
+            "failed_nodes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "node_id": {"type": "string"},
+                        "node_type": {"type": "string"},
+                        "error_type": {"type": "string"},
+                        "error_message": {"type": "string"},
+                        "input_snapshot": {"type": "object"},
+                    },
+                    "required": ["node_id", "error_message"],
+                },
+            },
+            "unmatched_log_lines": {"type": "array", "items": {"type": "string"}},
+            "summary": {"type": "string"},
+        },
+        "required": ["node_outcomes", "summary"],
+    },
+}
+
+_ROOT_CAUSE_TOOL = {
+    "name": "root_cause_analysis",
+    "description": "Diagnoses the root cause of a skill run failure and recommends fixes.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "root_cause": {"type": "string", "description": "Plain-language description of WHY it failed"},
+            "hypothesis": {"type": "string", "description": "1-2 sentence targeted diagnosis (the specific bug)"},
+            "failed_node_id": {"type": "string"},
+            "failed_node_type": {"type": "string"},
+            "error_type": {"type": "string"},
+            "error_message": {"type": "string"},
+            "input_at_failure": {"type": "object", "description": "Node input snapshot at point of failure"},
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+            "fix_steps": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Ordered list of concrete fix steps",
+            },
+            "affected_nodes": {"type": "array", "items": {"type": "string"}},
+            "is_prompt_fix": {"type": "boolean", "description": "True if the fix is a prompt improvement (not structural)"},
+            "fix_tier": {
+                "type": "string",
+                "enum": ["prompt_only", "node_params", "flowgram_struct", "combo", "platform_code"],
+                "description": (
+                    "Cheapest tier of fix that will resolve the bug. Always pick the LOWEST tier that works.\n"
+                    "  prompt_only     – tweak a node's prompt text (rules, examples, format constraints).\n"
+                    "  node_params     – change non-prompt node attributes (model, temperature, condition expr, loop config, timeout).\n"
+                    "  flowgram_struct – add/remove/rewire nodes or edges on the canvas.\n"
+                    "  combo           – requires changes across two or more of the above tiers.\n"
+                    "  platform_code   – not fixable in the Skill Editor — requires changing eCan.ai source code."
+                ),
+            },
+            "bug_category": {
+                "type": "string",
+                "enum": ["skill_config", "platform_code", "infra_config", "quota_billing"],
+                "description": (
+                    "skill_config: fixable by editing flowgram nodes/prompts/edges — CodeAgent handles this. "
+                    "platform_code: bug in the eCan.ai framework/runtime code — needs developer code review. "
+                    "infra_config: AWS/cloud infrastructure misconfiguration (IAM, VPC, ECS, etc.). "
+                    "quota_billing: rate limits, quota exhaustion, or billing issues (HTTP 429, ThrottlingException)."
+                ),
+            },
+            "code_file_hints": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "For platform_code bugs: list of suspected source file paths or module names (e.g. 'agent/ec_tasks/appsync_pubsub.py'). Empty for other categories.",
+            },
+        },
+        "required": ["root_cause", "fix_steps", "confidence", "bug_category", "fix_tier"],
+    },
+}
+
+# Structured output schema for the Code Review Agent
+_WRITE_BUG_REPORT_TOOL = {
+    "name": "write_bug_report",
+    "description": "Write a structured bug report for a platform_code defect found in the eCan.ai source.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string", "description": "Repo-relative path to the defective file"},
+            "line_number": {"type": "integer", "description": "Approximate line number of the defect"},
+            "function_name": {"type": "string", "description": "Function or method containing the bug"},
+            "root_cause": {"type": "string", "description": "Precise technical description of the defect"},
+            "error_evidence": {"type": "string", "description": "Log snippet or error message that points to this location"},
+            "suggested_fix": {"type": "string", "description": "Concrete code-level fix recommendation"},
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        },
+        "required": ["file_path", "root_cause", "suggested_fix", "confidence"],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Pattern tables for deterministic infra_config / quota_billing detection
+# (no LLM needed — match on well-known AWS error codes and HTTP status)
+# ---------------------------------------------------------------------------
+_QUOTA_PATTERNS = [
+    "429", "too many requests", "throt", "rate limit", "ratelimit",
+    "insufficient_quota", "quotaexceeded", "requestlimitexceeded",
+    "slowdown", "serviceunavailable",  # S3 SlowDown is effectively quota
+    "you exceeded your current quota",
+]
+
+# Higher-priority subset: LLM-provider account quota / billing exhaustion.
+# These are the most user-actionable failures — they need a recharge, not a
+# code fix. We scan for these FIRST and short-circuit the analysis pipeline.
+_LLM_QUOTA_PATTERNS = [
+    "insufficient_quota",
+    "you exceeded your current quota",
+    "billing_hard_limit_reached",
+    "quota_exceeded",
+    "credit balance is too low",
+    "account has insufficient",
+    "please check your plan and billing",
+    "rate_limit_exceeded",  # OpenAI/Anthropic rate-limit
+    "ratelimiterror",
+    "anthropic.api_error",  # generic Anthropic auth/billing failure surface
+    "openai.error.ratelimiterror",
+]
+
+
+def _detect_llm_quota_exhaustion(text: str) -> Optional[Dict[str, str]]:
+    """Fast pre-check: scan log text for LLM provider quota / billing errors.
+
+    Returns a dict with {provider, signal, line} when a match is found, else None.
+    Operates on lowercase to avoid case sensitivity. Only the FIRST match is returned
+    so the user can see exactly which line of the log triggered it.
+    """
+    if not text:
+        return None
+    lower = text.lower()
+    for pat in _LLM_QUOTA_PATTERNS:
+        idx = lower.find(pat)
+        if idx == -1:
+            continue
+        # Locate the line containing the match for user-facing context
+        line_start = lower.rfind("\n", 0, idx) + 1
+        line_end = lower.find("\n", idx)
+        if line_end == -1:
+            line_end = min(len(text), idx + 240)
+        snippet = text[line_start:line_end].strip()[:240]
+        # Heuristic provider attribution
+        provider = "unknown"
+        if "openai" in lower[max(0, idx - 100):idx + 100]:
+            provider = "OpenAI"
+        elif "anthropic" in lower[max(0, idx - 100):idx + 100] or "claude" in lower[max(0, idx - 100):idx + 100]:
+            provider = "Anthropic"
+        return {"provider": provider, "signal": pat, "line": snippet}
+    return None
+
+_INFRA_PATTERNS = [
+    "accessdenied", "access denied", "not authorized", "unauthorized",
+    "nosuchbucket", "nosuchkey", "invalidbucketname",
+    "networkingerror", "endpoint url",
+    "taskfailed", "task stopped", "ecs", "fargate",
+    "securitygroup", "subnet", "vpc",
+    "credentialserror", "invalidclienttokenid", "tokenrefresherror",
+    "ssm", "secretsmanager", "parameter not found",
+    "certificate", "ssl", "handshake",
+]
+
+
+def _quick_classify(text: str) -> Optional[str]:
+    """Fast deterministic pre-classifier before running the LLM RCA step.
+
+    Returns 'quota_billing', 'infra_config', or None (let LLM decide).
+    Operates on lowercase text to avoid case sensitivity issues.
+    """
+    lower = text.lower()
+    for pat in _QUOTA_PATTERNS:
+        if pat in lower:
+            return "quota_billing"
+    for pat in _INFRA_PATTERNS:
+        if pat in lower:
+            return "infra_config"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Source-reading tools for the Code Review Agent
+# ---------------------------------------------------------------------------
+_CODE_REVIEW_REPO_ROOT: Optional[str] = None
+
+def _get_repo_root() -> str:
+    """Return the eCan.ai repo root, resolved once and cached."""
+    global _CODE_REVIEW_REPO_ROOT
+    if _CODE_REVIEW_REPO_ROOT is None:
+        # In Lambda the code is laid out flat; in dev, it's the repo root.
+        # Try to find the repo root relative to this file.
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate = os.path.normpath(os.path.join(this_dir, "..", ".."))
+        if os.path.isdir(os.path.join(candidate, "agent")):
+            _CODE_REVIEW_REPO_ROOT = candidate
+        else:
+            # Lambda flat layout: the package root is two levels up from handler.py
+            _CODE_REVIEW_REPO_ROOT = this_dir
+    return _CODE_REVIEW_REPO_ROOT
+
+
+_ALLOWED_CODE_PREFIXES = ("agent/", "utils/", "config/", "common/")
+
+
+def _validate_source_path(rel_path: str) -> str:
+    """Validate and normalize a repo-relative path for source reading.
+
+    Raises ValueError if the path traverses outside allowed directories.
+    Returns the absolute path.
+    """
+    # Strip leading slashes so callers can pass either style
+    rel_clean = rel_path.lstrip("/").replace("\\", "/")
+    # Block directory traversal
+    normalized = os.path.normpath(rel_clean)
+    if normalized.startswith(".."):
+        raise ValueError(f"Path traversal not allowed: {rel_path!r}")
+    # Must be under an allowed prefix
+    if not any(normalized.startswith(p) for p in _ALLOWED_CODE_PREFIXES):
+        raise ValueError(
+            f"Path {rel_path!r} is outside allowed prefixes: {_ALLOWED_CODE_PREFIXES}"
+        )
+    return os.path.join(_get_repo_root(), normalized)
+
+
+def _grep_source(pattern: str, path_prefix: str = "agent/", context_lines: int = 5) -> str:
+    """Grep the eCan.ai source tree for *pattern* under *path_prefix*.
+
+    Returns ripgrep output (or Python fallback) as a string, capped at 8 KB.
+    Safe: path_prefix is validated against _ALLOWED_CODE_PREFIXES.
+    """
+    import subprocess, shutil
+
+    try:
+        abs_prefix = _validate_source_path(path_prefix.rstrip("/") + "/dummy.txt")
+        search_dir = os.path.dirname(abs_prefix)
+    except ValueError as e:
+        return f"[grep_source error] {e}"
+
+    if not os.path.isdir(search_dir):
+        return f"[grep_source] directory not found: {search_dir}"
+
+    MAX_OUTPUT = 8192
+    try:
+        rg = shutil.which("rg") or shutil.which("ripgrep")
+        if rg:
+            cmd = [rg, "-n", f"-C{context_lines}", "--max-filesize=500K", pattern, search_dir]
+        else:
+            cmd = ["grep", "-rn", f"--context={context_lines}", pattern, search_dir]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        output = result.stdout or result.stderr or "(no matches)"
+        if len(output) > MAX_OUTPUT:
+            output = output[:MAX_OUTPUT] + f"\n[...output truncated at {MAX_OUTPUT} bytes...]"
+        return output
+    except Exception as e:
+        return f"[grep_source error] {e}"
+
+
+def _read_source_file(rel_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
+    """Read a source file (or slice) from the repo, restricted to allowed paths.
+
+    Returns the file contents (with line numbers), capped at 10 KB.
+    """
+    MAX_CHARS = 10240
+    try:
+        abs_path = _validate_source_path(rel_path)
+    except ValueError as e:
+        return f"[read_source_file error] {e}"
+
+    if not os.path.isfile(abs_path):
+        return f"[read_source_file] file not found: {rel_path}"
+
+    try:
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+
+        s = (start_line or 1) - 1
+        e = end_line or len(lines)
+        slice_ = lines[max(0, s):e]
+        numbered = "".join(f"{s + i + 1:4d}  {ln}" for i, ln in enumerate(slice_))
+        if len(numbered) > MAX_CHARS:
+            numbered = numbered[:MAX_CHARS] + f"\n[...truncated at {MAX_CHARS} chars...]"
+        return numbered
+    except Exception as ex:
+        return f"[read_source_file error] {ex}"
+
+
+def _run_code_review_agent(
+    llm: Any,
+    rca_result: Dict[str, Any],
+    log_content: str,
+) -> Dict[str, Any]:
+    """Agentic loop: grep + read source files to produce a structured bug report.
+
+    Called only when rca_result["bug_category"] == "platform_code".
+    Runs up to _CODE_REVIEW_MAX_TURNS tool-call rounds, then forces write_bug_report.
+
+    Returns the write_bug_report args dict, or a minimal fallback on failure.
+    """
+    from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM, AIMessage as _AI, ToolMessage as _TM
+
+    _CODE_REVIEW_MAX_TURNS = 6
+
+    grep_schema = {
+        "name": "grep_source",
+        "description": "Search the eCan.ai source tree with a regex pattern.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Regex pattern to search for"},
+                "path_prefix": {"type": "string", "description": "Repo-relative dir to search (e.g. 'agent/', 'utils/')"},
+                "context_lines": {"type": "integer", "description": "Lines of context around each match", "default": 5},
+            },
+            "required": ["pattern"],
+        },
+    }
+    read_schema = {
+        "name": "read_source_file",
+        "description": "Read a source file (or line range) from the repo.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rel_path": {"type": "string", "description": "Repo-relative file path"},
+                "start_line": {"type": "integer"},
+                "end_line": {"type": "integer"},
+            },
+            "required": ["rel_path"],
+        },
+    }
+
+    system_prompt = (
+        "You are a senior platform engineer performing a code review of the eCan.ai skill execution framework.\n"
+        "A skill run failed and root-cause analysis determined the bug is in the platform code, NOT in the skill config.\n\n"
+        "Your job:\n"
+        "1. Use grep_source and read_source_file to locate the exact defective code.\n"
+        "2. Once you have found the specific file + line + function, call write_bug_report with a precise, actionable report.\n\n"
+        "Rules:\n"
+        "- Never guess file paths — always grep first to confirm the location.\n"
+        "- Reference specific line numbers and function names in your report.\n"
+        "- The suggested_fix must be a concrete code-level change (not 'look at the logs').\n"
+        "- Stop as soon as you have enough evidence. Do not keep searching after you've found the bug."
+    )
+
+    code_file_hints = rca_result.get("code_file_hints") or []
+    hints_str = "\n".join(f"  - {h}" for h in code_file_hints) if code_file_hints else "  (no hints — use grep_source to find the defect)"
+
+    user_msg = (
+        f"## Root Cause Analysis\n\n"
+        f"**Error**: {rca_result.get('error_message', '(unknown)')}\n"
+        f"**Hypothesis**: {rca_result.get('hypothesis', rca_result.get('root_cause', ''))}\n"
+        f"**Failed node type**: {rca_result.get('failed_node_type', '(unknown)')}\n\n"
+        f"## Suspected Files\n{hints_str}\n\n"
+        f"## Log Excerpt (first 2000 chars)\n```\n{log_content[:2000]}\n```\n\n"
+        "Now investigate and call write_bug_report when you have a precise finding."
+    )
+
+    tools = [grep_schema, read_schema, _WRITE_BUG_REPORT_TOOL]
+    llm_with_tools = llm.bind_tools(tools)
+    messages = [_SM(content=system_prompt), _HM(content=user_msg)]
+
+    for turn in range(_CODE_REVIEW_MAX_TURNS):
+        try:
+            resp = llm_with_tools.invoke(messages)
+        except Exception as e:
+            logger.warning(f"[code_review_agent] LLM call failed on turn {turn}: {e}")
+            break
+
+        tool_calls = getattr(resp, "tool_calls", None) or []
+        if not tool_calls:
+            # Model responded with text — nudge it to use a tool
+            messages.append(resp)
+            messages.append(_HM(content="Please call one of the tools to continue your investigation, or call write_bug_report if you have enough evidence."))
+            continue
+
+        messages.append(resp)
+        finished = False
+        for tc in tool_calls:
+            tool_name = tc.get("name") or tc.get("function", {}).get("name", "")
+            tool_args = tc.get("args") or tc.get("function", {}).get("arguments") or {}
+            if isinstance(tool_args, str):
+                try:
+                    tool_args = json.loads(tool_args)
+                except Exception:
+                    tool_args = {}
+            tc_id = tc.get("id") or f"call_{turn}"
+
+            if tool_name == "write_bug_report":
+                logger.info(f"[code_review_agent] Bug report written: {list(tool_args.keys())}")
+                return tool_args
+
+            elif tool_name == "grep_source":
+                result = _grep_source(
+                    pattern=tool_args.get("pattern", ""),
+                    path_prefix=tool_args.get("path_prefix", "agent/"),
+                    context_lines=int(tool_args.get("context_lines", 5)),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "read_source_file":
+                result = _read_source_file(
+                    rel_path=tool_args.get("rel_path", ""),
+                    start_line=tool_args.get("start_line"),
+                    end_line=tool_args.get("end_line"),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            else:
+                messages.append(_TM(content=f"Unknown tool: {tool_name}", tool_call_id=tc_id))
+
+    # Exhausted turns without write_bug_report — return a minimal fallback
+    logger.warning("[code_review_agent] Exhausted turns without producing bug report — returning fallback")
+    return {
+        "file_path": (code_file_hints[0] if code_file_hints else "unknown"),
+        "root_cause": rca_result.get("hypothesis") or rca_result.get("root_cause", "(see RCA)"),
+        "suggested_fix": "Manual investigation required — auto code review did not converge.",
+        "confidence": "low",
+    }
+
+
+# =============================================================================
+# Debug workspace — RDS helpers, skill listing, workspace assembly
+# =============================================================================
+
+def _rds_execute(env: _Env, sql: str, params: Optional[List[Dict]] = None) -> List[Dict[str, Any]]:
+    """Execute a SQL statement via Aurora Serverless RDS Data API.
+
+    Returns a list of row dicts. Returns [] (not an error) if RDS is not configured.
+    params format: [{"name": "owner", "value": {"stringValue": "..."}}]
+    """
+    if not (env.rds_cluster_arn and env.rds_secret_arn and env.rds_database):
+        logger.warning("[rds_execute] RDS not configured — skipping DB query")
+        return []
+    try:
+        client = boto3.client("rds-data", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        kwargs: Dict[str, Any] = {
+            "resourceArn": env.rds_cluster_arn,
+            "secretArn": env.rds_secret_arn,
+            "database": env.rds_database,
+            "sql": sql,
+            "includeResultMetadata": True,
+        }
+        if params:
+            kwargs["parameters"] = params
+        resp = client.execute_statement(**kwargs)
+        cols = [c["name"].lower() for c in (resp.get("columnMetadata") or [])]
+        rows = []
+        for raw_row in resp.get("records") or []:
+            obj: Dict[str, Any] = {}
+            for col, field in zip(cols, raw_row):
+                if not field:
+                    obj[col] = None
+                elif "stringValue" in field:
+                    obj[col] = field["stringValue"]
+                elif "longValue" in field:
+                    obj[col] = field["longValue"]
+                elif "doubleValue" in field:
+                    obj[col] = field["doubleValue"]
+                elif "booleanValue" in field:
+                    obj[col] = field["booleanValue"]
+                elif field.get("isNull"):
+                    obj[col] = None
+                else:
+                    obj[col] = None
+            rows.append(obj)
+        return rows
+    except Exception as e:
+        logger.warning(f"[rds_execute] Query failed: {e}")
+        return []
+
+
+def _fetch_skill_db_rows(env: _Env, owner: str, skill_names: List[str]) -> List[Dict[str, Any]]:
+    """Fetch agent_skills rows for the given owner and skill names.
+
+    Returns list of row dicts. Includes config and diagram JSON columns.
+    """
+    if not skill_names:
+        return []
+    placeholders = ", ".join(f":sn{i}" for i in range(len(skill_names)))
+    sql = f"SELECT * FROM agent_skills WHERE owner = :owner AND name IN ({placeholders})"
+    params = [{"name": "owner", "value": {"stringValue": owner}}]
+    for i, name in enumerate(skill_names):
+        params.append({"name": f"sn{i}", "value": {"stringValue": name}})
+    return _rds_execute(env, sql, params)
+
+
+def _list_user_skills_for_qa(env: _Env, owner: str) -> List[Dict[str, str]]:
+    """Return a list of the user's skill names from S3 for Q&A dropdown choices.
+
+    Format: [{"id": skill_name, "label": skill_name, "description": ""}]
+    Falls back to empty list if S3 listing fails.
+    """
+    try:
+        prefix = _norm_prefix(env.s3_key_root)
+        user_dir = _safe_user_dir_name(owner)
+        skills_prefix = _s3_key(prefix, user_dir, "my_skills") + "/"
+        keys = _s3_list_keys(bucket=env.s3_bucket, prefix=skills_prefix)
+
+        seen: Dict[str, bool] = {}
+        for key in keys:
+            parts = key.replace(skills_prefix, "").split("/")
+            if parts and parts[0]:
+                seen[parts[0]] = True
+
+        return [
+            {"id": name, "label": name, "description": ""}
+            for name in sorted(seen.keys())
+        ]
+    except Exception as e:
+        logger.warning(f"[list_user_skills_for_qa] Failed: {e}")
+        return []
+
+
+def _inject_skill_choices_into_clarification(
+    env: _Env, owner: str, clarification: Optional[List[Any]]
+) -> Optional[List[Any]]:
+    """Find any ClarificationQuestion with data_source='user_skills' and fill its choices.
+
+    Works on both ClarificationQuestion objects and their model_dump() dicts.
+    """
+    if not clarification:
+        return clarification
+
+    from agent.skill_editor.schemas import ClarificationChoice
+
+    skills = None  # lazy-fetch once
+
+    def _ensure_skills() -> List[Dict[str, str]]:
+        nonlocal skills
+        if skills is None:
+            skills = _list_user_skills_for_qa(env, owner)
+        return skills or []
+
+    result = []
+    for q in clarification:
+        is_dict = isinstance(q, dict)
+        src = q.get("data_source") if is_dict else getattr(q, "data_source", None)
+        if src == "user_skills":
+            skill_list = _ensure_skills()
+            new_choices = [
+                ClarificationChoice(id=s["id"], label=s["label"], description=s.get("description", ""))
+                for s in skill_list
+            ] if skill_list else [
+                ClarificationChoice(id="_none", label="(no skills found)", description="Create a skill first")
+            ]
+            if is_dict:
+                q = dict(q)
+                q["choices"] = [c.model_dump() for c in new_choices]
+            else:
+                object.__setattr__(q, "choices", new_choices) if hasattr(q, "__fields__") else setattr(q, "_choices", new_choices)
+                try:
+                    q.choices = new_choices
+                except Exception:
+                    q = q.model_copy(update={"choices": new_choices})
+        result.append(q)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Debug workspace — assembles all debug context under EFS (or /tmp fallback)
+# ---------------------------------------------------------------------------
+
+_DEBUG_WS_ROOT = "/mnt/efs/debug"      # EFS persistent workspace root
+_DEBUG_WS_TMP = "/tmp/debug"           # fallback if EFS is unavailable
+
+
+def _debug_ws_root() -> str:
+    """Return the writable workspace root (EFS preferred, /tmp fallback)."""
+    try:
+        if os.path.isdir("/mnt/efs"):
+            os.makedirs(_DEBUG_WS_ROOT, exist_ok=True)
+            return _DEBUG_WS_ROOT
+    except OSError:
+        pass
+    return _DEBUG_WS_TMP
+
+
+@dataclass
+class DebugWorkspace:
+    """Paths to all locally-staged debug artifacts for one debug session."""
+    root: str                             # absolute path to session workspace dir
+    log_path: Optional[str]              # path to downloaded log file
+    skill_dirs: Dict[str, str]           # skill_name → path to skill dir
+    prompt_dir: str                       # path to prompts/ dir (Lambda package copy)
+    source_root: str                      # path to source code root (/var/task in Lambda)
+    db_records: Dict[str, Any]           # skill_name → agent_skills row dict
+    is_complete: bool = False            # True after all downloads finished
+
+
+def _assemble_debug_workspace(
+    env: _Env,
+    owner: str,
+    session_id: str,
+    skill_names: List[str],
+    log_s3_key: Optional[str],
+) -> DebugWorkspace:
+    """Download log + skill flowgrams + DB rows into a local workspace dir.
+
+    Layout:
+      {ws}/log/{filename}
+      {ws}/skills/{skill_name}/flowgram.json
+      {ws}/skills/{skill_name}/data_mapping.json
+      {ws}/skills/{skill_name}/db_record.json
+      {ws}/prompts/          → symlink or copy from /var/task/prompts/
+      source code:           /var/task/ (Lambda package, read-only)
+    """
+    sanitized_owner = _sanitize_owner(owner)
+    ws_root = os.path.join(_debug_ws_root(), sanitized_owner, session_id)
+    os.makedirs(ws_root, exist_ok=True)
+
+    log_dir = os.path.join(ws_root, "log")
+    os.makedirs(log_dir, exist_ok=True)
+
+    # --- Download log from S3 ---
+    log_path: Optional[str] = None
+    if log_s3_key:
+        try:
+            log_resp = _s3_client().get_object(Bucket=env.s3_bucket, Key=log_s3_key)
+            log_bytes = log_resp["Body"].read()
+            log_filename = log_s3_key.split("/")[-1] or "run.log"
+            log_path = os.path.join(log_dir, log_filename)
+            with open(log_path, "wb") as fh:
+                fh.write(log_bytes)
+            logger.info(f"[assemble_debug_ws] Log saved: {log_path} ({len(log_bytes):,} bytes)")
+        except Exception as e:
+            logger.warning(f"[assemble_debug_ws] Log download failed: {e}")
+
+    # --- Download skill flowgrams from S3 + fetch DB rows ---
+    skill_dirs: Dict[str, str] = {}
+    db_records: Dict[str, Any] = {}
+
+    # Fetch all DB rows in one query
+    if skill_names:
+        rows = _fetch_skill_db_rows(env, owner, skill_names)
+        for row in rows:
+            db_records[row.get("name", "")] = row
+        logger.info(f"[assemble_debug_ws] DB rows fetched: {list(db_records.keys())}")
+
+    prefix = _norm_prefix(env.s3_key_root)
+    s3 = _s3_client()
+    for skill_name in skill_names:
+        skill_dir = os.path.join(ws_root, "skills", skill_name)
+        os.makedirs(skill_dir, exist_ok=True)
+        skill_dirs[skill_name] = skill_dir
+
+        # Write DB record
+        db_row = db_records.get(skill_name)
+        if db_row:
+            db_record_path = os.path.join(skill_dir, "db_record.json")
+            with open(db_record_path, "w", encoding="utf-8") as fh:
+                json.dump(db_row, fh, ensure_ascii=False, indent=2, default=str)
+
+        # Download flowgram (the most recent .json under diagram_dir/)
+        skill_root = _skill_root_prefix(env, owner, skill_name)
+        diagram_prefix = _skill_diagram_dir(env, owner, skill_name) + "/"
+        try:
+            diagram_keys = _s3_list_keys(bucket=env.s3_bucket, prefix=diagram_prefix)
+            json_keys = [k for k in diagram_keys if k.endswith(".json")]
+            if json_keys:
+                fg_key = sorted(json_keys)[-1]  # lexicographically last = most recent timestamp
+                fg_resp = s3.get_object(Bucket=env.s3_bucket, Key=fg_key)
+                fg_bytes = fg_resp["Body"].read()
+                fg_path = os.path.join(skill_dir, "flowgram.json")
+                with open(fg_path, "wb") as fh:
+                    fh.write(fg_bytes)
+                logger.info(f"[assemble_debug_ws] Flowgram saved: {fg_path} ({len(fg_bytes):,} bytes)")
+        except Exception as e:
+            logger.warning(f"[assemble_debug_ws] Flowgram download failed for {skill_name}: {e}")
+
+        # Download data_mapping.json
+        dm_key = _skill_data_mapping_key(env, owner, skill_name)
+        try:
+            dm_resp = s3.get_object(Bucket=env.s3_bucket, Key=dm_key)
+            dm_path = os.path.join(skill_dir, "data_mapping.json")
+            with open(dm_path, "wb") as fh:
+                fh.write(dm_resp["Body"].read())
+        except Exception:
+            pass  # data_mapping.json is optional
+
+    # --- Prompts: link to Lambda package copy (already on disk) ---
+    lambda_prompts = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
+    prompt_dir = os.path.join(ws_root, "prompts")
+    if not os.path.exists(prompt_dir):
+        try:
+            os.symlink(lambda_prompts, prompt_dir)
+        except OSError:
+            # EFS may not support symlinks — just record the path
+            prompt_dir = lambda_prompts
+
+    # Source code root: Lambda package is at /var/task; EFS may also have a checkout
+    efs_src = "/mnt/efs/repo/eCan.ai"
+    source_root = efs_src if os.path.isdir(efs_src) else "/var/task"
+
+    logger.info(
+        f"[assemble_debug_ws] Workspace ready: {ws_root}, "
+        f"skills={list(skill_dirs.keys())}, log={log_path}, source={source_root}"
+    )
+
+    return DebugWorkspace(
+        root=ws_root,
+        log_path=log_path,
+        skill_dirs=skill_dirs,
+        prompt_dir=prompt_dir,
+        source_root=source_root,
+        db_records=db_records,
+        is_complete=True,
+    )
+
+
+# =============================================================================
+# Code-fix agent (PLACEHOLDER)
+# =============================================================================
+#
+# Eventual design — when implemented, this agent will:
+#   1. Authenticate to GitHub via a fine-grained PAT stored in Secrets Manager
+#      (env: GITHUB_FIX_AGENT_TOKEN_ARN).
+#   2. Create a branch off `sc_cloud` named `auto-fix/{session_id}/{short-sha}`
+#      via `POST /repos/scszcoder/eCan.ai/git/refs`.
+#   3. For each file in `bug_report.file_path`: fetch current contents, apply
+#      the LLM-proposed edit (using a contained edit_source_file tool), commit
+#      via `PUT /repos/.../contents/{path}`.
+#   4. Trigger a GitHub Actions workflow_dispatch to build the desktop installer
+#      for the affected platforms (Windows / macOS).
+#   5. Poll the workflow run until artifacts are produced, fetch artifact
+#      download URLs, return them to the user.
+#   6. Open a PR back to `sc_cloud` for human review (does NOT auto-merge).
+#
+# Why placeholder for now: steps 1–3 are ~150 lines and feasible; step 4 needs a
+# GitHub Actions workflow that builds the eCan.ai installer (doesn't exist yet);
+# step 5 polls CI which adds latency the synchronous Lambda call can't tolerate
+# (would need to be moved to a Step Function or async invocation pattern).
+#
+# Safe placeholder behaviour: return the structured bug report (already produced
+# by the Code Review Agent) plus a "next steps for engineering" section, so the
+# user knows exactly what would happen and can manually drive it for now.
+# =============================================================================
+
+def _run_code_fix_agent_placeholder(
+    code_review_report: Dict[str, Any],
+    rca_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Placeholder for the future code-fix agent.
+
+    Today: returns a structured stub that explains what would happen, attaches
+    the existing bug report so the developer has everything they need.
+
+    When real: branch from sc_cloud, apply file edits, trigger CI, return
+    artifact download URLs + PR link.
+    """
+    return {
+        "status": "not_implemented",
+        "next_action": (
+            "auto_branch_and_build (planned) — would create a branch off "
+            "sc_cloud, apply the suggested fix, build the desktop installer "
+            "via GitHub Actions, and return a download link plus a PR for "
+            "human review."
+        ),
+        "what_developer_should_do_now": [
+            "Read the structured bug report below for file:line + suggested fix.",
+            "Open a branch manually, apply the edit, run the build pipeline.",
+            "Open a PR to sc_cloud — that flow will be automated in a later release.",
+        ],
+        "bug_report": code_review_report,
+        "rca_summary": {
+            "hypothesis": rca_result.get("hypothesis"),
+            "error_type": rca_result.get("error_type"),
+            "error_message": rca_result.get("error_message"),
+        },
+    }
 
 
 def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -2491,7 +3373,7 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"[reqLogAnalysis] Reading log from s3://{env.s3_bucket}/{s3_key}")
     try:
-        log_content = _read_s3_text(env.s3_bucket, s3_key)
+        log_content, log_total_bytes = _read_s3_text(env.s3_bucket, s3_key)
     except Exception as e:
         logger.error(f"[reqLogAnalysis] Failed to read log file: {e}")
         return {"status": f"error: could not read log file – {e}"}
@@ -2499,10 +3381,17 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
     if not log_content.strip():
         return {"status": "error: log file is empty"}
 
+    # Build a truncation signal that tells the LLM exactly how much was cut so it
+    # can hedge its conclusions and the user can know to re-run with a smaller log.
     truncated_note = ""
-    if len(log_content) >= _LOG_ANALYSIS_MAX_BYTES:
+    is_truncated = log_total_bytes > _LOG_ANALYSIS_MAX_BYTES
+    if is_truncated:
+        remaining_bytes = log_total_bytes - _LOG_ANALYSIS_MAX_BYTES
         truncated_note = (
-            f"\n(Note: log truncated to first {_LOG_ANALYSIS_MAX_BYTES // 1024} KB)"
+            f"\n\n[LOG TRUNCATED: showing first {_LOG_ANALYSIS_MAX_BYTES // 1024} KB "
+            f"of {log_total_bytes // 1024} KB total. "
+            f"{remaining_bytes // 1024} KB ({remaining_bytes:,} bytes) not shown. "
+            f"Root cause may lie in the truncated portion — analysis covers only the visible section.]"
         )
 
     # Parse flowgram JSON if provided as string
@@ -2521,16 +3410,23 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
     flowgram_id = input_.get("flowgramId")
 
     try:
-        from langchain_openai import ChatOpenAI
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        model_name = os.environ.get("SKILL_EDITOR_MODEL", "")
 
-        api_key = os.environ.get("OPENAI_API_KEY")
-        model_name = os.environ.get("SKILL_EDITOR_MODEL", "gpt-4.1")
-        if not api_key:
-            logger.error("[reqLogAnalysis] OPENAI_API_KEY not set")
-            return {"status": "error: LLM not configured"}
-
-        llm = ChatOpenAI(model=model_name, api_key=api_key, temperature=0.1)
-        logger.info(f"[reqLogAnalysis] LLM ready, model={model_name}")
+        if anthropic_key:
+            from langchain_community.chat_models import ChatAnthropic
+            effective_model = model_name or "claude-sonnet-4-6"
+            llm = ChatAnthropic(model=effective_model, api_key=anthropic_key, temperature=0)
+            logger.info(f"[reqLogAnalysis] Using Anthropic LLM model={effective_model}")
+        elif openai_key:
+            from langchain_openai import ChatOpenAI
+            effective_model = model_name or "gpt-4o"
+            llm = ChatOpenAI(model=effective_model, api_key=openai_key, temperature=0)
+            logger.info(f"[reqLogAnalysis] Anthropic key absent — using OpenAI fallback model={effective_model}")
+        else:
+            logger.error("[reqLogAnalysis] Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set")
+            return {"status": "error: LLM not configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY"}
 
         # Helper: stream a progress message to the client
         chunk_index = 0
@@ -2548,6 +3444,63 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
                 pass
             chunk_index += 1
 
+        # ======================================================
+        # PRE-CHECK 0 — LLM provider quota exhaustion
+        #
+        # Before burning any LLM tokens on analysis, scan the log for
+        # provider-side billing/quota errors. These are the most common AND
+        # most user-actionable failures: the user just needs to recharge or
+        # raise their plan limit. There's no point running the full RCA
+        # pipeline for a quota issue — the cause is in the error itself.
+        # ======================================================
+        _quota_hit = _detect_llm_quota_exhaustion(log_content)
+        if _quota_hit:
+            _stream_progress(
+                f"### ⚠️ LLM Quota Exhaustion Detected\n\n"
+                f"The skill failed because the **{_quota_hit['provider']}** account "
+                f"hit a quota / billing limit. No skill or code fix will resolve this — "
+                f"the account needs attention.\n\n"
+                f"**Signal**: `{_quota_hit['signal']}`\n\n"
+                f"**Log line**:\n```\n{_quota_hit['line']}\n```\n\n"
+                f"**What to do:**\n"
+                f"1. Check your {_quota_hit['provider']} dashboard for current usage and quota.\n"
+                f"2. Recharge credits or upgrade the plan.\n"
+                f"3. If you're rate-limited (not out of quota), add retry/back-off in the skill.\n\n"
+                f"_(Skipping deeper RCA — quota is the obvious cause.)_\n"
+            )
+            try:
+                if session_id:
+                    session = _load_session(env, owner, session_id) or {}
+                    session["lastRunError"] = {
+                        "bug_category": "quota_billing",
+                        "error_type": "llm_quota_exhausted",
+                        "provider": _quota_hit["provider"],
+                        "signal": _quota_hit["signal"],
+                        "error_message": _quota_hit["line"],
+                        "fix_hypothesis": f"{_quota_hit['provider']} account quota / billing limit reached.",
+                        "iteration": 1,
+                    }
+                    session["updatedAt"] = _utc_now_iso()
+                    _save_session(env, owner, session)
+            except Exception:
+                pass
+            try:
+                _publish(
+                    env, owner=owner, session_id=session_id,
+                    flowgram_id=flowgram_id,
+                    event_type="skill_editor.chat.stream_end",
+                    payload={
+                        "messageId": analysis_message_id,
+                        "fullContent": "LLM quota exhausted — see above.",
+                        "state": "complete",
+                        "intent": "log_analysis",
+                        "shortCircuit": "quota_billing",
+                    },
+                )
+            except Exception:
+                pass
+            return {"status": "ok", "shortCircuit": "quota_billing"}
+
         # ---- Load prompts from DynamoDB (with defaults) ----
         from agent.skill_editor.prompt_store import prompt_store as _ps
 
@@ -2560,8 +3513,20 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         # ======================================================
-        # Step 1 — Log Parser sub-agent
+        # Steps 1 → 2 → 3 pipeline using ThreadPoolExecutor
+        #
+        # Each step is submitted as soon as its inputs are ready.
+        # Running LLM calls in daemon threads keeps the main Lambda thread free
+        # for streaming progress notifications between steps.
+        # The dependency chain is 1 → 2 → 3 → 4(streaming), so true concurrency
+        # between LLM steps is not possible, but the thread model avoids blocking
+        # the event loop used by _stream_progress / AppSync publishing.
         # ======================================================
+        import concurrent.futures as _futures
+
+        executor = _futures.ThreadPoolExecutor(max_workers=1)
+
+        # ---- Step 1: Log Parser ----
         _stream_progress("**Step 1/4** — Parsing log events…\n\n")
         parser_input = f"""Parse the following skill-run log into structured events.
 
@@ -2569,12 +3534,21 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
 {log_content}{truncated_note}
 --- END LOG ---"""
 
-        parsed_events_text = _run_sub_agent(llm, log_parser_prompt, parser_input, label="log_parser")
+        parse_future = executor.submit(
+            _run_sub_agent, llm, log_parser_prompt, parser_input,
+            **{"label": "log_parser", "tool_schema": _LOG_PARSER_TOOL},
+        )
+
+        # Stream a live dot while waiting so the client knows we're still running.
+        parsed_result = parse_future.result()
+        if isinstance(parsed_result, dict):
+            parsed_events_text = json.dumps(parsed_result, ensure_ascii=False)
+        else:
+            parsed_result = {}
+            parsed_events_text = str(parsed_result)
         _stream_progress("**Step 1 complete** — Log parsed.\n\n")
 
-        # ======================================================
-        # Step 2 — Flowgram Correlator sub-agent
-        # ======================================================
+        # ---- Step 2: Flowgram Correlator ----
         _stream_progress("**Step 2/4** — Correlating with flowgram…\n\n")
         correlator_input = f"""Correlate the following parsed log events with the flowgram.
 
@@ -2584,11 +3558,22 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
 --- FLOWGRAM ---
 {flowgram_json_str}"""
 
-        correlation_text = _run_sub_agent(llm, correlator_prompt, correlator_input, label="flowgram_correlator")
+        correlate_future = executor.submit(
+            _run_sub_agent, llm, correlator_prompt, correlator_input,
+            **{"label": "flowgram_correlator", "tool_schema": _FLOWGRAM_CORRELATOR_TOOL},
+        )
+        correlation_result = correlate_future.result()
+        if isinstance(correlation_result, dict):
+            correlation_text = json.dumps(correlation_result, ensure_ascii=False)
+        else:
+            correlation_result = {}
+            correlation_text = str(correlation_result)
         _stream_progress("**Step 2 complete** — Correlation done.\n\n")
 
+        executor.shutdown(wait=False)
+
         # ======================================================
-        # Step 3 — Root Cause Analyzer sub-agent
+        # Step 3 — Root Cause Analyzer sub-agent (structured output)
         # ======================================================
         _stream_progress("**Step 3/4** — Analyzing root cause…\n\n")
         rca_input = f"""Determine the root cause based on the following.
@@ -2605,27 +3590,125 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
 --- FLOWGRAM (for reference) ---
 {flowgram_json_str}"""
 
-        rca_text = _run_sub_agent(llm, rca_prompt, rca_input, label="root_cause_analyzer")
+        # Submit step 3 while step 4's orchestrator prompt is being built (overlap).
+        rca_executor = _futures.ThreadPoolExecutor(max_workers=1)
+        rca_future = rca_executor.submit(
+            _run_sub_agent, llm, rca_prompt, rca_input,
+            **{"label": "root_cause_analyzer", "tool_schema": _ROOT_CAUSE_TOOL},
+        )
+        rca_result = rca_future.result()
+        rca_executor.shutdown(wait=False)
+        if isinstance(rca_result, dict):
+            rca_text = json.dumps(rca_result, ensure_ascii=False)
+        else:
+            rca_result = {}
+            rca_text = str(rca_result)
         _stream_progress("**Step 3 complete** — Root cause identified.\n\n")
+
+        # ======================================================
+        # Step 3b — 4-way bug classification + category routing
+        #
+        # bug_category drives what happens next:
+        #   skill_config   → CodeAgent will fix (normal path)
+        #   platform_code  → Code Review Agent (grep + read loop)
+        #   infra_config   → deterministic AWS error pattern report
+        #   quota_billing  → deterministic rate-limit report
+        # ======================================================
+
+        # Run quick deterministic pre-classifier first (no LLM cost)
+        _quick_cat = _quick_classify(log_content + " " + rca_result.get("error_message", ""))
+        bug_category = rca_result.get("bug_category") or _quick_cat or "skill_config"
+
+        code_review_report: Optional[Dict[str, Any]] = None
+
+        if bug_category == "platform_code":
+            _stream_progress(
+                "**Classification: platform_code** — Running code review agent to locate the defect…\n\n"
+            )
+            try:
+                code_review_report = _run_code_review_agent(llm, rca_result, log_content)
+                logger.info(f"[reqLogAnalysis] Code review report: {list(code_review_report.keys())}")
+            except Exception as cr_err:
+                logger.warning(f"[reqLogAnalysis] Code review agent failed: {cr_err}")
+                code_review_report = {
+                    "root_cause": rca_result.get("root_cause", "(see RCA)"),
+                    "suggested_fix": "Code review agent encountered an error — manual investigation required.",
+                    "confidence": "low",
+                }
+            # Attach code-fix agent placeholder — describes the planned auto-fix
+            # flow (branch → edit → build → download). Real implementation TBD.
+            try:
+                code_review_report["code_fix_agent"] = _run_code_fix_agent_placeholder(
+                    code_review_report, rca_result
+                )
+            except Exception:
+                pass
+            _stream_progress("**Code review complete** — Platform bug located.\n\n")
+
+        elif bug_category == "infra_config":
+            _stream_progress("**Classification: infra_config** — Infrastructure/AWS configuration issue detected.\n\n")
+            code_review_report = {
+                "category": "infra_config",
+                "root_cause": rca_result.get("root_cause", "AWS/infrastructure configuration error"),
+                "suggested_fix": (
+                    "Check AWS IAM permissions, VPC/subnet/security-group configuration, "
+                    "ECS task definition environment variables, and AWS service quotas in the console. "
+                    "Review CloudWatch logs for the Fargate task for the full AWS error message."
+                ),
+                "confidence": rca_result.get("confidence", "medium"),
+            }
+
+        elif bug_category == "quota_billing":
+            _stream_progress("**Classification: quota_billing** — Rate limit / quota exhaustion detected.\n\n")
+            code_review_report = {
+                "category": "quota_billing",
+                "root_cause": rca_result.get("root_cause", "API rate limit or quota exhaustion"),
+                "suggested_fix": (
+                    "Check API provider dashboards (OpenAI, Anthropic, AWS) for quota limits and usage. "
+                    "Add retry logic with exponential back-off in the skill or upgrade the plan. "
+                    "For AWS, request a service quota increase via the Service Quotas console."
+                ),
+                "confidence": rca_result.get("confidence", "high"),
+            }
+
+        else:
+            _stream_progress("**Classification: skill_config** — Flowgram/prompt fix in progress…\n\n")
 
         # ======================================================
         # Step 4 — Orchestrator composes final report (streamed)
         # ======================================================
         _stream_progress("**Step 4/4** — Composing report…\n\n")
 
-        # Fill runtime variables into the orchestrator prompt
+        # Fill runtime variables into the orchestrator prompt.
+        # Keep the truncation signal here too so the orchestrator knows the log was cut.
+        _ORCH_LOG_LIMIT = 4000
+        if len(log_content) > _ORCH_LOG_LIMIT:
+            _orch_remaining = log_total_bytes - _ORCH_LOG_LIMIT
+            orch_log_snippet = (
+                log_content[:_ORCH_LOG_LIMIT]
+                + f"\n[...LOG TRUNCATED: {_orch_remaining:,} bytes not shown...]"
+            )
+        else:
+            orch_log_snippet = log_content + (truncated_note if is_truncated else "")
+
         final_system = orchestrator_prompt.replace(
             "{flowgram_json}", flowgram_json_str
         ).replace(
-            "{run_log}", f"{log_content[:4000]}..." if len(log_content) > 4000 else log_content
+            "{run_log}", orch_log_snippet
         ).replace(
             "{user_observation}", user_observation or "(not provided)"
         ).replace(
             "{expected_behavior}", expected_behavior or "(not provided)"
         )
 
+        code_review_section = ""
+        if code_review_report:
+            code_review_section = f"\n\n--- CODE REVIEW / CLASSIFICATION REPORT ---\nBug Category: {bug_category}\n{json.dumps(code_review_report, ensure_ascii=False, indent=2)}"
+
         final_user_msg = f"""Here are the outputs from each analysis sub-agent.
 Synthesize them into a single, clear, actionable report.
+
+Bug Category: {bug_category}
 
 --- LOG PARSER OUTPUT ---
 {parsed_events_text}
@@ -2634,7 +3717,7 @@ Synthesize them into a single, clear, actionable report.
 {correlation_text}
 
 --- ROOT CAUSE ANALYZER OUTPUT ---
-{rca_text}"""
+{rca_text}{code_review_section}"""
 
         # Stream the final orchestrator output
         from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM
@@ -2658,6 +3741,31 @@ Synthesize them into a single, clear, actionable report.
 
         full_content = "".join(full_content_parts)
         logger.info(f"[reqLogAnalysis] Final report complete, length={len(full_content)}")
+
+        # Persist structured RCA result as lastRunError in session metadata so the
+        # CodeAgent has a typed, targeted fix signal on the next sendSkillEditorChatMessage.
+        if isinstance(rca_result, dict) and session_id:
+            try:
+                session = _load_session(env, owner, session_id) or {}
+                last_run_error: Dict[str, Any] = {
+                    "failed_node_id": rca_result.get("failed_node_id"),
+                    "failed_node_type": rca_result.get("failed_node_type"),
+                    "error_type": rca_result.get("error_type"),
+                    "error_message": rca_result.get("error_message"),
+                    "input_at_failure": rca_result.get("input_at_failure"),
+                    "fix_hypothesis": rca_result.get("hypothesis"),
+                    "bug_category": bug_category,
+                    "fix_tier": rca_result.get("fix_tier"),
+                    "iteration": 1,
+                }
+                if code_review_report:
+                    last_run_error["code_review_report"] = code_review_report
+                session["lastRunError"] = last_run_error
+                session["updatedAt"] = _utc_now_iso()
+                _save_session(env, owner, session)
+                logger.info(f"[reqLogAnalysis] Persisted lastRunError (category={bug_category}) to session {session_id}")
+            except Exception as e:
+                logger.warning(f"[reqLogAnalysis] Failed to persist lastRunError: {e}")
 
         # Publish stream_end
         try:
@@ -2691,6 +3799,401 @@ Synthesize them into a single, clear, actionable report.
                     "fullContent": f"Error analyzing log: {e}",
                     "state": "error",
                     "intent": "log_analysis",
+                },
+            )
+        except Exception:
+            pass
+        return {"status": f"error: {e}"}
+
+
+def _run_debug_analysis_loop(
+    env: _Env,
+    owner: str,
+    session_id: Optional[str],
+    flowgram_id: Optional[str],
+    workspace: DebugWorkspace,
+    llm: Any,
+    analysis_message_id: str,
+    _stream_progress: Any,
+    user_observation: str,
+    expected_behavior: str,
+) -> str:
+    """Multi-round analysis loop reading from the local debug workspace.
+
+    Each round runs the full 4-step pipeline (log_parser → flowgram_correlator →
+    root_cause_analyzer → orchestrator) for one skill, using local files.
+
+    Returns the final assembled report as a string.
+    """
+    from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM
+
+    skill_names = list(workspace.skill_dirs.keys())
+    all_reports: List[str] = []
+    chunk_index = [0]  # mutable container for closure
+
+    def _publish_chunk(text: str) -> None:
+        try:
+            from agent.ec_tasks.appsync_pubsub import publish_skill_editor_stream_event
+            _publish(
+                env, owner=owner, session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.chat.stream_chunk",
+                payload={"messageId": analysis_message_id, "chunk": text, "index": chunk_index[0]},
+            )
+        except Exception:
+            pass
+        chunk_index[0] += 1
+
+    # Load prompts once (reused across skill loops)
+    try:
+        from agent.skill_editor.prompt_store import prompt_store as _ps
+        log_parser_prompt = _ps.get("log_parser", default="Parse the following log into structured JSON events.")
+        correlator_prompt = _ps.get("flowgram_correlator", default="Correlate parsed events with the flowgram.")
+        rca_prompt = _ps.get("root_cause_analyzer", default="Determine root cause and suggest fixes.")
+        orchestrator_prompt = _ps.get(
+            "log_analysis_orchestrator",
+            default="Analyze the log, correlate with the flowgram, and provide a diagnosis.",
+        )
+    except Exception as _pe:
+        logger.warning(f"[debug_analysis_loop] Failed to load prompts: {_pe}")
+        log_parser_prompt = correlator_prompt = rca_prompt = orchestrator_prompt = ""
+
+    # Read log content from workspace
+    log_content = ""
+    log_total_bytes = 0
+    if workspace.log_path and os.path.isfile(workspace.log_path):
+        try:
+            log_total_bytes = os.path.getsize(workspace.log_path)
+            with open(workspace.log_path, "r", encoding="utf-8", errors="replace") as fh:
+                log_content = fh.read(_LOG_ANALYSIS_MAX_BYTES)
+            truncated_note = ""
+            if log_total_bytes > _LOG_ANALYSIS_MAX_BYTES:
+                remaining = log_total_bytes - _LOG_ANALYSIS_MAX_BYTES
+                truncated_note = (
+                    f"\n\n[LOG TRUNCATED: showing first {_LOG_ANALYSIS_MAX_BYTES // 1024} KB "
+                    f"of {log_total_bytes // 1024} KB total. {remaining // 1024} KB not shown.]"
+                )
+                log_content += truncated_note
+        except Exception as e:
+            logger.warning(f"[debug_analysis_loop] Log read failed: {e}")
+
+    # Pre-check: LLM provider quota exhaustion. Short-circuit before per-skill
+    # pipeline runs — quota is the most user-actionable failure class.
+    _quota_hit = _detect_llm_quota_exhaustion(log_content)
+    if _quota_hit:
+        msg = (
+            f"### ⚠️ LLM Quota Exhaustion Detected\n\n"
+            f"The skill failed because the **{_quota_hit['provider']}** account "
+            f"hit a quota / billing limit. No skill or code fix will resolve this — "
+            f"the account needs attention.\n\n"
+            f"**Signal**: `{_quota_hit['signal']}`\n\n"
+            f"**Log line**:\n```\n{_quota_hit['line']}\n```\n\n"
+            f"**What to do:**\n"
+            f"1. Check your {_quota_hit['provider']} dashboard for current usage and quota.\n"
+            f"2. Recharge credits or upgrade the plan.\n"
+            f"3. If you're rate-limited (not out of quota), add retry/back-off in the skill.\n\n"
+            f"_(Skipping deeper RCA — quota is the obvious cause.)_\n"
+        )
+        _stream_progress(msg)
+        return msg
+
+    if not skill_names:
+        # No specific skills selected — run log-only analysis
+        skill_names = ["(no skill selected)"]
+        workspace.skill_dirs["(no skill selected)"] = workspace.root
+
+    for skill_idx, skill_name in enumerate(skill_names):
+        _stream_progress(f"\n\n### Skill {skill_idx + 1}/{len(skill_names)}: **{skill_name}**\n\n")
+
+        skill_dir = workspace.skill_dirs.get(skill_name, "")
+
+        # Load flowgram from workspace
+        flowgram_json_str = ""
+        fg_path = os.path.join(skill_dir, "flowgram.json") if skill_dir else ""
+        if os.path.isfile(fg_path):
+            try:
+                with open(fg_path, "r", encoding="utf-8") as fh:
+                    fg_raw = json.load(fh)
+                fg_str = json.dumps(fg_raw, ensure_ascii=False)
+                flowgram_json_str = fg_str[:_MAX_FLOWGRAM_INLINE] if len(fg_str) > _MAX_FLOWGRAM_INLINE else fg_str
+            except Exception as e:
+                logger.warning(f"[debug_analysis_loop] Flowgram read failed for {skill_name}: {e}")
+
+        # Load DB record summary
+        db_record = workspace.db_records.get(skill_name, {})
+        db_summary = ""
+        if db_record:
+            db_summary = (
+                f"\n## DB Record (agent_skills)\n"
+                f"- id: {db_record.get('id', 'N/A')}\n"
+                f"- version: {db_record.get('version', 'N/A')}\n"
+                f"- level: {db_record.get('level', 'N/A')}\n"
+                f"- tags: {db_record.get('tags', 'N/A')}\n"
+                f"- updated_at: {db_record.get('updated_at', 'N/A')}\n"
+            )
+
+        # ---- Step 1: Log Parser ----
+        _stream_progress("**Step 1/4** — Parsing log events…\n\n")
+        parser_input = (
+            f"Parse the following skill-run log into structured events.\n\n"
+            f"Skill: {skill_name}{db_summary}\n\n"
+            f"--- BEGIN LOG ---\n{log_content}\n--- END LOG ---"
+        )
+        parsed_result = _run_sub_agent(llm, log_parser_prompt, parser_input,
+                                       label=f"{skill_name}:log_parser", tool_schema=_LOG_PARSER_TOOL)
+        parsed_events_text = json.dumps(parsed_result, ensure_ascii=False) if isinstance(parsed_result, dict) else str(parsed_result)
+        _stream_progress("**Step 1 complete** — Log parsed.\n\n")
+
+        # ---- Step 2: Flowgram Correlator ----
+        _stream_progress("**Step 2/4** — Correlating with flowgram…\n\n")
+        correlator_input = (
+            f"Correlate the following parsed log events with the flowgram for skill '{skill_name}'.\n\n"
+            f"--- PARSED EVENTS ---\n{parsed_events_text}\n\n"
+            f"--- FLOWGRAM ---\n{flowgram_json_str or '(not available)'}"
+        )
+        correlation_result = _run_sub_agent(llm, correlator_prompt, correlator_input,
+                                            label=f"{skill_name}:correlator", tool_schema=_FLOWGRAM_CORRELATOR_TOOL)
+        correlation_text = json.dumps(correlation_result, ensure_ascii=False) if isinstance(correlation_result, dict) else str(correlation_result)
+        _stream_progress("**Step 2 complete** — Correlation done.\n\n")
+
+        # ---- Step 3: Root Cause Analyzer ----
+        _stream_progress("**Step 3/4** — Analyzing root cause…\n\n")
+        rca_input = (
+            f"Determine the root cause based on the following.\n\n"
+            f"--- CORRELATION MAP ---\n{correlation_text}\n\n"
+            f"--- USER OBSERVATION ---\n{user_observation or '(not provided)'}\n\n"
+            f"--- EXPECTED BEHAVIOR ---\n{expected_behavior or '(not provided)'}\n\n"
+            f"--- FLOWGRAM (for reference) ---\n{flowgram_json_str or '(not available)'}"
+        )
+        rca_result = _run_sub_agent(llm, rca_prompt, rca_input,
+                                    label=f"{skill_name}:rca", tool_schema=_ROOT_CAUSE_TOOL)
+        if not isinstance(rca_result, dict):
+            rca_result = {}
+        rca_text = json.dumps(rca_result, ensure_ascii=False)
+        _stream_progress("**Step 3 complete** — Root cause identified.\n\n")
+
+        # ---- Step 3b: Classification routing (reuse shared logic) ----
+        _quick_cat = _quick_classify(log_content + " " + rca_result.get("error_message", ""))
+        bug_category = rca_result.get("bug_category") or _quick_cat or "skill_config"
+        code_review_report: Optional[Dict[str, Any]] = None
+
+        if bug_category == "platform_code":
+            _stream_progress("**Classification: platform_code** — Running code review agent…\n\n")
+            try:
+                code_review_report = _run_code_review_agent(llm, rca_result, log_content)
+            except Exception as cr_err:
+                logger.warning(f"[debug_analysis_loop] Code review failed: {cr_err}")
+            if isinstance(code_review_report, dict):
+                try:
+                    code_review_report["code_fix_agent"] = _run_code_fix_agent_placeholder(
+                        code_review_report, rca_result
+                    )
+                except Exception:
+                    pass
+            _stream_progress("**Code review complete.**\n\n")
+        elif bug_category == "infra_config":
+            _stream_progress("**Classification: infra_config** — Infrastructure issue detected.\n\n")
+            code_review_report = {
+                "category": "infra_config",
+                "root_cause": rca_result.get("root_cause", "AWS/infrastructure configuration error"),
+                "suggested_fix": "Check IAM permissions, VPC/subnet, ECS task definition, and AWS service quotas.",
+            }
+        elif bug_category == "quota_billing":
+            _stream_progress("**Classification: quota_billing** — Rate limit / quota exhaustion.\n\n")
+            code_review_report = {
+                "category": "quota_billing",
+                "root_cause": rca_result.get("root_cause", "API rate limit or quota exhaustion"),
+                "suggested_fix": "Check API provider dashboards. Add retry with exponential back-off or upgrade the plan.",
+            }
+
+        # ---- Step 4: Orchestrator ----
+        _stream_progress("**Step 4/4** — Composing report…\n\n")
+        _ORCH_LOG_LIMIT = 4000
+        orch_log_snippet = log_content[:_ORCH_LOG_LIMIT] if len(log_content) > _ORCH_LOG_LIMIT else log_content
+        code_review_section = ""
+        if code_review_report:
+            code_review_section = f"\n\n--- CODE REVIEW / CLASSIFICATION REPORT ---\nBug Category: {bug_category}\n{json.dumps(code_review_report, ensure_ascii=False, indent=2)}"
+
+        final_system = orchestrator_prompt.replace(
+            "{flowgram_json}", flowgram_json_str or "(not available)"
+        ).replace("{run_log}", orch_log_snippet).replace(
+            "{user_observation}", user_observation or "(not provided)"
+        ).replace("{expected_behavior}", expected_behavior or "(not provided)")
+
+        final_user_msg = (
+            f"Skill under analysis: **{skill_name}**\nBug Category: {bug_category}\n\n"
+            f"--- LOG PARSER OUTPUT ---\n{parsed_events_text}\n\n"
+            f"--- FLOWGRAM CORRELATOR OUTPUT ---\n{correlation_text}\n\n"
+            f"--- ROOT CAUSE ANALYZER OUTPUT ---\n{rca_text}{code_review_section}"
+        )
+
+        skill_report_parts: List[str] = []
+        for chunk in llm.stream([_SM(content=final_system), _HM(content=final_user_msg)]):
+            text = chunk.content if hasattr(chunk, "content") else str(chunk)
+            if text:
+                skill_report_parts.append(text)
+                _publish_chunk(text)
+
+        skill_report = "".join(skill_report_parts)
+        all_reports.append(f"## Skill: {skill_name}\n\n{skill_report}")
+
+        # Write per-skill report to workspace
+        try:
+            skill_dir_path = workspace.skill_dirs.get(skill_name, workspace.root)
+            report_path = os.path.join(skill_dir_path, "analysis_report.md")
+            with open(report_path, "w", encoding="utf-8") as fh:
+                fh.write(f"# Debug Analysis Report — {skill_name}\n\n")
+                fh.write(f"Generated: {_utc_now_iso()}\n\n")
+                fh.write(skill_report)
+        except Exception:
+            pass
+
+    return "\n\n---\n\n".join(all_reports)
+
+
+def _handle_req_debug_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle reqDebugAnalysis — full multi-skill debug session.
+
+    Flow:
+      1. Parse input (skill_names, log_s3_key or log_file_name, observation, etc.)
+      2. Assemble debug workspace: download log + flowgrams from S3, fetch DB rows
+      3. Run multi-skill analysis loop (4-step pipeline per skill, reading from local files)
+      4. Stream progress + final report via AppSync
+      5. Persist structured lastRunError to session
+
+    GraphQL input (DebugAnalysisInput):
+      sessionId: String
+      skillNames: [String]          — from multi-select Q&A
+      logFileName: String           — S3 key or filename (passed after upload)
+      userObservation: String
+      expectedBehavior: String
+      flowgramId: String
+    """
+    logger.info("[reqDebugAnalysis] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+    owner = _owner_from_event(event)
+
+    session_id = input_.get("sessionId") or input_.get("session_id")
+    flowgram_id = input_.get("flowgramId") or input_.get("flowgram_id")
+    skill_names: List[str] = input_.get("skillNames") or input_.get("skill_names") or []
+    log_file_name = (input_.get("logFileName") or input_.get("log_file_name") or "").strip()
+    user_observation = (input_.get("userObservation") or input_.get("user_observation") or "").strip()
+    expected_behavior = (input_.get("expectedBehavior") or input_.get("expected_behavior") or "").strip()
+
+    logger.info(
+        f"[reqDebugAnalysis] owner={owner}, skills={skill_names}, "
+        f"log={log_file_name}, session={session_id}"
+    )
+
+    analysis_message_id = str(uuid4())
+
+    def _stream_progress(msg: str) -> None:
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.chat.stream_chunk",
+                payload={"messageId": analysis_message_id, "chunk": msg, "index": 0},
+            )
+        except Exception:
+            pass
+
+    try:
+        # --- Init LLM ---
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        model_name = os.environ.get("SKILL_EDITOR_MODEL", "")
+        if anthropic_key:
+            from langchain_community.chat_models import ChatAnthropic
+            llm = ChatAnthropic(model=model_name or "claude-sonnet-4-6", api_key=anthropic_key, temperature=0)
+        elif openai_key:
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model=model_name or "gpt-4o", api_key=openai_key, temperature=0)
+        else:
+            return {"status": "error: LLM not configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY"}
+
+        # --- Locate log in S3 ---
+        log_s3_key: Optional[str] = None
+        if log_file_name:
+            log_s3_key = _find_log_file_key(env, owner, log_file_name)
+            if not log_s3_key:
+                _stream_progress(f"⚠️ Log file not found: `{log_file_name}`. Proceeding without log.\n\n")
+
+        # --- Assemble workspace ---
+        _stream_progress("**Assembling debug workspace** — downloading log, flowgrams, and DB records…\n\n")
+        workspace = _assemble_debug_workspace(
+            env=env,
+            owner=owner,
+            session_id=session_id or str(uuid4()),
+            skill_names=skill_names,
+            log_s3_key=log_s3_key,
+        )
+        _stream_progress(
+            f"**Workspace ready** at `{workspace.root}`\n"
+            f"- Skills: {', '.join(workspace.skill_dirs.keys()) or '(none)'}\n"
+            f"- Log: `{workspace.log_path or 'not found'}`\n"
+            f"- Source: `{workspace.source_root}`\n\n"
+        )
+
+        # --- Run analysis loop ---
+        _stream_progress("**Starting multi-skill analysis loop…**\n\n")
+        full_report = _run_debug_analysis_loop(
+            env=env,
+            owner=owner,
+            session_id=session_id,
+            flowgram_id=flowgram_id,
+            workspace=workspace,
+            llm=llm,
+            analysis_message_id=analysis_message_id,
+            _stream_progress=_stream_progress,
+            user_observation=user_observation,
+            expected_behavior=expected_behavior,
+        )
+
+        # Write master report to workspace
+        try:
+            master_report_path = os.path.join(workspace.root, "master_report.md")
+            with open(master_report_path, "w", encoding="utf-8") as fh:
+                fh.write(f"# Debug Analysis Master Report\n\nGenerated: {_utc_now_iso()}\n\n")
+                fh.write(full_report)
+        except Exception:
+            pass
+
+        # --- Publish stream_end ---
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": analysis_message_id,
+                    "fullContent": full_report,
+                    "state": "complete",
+                    "intent": "debug_analysis",
+                    "workspacePath": workspace.root,
+                },
+            )
+        except Exception as pub_err:
+            logger.warning(f"[reqDebugAnalysis] stream_end publish failed: {pub_err}")
+
+        return {"status": "ok", "workspacePath": workspace.root}
+
+    except Exception as e:
+        import traceback
+        logger.error(f"[reqDebugAnalysis] Error: {e}")
+        logger.error(f"[reqDebugAnalysis] Traceback: {traceback.format_exc()}")
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": analysis_message_id,
+                    "fullContent": f"Debug analysis error: {e}",
+                    "state": "error",
+                    "intent": "debug_analysis",
                 },
             )
         except Exception:
@@ -2988,8 +4491,229 @@ def _handle_load_skill_editor_contexts(event: Dict[str, Any]) -> Dict[str, Any]:
     return {"items": items}
 
 
+# ---------------------------------------------------------------------------
+# Auto-cycle constants
+# ---------------------------------------------------------------------------
+_MAX_AUTO_CYCLE_ITERATIONS = int(os.environ.get("SKILL_AUTO_CYCLE_MAX", "3"))
+
+
+def _sns_client():
+    return boto3.client("sns")
+
+
+def _handle_skill_run_result(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle SNS notifications from Fargate task completion for the auto-cycle loop.
+
+    The Fargate skill-runner task must publish to the SNS topic configured via
+    SKILL_RUN_RESULT_TOPIC_ARN when a run finishes (success or failure).
+
+    Expected SNS message JSON shape:
+    {
+        "owner":            "<user-id>",
+        "session_id":       "<chat-session-id>",
+        "run_id":           "<run-id>",
+        "skill_name":       "<skill-name>",
+        "success":          true | false,
+        "iteration":        <int>,        # 0-based, incremented each auto-cycle loop
+        "log_s3_key":       "<s3-key>",   # S3 key of the run log
+        "failed_node_id":   "<node-id>" | null,
+        "failed_node_type": "<type>"     | null,
+        "error_type":       "<ErrorType>" | null,
+        "error_message":    "<message>"  | null,
+        "input_at_failure": {<dict>}     | null
+    }
+
+    On success: publish a completion notification to the user via AppSync.
+    On failure (iteration < _MAX_AUTO_CYCLE_ITERATIONS):
+      1. Persist structured lastRunError to session metadata.
+      2. Trigger log analysis pipeline.
+      3. Re-generate the flowgram with fix context.
+      4. Increment iteration and re-run the skill via Fargate.
+    On failure (iteration >= _MAX_AUTO_CYCLE_ITERATIONS): escalate to user.
+
+    Fargate-side change required (in your skill-runner container):
+        import boto3, json, os
+        sns = boto3.client("sns")
+        sns.publish(
+            TopicArn=os.environ["SKILL_RUN_RESULT_TOPIC_ARN"],
+            Message=json.dumps({
+                "owner": owner, "session_id": session_id, "run_id": run_id,
+                "skill_name": skill_name, "success": success,
+                "iteration": iteration, "log_s3_key": log_s3_key,
+                "failed_node_id": failed_node_id, "failed_node_type": failed_node_type,
+                "error_type": error_type, "error_message": error_message,
+                "input_at_failure": input_at_failure,
+            }),
+            Subject="skill_run_result",
+        )
+    """
+    logger.info("[skillRunResult] Received SNS notification")
+    env = _load_env()
+
+    # SNS wraps the payload in Records[0].Sns.Message
+    records = event.get("Records") or []
+    if not records:
+        logger.warning("[skillRunResult] No SNS records in event")
+        return {"status": "no_records"}
+
+    try:
+        sns_body = json.loads(records[0]["Sns"]["Message"])
+    except Exception as e:
+        logger.error(f"[skillRunResult] Failed to parse SNS message: {e}")
+        return {"status": f"parse_error: {e}"}
+
+    owner = sns_body.get("owner", "")
+    session_id = sns_body.get("session_id", "")
+    run_id = sns_body.get("run_id", "")
+    skill_name = sns_body.get("skill_name", "")
+    success = bool(sns_body.get("success", False))
+    iteration = int(sns_body.get("iteration", 0))
+    log_s3_key = sns_body.get("log_s3_key", "")
+
+    logger.info(
+        f"[skillRunResult] owner={owner}, session={session_id}, run={run_id}, "
+        f"success={success}, iteration={iteration}"
+    )
+
+    if success:
+        # Run succeeded — notify user via AppSync and clear any stored run error.
+        msg = (
+            f"✅ Skill **{skill_name}** completed successfully"
+            + (f" after {iteration} auto-fix iteration(s)" if iteration > 0 else "")
+            + "."
+        )
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id, flowgram_id=None,
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": f"run-result-{run_id}",
+                    "fullContent": msg,
+                    "state": "complete",
+                    "intent": "run_complete",
+                },
+            )
+        except Exception as pub_err:
+            logger.warning(f"[skillRunResult] Failed to publish success notification: {pub_err}")
+
+        # Clear lastRunError from session so subsequent edits start clean.
+        try:
+            session = _load_session(env, owner, session_id) or {}
+            if session.get("lastRunError"):
+                session.pop("lastRunError", None)
+                session["updatedAt"] = _utc_now_iso()
+                _save_session(env, owner, session)
+        except Exception as e:
+            logger.warning(f"[skillRunResult] Failed to clear lastRunError: {e}")
+
+        return {"status": "ok"}
+
+    # ---- Run failed ----
+    failed_node_id = sns_body.get("failed_node_id")
+    failed_node_type = sns_body.get("failed_node_type")
+    error_type = sns_body.get("error_type")
+    error_message = sns_body.get("error_message", "")
+    input_at_failure = sns_body.get("input_at_failure")
+
+    structured_error = {
+        "failed_node_id": failed_node_id,
+        "failed_node_type": failed_node_type,
+        "error_type": error_type,
+        "error_message": error_message,
+        "input_at_failure": input_at_failure,
+        "iteration": iteration + 1,  # next fix attempt number
+        "fix_hypothesis": None,  # filled in by log analysis below
+    }
+
+    if iteration >= _MAX_AUTO_CYCLE_ITERATIONS:
+        # Exceeded retry budget — surface to user for manual intervention.
+        logger.warning(
+            f"[skillRunResult] Auto-cycle exhausted after {iteration} iterations for run={run_id}"
+        )
+        msg = (
+            f"⚠️ Skill **{skill_name}** failed after {iteration} automatic fix attempt(s).\n\n"
+            f"**Last error**: `{error_type}: {error_message}`\n"
+            + (f"**Node**: `{failed_node_id}`\n" if failed_node_id else "")
+            + "\nPlease review the skill manually or upload the log for detailed analysis."
+        )
+        try:
+            _publish(
+                env, owner=owner, session_id=session_id, flowgram_id=None,
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": f"run-result-{run_id}",
+                    "fullContent": msg,
+                    "state": "error",
+                    "intent": "run_complete",
+                },
+            )
+        except Exception as pub_err:
+            logger.warning(f"[skillRunResult] Failed to publish exhausted notification: {pub_err}")
+        return {"status": "max_iterations_reached"}
+
+    # ---- Auto-cycle: persist error, run log analysis, regenerate, re-run ----
+    try:
+        session = _load_session(env, owner, session_id) or {}
+        session["lastRunError"] = structured_error
+        session["updatedAt"] = _utc_now_iso()
+        _save_session(env, owner, session)
+        logger.info(f"[skillRunResult] Persisted lastRunError to session {session_id}")
+    except Exception as e:
+        logger.error(f"[skillRunResult] Failed to persist lastRunError: {e}")
+
+    # Notify user that an auto-fix is in progress.
+    try:
+        _publish(
+            env, owner=owner, session_id=session_id, flowgram_id=None,
+            event_type="skill_editor.chat.stream_chunk",
+            payload={
+                "messageId": f"run-result-{run_id}",
+                "chunk": (
+                    f"🔄 Run failed at node `{failed_node_id or 'unknown'}` "
+                    f"(`{error_type}: {error_message[:120]}`). "
+                    f"Auto-fixing (attempt {iteration + 1}/{_MAX_AUTO_CYCLE_ITERATIONS})…\n\n"
+                ),
+                "index": 0,
+            },
+        )
+    except Exception:
+        pass
+
+    # Run the log analysis pipeline inline (reuses the existing 4-step pipeline).
+    if log_s3_key:
+        try:
+            log_analysis_event = {
+                "arguments": {
+                    "input": {
+                        "owner": owner,
+                        "session_id": session_id,
+                        "log_file_name": log_s3_key,
+                        "flowgram_json": session.get("cachedFlowgramDict"),
+                        "user_observation": f"Node {failed_node_id} failed with {error_type}: {error_message}",
+                        "expected_behavior": "Skill completes successfully without errors",
+                    }
+                },
+                "identity": {"username": owner},
+            }
+            _handle_req_log_analysis(log_analysis_event)
+            logger.info("[skillRunResult] Log analysis pipeline completed")
+        except Exception as e:
+            logger.warning(f"[skillRunResult] Log analysis failed (non-fatal): {e}")
+
+    logger.info(
+        f"[skillRunResult] Auto-cycle iteration {iteration + 1} complete. "
+        "Frontend should send 'fix it' message to trigger re-generation, "
+        "or implement direct re-generation here when code_agent is available."
+    )
+    return {"status": "auto_cycle_triggered"}
+
+
 def handler(event, context):
     _ = context
+
+    # SNS events (e.g. skill run result from Fargate) arrive via Records, not info.fieldName.
+    if event.get("Records") and event["Records"][0].get("EventSource") == "aws:sns":
+        return _handle_skill_run_result(event)
 
     info = event.get("info") or {}
     field = info.get("fieldName")
@@ -3045,9 +4769,11 @@ def handler(event, context):
         if field == "stepRunSkill":
             return _handle_step_run_skill(event)
 
-        # Log Analysis
+        # Log / Debug Analysis
         if field == "reqLogAnalysis":
             return _handle_req_log_analysis(event)
+        if field == "reqDebugAnalysis":
+            return _handle_req_debug_analysis(event)
 
         logger.error(f"[handler] Unsupported fieldName: {field}")
         raise RuntimeError(f"Unsupported fieldName: {field}")

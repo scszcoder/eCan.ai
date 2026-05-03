@@ -139,6 +139,10 @@ from agent.mcp.server.gcloud_utils.gcloud_tools import (
     add_gcloud_read_billing_tool_schema,
     add_gcloud_shutdown_tool_schema,
 )
+from agent.mcp.server.messaging.messaging_tools import (
+    add_send_sms_tool_schema,
+    add_send_email_tool_schema,
+)
 
 tool_schemas = []
 
@@ -2143,6 +2147,10 @@ def build_agent_mcp_tools_schemas():
 
     add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas)
     add_ecan_ai_api_req_create_scene_tool_schema(tool_schemas)
+
+    # Outbound messaging — SMS via AWS End User Messaging, email via SES
+    add_send_sms_tool_schema(tool_schemas)
+    add_send_email_tool_schema(tool_schemas)
 
     add_gmail_read_titles_tool_schema(tool_schemas)
     add_gmail_read_full_email_tool_schema(tool_schemas)

@@ -87,6 +87,10 @@ export interface ClarificationQuestion {
   context?: string;
   /** Whether multiple choices can be selected */
   allow_multiple: boolean;
+  /** UI rendering hint: 'choice' | 'multi_select' | 'searchable_multi_select' | 'dropdown' | 'text' | 'file_upload' */
+  widget_type?: string;
+  /** Dynamic data source key (e.g. 'user_skills') — backend fills choices from this source */
+  data_source?: string;
 }
 
 /** User's response to clarification questions */

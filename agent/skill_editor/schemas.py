@@ -73,6 +73,19 @@ class ClarificationQuestion(BaseModel):
     choices: List[ClarificationChoice] = Field(..., description="Available choices")
     context: Optional[str] = Field(None, description="Why this question is important")
     allow_multiple: bool = Field(False, description="Whether multiple choices can be selected")
+    # UI rendering hints — consumed by the A2UI frontend
+    widget_type: str = Field(
+        "choice",
+        description=(
+            "UI widget: 'choice' (radio/button), 'multi_select' (checkbox list), "
+            "'searchable_multi_select' (typeahead with substring filter + multi-pick — use for large lists), "
+            "'dropdown', 'text' (free text), 'file_upload'"
+        ),
+    )
+    data_source: Optional[str] = Field(
+        None,
+        description="Dynamic data source key. 'user_skills' → handler fills choices from user's S3 skill list before sending to client.",
+    )
 
 
 class ClarificationResponse(BaseModel):
