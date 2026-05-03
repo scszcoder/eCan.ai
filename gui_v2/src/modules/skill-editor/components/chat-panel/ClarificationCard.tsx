@@ -14,6 +14,51 @@ interface ClarificationCardProps {
   isSubmitting?: boolean;
   /** If provided, renders in read-only mode showing these answers */
   submittedAnswers?: Record<string, string[]>;
+  /** Override locale; defaults to navigator.language. Use 'zh' or 'en'. */
+  userLang?: string;
+}
+
+// Tiny i18n table for the static UI chrome of this card.
+// Question/choice text comes from the backend already-localized.
+const I18N: Record<'en' | 'zh', Record<string, string>> = {
+  en: {
+    title_active: 'I have a few questions to better understand your requirements:',
+    title_readonly: 'Your answers to clarification questions:',
+    please_select: '(please select)',
+    submit: 'Submit Answers',
+    submitting: 'Submitting...',
+    answered_count: 'Please answer all questions ({answered}/{total} answered)',
+    freeform_placeholder: 'Please describe in detail...',
+    typeahead_placeholder: 'Type to search and select…',
+  },
+  zh: {
+    title_active: '我有几个问题想了解一下：',
+    title_readonly: '你对澄清问题的回答：',
+    please_select: '（请选择）',
+    submit: '提交回答',
+    submitting: '提交中...',
+    answered_count: '请回答所有问题（已回答 {answered}/{total}）',
+    freeform_placeholder: '请详细描述...',
+    typeahead_placeholder: '输入关键字搜索并选择…',
+  },
+};
+
+function _resolveLang(override?: string): 'en' | 'zh' {
+  const raw = (override
+    || (typeof navigator !== 'undefined' ? navigator.language : '')
+    || ''
+  ).toLowerCase();
+  return raw.startsWith('zh') ? 'zh' : 'en';
+}
+
+function _t(lang: 'en' | 'zh', key: string, vars?: Record<string, string | number>): string {
+  let text = I18N[lang][key] ?? I18N.en[key] ?? key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      text = text.replace(`{${k}}`, String(v));
+    }
+  }
+  return text;
 }
 
 const CardContainer = styled.div`
@@ -133,9 +178,11 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
   onSubmit,
   isSubmitting = false,
   submittedAnswers,
+  userLang,
 }) => {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [freeformText, setFreeformText] = useState<Record<string, string>>({});
+  const lang = _resolveLang(userLang);
   
   // Read-only mode when submittedAnswers is provided
   const isReadOnly = !!submittedAnswers;
@@ -240,9 +287,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
       <CardHeader>
         <span style={{ fontSize: 16 }}>{isReadOnly ? '✅' : '🤔'}</span>
         <CardTitle>
-          {isReadOnly 
-            ? 'Your answers to clarification questions:' 
-            : 'I have a few questions to better understand your requirements:'}
+          {_t(lang, isReadOnly ? 'title_readonly' : 'title_active')}
         </CardTitle>
       </CardHeader>
       
@@ -258,7 +303,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
             <QuestionContainer key={question.id}>
               <QuestionText style={!isReadOnly && !hasAnswer ? { color: '#fbbf24' } : undefined}>
                 {index + 1}. {question.question}
-                {!isReadOnly && !hasAnswer && <span style={{ fontSize: 11, marginLeft: 6, color: '#fbbf24' }}>(please select)</span>}
+                {!isReadOnly && !hasAnswer && <span style={{ fontSize: 11, marginLeft: 6, color: '#fbbf24' }}>{_t(lang, 'please_select')}</span>}
               </QuestionText>
               {question.context && (
                 <QuestionContext>{question.context}</QuestionContext>
@@ -267,7 +312,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
                 mode="multiple"
                 showSearch
                 allowClear
-                placeholder="Type to search and select…"
+                placeholder={_t(lang, 'typeahead_placeholder')}
                 value={selectedValues}
                 disabled={isReadOnly}
                 style={{ width: '100%' }}
@@ -292,7 +337,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
           <QuestionContainer key={question.id}>
             <QuestionText style={!isReadOnly && !hasAnswer ? { color: '#fbbf24' } : undefined}>
               {index + 1}. {question.question}
-              {!isReadOnly && !hasAnswer && <span style={{ fontSize: 11, marginLeft: 6, color: '#fbbf24' }}>(please select)</span>}
+              {!isReadOnly && !hasAnswer && <span style={{ fontSize: 11, marginLeft: 6, color: '#fbbf24' }}>{_t(lang, 'please_select')}</span>}
             </QuestionText>
             {question.context && (
               <QuestionContext>{question.context}</QuestionContext>
@@ -340,7 +385,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
                 }
                 return (
                   <FreeformInput
-                    placeholder="Please describe in detail..."
+                    placeholder={_t(lang, 'freeform_placeholder')}
                     value={freeformText[question.id] || ''}
                     onChange={(e) => handleFreeformChange(question.id, e.target.value)}
                     autoSize={{ minRows: 2, maxRows: 5 }}
@@ -358,7 +403,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
         <>
           {!isComplete && (
             <div style={{ fontSize: 11, color: '#fbbf24', textAlign: 'center', marginTop: 4 }}>
-              Please answer all questions ({answeredCount}/{safeQuestions.length} answered)
+              {_t(lang, 'answered_count', { answered: answeredCount, total: safeQuestions.length })}
             </div>
           )}
           <SubmitButton
@@ -368,7 +413,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
             disabled={!isComplete || isSubmitting}
             loading={isSubmitting}
           >
-            {isSubmitting ? 'Submitting...' : 'Submit Answers'}
+            {_t(lang, isSubmitting ? 'submitting' : 'submit')}
           </SubmitButton>
         </>
       )}
