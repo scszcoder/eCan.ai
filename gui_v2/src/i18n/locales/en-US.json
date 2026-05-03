@@ -85,6 +85,7 @@
     "saved_successfully": "Saved_successfully",
     "select_vehicle": "Select Vehicle",
     "select_item": "Select {{item}}",
+    "llm_quota_limit_banner": "LLM Reached Quota Limit",
     "unknown_error": "Unknown Error",
     "validation_failed": "Validation Failed",
     "video_load_error": "Video Load Error",

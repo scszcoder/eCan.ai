@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Button, Checkbox, Input, Radio, Space } from 'antd';
+import { Button, Checkbox, Input, Radio, Select } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
 import styled from 'styled-components';
 import type { ClarificationQuestion } from '../../types/skill-editor-chat.types';
@@ -248,6 +248,46 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
       
       {safeQuestions.map((question, index) => {
         const hasAnswer = (displayAnswers[question.id] || []).length > 0;
+        const isSearchable = (question as any).widget_type === 'searchable_multi_select';
+
+        if (isSearchable) {
+          // Render an Ant Design searchable multi-select dropdown.
+          // Best for large choice lists (e.g., the user's skill catalogue).
+          const selectedValues = displayAnswers[question.id] || [];
+          return (
+            <QuestionContainer key={question.id}>
+              <QuestionText style={!isReadOnly && !hasAnswer ? { color: '#fbbf24' } : undefined}>
+                {index + 1}. {question.question}
+                {!isReadOnly && !hasAnswer && <span style={{ fontSize: 11, marginLeft: 6, color: '#fbbf24' }}>(please select)</span>}
+              </QuestionText>
+              {question.context && (
+                <QuestionContext>{question.context}</QuestionContext>
+              )}
+              <Select
+                mode="multiple"
+                showSearch
+                allowClear
+                placeholder="Type to search and select…"
+                value={selectedValues}
+                disabled={isReadOnly}
+                style={{ width: '100%' }}
+                optionFilterProp="label"
+                filterOption={(input, option) => {
+                  const lbl = String((option as any)?.label ?? '').toLowerCase();
+                  return lbl.includes(input.toLowerCase());
+                }}
+                onChange={(vals: string[]) => {
+                  setAnswers(prev => ({ ...prev, [question.id]: vals }));
+                }}
+                options={question.choices.map(c => ({
+                  value: c.id,
+                  label: c.description ? `${c.label} — ${c.description}` : c.label,
+                }))}
+              />
+            </QuestionContainer>
+          );
+        }
+
         return (
           <QuestionContainer key={question.id}>
             <QuestionText style={!isReadOnly && !hasAnswer ? { color: '#fbbf24' } : undefined}>

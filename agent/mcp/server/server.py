@@ -196,6 +196,10 @@ from agent.mcp.server.gcloud_utils.gcloud_tools import (
     gcloud_read_billing,
     gcloud_shutdown,
 )
+from agent.mcp.server.messaging.messaging_tools import (
+    send_sms,
+    send_email,
+)
 from agent.mcp.server.wechat.wechat_tools import (
     wechat_send,
     wechat_receive,
@@ -3721,6 +3725,8 @@ tool_function_mapping = {
         "api_ecan_ai_rerank_results": api_ecan_ai_rerank_results,
         "api_ecan_ai_show_status": api_ecan_ai_show_status,
         "ecan_ai_api_req_create_scene": api_ecan_ai_req_create_scene,
+        "send_sms": send_sms,
+        "send_email": send_email,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results,

@@ -28,6 +28,128 @@ from utils.logger_helper import logger_helper as logger
 # running the local agent.  Set to False to revert to local processing.
 USE_CLOUD_SKILL_EDITOR = True
 
+# ---------------------------------------------------------------------------
+# Log rotation sibling detection — for multi-part runtime logs
+# (e.g., eCan.log + eCan.log.1 + eCan.log.2 + eCan.log.3)
+# ---------------------------------------------------------------------------
+import os
+import re
+from pathlib import Path as _Path
+
+# Maximum age gap between siblings to be considered "same run" (seconds).
+# Sliding-window: a sibling is included if its mtime is within this many
+# seconds of any other already-included sibling's mtime.
+_ROTATION_MTIME_WINDOW_SECS = 24 * 60 * 60   # 24 hours
+
+# Cap to avoid pulling in huge archives if the dir has dozens of rotations.
+_ROTATION_MAX_FILES = 8
+
+# Section marker prepended to each sibling in the concatenated upload — lets
+# the LLM see exactly which file each line came from.
+_ROTATION_SECTION_HDR = "\n\n========== {fname} (mtime={mtime}, size={size:,} bytes) ==========\n\n"
+
+
+def _detect_log_rotation_siblings(picked_path: str) -> List[_Path]:
+    """Return sibling rotated log files in the same dir as ``picked_path``.
+
+    Detection: filename pattern (``{base}.log*``) + mtime sliding-window.
+    Returned list is sorted by mtime ascending — chronological order suitable
+    for direct concatenation. The picked file is always included.
+
+    Example: picked='C:/Users/me/eCan.log' returns [eCan.log.3, .2, .1, eCan.log]
+    sorted by their mtime (oldest first).
+    """
+    try:
+        picked = _Path(picked_path)
+        if not picked.is_file():
+            return []
+
+        parent = picked.parent
+        if not parent.is_dir():
+            return [picked]
+
+        # Match `{base}.log` or `{base}.log.<N>` or `{base}.log.<date>` etc.
+        # Strip rotation suffix from picked filename to find the base pattern.
+        name = picked.name
+        m = re.match(r"^(?P<base>.+?\.log)(?:\.[\w.-]+)?$", name, flags=re.IGNORECASE)
+        if not m:
+            return [picked]
+        base = m.group("base")
+        pattern = re.compile(rf"^{re.escape(base)}(\.[\w.-]+)?$", flags=re.IGNORECASE)
+
+        candidates: List[_Path] = []
+        for entry in parent.iterdir():
+            if entry.is_file() and pattern.match(entry.name):
+                candidates.append(entry)
+
+        if not candidates:
+            return [picked]
+
+        # Build a (path, mtime) list and run the sliding-window filter
+        with_mtime = sorted(
+            ((p, p.stat().st_mtime) for p in candidates),
+            key=lambda x: x[1],
+        )
+        # Always anchor on the picked file's mtime
+        picked_mtime = picked.stat().st_mtime
+        kept: List[_Path] = []
+        for p, mt in with_mtime:
+            if abs(mt - picked_mtime) <= _ROTATION_MTIME_WINDOW_SECS:
+                kept.append(p)
+            else:
+                # Also keep if it's within window of any already-kept sibling
+                if kept and any(
+                    abs(mt - kp.stat().st_mtime) <= _ROTATION_MTIME_WINDOW_SECS for kp in kept
+                ):
+                    kept.append(p)
+
+        if picked not in kept:
+            kept.append(picked)
+
+        # Cap at _ROTATION_MAX_FILES, preferring most recent
+        if len(kept) > _ROTATION_MAX_FILES:
+            kept = sorted(kept, key=lambda p: p.stat().st_mtime, reverse=True)[:_ROTATION_MAX_FILES]
+
+        return sorted(kept, key=lambda p: p.stat().st_mtime)
+    except Exception as e:
+        logger.warning(f"[SkillEditorChat] Rotation sibling detection failed: {e}")
+        try:
+            return [_Path(picked_path)]
+        except Exception:
+            return []
+
+
+def _read_and_concat_rotation_siblings(picked_path: str) -> tuple:
+    """Return (concatenated_bytes, [(filename, size, mtime), ...]).
+
+    Each sibling is prefixed with a section marker so the LLM can see file
+    boundaries. Files are concatenated in chronological order (oldest first),
+    matching the natural reading order of a continuous run.
+    """
+    siblings = _detect_log_rotation_siblings(picked_path)
+    if not siblings:
+        return b"", []
+
+    parts: List[bytes] = []
+    summary: List[tuple] = []
+    for p in siblings:
+        try:
+            stat = p.stat()
+            data = p.read_bytes()
+            hdr = _ROTATION_SECTION_HDR.format(
+                fname=p.name,
+                mtime=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                size=stat.st_size,
+            )
+            parts.append(hdr.encode("utf-8"))
+            parts.append(data)
+            summary.append((p.name, stat.st_size, stat.st_mtime))
+        except Exception as e:
+            logger.warning(f"[SkillEditorChat] Failed to read sibling {p}: {e}")
+
+    return b"".join(parts), summary
+
+
 _CLOUD_RELAY_AVAILABLE = False
 if USE_CLOUD_SKILL_EDITOR:
     try:
@@ -558,13 +680,27 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                             from pathlib import Path as _P
                             _fp = _P(_local_path)
                             if _fp.is_file():
-                                _file_bytes = _fp.read_bytes()
+                                # Detect rotated siblings (eCan.log, .log.1, .log.2, ...)
+                                # and stitch them into a single chronologically-ordered
+                                # blob so the cloud agent sees the full continuous run.
+                                _file_bytes, _rot_summary = _read_and_concat_rotation_siblings(_local_path)
+                                if not _file_bytes:
+                                    _file_bytes = _fp.read_bytes()
+                                    _rot_summary = [(_fp.name, len(_file_bytes), _fp.stat().st_mtime)]
                                 _size_kb = len(_file_bytes) / 1024
-                                # Show as streaming status (won't conflict with subscription messages)
-                                _push_upload_status(
-                                    f"⬆️ Uploading log file ({_size_kb:,.1f} KB)...",
-                                    as_chunk=True,
-                                )
+
+                                if len(_rot_summary) > 1:
+                                    _siblings_list = ", ".join(f"`{n}`" for n, _, _ in _rot_summary)
+                                    _push_upload_status(
+                                        f"🔗 Detected {len(_rot_summary)} rotated log parts: {_siblings_list}\n"
+                                        f"⬆️ Uploading stitched log ({_size_kb:,.1f} KB)...",
+                                        as_chunk=True,
+                                    )
+                                else:
+                                    _push_upload_status(
+                                        f"⬆️ Uploading log file ({_size_kb:,.1f} KB)...",
+                                        as_chunk=True,
+                                    )
 
                                 import requests as _http
                                 _put_resp = _http.put(

@@ -344,7 +344,12 @@ type Mutation {
   publishSceneResult(input: SceneResultInput!): SceneResult @aws_api_key @aws_cognito_user_pools @aws_iam
   #        -------------------- Skill Editor Realtime Streaming --------------------
   publishSkillEditorStreamEvent(input: SkillEditorStreamEventInput!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam
+  #        -------------------- Inbound messaging (SMS / email) --------------------
+  publishIncomingMessage(input: IncomingMessageInput!): IncomingMessage @aws_api_key @aws_cognito_user_pools @aws_iam
   publishTaskStatus(input: TaskStatusInput!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam
+  #        -------------------- Outbound messaging (SMS / email) --------------------
+  sendEmail(input: SendEmailInput!): MessagingResult @aws_api_key @aws_cognito_user_pools
+  sendSms(input: SendSmsInput!): MessagingResult @aws_api_key @aws_cognito_user_pools
   readyReqScene(input: ReadyReqSceneInput!): ReqSceneResponse! @aws_cognito_user_pools
   removeAccts(input: [RemoveOrder]!): AWSJSON!
   removeAgentKnowledges(input: [ID!]!): [KnowledgeMutationResult!]! @aws_api_key @aws_cognito_user_pools
@@ -438,6 +443,26 @@ type MutationResult @aws_api_key @aws_cognito_user_pools {
   id: ID!
   message: String
   success: Boolean!
+}
+
+#          Messaging — outbound result + inbound payload
+type MessagingResult @aws_api_key @aws_cognito_user_pools {
+  success: Boolean!
+  messageId: String
+  error: String
+}
+
+type IncomingMessage @aws_api_key @aws_cognito_user_pools {
+  messageId: ID!
+  channel: String!
+  fromAddress: String!
+  toAddress: String!
+  body: String!
+  subject: String
+  attachments: AWSJSON
+  owner: String!
+  sessionId: ID
+  timestamp: AWSDateTime!
 }
 
 type NodeStateSchema @aws_api_key @aws_cognito_user_pools {
@@ -938,6 +963,7 @@ type Subscription {
   onPuzzleResultReceived: PuzzleSolution @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["sendPuzzleSolution"])
   onSceneComplete(acctSiteID: String!): SceneResult @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSceneResult"])
   onSkillEditorStreamEvent(owner: String!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSkillEditorStreamEvent"])
+  onIncomingMessage(owner: String!): IncomingMessage @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishIncomingMessage"])
   onStoryUpdate(acctSiteID: String!): Story @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["updateStory"])
   onTaskStatus(runner: String!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishTaskStatus"])
 }
@@ -1548,6 +1574,18 @@ input FileOp {
   options: String
 }
 
+input IncomingMessageInput {
+  messageId: ID!
+  channel: String!
+  fromAddress: String!
+  toAddress: String!
+  body: String!
+  subject: String
+  attachments: AWSJSON
+  owner: String!
+  sessionId: ID
+}
+
 input KnowledgeInput {
   access_methods: AWSJSON
   categories: AWSJSON
@@ -1980,6 +2018,20 @@ input SceneResultInput {
 
 input SchSettings {
   ignoreInterest: Boolean
+}
+
+#          Messaging input — outbound
+input SendEmailInput {
+  to: String!
+  subject: String!
+  bodyText: String
+  bodyHtml: String
+  replyTo: String
+}
+
+input SendSmsInput {
+  phoneNumber: String!
+  message: String!
 }
 
 input ScreenImg {

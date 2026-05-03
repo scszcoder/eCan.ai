@@ -38,6 +38,8 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     RunCodeAction,
     RunShellScriptAction,
     SendChatAction,
+    SendEmailAction,
+    SendSmsAction,
     UpsertSessionMonitorAction,
 )
 
@@ -3253,6 +3255,109 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 _send_typing_lock.release(_send_lock_key)
             except Exception:
                 pass
+
+
+@custom_controller.action(
+    "Send an SMS to a phone number via AWS End User Messaging SMS. "
+    "Phone number must be E.164 (e.g. '+14155550100', country code included). "
+    "Use for short notifications, alerts, or 2FA confirmations.",
+    param_model=SendSmsAction,
+)
+async def bu_send_sms(params: SendSmsAction) -> ActionResult:
+    from agent.mcp.server.messaging.messaging_tools import send_sms
+
+    mainwin = AppContext.get_main_window()
+    if mainwin is None:
+        return ActionResult(error="bu_send_sms: AppContext main window unavailable.")
+
+    phone = (params.phone_number or "").strip()
+    message = (params.message or "").strip()
+    if not phone:
+        return ActionResult(error="bu_send_sms: phone_number is required.")
+    if not message:
+        return ActionResult(error="bu_send_sms: message is required.")
+    if not phone.startswith("+"):
+        return ActionResult(
+            error=(
+                f"bu_send_sms: phone_number must be E.164 (start with +country code). "
+                f"Got: {phone!r}"
+            )
+        )
+
+    try:
+        result = await send_sms(mainwin, {"input": {"phone_number": phone, "message": message}})
+        text = ""
+        if isinstance(result, list) and result:
+            first = result[0]
+            text = getattr(first, "text", str(first))
+        else:
+            text = str(result)
+        if text.lstrip().startswith("❌") or text.lstrip().startswith("Error"):
+            return ActionResult(error=text)
+        return ActionResult(
+            extracted_content=text,
+            include_in_memory=True,
+            long_term_memory=f"Sent SMS to {phone}",
+        )
+    except Exception as e:
+        logger.error(f"[bu_send_sms] Exception: {e}", exc_info=True)
+        return ActionResult(error=f"bu_send_sms failed: {e}")
+
+
+@custom_controller.action(
+    "Send an email via AWS SES. Provide at least one of body_text or body_html. "
+    "The sender address is configured cloud-side and not user-supplied. "
+    "Use for outbound notifications, reports, or follow-ups.",
+    param_model=SendEmailAction,
+)
+async def bu_send_email(params: SendEmailAction) -> ActionResult:
+    from agent.mcp.server.messaging.messaging_tools import send_email
+
+    mainwin = AppContext.get_main_window()
+    if mainwin is None:
+        return ActionResult(error="bu_send_email: AppContext main window unavailable.")
+
+    to_addr = (params.to or "").strip()
+    subject = (params.subject or "").strip()
+    body_text = (params.body_text or "").strip() if params.body_text else None
+    body_html = (params.body_html or "").strip() if params.body_html else None
+    reply_to = (params.reply_to or "").strip() if params.reply_to else None
+
+    if not to_addr or "@" not in to_addr:
+        return ActionResult(error=f"bu_send_email: invalid 'to' address: {to_addr!r}")
+    if not subject:
+        return ActionResult(error="bu_send_email: subject is required.")
+    if not body_text and not body_html:
+        return ActionResult(
+            error="bu_send_email: at least one of body_text or body_html must be provided."
+        )
+
+    cfg: Dict[str, Any] = {"to": to_addr, "subject": subject}
+    if body_text:
+        cfg["body_text"] = body_text
+    if body_html:
+        cfg["body_html"] = body_html
+    if reply_to:
+        cfg["reply_to"] = reply_to
+
+    try:
+        result = await send_email(mainwin, {"input": cfg})
+        text = ""
+        if isinstance(result, list) and result:
+            first = result[0]
+            text = getattr(first, "text", str(first))
+        else:
+            text = str(result)
+        if text.lstrip().startswith("❌") or text.lstrip().startswith("Error"):
+            return ActionResult(error=text)
+        return ActionResult(
+            extracted_content=text,
+            include_in_memory=True,
+            long_term_memory=f"Sent email to {to_addr}: {subject}",
+        )
+    except Exception as e:
+        logger.error(f"[bu_send_email] Exception: {e}", exc_info=True)
+        return ActionResult(error=f"bu_send_email failed: {e}")
 
 
 # Log registered custom actions at module load time for debugging
