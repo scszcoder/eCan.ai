@@ -2594,6 +2594,18 @@ _ROOT_CAUSE_TOOL = {
             },
             "affected_nodes": {"type": "array", "items": {"type": "string"}},
             "is_prompt_fix": {"type": "boolean", "description": "True if the fix is a prompt improvement (not structural)"},
+            "fix_tier": {
+                "type": "string",
+                "enum": ["prompt_only", "node_params", "flowgram_struct", "combo", "platform_code"],
+                "description": (
+                    "Cheapest tier of fix that will resolve the bug. Always pick the LOWEST tier that works.\n"
+                    "  prompt_only     – tweak a node's prompt text (rules, examples, format constraints).\n"
+                    "  node_params     – change non-prompt node attributes (model, temperature, condition expr, loop config, timeout).\n"
+                    "  flowgram_struct – add/remove/rewire nodes or edges on the canvas.\n"
+                    "  combo           – requires changes across two or more of the above tiers.\n"
+                    "  platform_code   – not fixable in the Skill Editor — requires changing eCan.ai source code."
+                ),
+            },
             "bug_category": {
                 "type": "string",
                 "enum": ["skill_config", "platform_code", "infra_config", "quota_billing"],
@@ -2610,7 +2622,7 @@ _ROOT_CAUSE_TOOL = {
                 "description": "For platform_code bugs: list of suspected source file paths or module names (e.g. 'agent/ec_tasks/appsync_pubsub.py'). Empty for other categories.",
             },
         },
-        "required": ["root_cause", "fix_steps", "confidence", "bug_category"],
+        "required": ["root_cause", "fix_steps", "confidence", "bug_category", "fix_tier"],
     },
 }
 
@@ -2643,6 +2655,53 @@ _QUOTA_PATTERNS = [
     "slowdown", "serviceunavailable",  # S3 SlowDown is effectively quota
     "you exceeded your current quota",
 ]
+
+# Higher-priority subset: LLM-provider account quota / billing exhaustion.
+# These are the most user-actionable failures — they need a recharge, not a
+# code fix. We scan for these FIRST and short-circuit the analysis pipeline.
+_LLM_QUOTA_PATTERNS = [
+    "insufficient_quota",
+    "you exceeded your current quota",
+    "billing_hard_limit_reached",
+    "quota_exceeded",
+    "credit balance is too low",
+    "account has insufficient",
+    "please check your plan and billing",
+    "rate_limit_exceeded",  # OpenAI/Anthropic rate-limit
+    "ratelimiterror",
+    "anthropic.api_error",  # generic Anthropic auth/billing failure surface
+    "openai.error.ratelimiterror",
+]
+
+
+def _detect_llm_quota_exhaustion(text: str) -> Optional[Dict[str, str]]:
+    """Fast pre-check: scan log text for LLM provider quota / billing errors.
+
+    Returns a dict with {provider, signal, line} when a match is found, else None.
+    Operates on lowercase to avoid case sensitivity. Only the FIRST match is returned
+    so the user can see exactly which line of the log triggered it.
+    """
+    if not text:
+        return None
+    lower = text.lower()
+    for pat in _LLM_QUOTA_PATTERNS:
+        idx = lower.find(pat)
+        if idx == -1:
+            continue
+        # Locate the line containing the match for user-facing context
+        line_start = lower.rfind("\n", 0, idx) + 1
+        line_end = lower.find("\n", idx)
+        if line_end == -1:
+            line_end = min(len(text), idx + 240)
+        snippet = text[line_start:line_end].strip()[:240]
+        # Heuristic provider attribution
+        provider = "unknown"
+        if "openai" in lower[max(0, idx - 100):idx + 100]:
+            provider = "OpenAI"
+        elif "anthropic" in lower[max(0, idx - 100):idx + 100] or "claude" in lower[max(0, idx - 100):idx + 100]:
+            provider = "Anthropic"
+        return {"provider": provider, "signal": pat, "line": snippet}
+    return None
 
 _INFRA_PATTERNS = [
     "accessdenied", "access denied", "not authorized", "unauthorized",
@@ -3199,6 +3258,68 @@ def _assemble_debug_workspace(
     )
 
 
+# =============================================================================
+# Code-fix agent (PLACEHOLDER)
+# =============================================================================
+#
+# Eventual design — when implemented, this agent will:
+#   1. Authenticate to GitHub via a fine-grained PAT stored in Secrets Manager
+#      (env: GITHUB_FIX_AGENT_TOKEN_ARN).
+#   2. Create a branch off `sc_cloud` named `auto-fix/{session_id}/{short-sha}`
+#      via `POST /repos/scszcoder/eCan.ai/git/refs`.
+#   3. For each file in `bug_report.file_path`: fetch current contents, apply
+#      the LLM-proposed edit (using a contained edit_source_file tool), commit
+#      via `PUT /repos/.../contents/{path}`.
+#   4. Trigger a GitHub Actions workflow_dispatch to build the desktop installer
+#      for the affected platforms (Windows / macOS).
+#   5. Poll the workflow run until artifacts are produced, fetch artifact
+#      download URLs, return them to the user.
+#   6. Open a PR back to `sc_cloud` for human review (does NOT auto-merge).
+#
+# Why placeholder for now: steps 1–3 are ~150 lines and feasible; step 4 needs a
+# GitHub Actions workflow that builds the eCan.ai installer (doesn't exist yet);
+# step 5 polls CI which adds latency the synchronous Lambda call can't tolerate
+# (would need to be moved to a Step Function or async invocation pattern).
+#
+# Safe placeholder behaviour: return the structured bug report (already produced
+# by the Code Review Agent) plus a "next steps for engineering" section, so the
+# user knows exactly what would happen and can manually drive it for now.
+# =============================================================================
+
+def _run_code_fix_agent_placeholder(
+    code_review_report: Dict[str, Any],
+    rca_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Placeholder for the future code-fix agent.
+
+    Today: returns a structured stub that explains what would happen, attaches
+    the existing bug report so the developer has everything they need.
+
+    When real: branch from sc_cloud, apply file edits, trigger CI, return
+    artifact download URLs + PR link.
+    """
+    return {
+        "status": "not_implemented",
+        "next_action": (
+            "auto_branch_and_build (planned) — would create a branch off "
+            "sc_cloud, apply the suggested fix, build the desktop installer "
+            "via GitHub Actions, and return a download link plus a PR for "
+            "human review."
+        ),
+        "what_developer_should_do_now": [
+            "Read the structured bug report below for file:line + suggested fix.",
+            "Open a branch manually, apply the edit, run the build pipeline.",
+            "Open a PR to sc_cloud — that flow will be automated in a later release.",
+        ],
+        "bug_report": code_review_report,
+        "rca_summary": {
+            "hypothesis": rca_result.get("hypothesis"),
+            "error_type": rca_result.get("error_type"),
+            "error_message": rca_result.get("error_message"),
+        },
+    }
+
+
 def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle reqLogAnalysis mutation.
 
@@ -3322,6 +3443,63 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
             except Exception:
                 pass
             chunk_index += 1
+
+        # ======================================================
+        # PRE-CHECK 0 — LLM provider quota exhaustion
+        #
+        # Before burning any LLM tokens on analysis, scan the log for
+        # provider-side billing/quota errors. These are the most common AND
+        # most user-actionable failures: the user just needs to recharge or
+        # raise their plan limit. There's no point running the full RCA
+        # pipeline for a quota issue — the cause is in the error itself.
+        # ======================================================
+        _quota_hit = _detect_llm_quota_exhaustion(log_content)
+        if _quota_hit:
+            _stream_progress(
+                f"### ⚠️ LLM Quota Exhaustion Detected\n\n"
+                f"The skill failed because the **{_quota_hit['provider']}** account "
+                f"hit a quota / billing limit. No skill or code fix will resolve this — "
+                f"the account needs attention.\n\n"
+                f"**Signal**: `{_quota_hit['signal']}`\n\n"
+                f"**Log line**:\n```\n{_quota_hit['line']}\n```\n\n"
+                f"**What to do:**\n"
+                f"1. Check your {_quota_hit['provider']} dashboard for current usage and quota.\n"
+                f"2. Recharge credits or upgrade the plan.\n"
+                f"3. If you're rate-limited (not out of quota), add retry/back-off in the skill.\n\n"
+                f"_(Skipping deeper RCA — quota is the obvious cause.)_\n"
+            )
+            try:
+                if session_id:
+                    session = _load_session(env, owner, session_id) or {}
+                    session["lastRunError"] = {
+                        "bug_category": "quota_billing",
+                        "error_type": "llm_quota_exhausted",
+                        "provider": _quota_hit["provider"],
+                        "signal": _quota_hit["signal"],
+                        "error_message": _quota_hit["line"],
+                        "fix_hypothesis": f"{_quota_hit['provider']} account quota / billing limit reached.",
+                        "iteration": 1,
+                    }
+                    session["updatedAt"] = _utc_now_iso()
+                    _save_session(env, owner, session)
+            except Exception:
+                pass
+            try:
+                _publish(
+                    env, owner=owner, session_id=session_id,
+                    flowgram_id=flowgram_id,
+                    event_type="skill_editor.chat.stream_end",
+                    payload={
+                        "messageId": analysis_message_id,
+                        "fullContent": "LLM quota exhausted — see above.",
+                        "state": "complete",
+                        "intent": "log_analysis",
+                        "shortCircuit": "quota_billing",
+                    },
+                )
+            except Exception:
+                pass
+            return {"status": "ok", "shortCircuit": "quota_billing"}
 
         # ---- Load prompts from DynamoDB (with defaults) ----
         from agent.skill_editor.prompt_store import prompt_store as _ps
@@ -3457,6 +3635,14 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
                     "suggested_fix": "Code review agent encountered an error — manual investigation required.",
                     "confidence": "low",
                 }
+            # Attach code-fix agent placeholder — describes the planned auto-fix
+            # flow (branch → edit → build → download). Real implementation TBD.
+            try:
+                code_review_report["code_fix_agent"] = _run_code_fix_agent_placeholder(
+                    code_review_report, rca_result
+                )
+            except Exception:
+                pass
             _stream_progress("**Code review complete** — Platform bug located.\n\n")
 
         elif bug_category == "infra_config":
@@ -3569,6 +3755,7 @@ Bug Category: {bug_category}
                     "input_at_failure": rca_result.get("input_at_failure"),
                     "fix_hypothesis": rca_result.get("hypothesis"),
                     "bug_category": bug_category,
+                    "fix_tier": rca_result.get("fix_tier"),
                     "iteration": 1,
                 }
                 if code_review_report:
@@ -3690,6 +3877,26 @@ def _run_debug_analysis_loop(
         except Exception as e:
             logger.warning(f"[debug_analysis_loop] Log read failed: {e}")
 
+    # Pre-check: LLM provider quota exhaustion. Short-circuit before per-skill
+    # pipeline runs — quota is the most user-actionable failure class.
+    _quota_hit = _detect_llm_quota_exhaustion(log_content)
+    if _quota_hit:
+        msg = (
+            f"### ⚠️ LLM Quota Exhaustion Detected\n\n"
+            f"The skill failed because the **{_quota_hit['provider']}** account "
+            f"hit a quota / billing limit. No skill or code fix will resolve this — "
+            f"the account needs attention.\n\n"
+            f"**Signal**: `{_quota_hit['signal']}`\n\n"
+            f"**Log line**:\n```\n{_quota_hit['line']}\n```\n\n"
+            f"**What to do:**\n"
+            f"1. Check your {_quota_hit['provider']} dashboard for current usage and quota.\n"
+            f"2. Recharge credits or upgrade the plan.\n"
+            f"3. If you're rate-limited (not out of quota), add retry/back-off in the skill.\n\n"
+            f"_(Skipping deeper RCA — quota is the obvious cause.)_\n"
+        )
+        _stream_progress(msg)
+        return msg
+
     if not skill_names:
         # No specific skills selected — run log-only analysis
         skill_names = ["(no skill selected)"]
@@ -3776,6 +3983,13 @@ def _run_debug_analysis_loop(
                 code_review_report = _run_code_review_agent(llm, rca_result, log_content)
             except Exception as cr_err:
                 logger.warning(f"[debug_analysis_loop] Code review failed: {cr_err}")
+            if isinstance(code_review_report, dict):
+                try:
+                    code_review_report["code_fix_agent"] = _run_code_fix_agent_placeholder(
+                        code_review_report, rca_result
+                    )
+                except Exception:
+                    pass
             _stream_progress("**Code review complete.**\n\n")
         elif bug_category == "infra_config":
             _stream_progress("**Classification: infra_config** — Infrastructure issue detected.\n\n")
