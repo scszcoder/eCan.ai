@@ -5,6 +5,8 @@ import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined,
 import { useTheme } from '@/contexts/ThemeContext';
 import React, { useState, useEffect, useRef } from 'react';
 import type { ProcessingProgress } from '@/services/ipc/lightragApi';
+import WorkspacePicker from './WorkspacePicker';
+import { useWorkspace } from './useWorkspace';
 
 interface Document {
   id: string;
@@ -85,6 +87,11 @@ const DocumentsTab: React.FC = () => {
   const batchSubmittingRef = useRef(false);
   const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
   const [consoleCollapsed, setConsoleCollapsed] = useState(false); // Console折叠状态，默认展开
+  // Shared LightRAG workspace (tenant). Backed by useWorkspace() so the
+  // header picker, this picker, and RetrievalTab stay in lockstep.
+  // Empty = server default. The workspace scopes BOTH ingestion AND the
+  // documents grid below (list, paginated, status, scan, clear, delete).
+  const [workspace, setWorkspace] = useWorkspace();
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -133,7 +140,7 @@ const DocumentsTab: React.FC = () => {
       }
 
       try {
-        const response = await get_ipc_api().lightragApi.getProcessingProgress();
+        const response = await get_ipc_api().lightragApi.getProcessingProgress(undefined, workspace || undefined);
         if (response.success && response.data) {
           const progressData = response.data as any;
           const processingCount = progressData.processing_count || 0;
@@ -179,7 +186,7 @@ const DocumentsTab: React.FC = () => {
         const batch = batches[i];
         appendLog(`开始提交第 ${i + 1}/${batches.length} 批，本批 ${batch.length} 个文件`);
 
-        const response = await get_ipc_api().lightragApi.ingestFiles({ paths: batch });
+        const response = await get_ipc_api().lightragApi.ingestFiles({ paths: batch, workspace: workspace || undefined });
         if (!response.success) {
           throw new Error(response.error?.message || `第 ${i + 1} 批提交失败`);
         }
@@ -192,7 +199,7 @@ const DocumentsTab: React.FC = () => {
         }
 
         appendLog(`开始扫描第 ${i + 1}/${batches.length} 批文件`);
-        const scanResponse = await get_ipc_api().lightragApi.scan();
+        const scanResponse = await get_ipc_api().lightragApi.scan({ workspace: workspace || undefined });
         if (!scanResponse.success) {
           throw new Error(scanResponse.error?.message || `第 ${i + 1} 批扫描失败`);
         }
@@ -215,10 +222,12 @@ const DocumentsTab: React.FC = () => {
     }
   };
 
-  // Load documents on mount (loadDocuments already updates statusCounts from API response)
+  // Load documents on mount and whenever the workspace, page, page-size or
+  // status filter changes. Switching workspace from the global header
+  // picker therefore refreshes the grid for the newly selected tenant.
   React.useEffect(() => {
     loadDocuments();
-  }, [currentPage, pageSize, statusFilter]);
+  }, [currentPage, pageSize, statusFilter, workspace]);
 
   // Start progress polling when there are processing/pending documents
   useEffect(() => {
@@ -318,7 +327,7 @@ const DocumentsTab: React.FC = () => {
 
       statusCountsInFlightRef.current = true;
       try {
-        const statusResponse = await get_ipc_api().lightragApi.getStatusCounts();
+        const statusResponse = await get_ipc_api().lightragApi.getStatusCounts({ workspace: workspace || undefined });
         if (statusResponse.success && statusResponse.data) {
           const statusData = statusResponse.data as any;
           const currentStatusCounts = statusData?.data?.status_counts || statusData?.status_counts || {};
@@ -344,6 +353,7 @@ const DocumentsTab: React.FC = () => {
                 page: 1,
                 page_size: 10,
                 status_filter: 'failed',
+                workspace: workspace || undefined,
                 sort_field: 'updated_at',
                 sort_direction: 'desc'
               });
@@ -454,7 +464,7 @@ const DocumentsTab: React.FC = () => {
 
   const fetchProgress = async () => {
     try {
-      const response = await get_ipc_api().lightragApi.getProcessingProgress();
+      const response = await get_ipc_api().lightragApi.getProcessingProgress(undefined, workspace || undefined);
       if (response.success && response.data) {
         console.log('[DocumentsTab] Progress update:', response.data);
         setProcessingProgress(response.data);
@@ -473,7 +483,7 @@ const DocumentsTab: React.FC = () => {
           
           // Cancel pipeline to prevent pending documents from being processed
           try {
-            await get_ipc_api().lightragApi.abortDocument({ id: 'auto-cancel' });
+            await get_ipc_api().lightragApi.abortDocument({ id: 'auto-cancel', workspace: workspace || undefined });
             console.log('[DocumentsTab] Pipeline cancelled due to failures');
             appendLog(`检测到 ${failedCount} 个文档处理失败，已停止后续批次并请求停止当前处理`);
             message.warning(`检测到 ${failedCount} 个文档处理失败，已停止后续批次并请求停止当前处理`);
@@ -713,6 +723,7 @@ const DocumentsTab: React.FC = () => {
         page: currentPage,
         page_size: pageSize,
         status_filter: statusFilter === 'ALL' ? null : statusFilter,
+        workspace: workspace || undefined,
         sort_field: 'updated_at',
         sort_direction: 'desc'
       });
@@ -857,7 +868,7 @@ const DocumentsTab: React.FC = () => {
       // Record current failed count before scan
       const previousFailedCount = statusCounts.FAILED;
       
-      const response = await get_ipc_api().lightragApi.scan();
+      const response = await get_ipc_api().lightragApi.scan({ workspace: workspace || undefined });
       if (response.success && response.data) {
           const res = response.data as any;
           appendLog(t('pages.knowledge.documents.scanStarted') + JSON.stringify(res));
@@ -903,7 +914,7 @@ const DocumentsTab: React.FC = () => {
       onOk: async () => {
         try {
           appendLog(t('pages.knowledge.documents.clearingCache'));
-          const response = await get_ipc_api().lightragApi.clearCache();
+          const response = await get_ipc_api().lightragApi.clearCache({ workspace: workspace || undefined });
           if (response.success) {
               const data = response.data as any;
               appendLog(data?.message || t('pages.knowledge.documents.cacheCleared'));
@@ -968,7 +979,7 @@ const DocumentsTab: React.FC = () => {
           appendLog(t('pages.knowledge.documents.stoppingDocument'));
           
           // Use graceful stop (cancel_pipeline API sets cancellation flag)
-          const response = await get_ipc_api().lightragApi.abortDocument({ id: docId });
+          const response = await get_ipc_api().lightragApi.abortDocument({ id: docId, workspace: workspace || undefined });
           
           if (response.success) {
               appendLog('已停止后续批次提交，并已发送停止当前处理请求');
@@ -991,7 +1002,8 @@ const DocumentsTab: React.FC = () => {
                 
                 // Check the specific document's status
                 const docsResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
-                  page: 1, page_size: 100, status_filter: null, sort_field: 'updated_at', sort_direction: 'desc'
+                  page: 1, page_size: 100, status_filter: null, sort_field: 'updated_at', sort_direction: 'desc',
+                  workspace: workspace || undefined,
                 });
                 
                 if (docsResponse.success && docsResponse.data) {
@@ -1052,7 +1064,7 @@ const DocumentsTab: React.FC = () => {
           console.log('[DocumentsTab] Stop error occurred, restoring normal polling...');
           setTimeout(async () => {
             await loadDocuments();
-            const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
+            const countsResponse = await get_ipc_api().lightragApi.getStatusCounts({ workspace: workspace || undefined });
             if (countsResponse.success && countsResponse.data) {
               const counts = countsResponse.data as any;
               setStatusCounts({
@@ -1099,7 +1111,7 @@ const DocumentsTab: React.FC = () => {
             appendLog(t('pages.knowledge.documents.stoppingProcessingFirst', { filePath: doc.file_path }));
             
             try {
-              await get_ipc_api().lightragApi.abortDocument({ id: doc.id });
+              await get_ipc_api().lightragApi.abortDocument({ id: doc.id, workspace: workspace || undefined });
               appendLog(t('pages.knowledge.documents.processingStoppedWaitingUpdate'));
               
               // Wait longer for the cancellation to take effect and document to be marked as FAILED
@@ -1117,7 +1129,7 @@ const DocumentsTab: React.FC = () => {
           
           appendLog(t('pages.knowledge.documents.deletingDocument', { filePath: doc.file_path }));
           // Pass 'id' as required by the updated backend handler
-          const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id });
+          const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id, workspace: workspace || undefined });
           if (response.success) {
               // Deletion is background async, show initiated message
               appendLog('文档删除已启动，正在后台处理...');
@@ -1140,7 +1152,7 @@ const DocumentsTab: React.FC = () => {
                 
                 // Also refresh status counts to ensure UI is in sync
                 try {
-                  const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
+                  const countsResponse = await get_ipc_api().lightragApi.getStatusCounts({ workspace: workspace || undefined });
                   if (countsResponse.success && countsResponse.data) {
                     const counts = countsResponse.data as any;
                     const statusData = counts?.data?.status_counts || counts?.status_counts || {};
@@ -1295,7 +1307,13 @@ const DocumentsTab: React.FC = () => {
             {t('pages.knowledge.documents.subtitle')}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <WorkspacePicker
+            value={workspace}
+            onChange={setWorkspace}
+            label="Ingest into"
+            placeholder="(server default)"
+          />
           <button className="ec-btn" onClick={handleSelectFiles}>
             <FolderOpenOutlined /> {t('pages.knowledge.documents.uploadFiles')}
           </button>

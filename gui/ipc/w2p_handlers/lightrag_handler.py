@@ -30,6 +30,8 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         
         paths = data['paths']
         options = data.get('options', {})
+        # Optional LightRAG workspace (tenant) for data isolation.
+        workspace = (data.get('workspace') or '').strip() or None
         
         if not isinstance(paths, list) or len(paths) == 0:
             return create_error_response(request, 'INVALID_PARAMS', 'paths must be a non-empty list')
@@ -38,7 +40,7 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         client = get_client()
         
         # Call ingest_files method
-        result = client.ingest_files(paths, options)
+        result = client.ingest_files(paths, options, workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to ingest files')
@@ -108,6 +110,8 @@ def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]
         
         dir_path = data['dirPath']
         options = data.get('options', {})
+        # Optional LightRAG workspace (tenant) for data isolation.
+        workspace = (data.get('workspace') or '').strip() or None
         
         if not isinstance(dir_path, str) or not dir_path.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'dirPath must be a non-empty string')
@@ -115,7 +119,12 @@ def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]
         # Get LightRAG client
         client = get_client()
         
-        # Call ingest_directory method
+        # Call ingest_directory method. ingest_directory internally calls
+        # ingest_files, which now accepts `workspace`; stash it into options so
+        # the lower-level client can pick it up without changing its signature.
+        if workspace:
+            options = dict(options or {})
+            options.setdefault('workspace', workspace)
         result = client.ingest_directory(dir_path, options)
         
         if result.get('status') == 'error':
@@ -160,12 +169,15 @@ def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         
         text = data['text']
         options = data.get('options', {})
+        # Optional LightRAG workspace (tenant) for data isolation. Either
+        # passed at the top level of params, or carried inside options.
+        workspace = (data.get('workspace') or (options.get('workspace') if isinstance(options, dict) else None) or '').strip() or None
         
         if not isinstance(text, str) or not text.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'text must be a non-empty string')
         
         client = get_client()
-        result = client.query(text, options)
+        result = client.query(text, options, workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Query failed')
@@ -194,6 +206,10 @@ def handle_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
             return create_error_response(request, 'INVALID_PARAMS', error)
         
         job_id = data['jobId']
+        # Optional LightRAG workspace (tenant) for data isolation. Track
+        # IDs are workspace-scoped on the server, so callers should pass
+        # the same workspace they used during ingestion.
+        workspace = (data.get('workspace') or '').strip() or None
         
         if not isinstance(job_id, str) or not job_id.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'jobId must be a non-empty string')
@@ -201,8 +217,8 @@ def handle_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
         # Get LightRAG client
         client = get_client()
         
-        # Call status method
-        result = client.status(job_id)
+        # Call status method (uses track_status internally)
+        result = client.track_status(job_id, workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to get status')
@@ -222,13 +238,19 @@ def handle_scan(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRes
     """
     Handle document scan request.
     Triggers scanning for new documents in the input directory.
+    
+    Optional params:
+    - workspace: str - LightRAG workspace (tenant) name. Newly discovered
+      documents are ingested into the targeted workspace.
     """
     try:
+        # Optional LightRAG workspace (tenant).
+        workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
         client = get_client()
         
         # Call scan method
-        result = client.scan()
+        result = client.scan(workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to start scan')
@@ -249,13 +271,19 @@ def handle_list_documents(request: IPCRequest, params: Optional[Dict[str, Any]])
     """
     Handle list documents request.
     Returns all documents grouped by status.
+    
+    Optional params:
+    - workspace: str - LightRAG workspace (tenant) name to list documents
+      from. Omit for the server's default workspace.
     """
     try:
+        # Optional LightRAG workspace (tenant).
+        workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
         client = get_client()
         
         # Call list_documents method
-        result = client.list_documents()
+        result = client.list_documents(workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to list documents')
@@ -284,6 +312,9 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'INVALID_PARAMS', error)
         
         doc_id = data['id']
+        # Optional LightRAG workspace (tenant). Deletion is scoped to the
+        # workspace the document was ingested into.
+        workspace = (data.get('workspace') or '').strip() or None
         
         if not isinstance(doc_id, str) or not doc_id.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'id must be a non-empty string')
@@ -292,7 +323,7 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
         client = get_client()
         
         # Call delete_document method
-        result = client.delete_document(doc_id)
+        result = client.delete_document(doc_id, workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to delete document')
@@ -328,17 +359,20 @@ def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]])
             return create_error_response(request, 'INVALID_PARAMS', error)
         
         doc_id = data['id']
+        # Optional LightRAG workspace (tenant). Pipeline cancellation is
+        # scoped to the targeted workspace.
+        workspace = (data.get('workspace') or '').strip() or None
         
         if not isinstance(doc_id, str) or not doc_id.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'id must be a non-empty string')
         
-        logger.info(f"[lightrag_handler] Aborting document immediately: {doc_id}")
+        logger.info(f"[lightrag_handler] Aborting document immediately: {doc_id} (workspace={workspace!r})")
         
         # Get LightRAG client
         client = get_client()
         
         # Call abort_document method (which calls cancel_pipeline - now with immediate task cancellation)
-        result = client.abort_document(doc_id)
+        result = client.abort_document(doc_id, workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to abort document')
@@ -370,6 +404,8 @@ def handle_insert_text(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         
         text = data['text']
         metadata = data.get('metadata')
+        # Optional LightRAG workspace (tenant) for data isolation.
+        workspace = (data.get('workspace') or '').strip() or None
         
         if not isinstance(text, str) or not text.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'text must be a non-empty string')
@@ -378,7 +414,7 @@ def handle_insert_text(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         client = get_client()
         
         # Call insert_text method
-        result = client.insert_text(text, metadata)
+        result = client.insert_text(text, metadata, workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to insert text')
@@ -408,6 +444,12 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             return create_error_response(request, 'MISSING_TEXT', 'Missing query text')
         
         options = params.get('options', {})
+        # Optional LightRAG workspace (tenant) for data isolation. Accept
+        # either a top-level `workspace` param or one embedded in options.
+        _ws_raw = params.get('workspace')
+        if not _ws_raw and isinstance(options, dict):
+            _ws_raw = options.get('workspace')
+        workspace = (_ws_raw or '').strip() or None
         
         # Get IPC API for sending events
         from gui.ipc.api import IPCAPI
@@ -430,7 +472,7 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 # Use captured request_id
                 stream_id = request_id
                 
-                for chunk_str in client.query_stream(text, options):
+                for chunk_str in client.query_stream(text, options, workspace=workspace):
                     try:
                         # Parse JSON chunk
                         chunk_data = json.loads(chunk_str)
@@ -482,11 +524,16 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         from pathlib import Path
         from knowledge.lightrag_config_manager import get_config_manager
         
+        # Optional LightRAG workspace (tenant) for the API-side cache clear.
+        # The on-disk cleanup below targets the global WORKING_DIR; mixing
+        # workspace-scoped cache clears with full disk wipe is intentional
+        # because the latter is the user-visible behavior the UI expects.
+        workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
         client = get_client()
         
         # Step 1: Call clear_cache API to clear LLM cache
-        result = client.clear_cache()
+        result = client.clear_cache(workspace=workspace)
         
         if result.get('status') == 'error':
             logger.warning(f"Clear cache API returned error: {result.get('message')}")
@@ -603,13 +650,19 @@ def handle_get_status_counts(request: IPCRequest, params: Optional[Dict[str, Any
     """
     Handle get status counts request (runs in background thread to avoid blocking UI).
     This is called frequently (every 3 seconds) during document processing.
+    
+    Optional params:
+    - workspace: str - LightRAG workspace (tenant) name. Counts are scoped
+      to the targeted workspace.
     """
     try:
+        # Optional LightRAG workspace (tenant).
+        workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
         client = get_client()
         
         # Call get_status_counts method
-        result = client.get_status_counts()
+        result = client.get_status_counts(workspace=workspace)
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Get status counts failed')
@@ -1024,13 +1077,17 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
             'sort_direction': 'desc'
         }
         request_params = {**defaults, **(params or {})}
+        # Optional LightRAG workspace (tenant). Strip from the body params
+        # before forwarding to the LightRAG /documents/paginated endpoint
+        # (it is sent as a header instead).
+        workspace = (request_params.pop('workspace', None) or '').strip() or None
         
-        logger.info(f"[lightrag_handler] get_documents_paginated called with params: {request_params}")
+        logger.info(f"[lightrag_handler] get_documents_paginated called with params: {request_params} (workspace={workspace!r})")
         
         client = get_client()
         
         # Call synchronously (this runs in a background thread via registry)
-        result = client.get_documents_paginated(request_params)
+        result = client.get_documents_paginated(request_params, workspace=workspace)
         
         # logger.info(f"[lightrag_handler] Client returned result type: {type(result)}, value: {result}")
         
@@ -1074,13 +1131,16 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
     """
     try:
         track_id = params.get('track_id') if params else None
+        # Optional LightRAG workspace (tenant). Track IDs are workspace-
+        # scoped on the server, and progress polling is the same.
+        workspace = ((params or {}).get('workspace') or '').strip() or None
         
         # Get LightRAG client
         client = get_client()
         
         if track_id:
             # Get detailed progress for specific track_id
-            result = client.track_status(track_id)
+            result = client.track_status(track_id, workspace=workspace)
             
             if result.get('status') == 'error':
                 error_msg = result.get('message', 'Failed to get track status')
@@ -1121,7 +1181,7 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             })
         else:
             # Get overall status from status counts
-            result = client.get_status_counts()
+            result = client.get_status_counts(workspace=workspace)
             
             if result.get('status') == 'error':
                 error_msg = result.get('message', 'Failed to get status counts')

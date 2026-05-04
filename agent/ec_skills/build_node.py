@@ -394,6 +394,9 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "rag_query": ("agent.ec_skills.rag.local_rag_mcp", "rag_query"),
     "wait_for_rag_completion": ("agent.ec_skills.rag.local_rag_mcp", "wait_for_rag_completion"),
     "ragify_async": ("agent.ec_skills.rag.local_rag_mcp", "ragify_async"),
+    # Structured SQL tool (sales / inventory / orders — anything where
+    # paraphrasing would be wrong).
+    "query_sales_db": ("agent.ec_skills.sql.local_sql_mcp", "query_sales_db"),
     # Chat / communication
     "send_chat": ("agent.mcp.server.chat_utils.chat_tools", "async_send_chat"),
     "list_chat_agents": ("agent.mcp.server.chat_utils.chat_tools", "async_list_chat_agents"),
@@ -5982,6 +5985,50 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     recipient = payload.get('recipient_name') or payload.get('recipient') or ''
                     if recipient:
                         work_result['chat_sent_to'] = recipient
+                elif tool_name == 'rag_query':
+                    # rag_query meta has shape {"status": "success", "data": {response, references, confidence, ...}}.
+                    # _extract_tool_result_payload returns {} for it (no top-level "success" key), so pull
+                    # directly from result.meta here and promote the answer / references / confidence into
+                    # state["result"]["llm_result"]["work_result"] for downstream nodes (templates, conditions,
+                    # next-LLM context). This must run BEFORE the >2000-char trim on tool_result, which it does.
+                    try:
+                        _meta = getattr(result, 'meta', None) or {}
+                        if not isinstance(_meta, dict):
+                            _meta = {}
+                        _data = _meta.get('data') if isinstance(_meta.get('data'), dict) else _meta
+                        _answer_text = ''
+                        if isinstance(_data, dict):
+                            _answer_text = _data.get('response') or ''
+                        # Fallback to the content text if meta didn't carry the answer.
+                        if not _answer_text:
+                            try:
+                                _content = getattr(result, 'content', None) or []
+                                if _content and hasattr(_content[0], 'text'):
+                                    _answer_text = _content[0].text or ''
+                            except Exception:
+                                pass
+                        _refs = (_data.get('references') if isinstance(_data, dict) else None) or []
+                        _conf = (_data.get('confidence') if isinstance(_data, dict) else None) or {}
+
+                        work_result['rag_answer'] = _answer_text
+                        work_result['rag_references'] = _refs
+                        work_result['rag_confidence'] = _conf
+                        if isinstance(_conf, dict):
+                            work_result['rag_confidence_score'] = _conf.get('overall_score', 0.0)
+                            work_result['rag_confidence_level'] = _conf.get('confidence_level', 'unknown')
+                            _decision = _conf.get('decision') or {}
+                            work_result['rag_should_answer'] = _decision.get('should_answer', True)
+                        # Promote at top level for easier {{rag_answer}} / {{rag_confidence_score}} templating
+                        result_obj['rag_answer'] = _answer_text
+                        result_obj['rag_references'] = _refs
+                        result_obj['rag_confidence'] = _conf
+                        # Treat the call as succeeded as long as we got an answer text.
+                        if _answer_text:
+                            work_result['last_action_succeeded'] = True
+                    except Exception as _rag_promote_err:
+                        logger.warning(
+                            f"[MCP Result Propagation] rag_query promotion failed: {_rag_promote_err}"
+                        )
                 logger.info(
                     f"[MCP Result Propagation] tool={tool_name} success={success} "
                     f"work_result={work_result}"
