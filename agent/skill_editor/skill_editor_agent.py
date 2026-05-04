@@ -2124,19 +2124,56 @@ class SkillEditorAgent:
         user_observation = ""
         expected_behavior = ""
 
+        # Build a {qid → {choice_id → label}} lookup so we can resolve the
+        # selected choice IDs back to human-readable labels in the user's
+        # language. The pending_clarification questions live on the agent
+        # while the form was open; restore_state preserved them across
+        # invocations.
+        _choice_label_map: Dict[str, Dict[str, str]] = {}
+        if self._pending_clarification:
+            for _q in self._pending_clarification:
+                _q_id = getattr(_q, "id", None)
+                if not _q_id:
+                    continue
+                _choice_label_map[_q_id] = {}
+                for _c in (getattr(_q, "choices", None) or []):
+                    _c_id = getattr(_c, "id", None)
+                    _c_label = getattr(_c, "label", None)
+                    if _c_id and _c_label:
+                        _choice_label_map[_q_id][_c_id] = _c_label
+
         def _get_freeform(qid: str) -> str:
-            """Get freeform text for a question, checking freeform_{qid} key first."""
-            freeform_val = clarification_responses.get(f"freeform_{qid}")
-            if freeform_val:
-                text = freeform_val[0] if isinstance(freeform_val, list) else str(freeform_val)
-                if text.strip():
-                    return text.strip()
-            # Fallback: check if the answer itself contains text beyond choice IDs
+            """Resolve a question's user-facing answer text.
+
+            Returns the localized choice label(s) joined with ', ' plus any
+            freeform text the user typed. Falls back to choice IDs only if
+            the question's choices weren't captured (shouldn't happen).
+            """
+            label_lookup = _choice_label_map.get(qid, {})
             ans = clarification_responses.get(qid)
+            chosen_labels: List[str] = []
             if ans:
-                text = " ".join(a for a in ans if a) if isinstance(ans, list) else str(ans)
-                return text.strip()
-            return ""
+                if isinstance(ans, list):
+                    for a in ans:
+                        if not a:
+                            continue
+                        chosen_labels.append(label_lookup.get(a, str(a)))
+                else:
+                    chosen_labels.append(label_lookup.get(str(ans), str(ans)))
+
+            freeform_val = clarification_responses.get(f"freeform_{qid}")
+            freeform_text = ""
+            if freeform_val:
+                freeform_text = (
+                    freeform_val[0] if isinstance(freeform_val, list) else str(freeform_val)
+                ).strip()
+
+            parts = []
+            if chosen_labels:
+                parts.append(", ".join(chosen_labels))
+            if freeform_text:
+                parts.append(freeform_text)
+            return " — ".join(parts).strip()
 
         # Q0: skill names — multi-select, choice IDs are skill names (set by handler)
         selected_skill_names: List[str] = []

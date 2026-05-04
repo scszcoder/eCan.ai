@@ -2676,6 +2676,39 @@ _LLM_QUOTA_PATTERNS = [
 ]
 
 
+def _get_user_lang_for_session(env: _Env, owner: str, session_id: Optional[str]) -> str:
+    """Return 'zh' or 'en' for the given session. Defaults to 'en' on miss."""
+    if not session_id:
+        return "en"
+    try:
+        session = _load_session(env, owner, session_id) or {}
+        raw = (session.get("userLang") or "en").strip().lower()
+        return "zh" if raw.startswith("zh") else "en"
+    except Exception:
+        return "en"
+
+
+def _build_language_directive(user_lang: str) -> str:
+    """Prepend a strict language directive to the orchestrator system prompt.
+
+    The user's chat language determines the report language. Raw log lines
+    quoted verbatim stay in their original (English) form because logs are
+    written in English by the runtime.
+    """
+    if user_lang == "zh":
+        return (
+            "==== LANGUAGE DIRECTIVE (HIGHEST PRIORITY) ====\n"
+            "用户使用**中文**对话。所有标题、章节名、说明文字、根因分析、"
+            "推荐修复步骤、错误描述等所有由你撰写的内容，**必须**全部用简体中文回答。\n"
+            "唯一例外：当你**逐字引用**原始日志行（log line）时，保留其英文原文不翻译。\n"
+            "不要用英文写章节标题（例如 'Log Summary'），改用中文（例如 '日志摘要'）。\n"
+            "不要用英文写表格列名，改用中文。\n"
+            "不要用英文撰写解释段落。\n"
+            "==== END LANGUAGE DIRECTIVE ====\n\n"
+        )
+    return ""
+
+
 def _detect_llm_quota_exhaustion(text: str) -> Optional[Dict[str, str]]:
     """Fast pre-check: scan log text for LLM provider quota / billing errors.
 
@@ -3699,7 +3732,9 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
         else:
             orch_log_snippet = log_content + (truncated_note if is_truncated else "")
 
-        final_system = orchestrator_prompt.replace(
+        _user_lang = _get_user_lang_for_session(env, owner, session_id)
+        _lang_directive = _build_language_directive(_user_lang)
+        final_system = _lang_directive + orchestrator_prompt.replace(
             "{flowgram_json}", flowgram_json_str
         ).replace(
             "{run_log}", orch_log_snippet
@@ -4022,7 +4057,9 @@ def _run_debug_analysis_loop(
         if code_review_report:
             code_review_section = f"\n\n--- CODE REVIEW / CLASSIFICATION REPORT ---\nBug Category: {bug_category}\n{json.dumps(code_review_report, ensure_ascii=False, indent=2)}"
 
-        final_system = orchestrator_prompt.replace(
+        _user_lang = _get_user_lang_for_session(env, owner, session_id)
+        _lang_directive = _build_language_directive(_user_lang)
+        final_system = _lang_directive + orchestrator_prompt.replace(
             "{flowgram_json}", flowgram_json_str or "(not available)"
         ).replace("{run_log}", orch_log_snippet).replace(
             "{user_observation}", user_observation or "(not provided)"
