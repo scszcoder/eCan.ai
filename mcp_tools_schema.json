@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-02T16:06:10.472703",
-  "total_tools": 125,
+  "generated_at": "2026-05-03T22:17:47.188332",
+  "total_tools": 127,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -2986,6 +2986,92 @@
       "icons": null,
       "annotations": null,
       "meta": null,
+      "execution": null
+    },
+    {
+      "name": "send_sms",
+      "title": null,
+      "description": "<category>Messaging</category><sub-category>SMS</sub-category>Send an SMS to a phone number via AWS End User Messaging SMS. Use for short notifications, alerts, or 2FA-style confirmations. Returns {success, messageId, error}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "phone_number",
+              "message"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string",
+                "description": "Recipient phone number in E.164 format, e.g. '+14155550100' (must include country code)."
+              },
+              "message": {
+                "type": "string",
+                "description": "SMS body. Plain ASCII keeps cost low and delivery reliable. Carriers may segment >160 chars."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": true
+      },
+      "execution": null
+    },
+    {
+      "name": "send_email",
+      "title": null,
+      "description": "<category>Messaging</category><sub-category>Email</sub-category>Send an email via AWS SES. Supports plain-text and/or HTML body, with an optional reply-to address. Returns {success, messageId, error}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "to",
+              "subject"
+            ],
+            "properties": {
+              "to": {
+                "type": "string",
+                "description": "Recipient email address."
+              },
+              "subject": {
+                "type": "string",
+                "description": "Email subject line."
+              },
+              "body_text": {
+                "type": "string",
+                "description": "Plain-text body. At least one of body_text or body_html must be provided."
+              },
+              "body_html": {
+                "type": "string",
+                "description": "HTML body (optional). At least one of body_text or body_html must be provided."
+              },
+              "reply_to": {
+                "type": "string",
+                "description": "Optional reply-to address."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": true
+      },
       "execution": null
     },
     {
