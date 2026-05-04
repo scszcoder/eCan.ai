@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-03T22:17:47.188332",
-  "total_tools": 127,
+  "generated_at": "2026-05-04T16:11:09.467909",
+  "total_tools": 128,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -3427,6 +3427,10 @@
               "file_source": {
                 "type": "string",
                 "description": "Optional source identifier for the inserted text."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same workspace consistently per category (e.g. 'customer_service', 'product_details'). Omit to use the server's default workspace."
               }
             }
           }
@@ -3568,6 +3572,10 @@
                 "type": "boolean",
                 "default": false,
                 "description": "If true, includes actual chunk text content in references."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant) to query. Use the same name the documents were ingested under (e.g. 'customer_service', 'product_details'). Omit to query the server's default workspace."
               }
             }
           }
@@ -3617,6 +3625,10 @@
                 "default": 3,
                 "minimum": 1,
                 "description": "Max consecutive poll failures before giving up (default: 3)."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant). Must match the workspace that was used when the track_id was created by ragify / ragify_async."
               }
             }
           }
@@ -3685,6 +3697,81 @@
               "notification_message": {
                 "type": "string",
                 "description": "Custom message to include in the completion notification."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same name consistently per category. The background completion monitor will poll track status scoped to this workspace."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "query_sales_db",
+      "title": null,
+      "description": "Run a read-only SQL query against the structured sales / inventory database. Use this INSTEAD of rag_query whenever the user asks for exact numbers, IDs, prices, stock levels, order status, shipment tracking, customer records, or any data where paraphrasing would be wrong. Only SELECT / WITH queries are accepted; INSERT/UPDATE/DELETE/DDL are blocked. The tool returns columns + rows as structured metadata plus a Markdown-table preview as text.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "sql"
+            ],
+            "properties": {
+              "sql": {
+                "type": "string",
+                "minLength": 6,
+                "description": "A single SELECT (or WITH ... SELECT) statement. Use parameter placeholders ('?') for any user-provided values and pass them via `params`. Example: 'SELECT order_id, total FROM orders WHERE customer_id = ? ORDER BY created_at DESC'."
+              },
+              "params": {
+                "type": "array",
+                "description": "Positional bind parameters for '?' placeholders in the SQL. Strongly preferred over string-interpolating user input into the query.",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "row_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5000,
+                "default": 200,
+                "description": "Max rows to return (default 200, hard cap 5000)."
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60,
+                "default": 10,
+                "description": "Per-query timeout in seconds (default 10, max 60)."
+              },
+              "db_path": {
+                "type": "string",
+                "description": "Optional override for the SQLite database file path. Normally leave empty and let the server use the ECAN_SALES_DB_PATH environment variable."
               }
             }
           }
