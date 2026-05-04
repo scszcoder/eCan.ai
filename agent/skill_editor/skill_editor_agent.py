@@ -2124,42 +2124,53 @@ class SkillEditorAgent:
         user_observation = ""
         expected_behavior = ""
 
-        # Build a {qid → {choice_id → label}} lookup so we can resolve the
-        # selected choice IDs back to human-readable labels in the user's
-        # language. The pending_clarification questions live on the agent
-        # while the form was open; restore_state preserved them across
-        # invocations.
-        _choice_label_map: Dict[str, Dict[str, str]] = {}
+        # Build a {qid → {choice_id → (label, is_placeholder)}} lookup so we
+        # can resolve choice IDs back to human-readable labels in the user's
+        # language. A choice is considered a "freeform placeholder" if its id
+        # contains 'freeform' — its label is just instructional ("Type the
+        # file path"), not a meaningful answer. For those, we skip the label
+        # and use only the typed freeform text.
+        _choice_info_map: Dict[str, Dict[str, tuple]] = {}
         if self._pending_clarification:
             for _q in self._pending_clarification:
                 _q_id = getattr(_q, "id", None)
                 if not _q_id:
                     continue
-                _choice_label_map[_q_id] = {}
+                _choice_info_map[_q_id] = {}
                 for _c in (getattr(_q, "choices", None) or []):
                     _c_id = getattr(_c, "id", None)
                     _c_label = getattr(_c, "label", None)
-                    if _c_id and _c_label:
-                        _choice_label_map[_q_id][_c_id] = _c_label
+                    if _c_id:
+                        _is_placeholder = "freeform" in _c_id.lower()
+                        _choice_info_map[_q_id][_c_id] = (_c_label or "", _is_placeholder)
 
         def _get_freeform(qid: str) -> str:
             """Resolve a question's user-facing answer text.
 
-            Returns the localized choice label(s) joined with ', ' plus any
-            freeform text the user typed. Falls back to choice IDs only if
-            the question's choices weren't captured (shouldn't happen).
+            Behavior:
+              - If the chosen choice is a freeform-placeholder (id contains
+                'freeform'), use ONLY the typed freeform text — the choice
+                label is instructional, not an answer.
+              - Otherwise, use the localized choice label, optionally joined
+                with the freeform text the user typed.
+              - Falls back to the raw choice id if no label was captured.
             """
-            label_lookup = _choice_label_map.get(qid, {})
+            info_lookup = _choice_info_map.get(qid, {})
             ans = clarification_responses.get(qid)
+
+            chosen_ids: List[str] = []
+            if isinstance(ans, list):
+                chosen_ids = [str(a) for a in ans if a]
+            elif ans:
+                chosen_ids = [str(ans)]
+
             chosen_labels: List[str] = []
-            if ans:
-                if isinstance(ans, list):
-                    for a in ans:
-                        if not a:
-                            continue
-                        chosen_labels.append(label_lookup.get(a, str(a)))
-                else:
-                    chosen_labels.append(label_lookup.get(str(ans), str(ans)))
+            all_chosen_are_placeholders = bool(chosen_ids)
+            for cid in chosen_ids:
+                label, is_placeholder = info_lookup.get(cid, (cid, False))
+                if not is_placeholder:
+                    all_chosen_are_placeholders = False
+                    chosen_labels.append(label)
 
             freeform_val = clarification_responses.get(f"freeform_{qid}")
             freeform_text = ""
@@ -2167,6 +2178,10 @@ class SkillEditorAgent:
                 freeform_text = (
                     freeform_val[0] if isinstance(freeform_val, list) else str(freeform_val)
                 ).strip()
+
+            # Pure freeform-placeholder pick → return just the typed text.
+            if all_chosen_are_placeholders:
+                return freeform_text
 
             parts = []
             if chosen_labels:
