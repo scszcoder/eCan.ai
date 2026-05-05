@@ -67,10 +67,64 @@ class OTAUpdater:
         # Get application path
         self.app_home_path = app_info.app_home_path
 
+        # Per-user release filter (see ota/docs/multi_version_picker.md).
+        # Resolved lazily on every check so a user who logs in *after*
+        # OTAUpdater construction (the common case during auto-check
+        # bootstrap) still gets their tagged builds offered.
+        self.user_prefix: Optional[str] = self._resolve_user_prefix()
+
         # Platform-specific updater
         self.platform_updater = self._create_platform_updater()
 
-        logger.info(f"OTA Updater initialized for {self.platform}")
+        logger.info(
+            f"OTA Updater initialized for {self.platform} "
+            f"(user_prefix={self.user_prefix!r})"
+        )
+
+    def _resolve_user_prefix(self) -> Optional[str]:
+        """Return the per-user release prefix, or ``None`` for universal only.
+
+        Resolution order (first hit wins):
+          1. ``ECAN_OTA_USER_PREFIX`` env var — test/staging override.
+             Empty string is an explicit "force universal-only" signal
+             (distinct from the var being unset).
+          2. ``AppContext.login.auth_manager.user_profile['email']``
+             local-part (i.e. the bit before ``@``), lower-cased.
+          3. ``None`` — user is logged out, unknown, or any access path
+             above raised. In this case the multi-version picker will
+             show only universal items, which matches the existing
+             pre-multi-tenant behavior.
+
+        Kept deliberately noisy-safe: any import or attribute error
+        along the way must degrade to ``None``, never raise, because
+        this runs inside the OTA startup path which must not block
+        login or interrupt manual update checks.
+        """
+        env_override = os.environ.get("ECAN_OTA_USER_PREFIX")
+        if env_override is not None:
+            return env_override.strip().lower() or None
+        try:
+            from app_context import AppContext
+            login = AppContext.login
+            if login is None:
+                return None
+            profile = {}
+            auth_mgr = getattr(login, "auth_manager", None)
+            if auth_mgr is not None:
+                # Prefer the public accessor; fall back to the attribute.
+                try:
+                    profile = auth_mgr.get_user_profile() or {}
+                except Exception:
+                    profile = getattr(auth_mgr, "user_profile", {}) or {}
+            else:
+                profile = getattr(login, "user_profile", {}) or {}
+            email = (profile.get("email") or "").strip().lower()
+            if "@" in email:
+                local = email.split("@", 1)[0].strip()
+                return local or None
+        except Exception:
+            logger.debug("[OTA] user_prefix resolution failed", exc_info=True)
+        return None
 
     def _create_platform_updater(self):
         """Create platform-specific updater"""
@@ -123,6 +177,12 @@ class OTAUpdater:
 
         try:
             logger.info("Checking for updates...")
+
+            # Re-resolve the per-user prefix every check — users may log
+            # in *after* OTAUpdater was first constructed (common during
+            # auto-check bootstrap), and we want their tagged builds to
+            # start showing up as soon as they sign in.
+            self.user_prefix = self._resolve_user_prefix()
 
             has_update, update_info = self.platform_updater.check_for_updates(silent, return_info=True)
 

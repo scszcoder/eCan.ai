@@ -38,16 +38,31 @@ except ImportError:
 class S3Uploader:
     """Upload build artifacts to S3 with environment-based path structure"""
     
-    def __init__(self, version: str, environment: str):
+    def __init__(self, version: str, environment: str, user_prefix: str = ''):
         """
         Initialize S3 uploader
-        
+
         Args:
             version: Version number (e.g., '1.0.0', '1.0.0-rc.1', '1.0.0-dev-abc123')
             environment: Target environment (dev/test/staging/production)
+            user_prefix: Optional per-user release prefix (lowercase). When
+                non-empty, the on-S3 directory name becomes
+                ``{prefix}_v{version}`` instead of the default ``v{version}``.
+                See ota/docs/multi_version_picker.md for the end-to-end design.
         """
         self.version = version
         self.environment = environment
+        # Normalize: empty string and None both mean "no prefix / universal".
+        self.user_prefix = (user_prefix or '').strip().lower()
+        # Pre-compute the on-S3 release directory name once so every
+        # platform's upload code path agrees on it. Examples:
+        #   version='1.0.0', user_prefix=''        -> 'v1.0.0'
+        #   version='26.05.04.09.11', prefix='songc' -> 'songc_v26.05.04.09.11'
+        self.release_dir = (
+            f"{self.user_prefix}_v{self.version}"
+            if self.user_prefix
+            else f"v{self.version}"
+        )
         
         # Load configuration directly from YAML file
         config = self._load_config()
@@ -169,11 +184,12 @@ class S3Uploader:
                 # Determine architecture from filename
                 arch = 'amd64'  # Windows currently only supports amd64
                 
-                # Build S3 key: {base_path}/{prefix}/releases/v{version}/windows/{arch}/{filename}
+                # Build S3 key: {base_path}/{prefix}/releases/{release_dir}/windows/{arch}/{filename}
+                # `release_dir` is `v{version}` for semver tags, `{user_prefix}_v{version}` for user builds.
                 if self.base_path:
-                    s3_key = f"{self.base_path}/{self.prefix}/releases/v{self.version}/windows/{arch}/{pkg.name}"
+                    s3_key = f"{self.base_path}/{self.prefix}/releases/{self.release_dir}/windows/{arch}/{pkg.name}"
                 else:
-                    s3_key = f"{self.prefix}/releases/v{self.version}/windows/{arch}/{pkg.name}"
+                    s3_key = f"{self.prefix}/releases/{self.release_dir}/windows/{arch}/{pkg.name}"
                 
                 if self.upload_file(pkg, s3_key):
                     count += 1
@@ -234,11 +250,12 @@ class S3Uploader:
                 if arch_filter and arch != arch_filter:
                     continue
                 
-                # Build S3 key: {base_path}/{prefix}/releases/v{version}/linux/{arch}/{filename}
+                # Build S3 key: {base_path}/{prefix}/releases/{release_dir}/linux/{arch}/{filename}
+                # `release_dir` is `v{version}` for semver tags, `{user_prefix}_v{version}` for user builds.
                 if self.base_path:
-                    s3_key = f"{self.base_path}/{self.prefix}/releases/v{self.version}/linux/{arch}/{pkg.name}"
+                    s3_key = f"{self.base_path}/{self.prefix}/releases/{self.release_dir}/linux/{arch}/{pkg.name}"
                 else:
-                    s3_key = f"{self.prefix}/releases/v{self.version}/linux/{arch}/{pkg.name}"
+                    s3_key = f"{self.prefix}/releases/{self.release_dir}/linux/{arch}/{pkg.name}"
                 
                 if self.upload_file(pkg, s3_key):
                     count += 1
@@ -296,11 +313,12 @@ class S3Uploader:
             if arch_filter and arch != arch_filter:
                 continue
             
-            # Build S3 key: {base_path}/{prefix}/releases/v{version}/macos/{arch}/{filename}
+            # Build S3 key: {base_path}/{prefix}/releases/{release_dir}/macos/{arch}/{filename}
+            # `release_dir` is `v{version}` for semver tags, `{user_prefix}_v{version}` for user builds.
             if self.base_path:
-                s3_key = f"{self.base_path}/{self.prefix}/releases/v{self.version}/macos/{arch}/{pkg.name}"
+                s3_key = f"{self.base_path}/{self.prefix}/releases/{self.release_dir}/macos/{arch}/{pkg.name}"
             else:
-                s3_key = f"{self.prefix}/releases/v{self.version}/macos/{arch}/{pkg.name}"
+                s3_key = f"{self.prefix}/releases/{self.release_dir}/macos/{arch}/{pkg.name}"
             
             if self.upload_file(pkg, s3_key):
                 count += 1
@@ -333,6 +351,10 @@ class S3Uploader:
         """Generate version metadata"""
         return {
             'version': self.version,
+            # Empty string preserves prior file shape for semver builds;
+            # consumers that don't know about user prefixes ignore it.
+            'user_prefix': self.user_prefix,
+            'release_dir': self.release_dir,
             'environment': self.environment,
             'build_date': datetime.now().isoformat(),
             'files': self.uploaded_files,
@@ -350,11 +372,11 @@ class S3Uploader:
         """
         print("\n[INFO] Uploading metadata...")
         
-        # Determine S3 key
+        # Determine S3 key (uses the same release_dir as the artifact paths above).
         if self.base_path:
-            metadata_key = f"{self.base_path}/{self.prefix}/releases/v{self.version}/metadata/version.json"
+            metadata_key = f"{self.base_path}/{self.prefix}/releases/{self.release_dir}/metadata/version.json"
         else:
-            metadata_key = f"{self.prefix}/releases/v{self.version}/metadata/version.json"
+            metadata_key = f"{self.prefix}/releases/{self.release_dir}/metadata/version.json"
         
         # Try to download existing metadata for incremental update
         existing_metadata = None
@@ -445,6 +467,9 @@ class S3Uploader:
         print("[INFO] S3 Upload - Single Bucket Design")
         print("=" * 60)
         print(f"Version:     {self.version}")
+        if self.user_prefix:
+            print(f"User Prefix: {self.user_prefix}")
+        print(f"Release Dir: {self.release_dir}")
         print(f"Environment: {self.environment}")
         print(f"S3 Bucket:   {self.bucket}")
         print(f"S3 Region:   {self.region}")
@@ -521,15 +546,21 @@ Examples:
     parser.add_argument('--version', required=True, help='Version number (e.g., 1.0.0, 1.0.0-rc.1)')
     parser.add_argument('--env', required=True, choices=['dev', 'development', 'test', 'staging', 'production', 'simulation'],
                        help='Target environment')
+    parser.add_argument('--user-prefix', default='', dest='user_prefix',
+                       help=(
+                           'Optional per-user release prefix (lowercase). When set, '
+                           'the on-S3 directory becomes `<prefix>_v<version>` instead '
+                           'of `v<version>`. See ota/docs/multi_version_picker.md.'
+                       ))
     parser.add_argument('--platform', choices=['macos', 'windows'],
                        help='Only upload this platform (optional)')
     parser.add_argument('--arch', choices=['amd64', 'aarch64'],
                        help='Only upload this architecture (optional)')
-    
+
     args = parser.parse_args()
     
     # Create uploader and run
-    uploader = S3Uploader(args.version, args.env)
+    uploader = S3Uploader(args.version, args.env, user_prefix=args.user_prefix)
     success = uploader.run(args.platform, args.arch)
     
     sys.exit(0 if success else 1)

@@ -344,23 +344,114 @@ def markdown_to_html(markdown_text: str) -> str:
     return '\n'.join(html_lines)
 
 
+# ---------------------------------------------------------------------------
+# Per-user release helpers (mirror of ota/core/appcast.py::_split_user_prefix)
+# ---------------------------------------------------------------------------
+# These let the generator handle two on-S3 layouts in lockstep with the
+# upload script:
+#   * `releases/v{version}/...`            → universal builds (legacy)
+#   * `releases/{prefix}_v{version}/...`   → user-targeted preview builds
+#
+# The directory name on S3 is also what we emit verbatim into the
+# `<sparkle:version>` attribute, so the client-side splitter in
+# ota/core/appcast.py picks the prefix back out without any extra hint.
+# ---------------------------------------------------------------------------
+
+# Reserved prefixes that must NEVER be misinterpreted as user prefixes;
+# kept in sync with both release.yml and ota/core/appcast.py.
+_RESERVED_PREFIXES = frozenset({
+    'rc', 'beta', 'alpha', 'dev', 'nightly', 'pre', 'preview', 'snapshot'
+})
+
+# A user prefix is `[A-Za-z][A-Za-z0-9]{0,31}` followed by `_v<digits>`.
+_PREFIXED_DIR_RE = re.compile(r'^([A-Za-z][A-Za-z0-9]{0,31})_v(\d.*)$')
+
+
+def _to_release_dir(version: str, user_prefix: str = '') -> str:
+    """Convert a (version, user_prefix) pair to its on-S3 directory name.
+
+    Mirrors the logic in upload_to_s3.py::S3Uploader.release_dir so the
+    write side and read side never disagree.
+
+    Examples::
+
+        ('1.0.0', '')       -> 'v1.0.0'
+        ('1.0.0', 'songc')  -> 'songc_v1.0.0'      # unusual but legal
+        ('26.05.04', 'songc')-> 'songc_v26.05.04'
+        ('v1.0.0', '')      -> 'v1.0.0'            # already in dir form
+        ('songc_v1.0.0', '')-> 'songc_v1.0.0'      # already in dir form
+    """
+    if not version:
+        return version
+    user_prefix = (user_prefix or '').strip().lower()
+    # If `version` already looks like a directory name, return it verbatim.
+    if version.startswith('v') or _PREFIXED_DIR_RE.match(version):
+        return version
+    if user_prefix:
+        return f"{user_prefix}_v{version}"
+    return f"v{version}"
+
+
+def _split_release_dir(dir_name: str) -> Tuple[Optional[str], str]:
+    """Split a release directory name into (user_prefix, version_core).
+
+    `version_core` is the bare ``X.Y.Z[...]`` numeric string with the
+    leading ``v`` stripped — same shape consumers like the CHANGELOG
+    lookup already expect.
+
+    Returns ``(None, dir_name_without_v)`` for universal builds.
+    """
+    if not dir_name:
+        return None, dir_name
+    m = _PREFIXED_DIR_RE.match(dir_name)
+    if m:
+        prefix = m.group(1).lower()
+        if prefix in _RESERVED_PREFIXES:
+            # A reserved keyword in the prefix slot means the dir was
+            # never a user build (e.g. `rc_v1.0.0` is malformed). Treat
+            # it as universal so we don't accidentally hide it from the
+            # default appcast.
+            return None, dir_name.lstrip('v')
+        return prefix, m.group(2)
+    return None, dir_name[1:] if dir_name.startswith('v') else dir_name
+
+
 class AppcastGenerator:
     """
     Generate Appcast XML files from S3 artifacts
     """
-    
-    def __init__(self, environment: str, channel: str = None, specific_version: str = None):
+
+    def __init__(
+        self,
+        environment: str,
+        channel: str = None,
+        specific_version: str = None,
+        user_prefix: str = '',
+    ):
         """
         Initialize the appcast generator
-        
+
         Args:
             environment: Target environment (dev, test, staging, production, simulation)
             channel: Release channel (overrides environment default)
             specific_version: Specific version to generate appcast for (e.g., '1.0.1')
                             If None, scans all versions on S3
+            user_prefix: Optional per-user release prefix (lowercase). When
+                provided alongside ``specific_version``, the generator
+                resolves the on-S3 directory as ``{prefix}_v{version}``.
+                For the auto-scan path it's only used in diagnostic logging
+                — the scan picks up every directory layout regardless.
         """
         self.environment = environment
-        self.specific_version = specific_version
+        self.user_prefix = (user_prefix or '').strip().lower()
+        # Convert the (specific_version, user_prefix) pair into the
+        # verbatim S3 directory name once at construction time so every
+        # downstream call site agrees. ``None`` => auto-scan mode.
+        self.specific_version = (
+            _to_release_dir(specific_version, self.user_prefix)
+            if specific_version
+            else None
+        )
         
         # Load configuration directly from YAML file
         config = self._load_config()
@@ -412,27 +503,45 @@ class AppcastGenerator:
     
     def parse_version(self, version_str: str) -> Tuple[int, int, int, int]:
         """
-        Parse version string to tuple for comparison
-        
+        Parse version string to tuple for comparison.
+
+        Accepts every shape we may see on S3:
+
+          * Bare numeric:        ``1.0.0`` (legacy callers)
+          * Sparkle-style:       ``v1.0.0``
+          * Pre-release/builds:  ``v1.0.0-rc.1``, ``v1.0.0-gui-v2-abc``
+          * User-tagged:         ``songc_v26.05.04.09.11`` (prefix stripped first)
+
         Args:
-            version_str: Version string (e.g., '1.0.0', '1.0.0-rc.1', '1.0.0-gui-v2-abc')
-            
+            version_str: Version string in any of the shapes above.
+
         Returns:
             Version tuple (major, minor, patch, priority)
-            Priority: 1000 = standard, 900 = rc, 800 = beta, 0 = branch builds
+            Priority: 1000 = standard, 900 = rc, 800 = beta, 0 = branch builds.
+            Used as a tiebreaker for the chronological sort in
+            ``generate_appcast``; not the primary sort key any more.
         """
+        # Strip the user prefix (if any) and the leading 'v' so the
+        # numeric regex below works for both `v1.0.0` and
+        # `songc_v26.05.04.09.11`.
+        _prefix, core = _split_release_dir(version_str)
+
         # Extract numeric parts
-        match = re.match(r'(\d+)\.(\d+)\.(\d+)', version_str)
+        match = re.match(r'(\d+)\.(\d+)\.(\d+)', core)
         if not match:
             return (0, 0, 0, 0)
-        
+
         major, minor, patch = map(int, match.groups())
-        
+
         # Determine priority based on suffix
-        remainder = version_str[match.end():]
+        remainder = core[match.end():]
         
-        if not remainder:
-            # Standard version (e.g., '1.0.0')
+        if not remainder or re.match(r'^(\.\d+)+$', remainder):
+            # Standard version (e.g., '1.0.0') OR a longer purely-numeric
+            # tail used by date-coded user builds (e.g.,
+            # '26.05.04.09.11' has remainder '.09.11' after the
+            # major.minor.patch match — still a numeric version, not a
+            # prerelease tag).
             priority = 1000
         elif remainder.startswith('-rc.'):
             # Release candidate (e.g., '1.0.0-rc.1')
@@ -448,64 +557,84 @@ class AppcastGenerator:
     
     def list_versions(self) -> List[str]:
         """
-        List versions to include in appcast
-        
-        Returns:
-            List of version strings
-            - If specific_version is set, returns only that version
-            - Otherwise, scans S3 and returns all versions sorted by version number
+        List release-directory names to include in the appcast.
+
+        Returns the **verbatim** S3 sub-directory names under
+        ``releases/`` (e.g. ``v1.0.0``, ``songc_v26.05.04.09.11``) so
+        downstream code can:
+
+          * use them as-is when constructing ``releases/{dir}/...`` paths;
+          * emit them verbatim into ``<sparkle:version>`` so the client's
+            ``ota.core.appcast._split_user_prefix`` can recover the
+            user prefix without any extra hint.
+
+        The order is by parsed semver descending — kept as a stable
+        starting point. The chronological-by-LastModified sort happens
+        once we have ``pkg_info`` for each candidate (see
+        ``generate_appcast``); doing it here would require an extra
+        round-trip per version and isn't worth the latency.
+
+        - If ``specific_version`` is set, returns only that one.
+        - Otherwise, scans S3 and returns every version dir we find.
         """
-        # If specific version is provided, use only that version
         if self.specific_version:
-            version = self.specific_version.lstrip('v')
-            print(f"\n[INFO] Using specific version: {version}")
-            return [version]
-        
-        # Otherwise, scan S3 for all versions
+            print(f"\n[INFO] Using specific release dir: {self.specific_version}")
+            return [self.specific_version]
+
         print(f"\n[INFO] Scanning S3 for versions in {self.environment}...")
-        
+
         if self.base_path:
             prefix = f"{self.base_path}/{self.prefix}/releases/"
         else:
             prefix = f"{self.prefix}/releases/"
-        
+
         try:
             response = self.s3.list_objects_v2(
                 Bucket=self.bucket,
                 Prefix=prefix,
                 Delimiter='/'
             )
-            
-            versions = []
+
+            versions: List[str] = []
             for common_prefix in response.get('CommonPrefixes', []):
                 version_path = common_prefix['Prefix']
-                # Extract version from path (e.g., 'dev/releases/v1.0.0/' → '1.0.0')
-                version = version_path.rstrip('/').split('/')[-1]
-                if version.startswith('v'):
-                    version = version[1:]
-                
-                # Skip 'latest' directory
-                if version == 'latest':
+                # Verbatim directory name, e.g. 'v1.0.0' or 'songc_v26.05.04.09.11'.
+                # Note: we deliberately do NOT strip the leading 'v' any more.
+                # Stripping conflicts with user-prefixed dirs and broke the
+                # round-trip back into get_package_info (which used to
+                # re-prepend 'v' blindly).
+                release_dir = version_path.rstrip('/').split('/')[-1]
+
+                # Skip the 'latest' pointer directory if present.
+                if release_dir == 'latest' or release_dir.lower() == 'latest':
                     continue
-                
-                # Filter simulation builds in non-simulation environments
-                if self.environment != 'simulation' and '-sim' in version:
-                    print(f"  [SKIP] Simulation build {version} (not allowed in {self.environment} environment)")
+
+                # Filter simulation builds in non-simulation environments.
+                # The '-sim' marker lives inside the numeric core, e.g.
+                # 'v1.0.0-sim' or 'songc_v1.0.0-sim'; substring match is
+                # sufficient and works for both layouts.
+                if self.environment != 'simulation' and '-sim' in release_dir:
+                    print(
+                        f"  [SKIP] Simulation build {release_dir} "
+                        f"(not allowed in {self.environment} environment)"
+                    )
                     continue
-                
-                versions.append(version)
-            
-            # Sort by version number (descending)
+
+                versions.append(release_dir)
+
+            # Initial sort by parsed semver descending. The final
+            # chronological order is applied by `generate_appcast` once
+            # LastModified is known per version.
             versions.sort(key=self.parse_version, reverse=True)
-            
+
             print(f"  Found {len(versions)} versions")
             for v in versions[:5]:  # Show first 5
                 print(f"    • {v}")
             if len(versions) > 5:
                 print(f"    ... and {len(versions) - 5} more")
-            
+
             return versions
-            
+
         except ClientError as e:
             print(f"  [ERROR] Failed to list versions: {e}")
             return []
@@ -513,20 +642,33 @@ class AppcastGenerator:
     def get_package_info(self, version: str, platform: str, arch: str) -> Optional[Dict]:
         """
         Get package information from S3
-        
+
         Args:
-            version: Version number
+            version: Verbatim S3 release-directory name as returned by
+                ``list_versions`` (e.g. ``v1.0.0`` or
+                ``songc_v26.05.04.09.11``). Legacy callers passing a bare
+                numeric like ``1.0.0`` are normalized via
+                :func:`_to_release_dir` so existing call sites keep
+                working without modification.
             platform: Platform (macos/windows/linux)
             arch: Architecture (amd64/aarch64)
-            
+
         Returns:
             Package info dict or None if not found
         """
-        # Build S3 prefix for this version/platform/arch
+        # Normalize legacy bare-numeric inputs (e.g. '1.0.0') back into
+        # the verbatim directory form ('v1.0.0'). This is the ONLY place
+        # we apply the conversion — everywhere else `version` is already
+        # the dir name.
+        release_dir = _to_release_dir(version)
+
+        # Build S3 prefix for this version/platform/arch (no 'v' prepending —
+        # `release_dir` already carries it for semver and includes the user
+        # prefix for tagged builds).
         if self.base_path:
-            prefix = f"{self.base_path}/{self.prefix}/releases/v{version}/{platform}/{arch}/"
+            prefix = f"{self.base_path}/{self.prefix}/releases/{release_dir}/{platform}/{arch}/"
         else:
-            prefix = f"{self.prefix}/releases/v{version}/{platform}/{arch}/"
+            prefix = f"{self.prefix}/releases/{release_dir}/{platform}/{arch}/"
         
         try:
             response = self.s3.list_objects_v2(
@@ -582,8 +724,22 @@ class AppcastGenerator:
                 # This provides faster downloads globally, especially useful for China and other regions
                 accelerated_url = f"https://{self.bucket}.s3-accelerate.amazonaws.com/{key}"
                 
+                # `version` here is the verbatim release-dir name (e.g.
+                # 'v1.0.0' or 'songc_v26.05.04.09.11'). We split it once
+                # so downstream callers can pick:
+                #   * `version`       → emitted into <sparkle:version>
+                #                       (the client splits it back).
+                #   * `version_core`  → bare 'X.Y.Z[...]' for CHANGELOG
+                #                       lookup and parse_version.
+                #   * `user_prefix`   → None for universal builds, used by
+                #                       generate_latest_json to skip
+                #                       user-tagged versions.
+                user_prefix, version_core = _split_release_dir(release_dir)
+
                 return {
-                    'version': version,
+                    'version': release_dir,
+                    'version_core': version_core,
+                    'user_prefix': user_prefix,
                     'platform': platform,
                     'arch': arch,
                     'filename': filename,
@@ -640,7 +796,23 @@ class AppcastGenerator:
         if not items:
             print(f"  [WARN] No packages found for {platform}-{arch}")
             return None
-        
+
+        # Sort items chronologically (newest first) using S3 LastModified
+        # as the primary key, with parsed semver as a deterministic
+        # tiebreaker when two builds share a timestamp (rare, but
+        # possible after replays). This replaces the old
+        # alphanumeric/semver-only ordering — the appcast XML now
+        # actually reflects when each artifact was published.
+        # See: ota/docs/multi_version_picker.md ("Step 4 — Pipeline").
+        items.sort(
+            key=lambda p: (p['last_modified'], self.parse_version(p['version'])),
+            reverse=True,
+        )
+        print(
+            f"  [INFO] Sorted {len(items)} item(s) chronologically "
+            f"(newest: {items[0]['version']} @ {items[0]['last_modified']})"
+        )
+
         # Create XML
         rss = ET.Element('rss', {
             'version': '2.0',
@@ -669,8 +841,14 @@ class AppcastGenerator:
             ET.SubElement(item, 'title').text = f"Version {pkg['version']}"
             ET.SubElement(item, 'pubDate').text = pkg['last_modified'].strftime('%a, %d %b %Y %H:%M:%S +0000')
             
-            # Description: Read from CHANGELOG.md (with i18n support)
-            description = get_release_notes_from_changelog(pkg['version'], language=language)
+            # Description: Read from CHANGELOG.md (with i18n support).
+            # Use the bare numeric core (no leading 'v', no user prefix)
+            # so the CHANGELOG regex `## [X.Y.Z]` matches user-prefixed
+            # builds the same way it matches plain semver builds.
+            description = get_release_notes_from_changelog(
+                pkg.get('version_core') or pkg['version'],
+                language=language,
+            )
             
             # Add environment-specific warnings (localized)
             if self.environment == 'development':
@@ -810,8 +988,32 @@ class AppcastGenerator:
         if not versions:
             print("  [WARN] No versions found")
             return False
-        
-        latest_version = versions[0]
+
+        # `latest.json` is a globally-visible pointer used by anything
+        # that doesn't speak Sparkle/appcast (e.g. our public download
+        # page). Per ota/docs/multi_version_picker.md it MUST point at
+        # a universal build so a user-targeted preview never accidentally
+        # becomes the default download for everyone. Filter prefixed
+        # builds out of the candidate pool here. The full appcast XML
+        # still includes them (clients filter by user_prefix locally).
+        universal_versions = [
+            v for v in versions if _split_release_dir(v)[0] is None
+        ]
+        if not universal_versions:
+            print(
+                "  [WARN] No universal versions found — skipping latest.json "
+                "update to avoid pointing it at a user-tagged build."
+            )
+            return True  # Not a build failure; just nothing to update.
+
+        if len(universal_versions) != len(versions):
+            skipped = len(versions) - len(universal_versions)
+            print(
+                f"  [INFO] Excluded {skipped} user-tagged version(s) from "
+                f"latest.json candidate pool (universal-only selection)."
+            )
+
+        latest_version = universal_versions[0]
         
         # Determine S3 key
         if self.base_path:
@@ -840,8 +1042,12 @@ class AppcastGenerator:
             if 'platforms' not in latest_data:
                 latest_data['platforms'] = {}
         else:
+            # `latest_version` here is the verbatim release-dir name
+            # (e.g. 'v1.0.0'). Strip the leading 'v' for the public
+            # `version` field to match the legacy on-the-wire shape.
+            _bare_version = _split_release_dir(latest_version)[1]
             latest_data = {
-                'version': latest_version,
+                'version': _bare_version,
                 'channel': self.channel,
                 'environment': self.environment,
                 'updated_at': datetime.now().isoformat(),
@@ -855,8 +1061,12 @@ class AppcastGenerator:
                 pkg_info = self.get_package_info(latest_version, platform, arch)
                 if pkg_info:
                     platform_key = f"{platform}-{arch}"
+                    # Preserve the legacy bare-numeric shape for the
+                    # public `version` field (e.g. '1.0.0') so external
+                    # consumers of latest.json don't see a leading 'v'
+                    # appear out of nowhere with this rollout.
                     latest_data['platforms'][platform_key] = {
-                        'version': pkg_info['version'],
+                        'version': pkg_info.get('version_core') or pkg_info['version'],
                         'url': pkg_info['download_url'],
                         'accelerated_url': pkg_info.get('accelerated_url'),
                         'file_size': pkg_info['file_size'],
@@ -986,15 +1196,27 @@ Examples:
                        help='Release channel (overrides environment default)')
     parser.add_argument('--version', 
                        help='Specific version to generate appcast for (e.g., 1.0.1). If not provided, scans all versions.')
+    parser.add_argument('--user-prefix', default='', dest='user_prefix',
+                       help=(
+                           'Optional per-user release prefix (lowercase). When given '
+                           'alongside --version, the on-S3 directory looked up is '
+                           '{prefix}_v{version}. The auto-scan path picks up every '
+                           'directory layout regardless. See ota/docs/multi_version_picker.md.'
+                       ))
     parser.add_argument('--platform', choices=['all', 'macos', 'windows', 'linux'],
                        default='all', help='Target platform (default: all)')
     parser.add_argument('--arch', choices=['all', 'amd64', 'aarch64'],
                        default='all', help='Target architecture (default: all)')
-    
+
     args = parser.parse_args()
-    
+
     # Create generator and run
-    generator = AppcastGenerator(args.env, args.channel, specific_version=args.version)
+    generator = AppcastGenerator(
+        args.env,
+        args.channel,
+        specific_version=args.version,
+        user_prefix=args.user_prefix,
+    )
     success = generator.run(platform_filter=args.platform, arch_filter=args.arch)
     
     sys.exit(0 if success else 1)

@@ -30,7 +30,13 @@ class MacOSUpdater:
         self.ota_manager = ota_manager
         # Import appcast parsing functionality
         try:
-            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            from .appcast import (
+                parse_appcast,
+                select_latest_for_platform,
+                select_eligible_versions,
+                item_to_update_dict,
+                normalize_arch_tag,
+            )
             self.appcast_parser = True
         except ImportError:
             logger.warning("Appcast parser not available, falling back to generic updater")
@@ -68,7 +74,13 @@ class MacOSUpdater:
         """Check for updates via appcast"""
         try:
             import requests
-            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            from .appcast import (
+                parse_appcast,
+                select_latest_for_platform,
+                select_eligible_versions,
+                item_to_update_dict,
+                normalize_arch_tag,
+            )
 
             # Get platform configuration
             plat_config = ota_config.get_platform_config()
@@ -149,42 +161,57 @@ class MacOSUpdater:
             
             # Log current version
             current_version = self.ota_manager.app_version
-            logger.info(f"[OTA] Current version: {current_version}")
+            user_prefix = getattr(self.ota_manager, "user_prefix", None)
+            logger.info(
+                f"[OTA] Current version: {current_version} "
+                f"(user_prefix={user_prefix!r})"
+            )
             
-            # Select latest version
-            selected = select_latest_for_platform(
+            # Select every eligible item newest-first, filtered by this
+            # user's prefix. Keep the single newest for the legacy
+            # update_info fields so older callers (notification toast,
+            # single-version confirmation dialog) keep working
+            # unchanged; surface the full list via 'available_versions'
+            # for the new multi-version picker.
+            eligible = select_eligible_versions(
                 items,
                 None,
                 current_version,
-                arch_tag=arch
+                arch_tag=arch,
+                user_prefix=user_prefix,
             )
 
-            if selected:
+            if eligible:
+                selected = eligible[0]
                 logger.info(f"[OTA] ✅ Update available!")
                 logger.info(f"[OTA]    Current version:  {current_version}")
-                logger.info(f"[OTA]    Latest version:   {selected.version}")
+                logger.info(
+                    f"[OTA]    Eligible items:   {len(eligible)} "
+                    f"(newest: {selected.version}, user_prefix={selected.user_prefix!r})"
+                )
                 logger.info(f"[OTA]    Download URL:     {selected.url}")
                 logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
                 logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
-                
-                # Auto-generate S3 accelerate URL if not provided
-                alternate_url = selected.alternate_url
-                logger.debug(f"[OTA] Checking alternate URL: alternate_url={alternate_url}, url contains '.s3.'={'.s3.' in selected.url}")
-                if not alternate_url and '.s3.' in selected.url and 'amazonaws.com' in selected.url:
-                    alternate_url = selected.url.replace('.s3.', '.s3-accelerate.')
+
+                selected_dict = item_to_update_dict(selected)
+                alternate_url = selected_dict["alternate_url"]
+                if alternate_url and alternate_url != selected.alternate_url:
                     logger.info(f"[OTA]    Alternate URL (auto-generated): {alternate_url}")
                 elif alternate_url:
                     logger.info(f"[OTA]    Alternate URL (configured): {alternate_url}")
-                
+
                 update_info = {
                     "update_available": True,
                     "latest_version": selected.version,
-                    "download_url": selected.url,
+                    "download_url": selected_dict["download_url"],
                     "alternate_url": alternate_url,
-                    "file_size": selected.length or 0,
-                    "signature": selected.ed_signature or "",
-                    "description": selected.description_html or "",
-                    "source": "macos_appcast"
+                    "file_size": selected_dict["file_size"],
+                    "signature": selected_dict["signature"],
+                    "description": selected_dict["description"],
+                    "source": "macos_appcast",
+                    # New: full list for the multi-version picker.
+                    "available_versions": [item_to_update_dict(it) for it in eligible],
+                    "user_prefix": user_prefix,
                 }
                 return (True, update_info) if return_info else True
             else:
@@ -281,7 +308,13 @@ class WindowsUpdater:
         self.ota_manager = ota_manager
         # Import appcast parsing functionality
         try:
-            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            from .appcast import (
+                parse_appcast,
+                select_latest_for_platform,
+                select_eligible_versions,
+                item_to_update_dict,
+                normalize_arch_tag,
+            )
             self.appcast_parser = True
         except ImportError:
             logger.warning("Appcast parser not available, falling back to generic updater")
@@ -319,7 +352,13 @@ class WindowsUpdater:
         """Check for updates via appcast"""
         try:
             import requests
-            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            from .appcast import (
+                parse_appcast,
+                select_latest_for_platform,
+                select_eligible_versions,
+                item_to_update_dict,
+                normalize_arch_tag,
+            )
 
             # Get platform configuration
             plat_config = ota_config.get_platform_config()
@@ -400,42 +439,53 @@ class WindowsUpdater:
             
             # Log current version
             current_version = self.ota_manager.app_version
-            logger.info(f"[OTA] Current version: {current_version}")
+            user_prefix = getattr(self.ota_manager, "user_prefix", None)
+            logger.info(
+                f"[OTA] Current version: {current_version} "
+                f"(user_prefix={user_prefix!r})"
+            )
             
-            # Select latest version
-            selected = select_latest_for_platform(
+            # See the matching comment in MacOSUpdater for the rationale
+            # behind returning the full eligible list plus a legacy
+            # single-item shape.
+            eligible = select_eligible_versions(
                 items,
                 None,
                 current_version,
-                arch_tag=arch
+                arch_tag=arch,
+                user_prefix=user_prefix,
             )
 
-            if selected:
+            if eligible:
+                selected = eligible[0]
                 logger.info(f"[OTA] ✅ Update available!")
                 logger.info(f"[OTA]    Current version:  {current_version}")
-                logger.info(f"[OTA]    Latest version:   {selected.version}")
+                logger.info(
+                    f"[OTA]    Eligible items:   {len(eligible)} "
+                    f"(newest: {selected.version}, user_prefix={selected.user_prefix!r})"
+                )
                 logger.info(f"[OTA]    Download URL:     {selected.url}")
                 logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
                 logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
-                
-                # Auto-generate S3 accelerate URL if not provided
-                alternate_url = selected.alternate_url
-                logger.debug(f"[OTA] Checking alternate URL: alternate_url={alternate_url}, url contains '.s3.'={'.s3.' in selected.url}")
-                if not alternate_url and '.s3.' in selected.url and 'amazonaws.com' in selected.url:
-                    alternate_url = selected.url.replace('.s3.', '.s3-accelerate.')
+
+                selected_dict = item_to_update_dict(selected)
+                alternate_url = selected_dict["alternate_url"]
+                if alternate_url and alternate_url != selected.alternate_url:
                     logger.info(f"[OTA]    Alternate URL (auto-generated): {alternate_url}")
                 elif alternate_url:
                     logger.info(f"[OTA]    Alternate URL (configured): {alternate_url}")
-                
+
                 update_info = {
                     "update_available": True,
                     "latest_version": selected.version,
-                    "download_url": selected.url,
+                    "download_url": selected_dict["download_url"],
                     "alternate_url": alternate_url,
-                    "file_size": selected.length or 0,
-                    "signature": selected.ed_signature or "",
-                    "description": selected.description_html or "",
-                    "source": "windows_appcast"
+                    "file_size": selected_dict["file_size"],
+                    "signature": selected_dict["signature"],
+                    "description": selected_dict["description"],
+                    "source": "windows_appcast",
+                    "available_versions": [item_to_update_dict(it) for it in eligible],
+                    "user_prefix": user_prefix,
                 }
                 return (True, update_info) if return_info else True
             else:
@@ -523,7 +573,13 @@ class LinuxUpdater:
         self.ota_manager = ota_manager
         # Import appcast parsing functionality
         try:
-            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            from .appcast import (
+                parse_appcast,
+                select_latest_for_platform,
+                select_eligible_versions,
+                item_to_update_dict,
+                normalize_arch_tag,
+            )
             self.appcast_parser = True
         except ImportError:
             logger.warning("Appcast parser not available, falling back to generic updater")
@@ -558,7 +614,13 @@ class LinuxUpdater:
         """Check for updates via appcast"""
         try:
             import requests
-            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            from .appcast import (
+                parse_appcast,
+                select_latest_for_platform,
+                select_eligible_versions,
+                item_to_update_dict,
+                normalize_arch_tag,
+            )
 
             # Get platform configuration
             plat_config = ota_config.get_platform_config()
@@ -635,46 +697,67 @@ class LinuxUpdater:
                 logger.info("[OTA] No updates found in appcast")
                 return (False, None) if return_info else False
 
-            # Select latest item for current platform
+            # Select eligible items for current platform / user. Linux
+            # previously did an extra ``packaging.version`` check on top
+            # of ``select_latest_for_platform``; ``select_eligible_versions``
+            # already filters strictly-newer-than-current using our
+            # homegrown ``compare_versions`` (which handles multi-segment
+            # date-based versions like ``26.05.03.22.22``), so the extra
+            # check is redundant. We keep ``packaging.version`` as a
+            # best-effort cross-check for extra safety in case an
+            # appcast carries pre-1.0 semver strings.
             current_version = self.ota_manager.app_version
-            latest_item = select_latest_for_platform(
+            user_prefix = getattr(self.ota_manager, "user_prefix", None)
+            eligible = select_eligible_versions(
                 items,
                 'linux',
                 current_version,
-                arch
+                arch,
+                user_prefix=user_prefix,
             )
 
-            if not latest_item:
-                logger.info("[OTA] No applicable updates for this platform")
+            if not eligible:
+                logger.info("[OTA] No applicable updates for this platform / user")
                 return (False, None) if return_info else False
 
-            # Check if update is newer
+            latest_item = eligible[0]
+
+            # Defensive cross-check with ``packaging.version`` only when
+            # both sides look semver-shaped; if it disagrees we trust our
+            # own comparator (already vetted in
+            # tests/test_ota_appcast_user_prefix.py).
             from packaging import version as pkg_version
             try:
                 if pkg_version.parse(latest_item.version) <= pkg_version.parse(current_version):
-                    logger.info(f"[OTA] Current version {current_version} is up to date")
-                    return (False, None) if return_info else False
+                    logger.warning(
+                        f"[OTA] packaging.version disagrees with select_eligible_versions "
+                        f"({latest_item.version} vs {current_version}); trusting the latter."
+                    )
             except Exception as e:
-                logger.warning(f"[OTA] Version comparison failed: {e}, proceeding with update check")
+                logger.debug(f"[OTA] packaging.version cross-check skipped: {e}")
 
-            # Update available (match Mac/Windows update_info shape for OTA flow)
+            # Update available (match Mac/Windows update_info shape).
             logger.info(f"[OTA] ✅ Update available!")
             logger.info(f"[OTA]    Current version:  {current_version}")
-            logger.info(f"[OTA]    Latest version:   {latest_item.version}")
+            logger.info(
+                f"[OTA]    Eligible items:   {len(eligible)} "
+                f"(newest: {latest_item.version}, user_prefix={latest_item.user_prefix!r})"
+            )
             logger.info(f"[OTA]    Download URL:     {latest_item.url}")
-            alternate_url = latest_item.alternate_url
-            if not alternate_url and '.s3.' in latest_item.url and 'amazonaws.com' in latest_item.url:
-                alternate_url = latest_item.url.replace('.s3.', '.s3-accelerate.')
+
             if return_info:
+                selected_dict = item_to_update_dict(latest_item)
                 update_info = {
                     'update_available': True,
                     'latest_version': latest_item.version,
-                    'download_url': latest_item.url,
-                    'alternate_url': alternate_url,
-                    'file_size': latest_item.length or 0,
-                    'signature': latest_item.ed_signature or '',
-                    'description': latest_item.description_html or '',
-                    'source': 'linux_appcast'
+                    'download_url': selected_dict['download_url'],
+                    'alternate_url': selected_dict['alternate_url'],
+                    'file_size': selected_dict['file_size'],
+                    'signature': selected_dict['signature'],
+                    'description': selected_dict['description'],
+                    'source': 'linux_appcast',
+                    'available_versions': [item_to_update_dict(it) for it in eligible],
+                    'user_prefix': user_prefix,
                 }
                 return (True, update_info)
             else:

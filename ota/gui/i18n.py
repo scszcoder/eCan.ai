@@ -128,6 +128,16 @@ class OTATranslations:
             'link_copied': 'Link copied!',
             'link_copied_title': 'Link Copied',
             'link_copied_message': 'Download link has been copied to clipboard:',
+
+            # Multi-version picker (see ota/docs/multi_version_picker.md).
+            'picker_title': 'Available Updates',
+            'picker_header': '{count} newer version(s) available for you',
+            'picker_header_tagged': '{count} newer version(s) available for you (user: {user})',
+            'picker_pick_instruction': 'Pick a version to install:',
+            'picker_universal_badge': 'UNIVERSAL',
+            'picker_user_badge': 'FOR {user}',
+            'picker_install_selected': 'Install Selected',
+            'picker_no_release_notes': 'No release notes for this version.',
         },
         'zh-CN': {
             # Window titles
@@ -244,6 +254,16 @@ class OTATranslations:
             'link_copied': '链接已复制！',
             'link_copied_title': '链接已复制',
             'link_copied_message': '下载链接已复制到剪贴板：',
+
+            # 多版本选择器 (详见 ota/docs/multi_version_picker.md)
+            'picker_title': '可用更新',
+            'picker_header': '为您找到 {count} 个可升级的新版本',
+            'picker_header_tagged': '为您找到 {count} 个可升级的新版本（用户：{user}）',
+            'picker_pick_instruction': '请选择要安装的版本：',
+            'picker_universal_badge': '通用',
+            'picker_user_badge': '专属 {user}',
+            'picker_install_selected': '安装所选版本',
+            'picker_no_release_notes': '此版本暂无发布说明。',
         }
     }
     
