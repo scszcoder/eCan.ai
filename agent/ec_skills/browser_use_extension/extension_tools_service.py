@@ -33,6 +33,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     NormalizePageStateAction,
     PersistSessionMonitorsToSkillAction,
     RagQueryAction,
+    RagReplaceDocumentAction,
     RagifyAction,
     RagifyAsyncAction,
     RemoveSessionMonitorAction,
@@ -1479,6 +1480,73 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
         _elapsed = time.perf_counter() - _t0
         logger.error(f"[bu_rag_query] RAG query error in {_elapsed:.2f}s: {e}")
         return ActionResult(error=f"RAG query failed: {str(e)}")
+
+
+@custom_controller.action(
+    "Re-ingest a file into the local RAG knowledge base after it has been "
+    "edited on disk. Deletes existing copies in the workspace (matched by "
+    "basename) and uploads the new version. Use this — NOT bu_ragify — when "
+    "a source file's contents have changed; otherwise stale entries from the "
+    "previous version remain in the knowledge graph.",
+    param_model=RagReplaceDocumentAction,
+)
+async def bu_rag_replace_document(params: RagReplaceDocumentAction) -> ActionResult:
+    """Browser-use action wrapper around the ``rag_replace_document`` MCP tool.
+
+    The MCP tool itself does the list-then-delete-then-ingest dance against
+    the local LightRAG server; we just translate the pydantic model into the
+    ``input`` dict and surface the result as an ``ActionResult``.
+    """
+    import time
+    _t0 = time.perf_counter()
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import rag_replace_document
+
+        path = (params.path or "").strip()
+        if not path:
+            return ActionResult(error="path is required and must be non-empty")
+
+        input_data: Dict[str, Any] = {"path": path}
+        ws = (getattr(params, "workspace", None) or "").strip()
+        if ws:
+            input_data["workspace"] = ws
+        if params.match_basename is not None:
+            input_data["match_basename"] = bool(params.match_basename)
+
+        login = AppContext.login
+        result_list = await rag_replace_document(login.main_win, {"input": input_data})
+
+        _elapsed = time.perf_counter() - _t0
+
+        if not result_list:
+            logger.warning(f"[bu_rag_replace_document] No result in {_elapsed:.2f}s")
+            return ActionResult(error="No result returned from rag_replace_document")
+
+        text_content = result_list[0]
+        result_text = text_content.text or ""
+
+        if result_text.startswith("Error:"):
+            logger.warning(
+                f"[bu_rag_replace_document] error in {_elapsed:.2f}s: {result_text[:300]}"
+            )
+            return ActionResult(error=result_text)
+
+        meta = getattr(text_content, "meta", None) or {}
+        # The MCP tool's meta carries the underlying client result. When
+        # status=success its data dict is what callers usually want.
+        data = (meta.get("data") if isinstance(meta, dict) else None) or {}
+        deleted = data.get("deleted_count", 0)
+        track_id = (data.get("ingest") or {}).get("track_id", "N/A")
+        logger.info(
+            f"[bu_rag_replace_document] OK in {_elapsed:.2f}s "
+            f"(workspace={ws or '(default)'!r}, deleted={deleted}, "
+            f"track_id={track_id})"
+        )
+        return ActionResult(extracted_content=result_text)
+    except Exception as e:
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_rag_replace_document] error in {_elapsed:.2f}s: {e}")
+        return ActionResult(error=f"rag_replace_document failed: {str(e)}")
 
 
 def _bu_build_ragify_input(params) -> dict:

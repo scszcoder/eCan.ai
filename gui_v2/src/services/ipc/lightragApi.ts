@@ -148,6 +148,23 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.deleteDocument', payload);
     },
 
+    /**
+     * Re-ingest a file in place. Deletes any existing copies in the
+     * workspace (matched by basename by default) and uploads the new
+     * version. Use this when a source file has been edited on disk and
+     * you want the vector DB to reflect the new contents.
+     *
+     * Backend: see `LightragClient.replace_document` and the
+     * `lightrag.replaceDocument` IPC handler.
+     */
+    async replaceDocument<T>(payload: {
+      path: string;
+      workspace?: string;
+      matchBasename?: boolean;
+    }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.replaceDocument', payload);
+    },
+
     async abortDocument<T>(payload: { id: string; workspace?: string }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.abortDocument', payload);
     },
