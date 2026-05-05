@@ -1239,6 +1239,98 @@ const DocumentsTab: React.FC = () => {
     });
   };
 
+  /**
+   * Re-ingest a document in place after the user has edited the file
+   * on disk. Opens a file picker, then calls `lightrag.replaceDocument`
+   * which will:
+   *   1. delete every existing doc in the workspace whose basename
+   *      matches the picked file
+   *   2. upload the new version
+   *
+   * The match is by basename so the user can pick the new copy from
+   * any folder (e.g. they edited it elsewhere and saved it back).
+   */
+  const handleReplaceDocument = async (doc: Document) => {
+    try {
+      const filters = [
+        { name: 'All Supported', extensions: ['*'] },
+      ];
+      const sel = await get_ipc_api().executeRequest<any>(
+        'fs.selectFiles',
+        { multiple: false, filters },
+        300000,
+      );
+      if (!sel?.success || !sel.data?.paths?.length) return;
+
+      const newPath = sel.data.paths[0] as string;
+      const newName = newPath.split(/[\\/]/).pop() || newPath;
+      const oldName = (doc.file_path || '').split(/[\\/]/).pop() || doc.file_path;
+
+      modal.confirm({
+        title: t('pages.knowledge.documents.replaceDocument', 'Replace document'),
+        content: (
+          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            <div>{t(
+              'pages.knowledge.documents.replaceDocumentConfirm',
+              'This will delete all existing copies matching the filename and re-ingest the new version. Continue?',
+            )}</div>
+            <div style={{ marginTop: 8, opacity: 0.75 }}>
+              <div><b>Old:</b> {oldName}</div>
+              <div><b>New:</b> {newPath}</div>
+              {newName.toLowerCase() !== (oldName || '').toLowerCase() && (
+                <div style={{ color: token.colorWarning, marginTop: 6 }}>
+                  ⚠️ Filenames differ — only matches by basename will be replaced.
+                </div>
+              )}
+            </div>
+          </div>
+        ),
+        okText: t('common.confirm', 'Confirm'),
+        cancelText: t('common.cancel', 'Cancel'),
+        onOk: async () => {
+          try {
+            appendLog(`Replacing "${oldName}" with "${newPath}"...`);
+            const resp = await get_ipc_api().lightragApi.replaceDocument<{
+              deleted_count: number;
+              deleted_ids: string[];
+              ingest: any;
+            }>({
+              path: newPath,
+              workspace: workspace || undefined,
+            });
+            if (!resp.success) {
+              const msg = resp.error?.message || 'Unknown error';
+              appendLog(`❌ Replace failed: ${msg}`);
+              message.error({ content: `Replace failed: ${msg}`, duration: 8 });
+              return;
+            }
+            const data = resp.data || ({} as any);
+            appendLog(
+              `✅ Replace started: deleted ${data.deleted_count ?? 0} old copy/copies, uploaded new version. ` +
+              `It will appear as PROCESSING shortly.`,
+            );
+            message.success(
+              t(
+                'pages.knowledge.documents.replaceDocumentStarted',
+                'Replacement uploaded — old copies are being cleaned up in the background.',
+              ),
+            );
+            // Give the backend a beat to register the new doc, then refresh.
+            setTimeout(() => loadDocuments(true), 1500);
+          } catch (e: any) {
+            const msg = e?.message || String(e);
+            appendLog(`❌ Replace error: ${msg}`);
+            message.error({ content: `Replace error: ${msg}`, duration: 8 });
+          }
+        },
+      });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      appendLog(`❌ Replace error: ${msg}`);
+      message.error({ content: `Replace error: ${msg}`, duration: 8 });
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status?.toUpperCase()) {
       case 'PROCESSED': return token.colorSuccess;
@@ -1818,22 +1910,44 @@ const DocumentsTab: React.FC = () => {
                         {t('pages.knowledge.documents.stop')}
                       </button>
                     ) : (
-                      <button 
-                        className="ec-btn-small"
-                        onClick={() => handleDeleteDocument(doc)}
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: 12,
-                          background: token.colorErrorBg,
-                          color: token.colorError,
-                          border: `1px solid ${token.colorErrorBorder}`,
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
-                      >
-                        {t('common.delete')}
-                      </button>
+                      <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'center' }}>
+                        <button
+                          className="ec-btn-small"
+                          onClick={() => handleReplaceDocument(doc)}
+                          title={t(
+                            'pages.knowledge.documents.replaceDocumentTooltip',
+                            'Replace with a newer version on disk (delete + re-ingest)',
+                          )}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: 12,
+                            background: token.colorPrimaryBg,
+                            color: token.colorPrimary,
+                            border: `1px solid ${token.colorPrimaryBorder}`,
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          {t('pages.knowledge.documents.replace', 'Replace')}
+                        </button>
+                        <button
+                          className="ec-btn-small"
+                          onClick={() => handleDeleteDocument(doc)}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: 12,
+                            background: token.colorErrorBg,
+                            color: token.colorError,
+                            border: `1px solid ${token.colorErrorBorder}`,
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          {t('common.delete')}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

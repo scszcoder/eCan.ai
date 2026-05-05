@@ -76,6 +76,86 @@ async def ragify(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def rag_replace_document(mainwin, args):
+    """MCP Tool: Re-ingest a file in place after it has been edited.
+
+    Wraps :py:meth:`knowledge.lightrag_client.LightragClient.replace_document`.
+    Use this when a source file (``abc.md``, etc.) has been modified on
+    disk and you want the vector DB + knowledge graph to reflect the new
+    contents. Naively re-ingesting would create duplicate entries because
+    LightRAG dedupes by content hash; this tool deletes the old copies
+    first.
+
+    Input schema:
+        path (str, required): Absolute local path to the *new* version
+            of the file.
+        workspace (str, optional): LightRAG workspace (tenant). Empty
+            falls back to the server's default workspace.
+        match_basename (bool, optional, default True): When True, match
+            old copies by filename only. Set False to require an exact
+            file_path string match instead.
+
+    Returns a TextContent whose ``meta`` carries::
+
+        {
+            "matched_basename": "abc.md",
+            "deleted_ids": [...],
+            "deleted_count": 2,
+            "delete_errors": [...],
+            "ingest": {"status": "success", "track_id": "..."},
+        }
+    """
+    try:
+        input_data = args.get("input", {}) if args else {}
+        if not input_data:
+            return [TextContent(type="text", text="Error: No input data provided")]
+
+        logger.debug(f"[MCP][RAG_REPLACE]: {input_data}")
+
+        path = (input_data.get("path") or "").strip()
+        if not path:
+            return [TextContent(
+                type="text",
+                text="Error: 'path' is required and must be a non-empty string"
+            )]
+
+        workspace = (input_data.get("workspace") or "").strip() or None
+        match_basename = bool(input_data.get("match_basename", True))
+
+        client = get_client()
+        result = client.replace_document(
+            path,
+            workspace=workspace,
+            match_basename=match_basename,
+        )
+
+        if result.get("status") == "success":
+            data = result.get("data") or {}
+            track_id = (data.get("ingest") or {}).get("track_id", "N/A")
+            msg = (
+                f"Replaced '{data.get('matched_basename', path)}': "
+                f"deleted {data.get('deleted_count', 0)} old copy/copies, "
+                f"re-ingest track_id={track_id}"
+            )
+            logger.info(
+                f"[MCP][RAG_REPLACE] {msg} (workspace={workspace!r})"
+            )
+        else:
+            msg = f"Error: {result.get('message', 'Unknown error')}"
+            logger.warning(f"[MCP][RAG_REPLACE] {msg}")
+
+        out = TextContent(type="text", text=msg)
+        if isinstance(result, dict):
+            out.meta = result
+        else:
+            out.meta = {"result": str(result)}
+        return [out]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorRagReplaceDocumentTool")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def rag_query(mainwin, args):
     """
     MCP Tool: Query LightRAG knowledge base.
@@ -977,6 +1057,68 @@ def add_ragify_async_tool_schema(tool_schemas):
                     }
                 }
             }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_rag_replace_document_tool_schema(tool_schemas):
+    """Add ``rag_replace_document`` tool schema.
+
+    See :func:`rag_replace_document` for semantics. The tool runs locally
+    (``run_in_cloud=False``) because it touches the local LightRAG
+    server's filesystem-backed workspace.
+    """
+    import mcp.types as types
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="rag_replace_document",
+        description=(
+            "Re-ingest a file into LightRAG after it has been edited on disk. "
+            "Deletes any existing copies in the workspace whose filename matches "
+            "(by basename), then uploads the new version. Use this — NOT plain "
+            "ragify — when a source file's contents have changed; otherwise the "
+            "knowledge graph keeps stale entries from the previous version. "
+            "Re-ingest is asynchronous on the server side: the tool returns as "
+            "soon as the upload is queued. Pair with wait_for_rag_completion if "
+            "you need the new contents query-ready before continuing."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute local path to the NEW version of the file to ingest.",
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": (
+                                "Optional LightRAG workspace (tenant). Both the "
+                                "lookup of old copies and the re-ingest are "
+                                "scoped to this workspace. LEAVE EMPTY for the "
+                                "server's default workspace."
+                            ),
+                        },
+                        "match_basename": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": (
+                                "When true (default), match old copies by "
+                                "filename only — handy when the new file lives "
+                                "in a different folder than the original ingest "
+                                "path. Set false to require an exact file_path "
+                                "string match instead."
+                            ),
+                        },
+                    },
+                }
+            },
         },
     )
 
