@@ -789,12 +789,32 @@ class SkillEditorAgent:
             return True
 
         # Even without a file path, if the user explicitly asks to analyze
-        # logs (e.g. "help me analyze the logs", "analyze my run log"),
-        # classify as ANALYZE_LOG — the clarification flow will ask for the path.
-        analyze_verbs = ["analyze", "analyse", "diagnose", "debug", "check", "inspect", "review", "look at", "examine"]
-        log_nouns = ["log", "logs", "run log", "error log", "logfile", "log file"]
-        has_analyze = any(v in msg for v in analyze_verbs)
-        has_log_noun = any(n in msg for n in log_nouns)
+        # logs (e.g. "help me analyze the logs", "analyze my run log",
+        # "帮我分析一下log", "诊断日志"), classify as ANALYZE_LOG — the clarification
+        # flow will ask for the path.
+        analyze_verbs_en = [
+            "analyze", "analyse", "diagnose", "debug", "check",
+            "inspect", "review", "look at", "examine", "investigate",
+            "troubleshoot",
+        ]
+        analyze_verbs_zh = [
+            "分析", "诊断", "调试", "排查", "检查", "审查",
+            "看看", "看一下", "查看", "查一下",
+        ]
+        log_nouns_en = [
+            "log", "logs", "run log", "error log", "logfile", "log file",
+        ]
+        log_nouns_zh = [
+            "日志", "运行日志", "错误日志", "故障日志", "log", "logs",
+        ]
+        has_analyze = (
+            any(v in msg for v in analyze_verbs_en)
+            or any(v in msg for v in analyze_verbs_zh)
+        )
+        has_log_noun = (
+            any(n in msg for n in log_nouns_en)
+            or any(n in msg for n in log_nouns_zh)
+        )
         if has_analyze and has_log_noun:
             return True
 
@@ -816,6 +836,41 @@ class SkillEditorAgent:
             if m:
                 return m.group(0).strip()
         return None
+
+    def _is_fresh_log_analysis_request(self, message: str) -> bool:
+        """True if message looks like a NEW 'analyze my logs' request (not a follow-up).
+
+        Used to clear stale log_analysis_context that was persisted from a
+        previous chat in the same cloud session. A follow-up phrase like
+        "fix it", "explain that node", or "tell me more" should NOT trigger
+        this — only an explicit new request should.
+        """
+        msg = (message or "").strip().lower()
+        if not msg:
+            return False
+
+        # Strong fresh-request keywords (English)
+        fresh_en = [
+            "analyze my log", "analyze the log", "analyze log",
+            "look at my log", "look at the log", "check my log",
+            "diagnose log", "diagnose the log", "debug log", "debug the log",
+            "review my log", "review the log", "examine the log",
+            "inspect the log", "investigate the log",
+        ]
+        if any(k in msg for k in fresh_en):
+            return True
+
+        # Strong fresh-request keywords (Chinese)
+        fresh_zh = [
+            "分析一下log", "分析log", "分析日志", "分析一下日志",
+            "看看日志", "看一下日志", "查看日志", "查日志",
+            "诊断日志", "诊断log", "调试日志", "排查日志",
+            "帮我分析",  # the most common phrasing in user's own logs
+        ]
+        if any(k in msg for k in fresh_zh):
+            return True
+
+        return False
 
     def _is_explain_request(self, message: str) -> bool:
         msg = (message or "").strip().lower()
@@ -1594,6 +1649,19 @@ class SkillEditorAgent:
                 on_event=on_event,
             )
 
+        # --- Fresh "analyze logs" request → reset stale context ---
+        # The cloud session persists log_analysis_context across app restarts.
+        # When the user asks for a NEW analysis (not a follow-up like "fix it"
+        # or "explain that"), we should clear the prior context so the Q&A
+        # form is shown again instead of routing into _run_analyze_log_followup.
+        if self._log_analysis_context and self._is_fresh_log_analysis_request(message):
+            logger.info(
+                "[SkillEditorAgent] Detected fresh log-analysis request — "
+                "clearing stale log_analysis_context and pending_log_analysis_info"
+            )
+            self._log_analysis_context = None
+            self._pending_log_analysis_info = None
+
         # --- Follow-up on a previous log analysis? ---
         file_path = self._extract_file_path_from_message(message)
         if not file_path and self._log_analysis_context:
@@ -1608,15 +1676,17 @@ class SkillEditorAgent:
 
         questions = []
 
+        _lang = self._user_lang
+
         # Q0: Which skill(s) are under investigation — searchable typeahead with
         # multi-pick. Handler fills choices from the user's S3 skill list. The A2UI
         # frontend renders this as a substring-filtered dropdown so the user can
         # type a phrase, narrow the list, and select multiple matches.
         questions.append(ClarificationQuestion(
             id="skill_names",
-            question="Which skill(s) are you debugging? (type to search)",
+            question=t("log_qa_skill_question", _lang),
             choices=[],          # handler fills choices from S3 before sending to client
-            context="Type any part of a skill name to filter, then select one or more.",
+            context=t("log_qa_skill_context", _lang),
             allow_multiple=True,
             widget_type="searchable_multi_select",
             data_source="user_skills",
@@ -1626,57 +1696,57 @@ class SkillEditorAgent:
         if not file_path:
             questions.append(ClarificationQuestion(
                 id="log_file_path",
-                question="What is the full path to the log file you want me to analyze?",
+                question=t("log_qa_path_question", _lang),
                 choices=[
                     ClarificationChoice(
                         id="path_freeform",
-                        label="Type the file path",
-                        description="e.g. C:/Users/me/logs/run.log or /home/user/logs/run.log",
+                        label=t("log_qa_path_freeform_label", _lang),
+                        description=t("log_qa_path_freeform_desc", _lang),
                         allow_freeform=True,
                     ),
                 ],
-                context="I need the exact file path to locate and read the log.",
+                context=t("log_qa_path_context", _lang),
                 allow_multiple=False,
             ))
 
         # Q2: What went wrong
         questions.append(ClarificationQuestion(
             id="user_observation",
-            question="What happened during this skill run? What went wrong?",
+            question=t("log_qa_observation_question", _lang),
             choices=[
-                ClarificationChoice(id="obs_error", label="It crashed / threw an error", allow_freeform=True),
-                ClarificationChoice(id="obs_wrong_result", label="It finished but the result was wrong", allow_freeform=True),
-                ClarificationChoice(id="obs_stuck", label="It got stuck / timed out", allow_freeform=True),
-                ClarificationChoice(id="obs_partial", label="It only partially completed", allow_freeform=True),
-                ClarificationChoice(id="obs_other", label="Something else", allow_freeform=True),
+                ClarificationChoice(id="obs_error",        label=t("log_qa_obs_error", _lang),        allow_freeform=True),
+                ClarificationChoice(id="obs_wrong_result", label=t("log_qa_obs_wrong_result", _lang), allow_freeform=True),
+                ClarificationChoice(id="obs_stuck",        label=t("log_qa_obs_stuck", _lang),        allow_freeform=True),
+                ClarificationChoice(id="obs_partial",      label=t("log_qa_obs_partial", _lang),      allow_freeform=True),
+                ClarificationChoice(id="obs_other",        label=t("log_qa_obs_other", _lang),        allow_freeform=True),
             ],
-            context="Describe what you observed — even a rough description helps narrow down the issue.",
+            context=t("log_qa_observation_context", _lang),
             allow_multiple=False,
         ))
 
         # Q3: Expected behavior
         questions.append(ClarificationQuestion(
             id="expected_behavior",
-            question="What did you expect to happen instead?",
+            question=t("log_qa_expected_question", _lang),
             choices=[
                 ClarificationChoice(
                     id="exp_freeform",
-                    label="Describe expected behavior",
-                    description="e.g. 'should have completed all 5 steps' or 'should have returned a PDF'",
+                    label=t("log_qa_exp_freeform_label", _lang),
+                    description=t("log_qa_exp_freeform_desc", _lang),
                     allow_freeform=True,
                 ),
-                ClarificationChoice(id="exp_unsure", label="Not sure / just want a general analysis"),
+                ClarificationChoice(id="exp_unsure", label=t("log_qa_exp_unsure", _lang)),
             ],
-            context="Knowing the expected outcome helps me compare and pinpoint the failure.",
+            context=t("log_qa_expected_context", _lang),
             allow_multiple=False,
         ))
 
         self._pipeline_state = PipelineState.COLLECTING_LOG_ANALYSIS_INFO
         self._pending_clarification = questions
 
-        intro = "Before I analyze the log, I'd like to collect a few details to give you a more targeted diagnosis."
+        intro = t("log_qa_intro", _lang)
         if file_path:
-            intro += f"\n\nI detected a file path in your message: **{file_path}**"
+            intro += "\n\n" + t("log_qa_intro_path_detected", _lang, file_path=file_path)
 
         return AgentResponse(
             message=intro,
@@ -2054,19 +2124,71 @@ class SkillEditorAgent:
         user_observation = ""
         expected_behavior = ""
 
+        # Build a {qid → {choice_id → (label, is_placeholder)}} lookup so we
+        # can resolve choice IDs back to human-readable labels in the user's
+        # language. A choice is considered a "freeform placeholder" if its id
+        # contains 'freeform' — its label is just instructional ("Type the
+        # file path"), not a meaningful answer. For those, we skip the label
+        # and use only the typed freeform text.
+        _choice_info_map: Dict[str, Dict[str, tuple]] = {}
+        if self._pending_clarification:
+            for _q in self._pending_clarification:
+                _q_id = getattr(_q, "id", None)
+                if not _q_id:
+                    continue
+                _choice_info_map[_q_id] = {}
+                for _c in (getattr(_q, "choices", None) or []):
+                    _c_id = getattr(_c, "id", None)
+                    _c_label = getattr(_c, "label", None)
+                    if _c_id:
+                        _is_placeholder = "freeform" in _c_id.lower()
+                        _choice_info_map[_q_id][_c_id] = (_c_label or "", _is_placeholder)
+
         def _get_freeform(qid: str) -> str:
-            """Get freeform text for a question, checking freeform_{qid} key first."""
-            freeform_val = clarification_responses.get(f"freeform_{qid}")
-            if freeform_val:
-                text = freeform_val[0] if isinstance(freeform_val, list) else str(freeform_val)
-                if text.strip():
-                    return text.strip()
-            # Fallback: check if the answer itself contains text beyond choice IDs
+            """Resolve a question's user-facing answer text.
+
+            Behavior:
+              - If the chosen choice is a freeform-placeholder (id contains
+                'freeform'), use ONLY the typed freeform text — the choice
+                label is instructional, not an answer.
+              - Otherwise, use the localized choice label, optionally joined
+                with the freeform text the user typed.
+              - Falls back to the raw choice id if no label was captured.
+            """
+            info_lookup = _choice_info_map.get(qid, {})
             ans = clarification_responses.get(qid)
-            if ans:
-                text = " ".join(a for a in ans if a) if isinstance(ans, list) else str(ans)
-                return text.strip()
-            return ""
+
+            chosen_ids: List[str] = []
+            if isinstance(ans, list):
+                chosen_ids = [str(a) for a in ans if a]
+            elif ans:
+                chosen_ids = [str(ans)]
+
+            chosen_labels: List[str] = []
+            all_chosen_are_placeholders = bool(chosen_ids)
+            for cid in chosen_ids:
+                label, is_placeholder = info_lookup.get(cid, (cid, False))
+                if not is_placeholder:
+                    all_chosen_are_placeholders = False
+                    chosen_labels.append(label)
+
+            freeform_val = clarification_responses.get(f"freeform_{qid}")
+            freeform_text = ""
+            if freeform_val:
+                freeform_text = (
+                    freeform_val[0] if isinstance(freeform_val, list) else str(freeform_val)
+                ).strip()
+
+            # Pure freeform-placeholder pick → return just the typed text.
+            if all_chosen_are_placeholders:
+                return freeform_text
+
+            parts = []
+            if chosen_labels:
+                parts.append(", ".join(chosen_labels))
+            if freeform_text:
+                parts.append(freeform_text)
+            return " — ".join(parts).strip()
 
         # Q0: skill names — multi-select, choice IDs are skill names (set by handler)
         selected_skill_names: List[str] = []
