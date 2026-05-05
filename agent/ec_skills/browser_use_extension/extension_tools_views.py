@@ -539,6 +539,45 @@ class RagifyAction(BaseModel):
 	)
 
 
+class RagReplaceDocumentAction(BaseModel):
+	"""Re-ingest a file into the local RAG knowledge base after it was edited.
+
+	Use this — NOT bu_ragify — when a source file's contents have changed on
+	disk. Plain re-ingest would leave stale entries from the previous version
+	in the knowledge graph because LightRAG dedupes by content hash. This
+	action deletes any existing copies in the workspace whose filename
+	matches (by basename), then uploads the new version.
+
+	The re-ingest itself is async on the server: this action returns once
+	the upload is queued. If you need the new contents to be query-ready
+	before continuing, call bu_rag_query in a retry loop or follow up with
+	a bu_ragify (wait_for_completion=True) on the same path instead.
+	"""
+	path: str = Field(
+		...,
+		description="Absolute local path to the NEW version of the file to ingest.",
+	)
+	workspace: Optional[str] = Field(
+		default=None,
+		description=(
+			"Optional LightRAG workspace (tenant). Both the lookup of old "
+			"copies and the re-ingest are scoped to this workspace. LEAVE "
+			"EMPTY for the server's default workspace. Must match the "
+			"workspace originally used for ingestion, otherwise the old "
+			"copies won't be found and you'll end up with duplicates."
+		),
+	)
+	match_basename: Optional[bool] = Field(
+		default=True,
+		description=(
+			"When True (default), match old copies by filename only — handy "
+			"when the new file lives in a different folder than the original "
+			"ingest path. Set False to require an exact file_path string "
+			"match instead."
+		),
+	)
+
+
 class RagifyAsyncAction(BaseModel):
 	"""Ingest documents or text into the local LightRAG knowledge base (FIRE-AND-FORGET).
 

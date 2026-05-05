@@ -338,6 +338,47 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
         return create_error_response(request, 'DELETE_ERROR', str(e))
 
 
+@IPCHandlerRegistry.background_handler('lightrag.replaceDocument')
+def handle_replace_document(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Re-ingest a file in place: delete any existing copies in the
+    workspace (matched by basename) and upload the new version.
+
+    Runs in a background thread because it does a list-then-delete-then-
+    upload chain whose total time is dominated by the upload step. The
+    LightragClient.replace_document docstring covers the semantics.
+
+    Expected params:
+    - path: str — absolute local path to the *new* version of the file.
+    - workspace: Optional[str] — LightRAG workspace (tenant). Empty means server default.
+    - matchBasename: Optional[bool] — default True. Set False to require
+      an exact file_path match instead of a basename match.
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['path'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        path = data['path']
+        workspace = (data.get('workspace') or '').strip() or None
+        match_basename = bool(data.get('matchBasename', True))
+
+        if not isinstance(path, str) or not path.strip():
+            return create_error_response(request, 'INVALID_PARAMS', 'path must be a non-empty string')
+
+        client = get_client()
+        result = client.replace_document(path, workspace=workspace, match_basename=match_basename)
+
+        if result.get('status') == 'error':
+            error_msg = result.get('message', 'Failed to replace document')
+            logger.error(f"Replace document failed: {error_msg}")
+            return create_error_response(request, 'REPLACE_ERROR', error_msg)
+
+        return create_success_response(request, result.get('data', result))
+    except Exception as e:
+        logger.error(f"Error in replace_document handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'REPLACE_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('lightrag.abortDocument')
 def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
