@@ -880,17 +880,86 @@ class MenuManager:
                         except Exception as e:
                             self.check_failed.emit(str(e))
                 
+                def _read_current_version() -> str:
+                    """Best-effort read of the installed app version.
+
+                    Shared by both the multi-version picker (header)
+                    and the "you're up to date" dialog below so both
+                    paths show a consistent string.
+                    """
+                    try:
+                        from utils.app_setup_helper import read_version_file
+                        import os as _os, sys as _sys
+                        base_path = _os.path.dirname(
+                            _os.path.dirname(_os.path.abspath(__file__))
+                        )
+                        if hasattr(_sys, "_MEIPASS"):
+                            base_path = _sys._MEIPASS
+                        return read_version_file(
+                            [_os.path.join(base_path, "VERSION")]
+                        ) or "Unknown"
+                    except Exception:
+                        return "Unknown"
+
                 def on_check_completed(has_update, update_info):
                     progress.close()
-                    
+
+                    # Resolve once; used by the picker header on the
+                    # has_update path AND by the VersionCheckDialog on
+                    # the no-update path below.
+                    current_version = _read_current_version()
+
                     if has_update and update_info:
                         version = update_info.get('latest_version') or update_info.get('version')
-                        logger.info(f"[OTA] Manual check found update: {version}")
+                        # See ota/docs/multi_version_picker.md: the
+                        # updater now surfaces the FULL eligible list
+                        # (universal + user-tagged builds) via
+                        # update_info['available_versions']. When there
+                        # are 2+ items we show the multi-version picker
+                        # so the user can choose; when there's only 1
+                        # we preserve the existing single-version
+                        # confirmation flow so nothing regresses for
+                        # the common case.
+                        versions_list = update_info.get('available_versions') or []
+                        logger.info(
+                            f"[OTA] Manual check found update: {version} "
+                            f"(eligible_count={len(versions_list)})"
+                        )
                         
-                        # Show confirmation dialog
                         try:
                             web_gui = getattr(ctx, "web_gui", None) if 'ctx' in locals() else None
-                            if web_gui and hasattr(web_gui, '_show_update_confirmation'):
+                            if len(versions_list) > 1:
+                                # Multi-version picker: delegates the
+                                # post-pick install to the same
+                                # _start_ota_update entry point used by
+                                # the single-version flow below.
+                                from ota.gui.version_picker_dialog import (
+                                    pick_version_and_install,
+                                )
+
+                                def _install_cb(picked_version, synthesized_info):
+                                    if web_gui and hasattr(web_gui, '_start_ota_update'):
+                                        web_gui._start_ota_update(
+                                            picked_version, synthesized_info
+                                        )
+                                    else:
+                                        # Fallback: open the update dialog
+                                        # directly with the picked info.
+                                        from ota.gui.dialog import UpdateDialog
+                                        dlg = UpdateDialog(
+                                            parent=self.main_window,
+                                            ota_updater=ota_updater,
+                                        )
+                                        dlg.update_info = synthesized_info
+                                        dlg.exec()
+
+                                pick_version_and_install(
+                                    parent=(web_gui or self.main_window),
+                                    update_info=update_info,
+                                    current_version=current_version,
+                                    install_cb=_install_cb,
+                                )
+                            elif web_gui and hasattr(web_gui, '_show_update_confirmation'):
                                 web_gui._show_update_confirmation(version, update_info, is_manual=True)
                             else:
                                 # Fallback: show update dialog directly
@@ -900,24 +969,12 @@ class MenuManager:
                         except Exception as e:
                             logger.error(f"[OTA] Failed to show update confirmation: {e}")
                     else:
-                        # No update available - Show beautiful custom dialog
-                        current_version = "Unknown"
-                        try:
-                            # Try to get current version
-                            from utils.app_setup_helper import read_version_file
-                            # Simplified logic since we are inside the class method
-                            # We can try to read it again or pass it if available
-                            # But let's just try to read it simply
-                            import os, sys
-                            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                            if hasattr(sys, '_MEIPASS'):
-                                base_path = sys._MEIPASS
-                            version_paths = [os.path.join(base_path, "VERSION")]
-                            current_version = read_version_file(version_paths)
-                        except:
-                            pass
-
-                        dialog = VersionCheckDialog(self.main_window, is_latest=True, version=current_version)
+                        # No update available - Show "you're up to date" dialog.
+                        # current_version was resolved at the top of
+                        # on_check_completed via _read_current_version().
+                        dialog = VersionCheckDialog(
+                            self.main_window, is_latest=True, version=current_version
+                        )
                         dialog.exec()
                 
                 def on_check_failed(error_msg):

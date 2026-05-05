@@ -33,6 +33,8 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     NormalizePageStateAction,
     PersistSessionMonitorsToSkillAction,
     RagQueryAction,
+    RagifyAction,
+    RagifyAsyncAction,
     RemoveSessionMonitorAction,
     ReconfigureEventMonitorAction,
     RunCodeAction,
@@ -1441,6 +1443,11 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
             input_data["enable_rerank"] = params.enable_rerank
         if params.include_references is not None:
             input_data["include_references"] = params.include_references
+        # Optional LightRAG workspace (tenant). Empty / None falls back to
+        # the server's default workspace (pre-multi-tenant behavior).
+        _ws = (getattr(params, "workspace", None) or "").strip()
+        if _ws:
+            input_data["workspace"] = _ws
         
         # Call MCP tool
         login = AppContext.login
@@ -1462,7 +1469,7 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
             if len(result_text) > 8000:
                 result_text = result_text[:8000] + "\n... (context truncated for speed)"
             
-            logger.info(f"[bu_rag_query] RAG query completed in {_elapsed:.2f}s (mode={params.mode}, context_only={params.only_need_context}, chars={len(result_text)})")
+            logger.info(f"[bu_rag_query] RAG query completed in {_elapsed:.2f}s (mode={params.mode}, context_only={params.only_need_context}, workspace={_ws or '(default)'!r}, chars={len(result_text)})")
             return ActionResult(extracted_content=result_text)
         else:
             logger.warning(f"[bu_rag_query] No result in {_elapsed:.2f}s")
@@ -1472,6 +1479,170 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
         _elapsed = time.perf_counter() - _t0
         logger.error(f"[bu_rag_query] RAG query error in {_elapsed:.2f}s: {e}")
         return ActionResult(error=f"RAG query failed: {str(e)}")
+
+
+def _bu_build_ragify_input(params) -> dict:
+    """Translate a RagifyAction / RagifyAsyncAction pydantic model into the
+    ``input`` dict expected by the ``ragify`` / ``ragify_async`` MCP tools.
+
+    Only forwards fields that are explicitly set (i.e. non-None). Empty
+    string workspace is treated as "use server default" and omitted — this
+    keeps logs clean and avoids sending a ``LIGHTRAG-WORKSPACE:`` header
+    with an empty value.
+    """
+    data: dict = {}
+    # Content source (file_paths XOR text — enforced by the MCP tool itself)
+    if getattr(params, "file_paths", None):
+        data["file_paths"] = list(params.file_paths)
+    if getattr(params, "text", None):
+        data["text"] = params.text
+    if getattr(params, "file_source", None) is not None:
+        data["file_source"] = params.file_source
+    # Workspace (tenant)
+    ws = (getattr(params, "workspace", None) or "").strip()
+    if ws:
+        data["workspace"] = ws
+    return data
+
+
+@custom_controller.action(
+    "Ingest documents or text into the local RAG knowledge base and (by default) WAIT for processing to complete. Use this when you need to query the newly ingested data immediately after. For large files or fire-and-forget ingestion, use bu_ragify_async instead.",
+    param_model=RagifyAction,
+)
+async def bu_ragify(params: RagifyAction) -> ActionResult:
+    """Blocking ingest wrapper around the ``ragify`` + ``wait_for_rag_completion`` MCP tools.
+
+    Flow:
+      1. Call ``ragify`` to upload / insert the content and obtain a ``track_id``.
+      2. If ``wait_for_completion`` (default True), call ``wait_for_rag_completion``
+         scoped to the SAME workspace to block until PROCESSED/FAILED.
+      3. Return a short status summary the LLM can act on.
+    """
+    import time
+    _t0 = time.perf_counter()
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import ragify, wait_for_rag_completion
+
+        # Basic input validation — the MCP tool enforces this too, but failing
+        # fast here produces a cleaner error for the agent.
+        if not (params.file_paths or params.text):
+            return ActionResult(error="bu_ragify: provide either 'file_paths' or 'text'.")
+
+        input_data = _bu_build_ragify_input(params)
+        _ws = input_data.get("workspace") or "(default)"
+
+        login = AppContext.login
+        result_list = await ragify(login.main_win, {"input": input_data})
+
+        if not result_list or not getattr(result_list[0], "text", None):
+            logger.warning(f"[bu_ragify] No result from ragify in {time.perf_counter() - _t0:.2f}s")
+            return ActionResult(error="No result returned from ragify.")
+
+        ragify_text = result_list[0].text
+        if ragify_text.startswith("Error:"):
+            logger.warning(f"[bu_ragify] ragify error (workspace={_ws!r}): {ragify_text[:200]}")
+            return ActionResult(error=ragify_text)
+
+        # Pull track_id out of the ragify result meta when possible, otherwise
+        # fall back to parsing the text (ragify's text output includes the id).
+        track_id = None
+        meta = getattr(result_list[0], "meta", None) or {}
+        if isinstance(meta, dict):
+            track_id = meta.get("track_id") or meta.get("trackId")
+        if not track_id:
+            # Heuristic: ragify's text is of the form "...track_id: <id>..."
+            import re
+            m = re.search(r"track[_-]?id['\"]?\s*[:=]\s*['\"]?([A-Za-z0-9_\-]+)", ragify_text)
+            if m:
+                track_id = m.group(1)
+
+        if not params.wait_for_completion:
+            _elapsed = time.perf_counter() - _t0
+            logger.info(f"[bu_ragify] Submitted in {_elapsed:.2f}s (workspace={_ws!r}, track_id={track_id!r}, wait=False)")
+            return ActionResult(extracted_content=ragify_text)
+
+        if not track_id:
+            # Nothing to poll on — return the submission result as-is.
+            logger.warning(f"[bu_ragify] ragify returned no track_id (workspace={_ws!r}); returning submission result without waiting.")
+            return ActionResult(extracted_content=ragify_text)
+
+        wait_input = {"track_id": track_id}
+        if input_data.get("workspace"):
+            wait_input["workspace"] = input_data["workspace"]
+        if params.timeout_seconds is not None:
+            wait_input["timeout_seconds"] = int(params.timeout_seconds)
+        if params.poll_interval_seconds is not None:
+            wait_input["poll_interval_seconds"] = int(params.poll_interval_seconds)
+
+        wait_result = await wait_for_rag_completion(login.main_win, {"input": wait_input})
+        _elapsed = time.perf_counter() - _t0
+
+        if wait_result and getattr(wait_result[0], "text", None):
+            wait_text = wait_result[0].text
+            if wait_text.startswith("Error:"):
+                logger.warning(f"[bu_ragify] wait_for_rag_completion error in {_elapsed:.2f}s (workspace={_ws!r}): {wait_text[:200]}")
+                return ActionResult(error=wait_text)
+            logger.info(f"[bu_ragify] Ingestion complete in {_elapsed:.2f}s (workspace={_ws!r}, track_id={track_id!r})")
+            return ActionResult(extracted_content=wait_text)
+
+        logger.warning(f"[bu_ragify] wait_for_rag_completion returned no result in {_elapsed:.2f}s")
+        return ActionResult(error="No result returned from wait_for_rag_completion.")
+    except Exception as e:
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_ragify] ragify error in {_elapsed:.2f}s: {e}")
+        return ActionResult(error=f"ragify failed: {str(e)}")
+
+
+@custom_controller.action(
+    "Ingest documents or text into the local RAG knowledge base ASYNCHRONOUSLY (fire-and-forget). Returns a track_id immediately; processing continues in the background. Set on_complete=true to receive a notification when done.",
+    param_model=RagifyAsyncAction,
+)
+async def bu_ragify_async(params: RagifyAsyncAction) -> ActionResult:
+    """Fire-and-forget ingest wrapper around the ``ragify_async`` MCP tool."""
+    import time
+    _t0 = time.perf_counter()
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import ragify_async
+
+        if not (params.file_paths or params.text):
+            return ActionResult(error="bu_ragify_async: provide either 'file_paths' or 'text'.")
+
+        input_data = _bu_build_ragify_input(params)
+        _ws = input_data.get("workspace") or "(default)"
+
+        # Async-specific fields
+        if params.on_complete is not None:
+            input_data["on_complete"] = bool(params.on_complete)
+        if params.notify_task_id is not None:
+            input_data["notify_task_id"] = params.notify_task_id
+        if params.notify_chat_id is not None:
+            input_data["notify_chat_id"] = params.notify_chat_id
+        if params.notification_message is not None:
+            input_data["notification_message"] = params.notification_message
+        if params.timeout_seconds is not None:
+            input_data["timeout_seconds"] = int(params.timeout_seconds)
+        if params.poll_interval_seconds is not None:
+            input_data["poll_interval_seconds"] = int(params.poll_interval_seconds)
+
+        login = AppContext.login
+        result_list = await ragify_async(login.main_win, {"input": input_data})
+        _elapsed = time.perf_counter() - _t0
+
+        if not result_list or not getattr(result_list[0], "text", None):
+            logger.warning(f"[bu_ragify_async] No result in {_elapsed:.2f}s (workspace={_ws!r})")
+            return ActionResult(error="No result returned from ragify_async.")
+
+        text = result_list[0].text
+        if text.startswith("Error:"):
+            logger.warning(f"[bu_ragify_async] ragify_async error in {_elapsed:.2f}s (workspace={_ws!r}): {text[:200]}")
+            return ActionResult(error=text)
+
+        logger.info(f"[bu_ragify_async] Submitted in {_elapsed:.2f}s (workspace={_ws!r}, on_complete={params.on_complete})")
+        return ActionResult(extracted_content=text)
+    except Exception as e:
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_ragify_async] ragify_async error in {_elapsed:.2f}s: {e}")
+        return ActionResult(error=f"ragify_async failed: {str(e)}")
 
 
 @custom_controller.action(

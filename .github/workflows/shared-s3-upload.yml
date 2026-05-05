@@ -30,6 +30,16 @@ on:
         description: 'Target environment (dev/test/staging/production)'
         required: true
         type: string
+      user-prefix:
+        description: |
+          Optional per-user release prefix (lowercase). When non-empty, the
+          upload script lays the S3 directory out as
+          `releases/<prefix>_v<version>/...` instead of the default
+          `releases/v<version>/...`. Used for user-targeted preview builds
+          (see ota/docs/multi_version_picker.md).
+        required: false
+        type: string
+        default: ''
       windows-build-result:
         description: 'Result of Windows build job'
         required: false
@@ -97,15 +107,24 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           ENVIRONMENT: ${{ inputs.environment }}
+          USER_PREFIX: ${{ inputs.user-prefix }}
         run: |
           echo "=== Uploading to S3 ==="
           echo "Version: $VERSION"
           echo "Environment: $ENVIRONMENT"
-          
-          # Run upload script
+          echo "User Prefix: ${USER_PREFIX:-<none>}"
+
+          # Build optional --user-prefix arg only when set so existing
+          # semver tags hit the exact same code path they always have.
+          PREFIX_ARG=()
+          if [ -n "$USER_PREFIX" ]; then
+            PREFIX_ARG=(--user-prefix "$USER_PREFIX")
+          fi
+
           python3 build_system/scripts/upload_to_s3.py \
             --version "$VERSION" \
-            --env "$ENVIRONMENT"
+            --env "$ENVIRONMENT" \
+            "${PREFIX_ARG[@]}"
           
           if [ $? -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
