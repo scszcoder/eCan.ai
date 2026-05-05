@@ -28,6 +28,21 @@ def _ws_headers(workspace: Optional[str], base: Optional[Dict[str, str]] = None)
     if workspace:
         _w = str(workspace).strip()
         if _w:
+            # HTTP header values are latin-1 only (RFC 7230). A workspace
+            # name containing non-ASCII characters (e.g. Chinese) would
+            # otherwise crash deep inside urllib3 with
+            # "'latin-1' codec can't encode characters ...". Catch it here
+            # and raise a clear, user-actionable error that the calling
+            # method's try/except will surface as a normal IPC error
+            # payload instead of a stack trace.
+            try:
+                _w.encode("latin-1")
+            except UnicodeEncodeError:
+                raise ValueError(
+                    f"Workspace name must use ASCII characters only "
+                    f"(got: {_w!r}). Please pick an ASCII name such as "
+                    f"'customer_service' or 'product_details'."
+                )
             headers["LIGHTRAG-WORKSPACE"] = _w
     return headers
 
@@ -1084,6 +1099,141 @@ class LightragClient:
             return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_documents_paginated")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def replace_document(
+        self,
+        file_path: str,
+        workspace: Optional[str] = None,
+        match_basename: bool = True,
+    ) -> Dict[str, Any]:
+        """Re-ingest a file, replacing any existing copies in the workspace.
+
+        Workflow (see also ``ota/docs`` style note in the chat thread):
+
+        1. List existing documents in the targeted workspace via the
+           paginated endpoint.
+        2. Find every doc whose stored ``file_path`` matches the new
+           file's basename (case-insensitive on Windows-friendly paths).
+        3. Delete each match (LightRAG's delete is async; we don't
+           block on completion — the new ingest creates a fresh doc id
+           with a new content hash, so there's no conflict).
+        4. Re-ingest the file via the regular upload endpoint.
+
+        Args:
+            file_path: Local path to the *new* version of the file.
+            workspace: Optional workspace (tenant). Both lookup and
+                delete are scoped to it.
+            match_basename: When True (default), match by filename only.
+                Set False to require an exact ``file_path`` string match
+                instead — useful if the workspace stores absolute paths
+                and you want to be conservative.
+
+        Returns:
+            ``{"status": "success", "data": {...}}`` on success, where
+            data contains ``deleted_ids`` (list of doc ids that were
+            asked to delete), ``deleted_count``, ``ingest`` (the upload
+            response), and ``matched_basename``. ``{"status": "error",
+            ...}`` on any failure that prevents re-ingestion.
+        """
+        try:
+            if not file_path or not os.path.exists(file_path):
+                return {
+                    "status": "error",
+                    "message": f"File not found: {file_path}",
+                }
+
+            target_name = os.path.basename(file_path)
+            target_norm = target_name.lower()
+
+            # 1. Look up existing docs. Use a generous page size; if the
+            #    workspace has more than this many docs we'll only see
+            #    the first page, but that's the same behavior as the GUI
+            #    grid the user is looking at, so it stays consistent.
+            list_resp = self.get_documents_paginated(
+                {
+                    "page": 1,
+                    "page_size": 1000,
+                    "sort_field": "updated_at",
+                    "sort_direction": "desc",
+                },
+                workspace=workspace,
+            )
+            if list_resp.get("status") != "success":
+                return {
+                    "status": "error",
+                    "message": (
+                        "Failed to list existing documents before replace: "
+                        f"{list_resp.get('message')}"
+                    ),
+                }
+            documents = (list_resp.get("data") or {}).get("documents") or []
+
+            # 2. Find matches.
+            matches: List[Dict[str, Any]] = []
+            for doc in documents:
+                doc_path = (doc.get("file_path") or "").strip()
+                if not doc_path:
+                    continue
+                if match_basename:
+                    if os.path.basename(doc_path).lower() == target_norm:
+                        matches.append(doc)
+                else:
+                    if doc_path == file_path:
+                        matches.append(doc)
+
+            logger.info(
+                f"[LightragClient.replace_document] target={target_name!r} "
+                f"workspace={workspace!r} found {len(matches)} existing match(es)"
+            )
+
+            # 3. Delete each match. We log + collect failures but keep
+            #    going — a partial cleanup is still better than no
+            #    cleanup, and the new ingest below is independent.
+            deleted_ids: List[str] = []
+            delete_errors: List[Dict[str, Any]] = []
+            for doc in matches:
+                doc_id = doc.get("id")
+                if not doc_id:
+                    continue
+                del_resp = self.delete_document(doc_id, workspace=workspace)
+                if del_resp.get("status") == "success":
+                    deleted_ids.append(doc_id)
+                else:
+                    delete_errors.append(
+                        {"id": doc_id, "message": del_resp.get("message")}
+                    )
+
+            # 4. Re-ingest the new version.
+            ingest_resp = self.ingest_files([file_path], workspace=workspace)
+            if ingest_resp.get("status") != "success":
+                return {
+                    "status": "error",
+                    "message": (
+                        "Re-ingest failed after deleting "
+                        f"{len(deleted_ids)} old copies: "
+                        f"{ingest_resp.get('message')}"
+                    ),
+                    "data": {
+                        "deleted_ids": deleted_ids,
+                        "deleted_count": len(deleted_ids),
+                        "delete_errors": delete_errors,
+                    },
+                }
+
+            return {
+                "status": "success",
+                "data": {
+                    "matched_basename": target_name,
+                    "deleted_ids": deleted_ids,
+                    "deleted_count": len(deleted_ids),
+                    "delete_errors": delete_errors,
+                    "ingest": ingest_resp.get("data"),
+                },
+            }
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.replace_document")
             logger.error(err)
             return {"status": "error", "message": str(e)}
 

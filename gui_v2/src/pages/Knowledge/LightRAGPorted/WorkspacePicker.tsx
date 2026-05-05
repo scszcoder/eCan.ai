@@ -140,9 +140,17 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
       ) : null}
       <AutoComplete
         value={value}
-        onChange={(v) => onChange((v || '').trim())}
+        onChange={(v) => {
+          // LIGHTRAG-WORKSPACE travels as an HTTP header, which is
+          // latin-1 only (RFC 7230). Strip anything outside printable
+          // ASCII at input time so users typing Chinese / emoji get
+          // immediate feedback instead of a confusing
+          // "'latin-1' codec can't encode characters..." backend error.
+          const cleaned = (v || '').replace(/[^\x20-\x7E]/g, '').trim();
+          onChange(cleaned);
+        }}
         options={filteredOptions}
-        placeholder={placeholder || 'workspace (optional — server default)'}
+        placeholder={placeholder || 'workspace (ASCII only — server default if empty)'}
         allowClear
         size="small"
         style={{ width: 220 }}

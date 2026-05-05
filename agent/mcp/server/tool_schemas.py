@@ -125,6 +125,7 @@ from agent.ec_skills.rag.local_rag_mcp import (
     add_rag_query_tool_schema,
     add_wait_for_rag_completion_tool_schema,
     add_ragify_async_tool_schema,
+    add_rag_replace_document_tool_schema,
 )
 from agent.ec_skills.sql.local_sql_mcp import add_query_sales_db_tool_schema
 from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
@@ -2170,6 +2171,8 @@ def build_agent_mcp_tools_schemas():
     add_wait_for_rag_completion_tool_schema(tool_schemas)
 
     add_ragify_async_tool_schema(tool_schemas)
+
+    add_rag_replace_document_tool_schema(tool_schemas)
 
     # Structured-data SQL tool (use for sales / inventory / order numbers,
     # i.e. cases where RAG paraphrasing would be wrong).
