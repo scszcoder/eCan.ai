@@ -35,19 +35,22 @@ async def ragify(mainwin, args):
         file_paths = input_data.get("file_paths", [])
         text = input_data.get("text")
         file_source = input_data.get("file_source")
+        # Optional LightRAG workspace (tenant) for data isolation.
+        # Empty / missing → uses the server's default workspace.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # Initialize client
         client = get_client()
         
         # Mode 1: File upload
         if file_paths:
-            rag_result = client.ingest_files(file_paths)
-            logger.info(f"[MCP][RAGIFY] File ingestion result: {rag_result}")
+            rag_result = client.ingest_files(file_paths, workspace=workspace)
+            logger.info(f"[MCP][RAGIFY] File ingestion result: {rag_result} (workspace={workspace!r})")
             msg = f"Ingested {len(file_paths)} file(s)"
         # Mode 2: Text insert
         elif text:
             metadata = {"file_source": file_source} if file_source else None
-            rag_result = client.insert_text(text, metadata)
+            rag_result = client.insert_text(text, metadata, workspace=workspace)
             logger.info(f"[MCP][RAGIFY] Text insert result: {rag_result}")
             msg = "Text inserted successfully"
         else:
@@ -103,6 +106,10 @@ async def rag_query(mainwin, args):
         if not query_text or len(query_text.strip()) < 3:
             return [TextContent(type="text", text="Error: Query must be at least 3 characters")]
         
+        # Optional LightRAG workspace (tenant) for data isolation.
+        # Empty / missing → uses the server's default workspace.
+        workspace = (input_data.get("workspace") or "").strip() or None
+        
         # Initialize client
         client = get_client()
         
@@ -151,7 +158,7 @@ async def rag_query(mainwin, args):
         
         if _is_context_only:
             # Blocking call — context retrieval is fast, 30s timeout is generous
-            response = client.query(query_text.strip(), options, timeout=30)
+            response = client.query(query_text.strip(), options, timeout=30, workspace=workspace)
             if response.get("status") == "success":
                 data = response.get("data", {})
                 if isinstance(data, dict):
@@ -167,21 +174,58 @@ async def rag_query(mainwin, args):
             import json as _json
             _accumulated = ""
             _refs = []
+            _confidence = None
+            _no_answer_message = None
             try:
-                for chunk_line in client.query_stream(query_text.strip(), options):
+                for chunk_line in client.query_stream(query_text.strip(), options, workspace=workspace):
                     try:
                         chunk_data = _json.loads(chunk_line)
                         if "response" in chunk_data:
                             _accumulated += chunk_data.get("response", "")
                         if "references" in chunk_data:
                             _refs = chunk_data.get("references", [])
+                        # Final confidence chunk emitted by lightrag_client.query_stream
+                        if "confidence" in chunk_data:
+                            _confidence = chunk_data.get("confidence")
+                        if "no_answer_message" in chunk_data:
+                            _no_answer_message = chunk_data.get("no_answer_message")
                     except _json.JSONDecodeError:
                         _accumulated += chunk_line
-                answer = _accumulated
-                rag_result = {"status": "success", "data": {"response": _accumulated, "references": _refs}}
+
+                # Fallback: if upstream didn't emit a confidence chunk, compute it
+                # locally so callers always see the score.
+                if _confidence is None:
+                    try:
+                        from knowledge.lightrag_confidence_scorer import score_lightrag_response
+                        _confidence = score_lightrag_response(
+                            query=query_text.strip(),
+                            response_data={"response": _accumulated, "references": _refs},
+                            query_options=options,
+                        )
+                    except Exception as score_err:
+                        logger.warning(f"[MCP][RAG_QUERY] Local confidence scoring failed: {score_err}")
+                        _confidence = None
+
+                # If LightRAG (or our fallback) decided the answer is unsafe,
+                # surface its no-answer message as the tool text.
+                _decision = (_confidence or {}).get("decision") or {}
+                if _decision.get("should_answer") is False and _no_answer_message:
+                    answer = _no_answer_message
+                else:
+                    answer = _accumulated
+
+                _data_payload = {
+                    "response": _accumulated,
+                    "references": _refs,
+                }
+                if _confidence is not None:
+                    _data_payload["confidence"] = _confidence
+                if _no_answer_message:
+                    _data_payload["no_answer_message"] = _no_answer_message
+                rag_result = {"status": "success", "data": _data_payload}
             except Exception as stream_err:
                 logger.warning(f"[MCP][RAG_QUERY] Stream failed, falling back to blocking: {stream_err}")
-                response = client.query(query_text.strip(), options, timeout=90)
+                response = client.query(query_text.strip(), options, timeout=90, workspace=workspace)
                 if response.get("status") == "success":
                     data = response.get("data", {})
                     answer = data.get("response", str(data)) if isinstance(data, dict) else str(data)
@@ -236,6 +280,10 @@ def add_ragify_tool_schema(tool_schemas):
                         "file_source": {
                             "type": "string",
                             "description": "Optional source identifier for the inserted text."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same workspace consistently per category (e.g. 'customer_service', 'product_details'). Omit to use the server's default workspace."
                         }
                     }
                 }
@@ -300,6 +348,9 @@ async def wait_for_rag_completion(mainwin, args):
         poll_interval = input_data.get("poll_interval_seconds", 15)
         timeout_seconds = input_data.get("timeout_seconds")
         max_retries = input_data.get("max_retries", 3)
+        # Optional LightRAG workspace (tenant). Must match the workspace
+        # passed to ragify / ragify_async when this track_id was created.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # If timeout not provided, use default based on typical file size estimate
         # (we don't have file sizes here, so use a reasonable default)
@@ -332,7 +383,7 @@ async def wait_for_rag_completion(mainwin, args):
             
             # Poll status
             try:
-                status_response = client.track_status(track_id)
+                status_response = client.track_status(track_id, workspace=workspace)
                 retry_count = 0  # Reset retry count on success
                 
                 if status_response.get("status") == "success":
@@ -420,7 +471,8 @@ def _rag_completion_monitor(
     task_id: str,
     chat_id: str,
     mainwin: Any,
-    notification_message: str = None
+    notification_message: str = None,
+    workspace: Optional[str] = None,
 ):
     """
     Background thread that monitors RAG completion and sends notification to task queue.
@@ -449,7 +501,7 @@ def _rag_completion_monitor(
             
             # Poll status
             try:
-                status_response = client.track_status(track_id)
+                status_response = client.track_status(track_id, workspace=workspace)
                 
                 if status_response.get("status") == "success":
                     data = status_response.get("data", {})
@@ -607,14 +659,16 @@ async def ragify_async(mainwin, args):
         timeout_seconds = input_data.get("timeout_seconds")
         poll_interval = input_data.get("poll_interval_seconds", 15)
         notification_message = input_data.get("notification_message")
+        # Optional LightRAG workspace (tenant) for data isolation.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # Initialize client
         client = get_client()
         
         # Mode 1: File upload
         if file_paths:
-            rag_result = client.ingest_files(file_paths)
-            logger.info(f"[MCP][RAGIFY_ASYNC] File ingestion result: {rag_result}")
+            rag_result = client.ingest_files(file_paths, workspace=workspace)
+            logger.info(f"[MCP][RAGIFY_ASYNC] File ingestion result: {rag_result} (workspace={workspace!r})")
             msg = f"Ingested {len(file_paths)} file(s)"
             
             # Calculate timeout from file sizes if not provided
@@ -624,7 +678,7 @@ async def ragify_async(mainwin, args):
         # Mode 2: Text insert
         elif text:
             metadata = {"file_source": file_source} if file_source else None
-            rag_result = client.insert_text(text, metadata)
+            rag_result = client.insert_text(text, metadata, workspace=workspace)
             logger.info(f"[MCP][RAGIFY_ASYNC] Text insert result: {rag_result}")
             msg = "Text inserted successfully"
             
@@ -655,7 +709,7 @@ async def ragify_async(mainwin, args):
                 # Start background thread
                 monitor_thread = threading.Thread(
                     target=_rag_completion_monitor,
-                    args=(track_id, timeout_seconds, poll_interval, notify_task_id, notify_chat_id, mainwin, notification_message),
+                    args=(track_id, timeout_seconds, poll_interval, notify_task_id, notify_chat_id, mainwin, notification_message, workspace),
                     daemon=True,
                     name=f"rag_monitor_{track_id}"
                 )
@@ -794,6 +848,10 @@ def add_rag_query_tool_schema(tool_schemas):
                             "type": "boolean",
                             "default": False,
                             "description": "If true, includes actual chunk text content in references."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant) to query. Use the same name the documents were ingested under (e.g. 'customer_service', 'product_details'). Omit to query the server's default workspace."
                         }
                     }
                 }
@@ -841,6 +899,10 @@ def add_wait_for_rag_completion_tool_schema(tool_schemas):
                             "default": 3,
                             "minimum": 1,
                             "description": "Max consecutive poll failures before giving up (default: 3)."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant). Must match the workspace that was used when the track_id was created by ragify / ragify_async."
                         }
                     }
                 }
@@ -907,6 +969,10 @@ def add_ragify_async_tool_schema(tool_schemas):
                         "notification_message": {
                             "type": "string",
                             "description": "Custom message to include in the completion notification."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same name consistently per category. The background completion monitor will poll track status scoped to this workspace."
                         }
                     }
                 }

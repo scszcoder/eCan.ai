@@ -113,6 +113,11 @@ jobs:
       version: ${{ steps.out.outputs.version }}
       is-branch: ${{ steps.out.outputs.is_branch }}
       ref-name: ${{ steps.out.outputs.ref_name }}
+      # Mirror release.yml: surface the user-prefix and verbatim tag name
+      # so simulation runs of user-prefixed tags exercise the same
+      # downstream paths (upload + appcast) as production runs.
+      user-prefix: ${{ steps.out.outputs.user_prefix }}
+      tag-name: ${{ steps.out.outputs.tag_name }}
       environment: ${{ steps.detect-env.outputs.environment }}
       channel: ${{ steps.detect-env.outputs.channel }}
     steps:
@@ -136,14 +141,41 @@ jobs:
           echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
           echo "Selected ref: $REF_NAME"
 
-          # Check if it's a tag (semantic version format)
-          if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
+          # Tag formats accepted (mirror release.yml validate-tag step):
+          #   1. Plain semver:        v1.0.0
+          #   2. User-prefixed:       songc_v26.05.04.09.11
+          # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview,
+          # snapshot) are forbidden; see ota/core/appcast.py::_split_user_prefix.
+          SEMVER_RE='^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+          PREFIXED_RE='^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+
+          if [[ "$REF_NAME" =~ $SEMVER_RE ]]; then
             echo "valid=true" >> $GITHUB_OUTPUT
             echo "is_branch=false" >> $GITHUB_OUTPUT
-            # Tag: use tag version + -sim suffix
             VERSION="${REF_NAME#v}"
             echo "version=${VERSION}-sim" >> $GITHUB_OUTPUT
+            echo "user_prefix=" >> $GITHUB_OUTPUT
+            echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
             echo "Tag detected: $REF_NAME -> ${VERSION}-sim"
+          elif [[ "$REF_NAME" =~ $PREFIXED_RE ]]; then
+            USER_PREFIX_RAW="${BASH_REMATCH[1]}"
+            USER_PREFIX="${USER_PREFIX_RAW,,}"
+            case "$USER_PREFIX" in
+              rc|beta|alpha|dev|nightly|pre|preview|snapshot)
+                echo "[ERROR] Tag prefix '$USER_PREFIX_RAW' is a reserved prerelease keyword."
+                echo "Reserved prefixes: rc, beta, alpha, dev, nightly, pre, preview, snapshot"
+                exit 1
+                ;;
+            esac
+            VERSION_CORE="${REF_NAME#${USER_PREFIX_RAW}_v}"
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "is_branch=false" >> $GITHUB_OUTPUT
+            # Keep the -sim suffix to preserve the existing simulation
+            # convention (artifacts and S3 paths are clearly marked).
+            echo "version=${VERSION_CORE}-sim" >> $GITHUB_OUTPUT
+            echo "user_prefix=$USER_PREFIX" >> $GITHUB_OUTPUT
+            echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
+            echo "User-prefixed tag detected: prefix=$USER_PREFIX, core=$VERSION_CORE"
           else
             # Branch: read VERSION file as base version
             if [ -f "VERSION" ]; then
@@ -161,6 +193,8 @@ jobs:
             echo "valid=true" >> $GITHUB_OUTPUT
             echo "is_branch=true" >> $GITHUB_OUTPUT
             echo "version=$FALLBACK" >> $GITHUB_OUTPUT
+            echo "user_prefix=" >> $GITHUB_OUTPUT
+            echo "tag_name=" >> $GITHUB_OUTPUT
             echo "Branch detected: $REF_NAME -> version=$FALLBACK"
           fi
       
@@ -930,6 +964,9 @@ jobs:
     with:
       version: ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
+      # Mirror release.yml so simulation runs of user-prefixed tags
+      # exercise the same S3 layout (releases/<prefix>_v<core>/...).
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
       linux-build-result: ${{ needs.build-linux.result }}
@@ -952,6 +989,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'windows'
       arch: 'amd64'
     secrets: inherit
@@ -971,6 +1009,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'macos'
       arch: 'amd64'
     secrets: inherit
@@ -990,6 +1029,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'macos'
       arch: 'aarch64'
     secrets: inherit
@@ -1008,6 +1048,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'linux'
       arch: 'amd64'
     secrets: inherit

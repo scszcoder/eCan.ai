@@ -39,6 +39,16 @@ on:
         required: false
         type: string
         default: ''
+      user-prefix:
+        description: |
+          Optional per-user release prefix (lowercase). When provided
+          alongside `version`, the generator looks up the verbatim
+          directory `releases/<prefix>_v<version>/...`. The auto-scan
+          path discovers every directory layout regardless and only
+          uses this hint for diagnostic logging.
+        required: false
+        type: string
+        default: ''
       platform:
         description: 'Target platform (all/macos/windows)'
         required: false
@@ -90,6 +100,7 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           CHANNEL: ${{ inputs.channel }}
           VERSION: ${{ inputs.version }}
+          USER_PREFIX: ${{ inputs.user-prefix }}
           PLATFORM: ${{ inputs.platform }}
           ARCH: ${{ inputs.arch }}
         run: |
@@ -97,28 +108,36 @@ jobs:
           echo "Environment: $ENVIRONMENT"
           echo "Channel: $CHANNEL"
           echo "Version: $VERSION"
+          echo "User Prefix: ${USER_PREFIX:-<none>}"
           echo "Platform: $PLATFORM"
           echo "Architecture: $ARCH"
-          
+
           # Build command
           CMD="python3 build_system/scripts/generate_appcast.py --env $ENVIRONMENT"
-          
+
           if [ -n "$CHANNEL" ]; then
             CMD="$CMD --channel $CHANNEL"
           fi
-          
+
           if [ -n "$VERSION" ]; then
             CMD="$CMD --version $VERSION"
           fi
-          
+
+          # Only pass --user-prefix when set; empty value would otherwise
+          # pollute the generator's logs and slightly differ from existing
+          # semver invocations during this rollout.
+          if [ -n "$USER_PREFIX" ]; then
+            CMD="$CMD --user-prefix $USER_PREFIX"
+          fi
+
           if [ -n "$PLATFORM" ]; then
             CMD="$CMD --platform $PLATFORM"
           fi
-          
+
           if [ -n "$ARCH" ]; then
             CMD="$CMD --arch $ARCH"
           fi
-          
+
           # Run generation script
           $CMD
           
