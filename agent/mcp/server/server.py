@@ -132,6 +132,11 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async, rag_replace_document
 from agent.ec_skills.sql.local_sql_mcp import query_sales_db
+from agent.mcp.server.integrations.customer_data_tools import (
+    query_price,
+    query_inventories,
+    query_order,
+)
 from agent.mcp.server.self_utils.self_tools import (
     async_describe_self,
     async_diagnose_llm,
@@ -3800,6 +3805,10 @@ tool_function_mapping = {
         "ragify_async": ragify_async,
         "rag_replace_document": rag_replace_document,
         "query_sales_db": query_sales_db,
+        # Customer-data integration wrappers
+        "query_price": query_price,
+        "query_inventories": query_inventories,
+        "query_order": query_order,
         # Self-introspection and agent management tools
         "describe_self": async_describe_self,
         "diagnose_llm": async_diagnose_llm,

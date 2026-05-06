@@ -397,6 +397,11 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     # Structured SQL tool (sales / inventory / orders — anything where
     # paraphrasing would be wrong).
     "query_sales_db": ("agent.ec_skills.sql.local_sql_mcp", "query_sales_db"),
+    # Customer-data integration wrappers (vendor handler is plugged in by
+    # the integrator at deploy time; see customer_data_tools.py).
+    "query_price": ("agent.mcp.server.integrations.customer_data_tools", "query_price"),
+    "query_inventories": ("agent.mcp.server.integrations.customer_data_tools", "query_inventories"),
+    "query_order": ("agent.mcp.server.integrations.customer_data_tools", "query_order"),
     # Chat / communication
     "send_chat": ("agent.mcp.server.chat_utils.chat_tools", "async_send_chat"),
     "list_chat_agents": ("agent.mcp.server.chat_utils.chat_tools", "async_list_chat_agents"),
