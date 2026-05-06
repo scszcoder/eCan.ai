@@ -45,7 +45,7 @@ runs:
     - name: Cache wa_bridge npm dependencies
       if: steps.check_source.outputs.source_exists == 'true'
       id: cache-wa-bridge-deps
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: ${{ inputs.bridge-dir }}/node_modules
         key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-${{ hashFiles(format('{0}/package-lock.json', inputs.bridge-dir)) }}
