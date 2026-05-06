@@ -1,5 +1,6 @@
 import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import requests
 
@@ -28,22 +29,9 @@ def _ws_headers(workspace: Optional[str], base: Optional[Dict[str, str]] = None)
     if workspace:
         _w = str(workspace).strip()
         if _w:
-            # HTTP header values are latin-1 only (RFC 7230). A workspace
-            # name containing non-ASCII characters (e.g. Chinese) would
-            # otherwise crash deep inside urllib3 with
-            # "'latin-1' codec can't encode characters ...". Catch it here
-            # and raise a clear, user-actionable error that the calling
-            # method's try/except will surface as a normal IPC error
-            # payload instead of a stack trace.
-            try:
-                _w.encode("latin-1")
-            except UnicodeEncodeError:
-                raise ValueError(
-                    f"Workspace name must use ASCII characters only "
-                    f"(got: {_w!r}). Please pick an ASCII name such as "
-                    f"'customer_service' or 'product_details'."
-                )
-            headers["LIGHTRAG-WORKSPACE"] = _w
+            # Percent-encode so any Unicode (e.g. Chinese) travels safely as
+            # a valid ASCII HTTP header value (RFC 7230).
+            headers["LIGHTRAG-WORKSPACE"] = quote(_w, safe='')
     return headers
 
 
@@ -320,7 +308,13 @@ class LightragClient:
             Dict with query response
         """
         try:
-            payload = {"query": text}
+            payload = {
+                "query": text,
+                # Always request references + chunk text so the confidence scorer
+                # can run faithfulness checks.  Callers can still override via options.
+                "include_references": True,
+                "include_chunk_content": True,
+            }
             if options:
                 # Map all supported parameters as defined in QueryRequest schema
                 for key in [
@@ -359,7 +353,16 @@ class LightragClient:
 
             r.raise_for_status()
             result = r.json()
-            
+
+            # Debug: log what signals are available for confidence scoring
+            refs = result.get('references') or []
+            chunks = (result.get('data') or {}).get('chunks') or []
+            has_chunk_content = any(r.get('content') for r in refs) or any(c.get('content') for c in chunks)
+            logger.info(
+                f"[Confidence input] refs={len(refs)} chunks={len(chunks)} "
+                f"has_chunk_content={has_chunk_content}"
+            )
+
             # Calculate confidence score for the response
             try:
                 from knowledge.lightrag_confidence_scorer import score_lightrag_response
@@ -689,7 +692,11 @@ class LightragClient:
         Yields:
             Streaming response chunks (including final confidence chunk)
         """
-        payload = {"query": text}
+        payload = {
+            "query": text,
+            "include_references": True,
+            "include_chunk_content": True,
+        }
         if options:
             # Map all supported parameters as defined in QueryRequest schema
             for key in [
@@ -706,6 +713,7 @@ class LightragClient:
                 'user_prompt',
                 'enable_rerank',
                 'include_references',
+                'include_chunk_content',
                 'stream',
             ]:
                 if key in options:
@@ -760,6 +768,8 @@ class LightragClient:
                                 accumulated_response['response'] += chunk_data.get('response', '')
                             if 'references' in chunk_data:
                                 accumulated_response['references'] = chunk_data.get('references', [])
+                            if 'data' in chunk_data and isinstance(chunk_data['data'], dict):
+                                accumulated_response['data'] = chunk_data['data']
                         except json.JSONDecodeError:
                             accumulated_response['response'] += line_str
                 
