@@ -22,7 +22,7 @@ const Header: React.FC = () => {
     <header
       style={{
         background: headerBg,
-        padding: '8px 48px',
+        padding: '8px 48px 20px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between'

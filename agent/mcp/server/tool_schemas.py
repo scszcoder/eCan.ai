@@ -128,6 +128,11 @@ from agent.ec_skills.rag.local_rag_mcp import (
     add_rag_replace_document_tool_schema,
 )
 from agent.ec_skills.sql.local_sql_mcp import add_query_sales_db_tool_schema
+from agent.mcp.server.integrations.customer_data_tools import (
+    add_query_price_tool_schema,
+    add_query_inventories_tool_schema,
+    add_query_order_tool_schema,
+)
 from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
 from agent.mcp.server.aws_utils.aws_tools import (
     add_aws_read_billing_tool_schema,
@@ -2177,6 +2182,13 @@ def build_agent_mcp_tools_schemas():
     # Structured-data SQL tool (use for sales / inventory / order numbers,
     # i.e. cases where RAG paraphrasing would be wrong).
     add_query_sales_db_tool_schema(tool_schemas)
+
+    # Customer-data integration wrappers (price / inventory / order).
+    # The actual data backend is plugged in by the integrator; see
+    # agent/mcp/server/integrations/customer_data_tools.py.
+    add_query_price_tool_schema(tool_schemas)
+    add_query_inventories_tool_schema(tool_schemas)
+    add_query_order_tool_schema(tool_schemas)
 
     # Self-introspection and agent management tools
     from agent.mcp.server.self_utils.self_tools import (

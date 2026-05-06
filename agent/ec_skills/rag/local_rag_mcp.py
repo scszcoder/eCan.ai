@@ -231,7 +231,16 @@ async def rag_query(mainwin, args):
                 if isinstance(val, str) and not val.strip():
                     continue
                 options[param] = val
-        
+
+        # Default to context-only retrieval. LightRAG's internal synthesis LLM
+        # is the dominant latency cost (~10-13s of a typical /query); skipping
+        # it cuts rag_query end-to-end from ~16s to ~3s. The caller's outer LLM
+        # composes the customer-facing reply from the retrieved chunks anyway.
+        # Callers that want a fully synthesized answer can pass
+        # only_need_context=false explicitly.
+        if "only_need_context" not in options:
+            options["only_need_context"] = True
+
         # Context-only queries use blocking /query (fast, <5s).
         # Full-generation queries use /query/stream to avoid timeout on slow LLMs.
         _is_context_only = options.get("only_need_context", False)
