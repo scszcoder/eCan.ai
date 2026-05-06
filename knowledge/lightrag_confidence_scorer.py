@@ -129,7 +129,11 @@ class LightRAGConfidenceScorer:
             )
 
             # --- 5. Quality gate (refusal / error detection) ------------------
-            quality_score = self._calculate_quality_score(response_text)
+            is_context_only = bool((query_options or {}).get("only_need_context"))
+            if is_context_only and references:
+                quality_score = 1.0
+            else:
+                quality_score = self._calculate_quality_score(response_text)
 
             # --- 6. Weighted overall score ------------------------------------
             overall, formula_used = self._calculate_overall(
@@ -453,7 +457,8 @@ class LightRAGConfidenceScorer:
 
         refusal_phrases = [
             "i don't know", "i cannot", "i'm unable", "i am unable",
-            "no information", "cannot find", "not found",
+            "no information", "cannot find", "couldn't find", "could not find",
+            "not enough relevant context", "not found",
             "无法回答", "无法找到", "找不到", "没有相关", "无相关信息",
             "无法提供", "不确定", "没有找到", "抱歉，我", "对不起，我",
             "我没有", "无从得知",

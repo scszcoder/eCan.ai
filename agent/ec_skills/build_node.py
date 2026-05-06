@@ -287,6 +287,12 @@ def _stale_input_has_undelivered_response_text(
         return False, "", ""
     response_text = parsed.get("response_text")
     customer = parsed.get("customer_name") or parsed.get("customer_id")
+    source_msg_id = str(
+        parsed.get("source_customer_msg_id")
+        or parsed.get("latest_message_msg_id")
+        or parsed.get("reply_to_msg_id")
+        or ""
+    ).strip()
     if not (
         isinstance(response_text, str) and response_text.strip()
         and isinstance(customer, str) and customer.strip()
@@ -296,7 +302,9 @@ def _stale_input_has_undelivered_response_text(
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
             dispatch_state as _ds,
         )
-        recent_age = _ds.was_recently_sent(customer, response_text)
+        recent_age = _ds.was_recently_sent_for_turn(
+            customer, response_text, source_msg_id
+        )
     except Exception:
         recent_age = 0.0
     if recent_age > 0.0:
@@ -6000,6 +6008,20 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         _meta = getattr(result, 'meta', None) or {}
                         if not isinstance(_meta, dict):
                             _meta = {}
+                        # MCP wraps TextContent in a CallToolResult: the rag payload
+                        # (response/references/confidence) is on content[0].meta, not on
+                        # the outer result.meta (which the server leaves None). Without
+                        # this fallback, references/confidence are always lost downstream
+                        # and the system-prompt confidence gate fires every reply.
+                        if not _meta:
+                            try:
+                                _content = getattr(result, 'content', None) or []
+                                if _content:
+                                    _inner = getattr(_content[0], 'meta', None)
+                                    if isinstance(_inner, dict):
+                                        _meta = _inner
+                            except Exception:
+                                pass
                         _data = _meta.get('data') if isinstance(_meta.get('data'), dict) else _meta
                         _answer_text = ''
                         if isinstance(_data, dict):
@@ -7242,6 +7264,20 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 f"had_attrs_params={bool(_stale_attrs_params)}, "
                 f"new_event={_rp_event_type}, node={node_name})"
             )
+        if _rp_event_type and isinstance(state.get("result"), dict):
+            _llm_result = state["result"].get("llm_result")
+            if isinstance(_llm_result, dict) and _llm_result.get("all_done") is True:
+                state["result"]["llm_result"] = {
+                    **_llm_result,
+                    "all_done": False,
+                    "work_done": False,
+                    "stale_resume_reset": True,
+                }
+                logger.info(
+                    f"[pend_event] Reset stale all_done result after "
+                    f"{_rp_event_type} resume so the next node can process "
+                    f"the new event, node={node_name}"
+                )
 
         # Enrich state with chat metadata, if available
         try:

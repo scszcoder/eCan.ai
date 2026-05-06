@@ -797,13 +797,47 @@ async def _dispatch_one_item(
     try:
         inflight_age = ctx.is_dispatch_inflight(customer_key)
         if inflight_age > 0:
-            logger.info(
-                f"[BrowserAutomation] {log_tag} inflight skip "
-                f"session={session_id!r} cust={customer_key!r} "
-                f"(another dispatch is in flight, age={inflight_age:.1f}s, "
-                f"ttl={ctx.inflight_ttl_s}s)"
+            current_text = str(
+                item.get("last_message")
+                or item.get("latest_message")
+                or item.get("message")
+                or ""
             )
-            return opened_row, "", ""
+            current_norm = ctx.normalize_reply_text(current_text) if current_text else ""
+            assigned = assigned_sessions.get(session_id)
+            prior_text = ""
+            if isinstance(assigned, dict):
+                prior_text = str(
+                    assigned.get("latest_message")
+                    or assigned.get("last_message")
+                    or assigned.get("source_latest_message")
+                    or ""
+                )
+            prior_norm = ctx.normalize_reply_text(prior_text) if prior_text else ""
+            if assigned and current_norm and prior_norm and current_norm != prior_norm:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} inflight supersede "
+                    f"session={session_id!r} cust={customer_key!r} "
+                    f"(new sidebar text differs from prior assignment; "
+                    f"age={inflight_age:.1f}s, current={current_text[:80]!r}, "
+                    f"prior={prior_text[:80]!r})"
+                )
+                try:
+                    ctx.clear_dispatch_inflight(customer_key)
+                except Exception as clear_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} inflight supersede "
+                        f"clear failed for cust={customer_key!r}: {clear_exc}"
+                    )
+                assigned_sessions.pop(session_id, None)
+            else:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} inflight skip "
+                    f"session={session_id!r} cust={customer_key!r} "
+                    f"(another dispatch is in flight, age={inflight_age:.1f}s, "
+                    f"ttl={ctx.inflight_ttl_s}s)"
+                )
+                return opened_row, "", ""
     except Exception as exc:
         logger.debug(
             f"[BrowserAutomation] {log_tag} inflight check failed: {exc}"

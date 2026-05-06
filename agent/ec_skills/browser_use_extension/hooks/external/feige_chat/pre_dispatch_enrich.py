@@ -124,6 +124,15 @@ async def _scrape_and_override_last_message(
         str(item.get("customer_name") or ""),
         typing_holder_getter=typing_holder_getter,
     )
+    if scraped.get("skip_dispatch"):
+        skip_reason = str(scraped.get("skip_reason") or "scrape_not_safe")
+        item["_ecan_pre_dispatch_skip_reason"] = skip_reason
+        logger.warning(
+            f"[BrowserAutomation] {log_tag} thread-scrape refused "
+            f"dispatch for cust={customer_key!r}: reason={skip_reason!r}, "
+            f"detail={scraped.get('verify_reason')!r}"
+        )
+        return ""
     if not scraped.get("scrape_ok"):
         logger.debug(
             f"[BrowserAutomation] {log_tag} thread-scrape returned no "
@@ -418,6 +427,15 @@ async def enrich_item(
         scraped_msg_id = await _scrape_and_override_last_message(
             browser_session, item, customer_key, log_tag, typing_holder_getter
         )
+        predispatch_skip_reason = str(
+            item.pop("_ecan_pre_dispatch_skip_reason", "") or ""
+        )
+        if predispatch_skip_reason:
+            return EnrichResult(
+                skip=True,
+                skip_reason=predispatch_skip_reason,
+                scraped_msg_id="",
+            )
 
     # Stage 1.5: System / platform message guard.
     #

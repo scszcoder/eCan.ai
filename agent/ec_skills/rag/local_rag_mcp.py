@@ -44,13 +44,19 @@ async def ragify(mainwin, args):
         
         # Mode 1: File upload
         if file_paths:
-            rag_result = client.ingest_files(file_paths, workspace=workspace)
+            # ingest_files / insert_text use sync requests under the hood;
+            # off-load so we don't block the MCP server's event loop.
+            rag_result = await asyncio.to_thread(
+                client.ingest_files, file_paths, workspace=workspace
+            )
             logger.info(f"[MCP][RAGIFY] File ingestion result: {rag_result} (workspace={workspace!r})")
             msg = f"Ingested {len(file_paths)} file(s)"
         # Mode 2: Text insert
         elif text:
             metadata = {"file_source": file_source} if file_source else None
-            rag_result = client.insert_text(text, metadata, workspace=workspace)
+            rag_result = await asyncio.to_thread(
+                client.insert_text, text, metadata, workspace=workspace
+            )
             logger.info(f"[MCP][RAGIFY] Text insert result: {rag_result}")
             msg = "Text inserted successfully"
         else:
@@ -123,7 +129,8 @@ async def rag_replace_document(mainwin, args):
         match_basename = bool(input_data.get("match_basename", True))
 
         client = get_client()
-        result = client.replace_document(
+        result = await asyncio.to_thread(
+            client.replace_document,
             path,
             workspace=workspace,
             match_basename=match_basename,
@@ -246,12 +253,35 @@ async def rag_query(mainwin, args):
         _is_context_only = options.get("only_need_context", False)
         
         if _is_context_only:
-            # Blocking call — context retrieval is fast, 30s timeout is generous
-            response = client.query(query_text.strip(), options, timeout=30, workspace=workspace)
+            # Off-load to a worker thread: client.query uses requests.Session
+            # (sync HTTP). Calling it directly inside this async handler blocks
+            # the MCP server's event loop, serializing every other concurrent
+            # tool call and starving the streamable-HTTP response stream —
+            # which manifests as a 60s persistent-session timeout on the
+            # build_node client side.
+            response = await asyncio.to_thread(
+                client.query, query_text.strip(), options, timeout=30, workspace=workspace
+            )
             if response.get("status") == "success":
                 data = response.get("data", {})
                 if isinstance(data, dict):
                     answer = data.get("response", str(data))
+                    # /query in context-only mode doesn't emit confidence, but
+                    # downstream gates (system prompt Step 3) require it. Mirror
+                    # the streaming-path fallback so callers always see a score.
+                    if "confidence" not in data:
+                        try:
+                            from knowledge.lightrag_confidence_scorer import score_lightrag_response
+                            data["confidence"] = score_lightrag_response(
+                                query=query_text.strip(),
+                                response_data={
+                                    "response": answer,
+                                    "references": data.get("references", []),
+                                },
+                                query_options=options,
+                            )
+                        except Exception as score_err:
+                            logger.warning(f"[MCP][RAG_QUERY] Local confidence scoring failed: {score_err}")
                 else:
                     answer = str(data)
                 rag_result = response
@@ -259,27 +289,39 @@ async def rag_query(mainwin, args):
                 answer = f"Error: {response.get('message', 'Query failed')}"
                 rag_result = response
         else:
-            # Streaming call — keeps connection alive for slow LLM generation
+            # Streaming call — keeps connection alive for slow LLM generation.
+            # query_stream is a sync generator over a blocking HTTP socket;
+            # consume it inside a worker thread so the MCP server's event
+            # loop remains responsive for other concurrent tool calls.
             import json as _json
+
+            def _consume_stream():
+                accumulated = ""
+                refs = []
+                confidence = None
+                no_answer_message = None
+                for chunk_line in client.query_stream(query_text.strip(), options, workspace=workspace):
+                    try:
+                        chunk_data = _json.loads(chunk_line)
+                        if "response" in chunk_data:
+                            accumulated += chunk_data.get("response", "")
+                        if "references" in chunk_data:
+                            refs = chunk_data.get("references", [])
+                        # Final confidence chunk emitted by lightrag_client.query_stream
+                        if "confidence" in chunk_data:
+                            confidence = chunk_data.get("confidence")
+                        if "no_answer_message" in chunk_data:
+                            no_answer_message = chunk_data.get("no_answer_message")
+                    except _json.JSONDecodeError:
+                        accumulated += chunk_line
+                return accumulated, refs, confidence, no_answer_message
+
             _accumulated = ""
             _refs = []
             _confidence = None
             _no_answer_message = None
             try:
-                for chunk_line in client.query_stream(query_text.strip(), options, workspace=workspace):
-                    try:
-                        chunk_data = _json.loads(chunk_line)
-                        if "response" in chunk_data:
-                            _accumulated += chunk_data.get("response", "")
-                        if "references" in chunk_data:
-                            _refs = chunk_data.get("references", [])
-                        # Final confidence chunk emitted by lightrag_client.query_stream
-                        if "confidence" in chunk_data:
-                            _confidence = chunk_data.get("confidence")
-                        if "no_answer_message" in chunk_data:
-                            _no_answer_message = chunk_data.get("no_answer_message")
-                    except _json.JSONDecodeError:
-                        _accumulated += chunk_line
+                _accumulated, _refs, _confidence, _no_answer_message = await asyncio.to_thread(_consume_stream)
 
                 # Fallback: if upstream didn't emit a confidence chunk, compute it
                 # locally so callers always see the score.
@@ -314,7 +356,9 @@ async def rag_query(mainwin, args):
                 rag_result = {"status": "success", "data": _data_payload}
             except Exception as stream_err:
                 logger.warning(f"[MCP][RAG_QUERY] Stream failed, falling back to blocking: {stream_err}")
-                response = client.query(query_text.strip(), options, timeout=90, workspace=workspace)
+                response = await asyncio.to_thread(
+                    client.query, query_text.strip(), options, timeout=90, workspace=workspace
+                )
                 if response.get("status") == "success":
                     data = response.get("data", {})
                     answer = data.get("response", str(data)) if isinstance(data, dict) else str(data)
@@ -472,7 +516,9 @@ async def wait_for_rag_completion(mainwin, args):
             
             # Poll status
             try:
-                status_response = client.track_status(track_id, workspace=workspace)
+                status_response = await asyncio.to_thread(
+                    client.track_status, track_id, workspace=workspace
+                )
                 retry_count = 0  # Reset retry count on success
                 
                 if status_response.get("status") == "success":
@@ -756,18 +802,22 @@ async def ragify_async(mainwin, args):
         
         # Mode 1: File upload
         if file_paths:
-            rag_result = client.ingest_files(file_paths, workspace=workspace)
+            rag_result = await asyncio.to_thread(
+                client.ingest_files, file_paths, workspace=workspace
+            )
             logger.info(f"[MCP][RAGIFY_ASYNC] File ingestion result: {rag_result} (workspace={workspace!r})")
             msg = f"Ingested {len(file_paths)} file(s)"
-            
+
             # Calculate timeout from file sizes if not provided
             if timeout_seconds is None:
                 timeout_seconds = _calculate_timeout_seconds(file_paths)
-                
+
         # Mode 2: Text insert
         elif text:
             metadata = {"file_source": file_source} if file_source else None
-            rag_result = client.insert_text(text, metadata, workspace=workspace)
+            rag_result = await asyncio.to_thread(
+                client.insert_text, text, metadata, workspace=workspace
+            )
             logger.info(f"[MCP][RAGIFY_ASYNC] Text insert result: {rag_result}")
             msg = "Text inserted successfully"
             

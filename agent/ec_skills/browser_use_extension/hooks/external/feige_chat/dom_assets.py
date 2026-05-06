@@ -1318,7 +1318,16 @@ async def scrape_latest_customer_bubble(
     concurrent scrape can still contend on CDP or disturb focus.
     """
     import asyncio as _s_asyncio
-    empty = {"text": "", "msg_id": "", "timestamp": "", "index": -1, "attachments": [], "scrape_ok": False}
+    empty = {
+        "text": "",
+        "msg_id": "",
+        "timestamp": "",
+        "index": -1,
+        "attachments": [],
+        "scrape_ok": False,
+        "skip_dispatch": False,
+        "skip_reason": "",
+    }
     if not browser_session or not customer_name:
         return empty
 
@@ -1407,6 +1416,37 @@ async def scrape_latest_customer_bubble(
         # Brief settle so the chat pane repaints after clicking a row.
         if not click_data.get("already_active"):
             await _s_asyncio.sleep(0.35)
+        verify_ok = False
+        verify_reason = ""
+        verify_data = {}
+        for _attempt in range(2):
+            verify_raw = await _s_eval_js(browser_session, FEIGE_ACTIVE_CUSTOMER_JS)
+            if isinstance(verify_raw, str):
+                try:
+                    verify_data = json.loads(verify_raw)
+                except Exception:
+                    verify_data = {}
+            else:
+                verify_data = verify_raw if isinstance(verify_raw, dict) else {}
+            verify_ok, verify_reason = verify_customer_match(
+                verify_data, customer_name
+            )
+            if verify_ok:
+                break
+            if _attempt == 0:
+                await _s_asyncio.sleep(0.25)
+        if not verify_ok:
+            logger.warning(
+                f"[BrowserAutomation] scrape-latest-customer: active-customer "
+                f"verification failed after sidebar click for {customer_name!r}; "
+                f"refusing thread scrape and dispatch "
+                f"(reason={verify_reason}, verify={verify_data!r})"
+            )
+            blocked = dict(empty)
+            blocked["skip_dispatch"] = True
+            blocked["skip_reason"] = "active_customer_mismatch"
+            blocked["verify_reason"] = verify_reason
+            return blocked
         scrape_raw = await _s_eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
         if isinstance(scrape_raw, str):
             try:
