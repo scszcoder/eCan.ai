@@ -15,6 +15,13 @@ import { detectPlatform } from '@/config/platform';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { networkHealthChecker } from './network-health';
 
+const getLoginRedirectUrl = (): string => {
+  if (window.location.protocol === 'file:') {
+    return `${window.location.href.split('#')[0]}#/login`;
+  }
+  return `${window.location.origin}/#/login`;
+};
+
 /**
  * API 路由器配置
  */
@@ -249,7 +256,7 @@ export class APIRouter {
             // Redirect to login if not already there
             if (window.location.hash !== '#/login') {
               setTimeout(() => {
-                window.location.replace(window.location.origin + '/#/login');
+                window.location.replace(getLoginRedirectUrl());
               }, 100);
             }
             
@@ -314,7 +321,7 @@ export class APIRouter {
               logger.info('[APIRouter] Redirecting to login due to invalid token');
               // Force full page reload to login to ensure React Router responds
               setTimeout(() => {
-                window.location.replace(window.location.origin + '/#/login');
+                window.location.replace(getLoginRedirectUrl());
               }, 500);
             }
           } catch (error) {
