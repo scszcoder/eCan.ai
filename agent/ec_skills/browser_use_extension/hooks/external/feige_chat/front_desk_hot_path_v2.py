@@ -729,7 +729,20 @@ async def before_session_setup_hook_v2(
                 last_tool_error=str(outcome.last_tool_error or ""),
                 level=logging.WARNING,
             )
-            break  # Only try first matching rule
+            state.setdefault("result", {})["llm_result"] = {
+                "all_done": True,
+                "work_done": False,
+                "hot_path": True,
+                "hot_path_type": "action_failed",
+                "hot_path_reason": str(outcome.reason or ""),
+                "last_tool_error": str(outcome.last_tool_error or ""),
+            }
+            logger.warning(
+                f"[HOT-PATH-B-V2] action failed; short-circuiting browser node "
+                f"to avoid full browser-use fallback, reason={outcome.reason!r}, "
+                f"node={ctx.node_name}"
+            )
+            return state
     except Exception as err:
         if claim_active:
             try:
