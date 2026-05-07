@@ -29,7 +29,7 @@ Contents
 
 * ``ensure_feige_tab_focused(browser_session)``
     Async — switches the session to a Feige tab (by ``im.jinritemai.com``
-    URL match) and clicks the ``最近联系`` sub-tab if present.
+    URL match) and keeps the sidebar on ``当前会话``.
 
 * ``scrape_latest_customer_bubble(browser_session, customer_name, *, typing_holder_getter=None)``
     Async — focuses the given customer's chat pane and extracts the
@@ -47,9 +47,223 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
+
+# ---------------------------------------------------------------------------
+# Focus-target tuning constants.
+#
+# Stress tests showed concurrent HOT-PATH-B / PreDispatch focus calls
+# against the same Chrome CDP session. Two controls keep this bounded:
+#
+#   1. A short 3s focus budget. If focus is contended, fail fast and let
+#      the guarded open/send path continue instead of tying up the worker.
+#
+#   2. A per-session cross-loop async lock (see ``_session_focus_lock``) so concurrent
+#      callers serialize at the application level rather than racing inside
+#      the CDP transport.  A plain asyncio.Lock cannot be shared across the
+#      runner loops; it fails with "bound to a different event loop" under
+#      direct-delivery flood.
+# ---------------------------------------------------------------------------
+_FOCUS_TARGET_TIMEOUT_S: float = 3.0
+_SESSION_FOCUS_LOCK_ATTR: str = "_ecan_feige_focus_lock"
+_SESSION_CDP_OPERATION_LOCK_ATTR: str = "_ecan_feige_cdp_operation_lock"
+_SESSION_FOCUSED_FEIGE_TID_ATTR: str = "_ecan_feige_focused_tid"
+_FOCUS_LOCK_POLL_S: float = 0.02
+_CDP_OPERATION_PROBE_TIMEOUT_S: float = 2.0
+
+
+class _CrossLoopAsyncLock:
+    """Async context manager backed by a process-local ``threading.Lock``.
+
+    ``asyncio.Lock`` binds to the loop that first waits on it. The Feige
+    browser session is shared by the front-desk monitor, fallback queue, and
+    direct-delivery worker, which can run on different loops. Polling a
+    non-blocking ``threading.Lock`` keeps the event loop responsive while
+    still serializing CDP focus calls across loops.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    async def __aenter__(self):
+        import asyncio as _lock_asyncio
+
+        while True:
+            if self._lock.acquire(blocking=False):
+                return self
+            await _lock_asyncio.sleep(_FOCUS_LOCK_POLL_S)
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self._lock.release()
+
+
+def _session_focus_lock(browser_session) -> "object":
+    """Return the per-session cross-loop async lock.
+
+    Falls back to a module-level registry keyed by ``id(session)`` if the
+    session object disallows attribute assignment.
+
+    Why per-session: each BrowserSession owns one CDP transport.  Two
+    concurrent ``get_or_create_cdp_session(target_id=..., focus=True)``
+    calls on that transport contend for the same chrome focus, which
+    is what produced ``CDP session contended`` timeouts in the
+    2026-04-30 stress test.  Different sessions (different chrome
+    connections) are independent and must not share a lock.
+    """
+    lock = getattr(browser_session, _SESSION_FOCUS_LOCK_ATTR, None)
+    if isinstance(lock, _CrossLoopAsyncLock):
+        return lock
+
+    # Some BrowserSession variants (frozen pydantic models) disallow
+    # attribute assignment. Fall back to a process-global registry.
+    lock = _CrossLoopAsyncLock()
+    try:
+        setattr(browser_session, _SESSION_FOCUS_LOCK_ATTR, lock)
+        return lock
+    except Exception:
+        _global_key = id(browser_session)
+        lock = _GLOBAL_FOCUS_LOCKS.get(_global_key)
+        if lock is None:
+            lock = _CrossLoopAsyncLock()
+            _GLOBAL_FOCUS_LOCKS[_global_key] = lock
+        return lock
+
+
+_GLOBAL_FOCUS_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
+_GLOBAL_CDP_OPERATION_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
+
+
+def session_cdp_operation_lock(browser_session) -> "object":
+    """Return the per-session lock for Feige CDP renderer operations.
+
+    The focus lock only protects tab switching. Under flood, direct sends,
+    monitor polls, and pre-dispatch scrapes can still overlap at
+    ``Runtime.evaluate`` on the same Feige renderer. This lock serializes that
+    broader operation class across event loops while still allowing unrelated
+    browser sessions to proceed independently.
+    """
+    lock = getattr(browser_session, _SESSION_CDP_OPERATION_LOCK_ATTR, None)
+    if isinstance(lock, _CrossLoopAsyncLock):
+        return lock
+
+    lock = _CrossLoopAsyncLock()
+    try:
+        setattr(browser_session, _SESSION_CDP_OPERATION_LOCK_ATTR, lock)
+        return lock
+    except Exception:
+        _global_key = id(browser_session)
+        lock = _GLOBAL_CDP_OPERATION_LOCKS.get(_global_key)
+        if lock is None:
+            lock = _CrossLoopAsyncLock()
+            _GLOBAL_CDP_OPERATION_LOCKS[_global_key] = lock
+        return lock
+
+
+def clear_feige_tab_focus_cache(browser_session, reason: str = "") -> None:
+    """Clear the cached Feige target id on a shared browser session."""
+    try:
+        setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+        if reason:
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-tab: cleared cached "
+                f"Feige target ({reason})"
+            )
+    except Exception:
+        pass
+
+
+def _feige_path_depth(url: str) -> int:
+    m = re.search(r"im\.jinritemai\.com(/[^?#]*)?", str(url or ""))
+    if not m:
+        return 999
+    path = (m.group(1) or "/").strip("/")
+    return 0 if not path else path.count("/") + 1
+
+
+async def resolve_feige_tab_target_id(browser_session) -> str:
+    """Return the best Feige tab target id without changing browser focus."""
+    try:
+        sm = getattr(browser_session, "session_manager", None)
+        all_targets = sm.get_all_targets() if sm else {}
+    except Exception:
+        all_targets = {}
+
+    cached_tid = str(
+        getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, "") or ""
+    )
+    if cached_tid:
+        cached = (all_targets or {}).get(cached_tid)
+        cached_url = str(getattr(cached, "url", "") or "") if cached else ""
+        if cached is not None and "im.jinritemai.com" in cached_url:
+            return cached_tid
+        clear_feige_tab_focus_cache(browser_session, "cached target stale")
+
+    candidates: list[tuple[str, str]] = []
+    for tid, tgt in (all_targets or {}).items():
+        if getattr(tgt, "target_type", "") not in ("page", "tab"):
+            continue
+        url = str(getattr(tgt, "url", "") or "")
+        if "im.jinritemai.com" in url:
+            candidates.append((str(tid), url))
+    if not candidates:
+        return ""
+
+    candidates.sort(key=lambda c: _feige_path_depth(c[1]))
+
+    if len(candidates) > 1 and hasattr(browser_session, "get_or_create_cdp_session"):
+        row_count_js = (
+            "(function(){return document.querySelectorAll("
+            "'[data-qa-id=\"qa-conversation-chat-item\"]').length;})()"
+        )
+
+        async def _probe_rows(tid: str) -> int:
+            try:
+                import asyncio as _probe_asyncio
+
+                async def _run_probe():
+                    cdp_sess = await browser_session.get_or_create_cdp_session(
+                        target_id=tid,
+                        focus=False,
+                    )
+                    if cdp_sess is None:
+                        return None
+                    cdp_client = getattr(cdp_sess, "cdp_client", None)
+                    session_id = getattr(cdp_sess, "session_id", None)
+                    if cdp_client is None or session_id is None:
+                        return None
+                    await cdp_client.send.Runtime.enable(session_id=session_id)
+                    return await cdp_client.send.Runtime.evaluate(
+                        params={"expression": row_count_js, "returnByValue": True},
+                        session_id=session_id,
+                    )
+
+                async with session_cdp_operation_lock(browser_session):
+                    result = await _probe_asyncio.wait_for(
+                        _run_probe(),
+                        timeout=_CDP_OPERATION_PROBE_TIMEOUT_S,
+                    )
+                if result is None:
+                    return -1
+                val = (result.get("result") or {}).get("value")
+                return int(val) if isinstance(val, (int, float)) else -1
+            except Exception:
+                return -1
+
+        probed: list[tuple[int, int, str, str]] = []
+        for tid, url in candidates:
+            probed.append((await _probe_rows(tid), _feige_path_depth(url), tid, url))
+        probed.sort(key=lambda r: (-(max(r[0], 0)), r[1]))
+        candidates = [(tid, url) for _rows, _depth, tid, url in probed]
+
+    target_id = candidates[0][0]
+    try:
+        setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, target_id)
+    except Exception:
+        pass
+    return target_id
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +363,17 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
   } catch (e) { result.diagnostics.header_err = String(e); }
 
   // ───── Signal 1: sidebar (cross-check) ─────
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
   var items = Array.from(document.querySelectorAll(
     '[data-qa-id="qa-conversation-chat-item"], .chat-item'
-  ));
+  )).filter(rowIsCurrent);
   result.diagnostics.item_count = items.length;
 
   function readName(row) {
@@ -406,7 +628,16 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
     }
     return '';
   }
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+    .filter(rowIsCurrent);
   var target = null;
   var seenNames = [];
   for (var i = 0; i < items.length; i++) {
@@ -478,6 +709,76 @@ def verify_customer_match(verify_result: dict, expected_name: str) -> tuple[bool
     )
 
 
+_FEIGE_SELECT_CURRENT_TAB_JS: str = r"""
+(function() {
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  function countCurrentRows() {
+    return Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+      .filter(rowIsCurrent).length;
+  }
+  var current = document.querySelector('[data-qa-id="qa-active-chat-tab"]');
+  if (!current) {
+    return JSON.stringify({ ok: false, reason: 'current_tab_not_found', current_rows: countCurrentRows() });
+  }
+  var tabBtn = current.closest('[role="tab"]');
+  var tabWrap = current.closest('.auxo-tabs-tab, .tab');
+  var selected =
+    (tabBtn && tabBtn.getAttribute('aria-selected') === 'true') ||
+    (tabWrap && /\b(auxo-tabs-tab-active|active)\b/.test(String(tabWrap.className || '')));
+  if (!selected) current.click();
+  return JSON.stringify({ ok: true, clicked: !selected, current_rows: countCurrentRows() });
+})()
+"""
+
+
+async def _ensure_feige_current_subtab(browser_session) -> None:
+    """Best-effort keep Feige on the live Current Conversations sidebar."""
+    import asyncio as _ct_asyncio
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js as _ct_eval_js,
+        )
+    except Exception as _imp_err:
+        logger.debug(
+            f"[BrowserAutomation] ensure-feige-current-tab: _evaluate_js import failed: {_imp_err}"
+        )
+        return
+
+    try:
+        raw = await _ct_eval_js(browser_session, _FEIGE_SELECT_CURRENT_TAB_JS)
+        data = raw
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {}
+        if isinstance(data, dict) and data.get("clicked"):
+            await _ct_asyncio.sleep(0.2)
+            logger.info(
+                f"[BrowserAutomation] ensure-feige-current-tab: clicked current tab "
+                f"(current_rows_before={data.get('current_rows')})"
+            )
+        elif isinstance(data, dict) and data.get("ok"):
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-current-tab: already on current tab "
+                f"(current_rows={data.get('current_rows')})"
+            )
+        else:
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-current-tab: no current tab "
+                f"(result={data!r})"
+            )
+    except Exception as _err:
+        logger.debug(f"[BrowserAutomation] ensure-feige-current-tab failed: {_err}")
+
+
 # ---------------------------------------------------------------------------
 # Tab-focus helper — ensure the session is on a Feige tab before running
 # any DOM query.  Without this the JS below silently returns empty and
@@ -489,10 +790,9 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
     page contains ``im.jinritemai.com`` in its URL after the call,
     ``False`` otherwise (e.g. no Feige tab open).
 
-    Also clicks the ``最近联系`` (recent-contacts) inner sub-tab if one
-    is found, because the Feige SPA may be sitting on ``待回复`` /
-    ``人工接待`` / some other sub-tab where the sidebar selector
-    ``[data-qa-id="qa-conversation-chat-item"]`` returns zero elements.
+    Also clicks the current-conversation inner sub-tab when present.  Recent
+    Contacts uses the same row selectors for historical/system rows, so it is
+    not a safe source for real-time dispatch.
     """
     import asyncio as _ef_asyncio
     try:
@@ -503,7 +803,79 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
         except Exception:
             cur_url = ""
         if "im.jinritemai.com" in (cur_url or ""):
+            await _ensure_feige_current_subtab(browser_session)
             return True
+
+        # Fast-path: cached Feige target_id (added 2026-04-30 19:00,
+        # corrected 2026-04-30 23:45).
+        # page.url is empty under this browser_use version so the URL
+        # guard above never fires.  We can skip the expensive target scan
+        # when the cached target is still alive, but we must still refocus
+        # the CDP session.  Returning True here without a synchronous
+        # ``get_or_create_cdp_session(target_id=..., focus=True)`` leaves
+        # later Runtime.evaluate calls pointed at a stale tab; under flood
+        # that made active-customer checks read ``active=''`` and jam direct
+        # delivery behind repeated 24s timeouts.
+        _cached_tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+        if _cached_tid:
+            try:
+                _sm_fast = getattr(browser_session, "session_manager", None)
+                _all_fast = _sm_fast.get_all_targets() if _sm_fast else {}
+            except Exception:
+                _all_fast = {}
+            _cached_tgt = (_all_fast or {}).get(_cached_tid)
+            if _cached_tgt is not None:
+                _cached_url = str(getattr(_cached_tgt, "url", "") or "")
+                if "im.jinritemai.com" in _cached_url:
+                    try:
+                        async with _session_focus_lock(browser_session):
+                            async with session_cdp_operation_lock(browser_session):
+                                if hasattr(browser_session, "get_or_create_cdp_session"):
+                                    await _ef_asyncio.wait_for(
+                                        browser_session.get_or_create_cdp_session(
+                                            target_id=_cached_tid, focus=True
+                                        ),
+                                        timeout=_FOCUS_TARGET_TIMEOUT_S,
+                                    )
+                                else:
+                                    from browser_use.browser.events import SwitchTabEvent as _EF_STE
+                                    await browser_session.event_bus.dispatch(
+                                        _EF_STE(target_id=_cached_tid)
+                                    )
+                                    await _ef_asyncio.sleep(0.3)
+                        logger.debug(
+                            f"[BrowserAutomation] ensure-feige-tab: refocused "
+                            f"cached Feige tab (target=...{str(_cached_tid)[-6:]})"
+                        )
+                        await _ensure_feige_current_subtab(browser_session)
+                        return True
+                    except _ef_asyncio.TimeoutError:
+                        logger.warning(
+                            f"[BrowserAutomation] ensure-feige-tab: cached "
+                            f"focus-target TIMEOUT after {_FOCUS_TARGET_TIMEOUT_S:.0f}s "
+                            f"(target=...{str(_cached_tid)[-6:]})"
+                        )
+                        clear_feige_tab_focus_cache(
+                            browser_session,
+                            "cached focus-target timeout",
+                        )
+                        return False
+                    except Exception as _cached_focus_err:
+                        logger.info(
+                            f"[BrowserAutomation] ensure-feige-tab: cached "
+                            f"focus-target failed (target=...{str(_cached_tid)[-6:]}): "
+                            f"{_cached_focus_err}"
+                        )
+                        try:
+                            setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+                        except Exception:
+                            pass
+                        return False
+            try:
+                setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+            except Exception:
+                pass
+
         sm = getattr(browser_session, "session_manager", None)
         all_targets = sm.get_all_targets() if sm else {}
         feige_candidates: list[tuple[str, str]] = []
@@ -520,6 +892,7 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                 f"[BrowserAutomation] ensure-feige-tab: no Feige tab among "
                 f"{_scan_count} page/tab targets (cur_url={cur_url!r})"
             )
+            clear_feige_tab_focus_cache(browser_session, "focus-target timeout")
             return False
         # ── Prefer the main sidebar-carrying tab over per-session tabs ──
         # PreDispatch opens a new tab per customer session via
@@ -577,23 +950,34 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                 as "unknown" rather than "zero".
                 """
                 try:
-                    cdp_sess = await browser_session.get_or_create_cdp_session(
-                        target_id=tid, focus=False
-                    )
-                    if cdp_sess is None:
+                    import asyncio as _probe_asyncio
+
+                    async def _run_probe():
+                        cdp_sess = await browser_session.get_or_create_cdp_session(
+                            target_id=tid, focus=False
+                        )
+                        if cdp_sess is None:
+                            return None
+                        cdp_client = getattr(cdp_sess, "cdp_client", None)
+                        session_id = getattr(cdp_sess, "session_id", None)
+                        if cdp_client is None or session_id is None:
+                            return None
+                        await cdp_client.send.Runtime.enable(session_id=session_id)
+                        return await cdp_client.send.Runtime.evaluate(
+                            params={
+                                "expression": _row_count_js,
+                                "returnByValue": True,
+                            },
+                            session_id=session_id,
+                        )
+
+                    async with session_cdp_operation_lock(browser_session):
+                        result = await _probe_asyncio.wait_for(
+                            _run_probe(),
+                            timeout=_CDP_OPERATION_PROBE_TIMEOUT_S,
+                        )
+                    if result is None:
                         return -1
-                    cdp_client = getattr(cdp_sess, "cdp_client", None)
-                    session_id = getattr(cdp_sess, "session_id", None)
-                    if cdp_client is None or session_id is None:
-                        return -1
-                    await cdp_client.send.Runtime.enable(session_id=session_id)
-                    result = await cdp_client.send.Runtime.evaluate(
-                        params={
-                            "expression": _row_count_js,
-                            "returnByValue": True,
-                        },
-                        session_id=session_id,
-                    )
                     val = (result.get("result") or {}).get("value")
                     return int(val) if isinstance(val, (int, float)) else -1
                 except Exception as _probe_exc:
@@ -633,27 +1017,64 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
         # selector.  ``get_or_create_cdp_session(target_id=..., focus=True)``
         # is awaited and guarantees ``agent_focus_target_id`` points at
         # the Feige tab before returning.
+        # ── Hang-bound (2026-04-28): same deadlock class as the
+        # ``get_browser_state_summary`` call in
+        # ``browser_node/runner.py:4376-4395`` — under target detach /
+        # high CDP concurrency this await has been observed to block
+        # for 3+ s while the parent persistent-worker run is racing
+        # post-preflight on the same target.  When the parent is then
+        # cancelled mid-await, the ``CancelledError`` propagates past
+        # every ``except Exception`` block in HOT-PATH-B (CancelledError
+        # is BaseException, not Exception in Python 3.8+), which
+        # silently kills the typing into the customer's tab — the
+        # "cejs reply never arrives" regression observed
+        # 2026-04-28 05:17:27 (eCan.log.2 lines 1218-1462).  Bound the
+        # focus call with a 3 s budget; on timeout treat as focus-failure
+        # and let the caller continue through the guarded open/send path.
+        # Per-session asyncio.Lock serializes contending callers so each
+        # focus request gets a clean CDP turn instead of racing.
         try:
-            if hasattr(browser_session, "get_or_create_cdp_session"):
-                await browser_session.get_or_create_cdp_session(
-                    target_id=feige_tid, focus=True
-                )
-            else:
-                # Fallback for legacy BrowserSession API without the
-                # method — fire the event and sleep as before.
-                from browser_use.browser.events import SwitchTabEvent as _EF_STE
-                await browser_session.event_bus.dispatch(_EF_STE(target_id=feige_tid))
-                await _ef_asyncio.sleep(0.3)
+            async with _session_focus_lock(browser_session):
+                async with session_cdp_operation_lock(browser_session):
+                    if hasattr(browser_session, "get_or_create_cdp_session"):
+                        await _ef_asyncio.wait_for(
+                            browser_session.get_or_create_cdp_session(
+                                target_id=feige_tid, focus=True
+                            ),
+                            timeout=_FOCUS_TARGET_TIMEOUT_S,
+                        )
+                    else:
+                    # Fallback for legacy BrowserSession API without the
+                    # method — fire the event and sleep as before.
+                        from browser_use.browser.events import SwitchTabEvent as _EF_STE
+                        await browser_session.event_bus.dispatch(_EF_STE(target_id=feige_tid))
+                        await _ef_asyncio.sleep(0.3)
+        except _ef_asyncio.TimeoutError:
+            logger.warning(
+                f"[BrowserAutomation] ensure-feige-tab: focus-target TIMEOUT "
+                f"after {_FOCUS_TARGET_TIMEOUT_S:.0f}s (target=...{feige_tid[-6:]}) — CDP session "
+                f"contended; HOT-PATH-B will proceed to the guarded "
+                f"open/send path"
+            )
+            clear_feige_tab_focus_cache(browser_session, "focus-target timeout")
+            return False
         except Exception as _focus_err:
             logger.info(
                 f"[BrowserAutomation] ensure-feige-tab: focus-target failed "
                 f"(target=...{feige_tid[-6:]}): {_focus_err}"
             )
+            clear_feige_tab_focus_cache(browser_session, "focus-target failed")
             return False
         logger.info(
             f"[BrowserAutomation] ensure-feige-tab: focused Feige tab "
             f"(target=...{feige_tid[-6:]}, was cur_url={cur_url!r})"
         )
+        try:
+            setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, feige_tid)
+        except Exception:
+            pass
+        await _ensure_feige_current_subtab(browser_session)
+        return True
         # ── Sub-tab resolution (rewritten 2026-04-23) ──
         # The sidebar row selector ``[data-qa-id="qa-conversation-chat-item"]``
         # only returns rows on specific sub-tabs.  The emulator has two:
@@ -891,30 +1312,37 @@ async def scrape_latest_customer_bubble(
     fall back to the sidebar preview in that case.
 
     When *typing_holder_getter* is provided and returns a non-empty
-    customer key different from *customer_name*, the helper yields
-    immediately and returns ``scrape_ok=False`` to avoid stealing the
-    active session from the customer currently being typed to.
+    customer key, the helper yields immediately and returns
+    ``scrape_ok=False``. Even the same customer is unsafe here: the
+    send path may be between open-session and send-message, and a
+    concurrent scrape can still contend on CDP or disturb focus.
     """
     import asyncio as _s_asyncio
-    empty = {"text": "", "msg_id": "", "timestamp": "", "index": -1, "attachments": [], "scrape_ok": False}
+    empty = {
+        "text": "",
+        "msg_id": "",
+        "timestamp": "",
+        "index": -1,
+        "attachments": [],
+        "scrape_ok": False,
+        "skip_dispatch": False,
+        "skip_reason": "",
+    }
     if not browser_session or not customer_name:
         return empty
 
     # ── Feige active-session race guard ──
-    # If another customer is currently being typed to, skip our sidebar
-    # click (which would swap the active session and land the reply in
-    # the wrong chat).  Caller (PreDispatch) will fall back to the
-    # sidebar preview text for this one cycle.
+    # If a reply is currently being typed, skip our sidebar click. The
+    # caller should retry later instead of consuming stale sidebar
+    # previews while the write path owns the browser.
     if typing_holder_getter is not None:
         try:
             _st_holder = typing_holder_getter()
-            _st_cust_key = _normalize_dispatch_identity_key(customer_name)
-            if _st_holder and _st_holder != _st_cust_key:
+            if _st_holder:
                 logger.info(
-                    f"[BrowserAutomation] scrape-latest-customer: yield — another "
-                    f"customer is currently being typed to ({_st_holder!r}); "
-                    f"skipping sidebar click for {customer_name!r} to avoid "
-                    f"stealing the active session (caller will use sidebar preview)"
+                    f"[BrowserAutomation] scrape-latest-customer: yield - "
+                    f"Feige typing lock held by {_st_holder!r}; skipping "
+                    f"sidebar click for {customer_name!r} (caller should retry)"
                 )
                 return empty
         except Exception as _st_err:
@@ -944,6 +1372,26 @@ async def scrape_latest_customer_bubble(
         )
         return empty
 
+    # Re-check after focusing and immediately before any sidebar click.
+    # Direct delivery can claim the lock between the initial guard above
+    # and this point; without this second check the scraper can still
+    # steal focus from a send that is about to type.
+    if typing_holder_getter is not None:
+        try:
+            _st_holder = typing_holder_getter()
+            if _st_holder:
+                logger.info(
+                    f"[BrowserAutomation] scrape-latest-customer: yield - "
+                    f"Feige typing lock held by {_st_holder!r}; skipping "
+                    f"pre-click scrape for {customer_name!r}"
+                )
+                return empty
+        except Exception as _st_err:
+            logger.debug(
+                f"[BrowserAutomation] scrape-latest-customer: pre-click "
+                f"typing-lock check failed (non-fatal): {_st_err}"
+            )
+
     try:
         _click_js = FEIGE_CLICK_SIDEBAR_ROW_JS.replace(
             "CUSTOMER_NAME", json.dumps(customer_name, ensure_ascii=False)
@@ -968,6 +1416,37 @@ async def scrape_latest_customer_bubble(
         # Brief settle so the chat pane repaints after clicking a row.
         if not click_data.get("already_active"):
             await _s_asyncio.sleep(0.35)
+        verify_ok = False
+        verify_reason = ""
+        verify_data = {}
+        for _attempt in range(2):
+            verify_raw = await _s_eval_js(browser_session, FEIGE_ACTIVE_CUSTOMER_JS)
+            if isinstance(verify_raw, str):
+                try:
+                    verify_data = json.loads(verify_raw)
+                except Exception:
+                    verify_data = {}
+            else:
+                verify_data = verify_raw if isinstance(verify_raw, dict) else {}
+            verify_ok, verify_reason = verify_customer_match(
+                verify_data, customer_name
+            )
+            if verify_ok:
+                break
+            if _attempt == 0:
+                await _s_asyncio.sleep(0.25)
+        if not verify_ok:
+            logger.warning(
+                f"[BrowserAutomation] scrape-latest-customer: active-customer "
+                f"verification failed after sidebar click for {customer_name!r}; "
+                f"refusing thread scrape and dispatch "
+                f"(reason={verify_reason}, verify={verify_data!r})"
+            )
+            blocked = dict(empty)
+            blocked["skip_dispatch"] = True
+            blocked["skip_reason"] = "active_customer_mismatch"
+            blocked["verify_reason"] = verify_reason
+            return blocked
         scrape_raw = await _s_eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
         if isinstance(scrape_raw, str):
             try:
@@ -1029,6 +1508,9 @@ __all__ = [
     "FEIGE_LATEST_CUSTOMER_BUBBLE_JS",
     "FEIGE_CLICK_SIDEBAR_ROW_JS",
     "verify_customer_match",
+    "clear_feige_tab_focus_cache",
+    "resolve_feige_tab_target_id",
+    "session_cdp_operation_lock",
     "ensure_feige_tab_focused",
     "scrape_latest_customer_bubble",
 ]

@@ -11,7 +11,7 @@
 
 import { isWebPlatform } from '@/config/platform';
 import { cloudChatApi, A2AMessage, SendA2AMessageInput } from '@/services/api/cloudChatApi';
-import { get_ipc_api } from '@/services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 import { APIResponse } from '@/services/ipc/api';
 import { logger } from '@/utils/logger';
 import { Chat, Message, Attachment, FileInfo, FileContent, Member } from '@/pages/Chat/types/chat';
@@ -143,7 +143,7 @@ export const unifiedChatService = {
         return createErrorResponse<T>(String(error));
       }
     } else {
-      return get_ipc_api().chatApi.getChats<T>(userId, deep);
+      return IPCAPI.getInstance().chatApi.getChats<T>(userId, deep);
     }
   },
 
@@ -161,7 +161,7 @@ export const unifiedChatService = {
         return createErrorResponse<T>(String(error));
       }
     } else {
-      return get_ipc_api().chatApi.searchChats<T>(userId, searchText, deep);
+      return IPCAPI.getInstance().chatApi.searchChats<T>(userId, searchText, deep);
     }
   },
 
@@ -193,6 +193,32 @@ export const unifiedChatService = {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
+
+        // Also sync to local backend database to ensure chat exists for backend operations
+        // This fixes the issue where chat_id exists in frontend but not in backend database
+        try {
+          logger.info('[UnifiedChatService] Syncing chat to local backend:', channelId);
+          await IPCAPI.getInstance().chatApi.createChat<T>({
+            id: channelId,
+            members: members.map((m: any) => ({
+              userId: m.userId || m.id,
+              name: m.name,
+              role: m.role || 'user',
+              avatar: m.avatar,
+              status: m.status || 'online',
+              ext: m.ext || {},
+              agentName: m.agentName || m.name
+            })),
+            name: chat.name,
+            type: chat.type,
+            avatar: chatData.avatar,
+            agent_id: chatData.agent_id
+          });
+          logger.info('[UnifiedChatService] Chat synced to local backend successfully');
+        } catch (syncError) {
+          // Non-fatal: log but don't fail the operation
+          logger.warn('[UnifiedChatService] Failed to sync chat to local backend:', syncError);
+        }
         
         return { success: true, data: chat as unknown as T };
       } catch (error) {
@@ -200,7 +226,7 @@ export const unifiedChatService = {
         return createErrorResponse<T>(String(error));
       }
     } else {
-      return get_ipc_api().chatApi.createChat<T>(chatData);
+      return IPCAPI.getInstance().chatApi.createChat<T>(chatData);
     }
   },
 
@@ -244,7 +270,7 @@ export const unifiedChatService = {
         return createErrorResponse<T>(String(error));
       }
     } else {
-      return get_ipc_api().chatApi.sendChat<T>(message);
+      return IPCAPI.getInstance().chatApi.sendChat<T>(message);
     }
   },
 
@@ -282,7 +308,7 @@ export const unifiedChatService = {
         return createErrorResponse<T>(String(error));
       }
     } else {
-      return get_ipc_api().chatApi.getChatMessages<T>(params);
+      return IPCAPI.getInstance().chatApi.getChatMessages<T>(params);
     }
   },
 
@@ -299,7 +325,7 @@ export const unifiedChatService = {
       // Cloud mode doesn't have separate notifications - return empty
       return { success: true, data: [] as unknown as T };
     } else {
-      return get_ipc_api().chatApi.getChatNotifications<T>(params);
+      return IPCAPI.getInstance().chatApi.getChatNotifications<T>(params);
     }
   },
 
@@ -318,7 +344,7 @@ export const unifiedChatService = {
         return createErrorResponse<T>(String(error));
       }
     } else {
-      return get_ipc_api().chatApi.deleteChat<T>(chatId);
+      return IPCAPI.getInstance().chatApi.deleteChat<T>(chatId);
     }
   },
 
@@ -330,7 +356,7 @@ export const unifiedChatService = {
       // TODO: Implement cloud read receipts
       return { success: true, data: { marked: messageIds.length } as unknown as T };
     } else {
-      return get_ipc_api().chatApi.markMessageAsRead<T>(messageIds, userId);
+      return IPCAPI.getInstance().chatApi.markMessageAsRead<T>(messageIds, userId);
     }
   },
 
@@ -347,7 +373,7 @@ export const unifiedChatService = {
       // TODO: Implement S3 upload for cloud attachments
       return createErrorResponse<T>('Attachments not yet supported in cloud mode');
     } else {
-      return get_ipc_api().chatApi.uploadAttachment<T>(params);
+      return IPCAPI.getInstance().chatApi.uploadAttachment<T>(params);
     }
   },
 
@@ -358,7 +384,7 @@ export const unifiedChatService = {
     if (this.isCloudMode()) {
       return createErrorResponse<FileInfo>('File info not available in cloud mode');
     } else {
-      return get_ipc_api().chatApi.getFileInfo(filePath);
+      return IPCAPI.getInstance().chatApi.getFileInfo(filePath);
     }
   },
 
@@ -369,7 +395,7 @@ export const unifiedChatService = {
     if (this.isCloudMode()) {
       return createErrorResponse<FileContent>('File content not available in cloud mode');
     } else {
-      return get_ipc_api().chatApi.getFileContent(filePath);
+      return IPCAPI.getInstance().chatApi.getFileContent(filePath);
     }
   },
 
@@ -380,7 +406,7 @@ export const unifiedChatService = {
     if (this.isCloudMode()) {
       return createErrorResponse<FileContent>('Form submission not yet supported in cloud mode');
     } else {
-      return get_ipc_api().chatApi.chatFormSubmit(chatId, messageId, formId, formData);
+      return IPCAPI.getInstance().chatApi.chatFormSubmit(chatId, messageId, formId, formData);
     }
   },
 
@@ -392,7 +418,7 @@ export const unifiedChatService = {
       // TODO: Implement message deletion in cloud
       return createErrorResponse<T>('Message deletion not yet supported in cloud mode');
     } else {
-      return get_ipc_api().chatApi.deleteMessage<T>(chatId, messageId);
+      return IPCAPI.getInstance().chatApi.deleteMessage<T>(chatId, messageId);
     }
   },
 
@@ -404,7 +430,7 @@ export const unifiedChatService = {
       // TODO: Implement unread clearing in cloud
       return { success: true, data: { cleared: true } as unknown as T };
     } else {
-      return get_ipc_api().chatApi.cleanChatUnRead<T>(chatId);
+      return IPCAPI.getInstance().chatApi.cleanChatUnRead<T>(chatId);
     }
   },
 

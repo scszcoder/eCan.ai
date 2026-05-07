@@ -206,6 +206,104 @@ _MESSAGES = {
 
 
     # ===================== Log Analysis Messages =====================
+    # ----- Debug Q&A intro -----
+    "log_qa_intro": {
+        "en": "Before I analyze the log, I'd like to collect a few details to give you a more targeted diagnosis.",
+        "zh": "在分析日志之前，请回答几个问题，让我能给出更精准的诊断。",
+    },
+    "log_qa_intro_path_detected": {
+        "en": "I detected a file path in your message: **{file_path}**",
+        "zh": "我从你的消息中识别到文件路径：**{file_path}**",
+    },
+
+    # ----- Skill multi-select -----
+    "log_qa_skill_question": {
+        "en": "Which skill(s) are you debugging? (type to search)",
+        "zh": "你要调试哪些技能？（输入关键字搜索）",
+    },
+    "log_qa_skill_context": {
+        "en": "Type any part of a skill name to filter, then select one or more.",
+        "zh": "输入技能名称的任意部分进行过滤，然后选择一个或多个。",
+    },
+    "log_qa_skill_none_label": {
+        "en": "(no skills found)",
+        "zh": "（未找到技能）",
+    },
+    "log_qa_skill_none_desc": {
+        "en": "Create a skill first",
+        "zh": "请先创建一个技能",
+    },
+
+    # ----- Log file path -----
+    "log_qa_path_question": {
+        "en": "What is the full path to the log file you want me to analyze?",
+        "zh": "你想让我分析的日志文件的完整路径是什么？",
+    },
+    "log_qa_path_context": {
+        "en": "I need the exact file path to locate and read the log.",
+        "zh": "我需要确切的文件路径才能定位并读取日志。",
+    },
+    "log_qa_path_freeform_label": {
+        "en": "Type the file path",
+        "zh": "输入文件路径",
+    },
+    "log_qa_path_freeform_desc": {
+        "en": "e.g. C:/Users/me/logs/run.log or /home/user/logs/run.log",
+        "zh": "例如 C:/Users/me/logs/run.log 或 /home/user/logs/run.log",
+    },
+
+    # ----- User observation -----
+    "log_qa_observation_question": {
+        "en": "What happened during this skill run? What went wrong?",
+        "zh": "这次技能运行发生了什么？哪里出了问题？",
+    },
+    "log_qa_observation_context": {
+        "en": "Describe what you observed — even a rough description helps narrow down the issue.",
+        "zh": "描述一下你观察到的现象——即使是粗略的描述也能帮助缩小问题范围。",
+    },
+    "log_qa_obs_error": {
+        "en": "It crashed / threw an error",
+        "zh": "崩溃 / 抛出了错误",
+    },
+    "log_qa_obs_wrong_result": {
+        "en": "It finished but the result was wrong",
+        "zh": "运行完成了，但结果不正确",
+    },
+    "log_qa_obs_stuck": {
+        "en": "It got stuck / timed out",
+        "zh": "卡住了 / 超时了",
+    },
+    "log_qa_obs_partial": {
+        "en": "It only partially completed",
+        "zh": "只完成了一部分",
+    },
+    "log_qa_obs_other": {
+        "en": "Something else",
+        "zh": "其他情况",
+    },
+
+    # ----- Expected behavior -----
+    "log_qa_expected_question": {
+        "en": "What did you expect to happen instead?",
+        "zh": "你原本期望发生什么？",
+    },
+    "log_qa_expected_context": {
+        "en": "Knowing the expected outcome helps me compare and pinpoint the failure.",
+        "zh": "了解期望的结果有助于我对比并定位失败原因。",
+    },
+    "log_qa_exp_freeform_label": {
+        "en": "Describe expected behavior",
+        "zh": "描述期望的行为",
+    },
+    "log_qa_exp_freeform_desc": {
+        "en": "e.g. 'should have completed all 5 steps' or 'should have returned a PDF'",
+        "zh": "例如：\"应该完成全部5个步骤\" 或 \"应该返回一个PDF\"",
+    },
+    "log_qa_exp_unsure": {
+        "en": "Not sure / just want a general analysis",
+        "zh": "不确定 / 只想要一个总体分析",
+    },
+
     "log_no_file_path": {
         "en": (
             "I couldn't find a file path in your answers. "

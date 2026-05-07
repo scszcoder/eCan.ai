@@ -61,28 +61,42 @@ class MCPClientManager:
         persistent_session_timeout = min(5.0, timeout)
         
         try:
-            # First, try using a persistent session for efficiency
-            try:
-                mgr = Streamable_HTTP_Manager.get(url)
-                # Quick check if persistent session is available
-                logger.debug(f"[MCP] Getting persistent session for '{tool_name}'...")
-                session = await asyncio.wait_for(mgr.session(), timeout=persistent_session_timeout)
-                logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
-                # Use full timeout for the actual tool call
-                result = await asyncio.wait_for(
-                    session.call_tool(tool_name, arguments),
-                    timeout=timeout
+            # First, try using a persistent session for efficiency.
+            # Hot-path tools that fan out concurrently (one call per customer)
+            # are excluded — the shared streamable-HTTP ClientSession serializes
+            # in-flight responses and stalls all-but-one caller until the 60s
+            # timeout fires, even though each individual call only needs ~2s.
+            # Confirmed in 22:39 / 00:10 multi-customer runs: 2 of 3 concurrent
+            # rag_query calls timed out, then completed in ~2s via ephemeral.
+            _NO_PERSISTENT_SESSION = {"send_chat", "rag_query"}
+            use_persistent_session = tool_name not in _NO_PERSISTENT_SESSION
+            if use_persistent_session:
+                try:
+                    mgr = Streamable_HTTP_Manager.get(url)
+                    # Quick check if persistent session is available
+                    logger.debug(f"[MCP] Getting persistent session for '{tool_name}'...")
+                    session = await asyncio.wait_for(mgr.session(), timeout=persistent_session_timeout)
+                    logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
+                    # Use full timeout for the actual tool call
+                    result = await asyncio.wait_for(
+                        session.call_tool(tool_name, arguments),
+                        timeout=timeout
+                    )
+                    logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
+                    return result
+                except asyncio.TimeoutError:
+                    logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
+                    # Reset persistent session so next call can try to recreate it
+                    Streamable_HTTP_Manager.reset()
+                except BaseException as mgr_err:
+                    logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
+                    # Reset persistent session so next call can try to recreate it
+                    Streamable_HTTP_Manager.reset()
+            else:
+                logger.debug(
+                    f"[MCP] Skipping persistent session for hot-path '{tool_name}'; "
+                    "using isolated ephemeral session"
                 )
-                logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
-                return result
-            except asyncio.TimeoutError:
-                logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
-                # Reset persistent session so next call can try to recreate it
-                Streamable_HTTP_Manager.reset()
-            except BaseException as mgr_err:
-                logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
-                # Reset persistent session so next call can try to recreate it
-                Streamable_HTTP_Manager.reset()
             
             # Fallback to a temporary (ephemeral) session
             try:

@@ -70,6 +70,7 @@ from agent.ec_skills.browser_node.contexts import (
 # helpers, audited as ``stays local`` in HYBRID_HOOK_AUDIT.md (only
 # read/written by hooks running in the same process).
 from . import dispatch_state as _ds
+from .trace_ledger import log_payload
 
 logger = logging.getLogger("ecan.hooks.feige_chat.v2")
 
@@ -203,6 +204,35 @@ def _extract_payload(state: dict) -> tuple[str, dict, str, dict]:
             except Exception:
                 pass
 
+    # 4. response-payload fallback. A queued front-desk chat_message can
+    # resume with prompt_refs.events empty while stale browser_event state is
+    # still present; state.input/messages[4] is then the only current truth.
+    if not payload and not state.get("_ecan_predispatch_actionable_items"):
+        candidates = []
+        si = state.get("input", "")
+        if isinstance(si, str) and si.strip():
+            candidates.append(si)
+        messages = state.get("messages")
+        if isinstance(messages, list) and len(messages) > 4:
+            msg_input = messages[4]
+            if isinstance(msg_input, str) and msg_input.strip():
+                candidates.append(msg_input)
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            if (
+                str(parsed.get("response_text") or "").strip()
+                and str(parsed.get("customer_name") or parsed.get("customer_id") or "").strip()
+            ):
+                payload = parsed
+                payload_src = "state.input[response-fallback]"
+                event_type = "chat_message"
+                break
+
     return event_type, payload, payload_src, tail_payload
 
 
@@ -279,6 +309,10 @@ async def before_session_setup_hook_v2(
       * a populated ``state`` dict with ``state["result"]["llm_result"]``
         set when HOT-PATH-B handled the event (short-circuits the LLM)
     """
+    claim_active = False
+    claim_cust = ""
+    claim_reply = ""
+    claim_source_msg_id = ""
     try:
         # ── Parse hotPathActions config ──
         hp_raw = (inputs.get("hotPathActions") or {}).get("content")
@@ -307,7 +341,65 @@ async def before_session_setup_hook_v2(
             f"node={ctx.node_name}"
         )
 
+        def _ledger(
+            stage: str,
+            *,
+            level: int = logging.INFO,
+            **fields: Any,
+        ) -> None:
+            if not payload:
+                return
+            try:
+                log_payload(
+                    stage,
+                    payload,
+                    level=level,
+                    event_type=evt_type or "",
+                    node=ctx.node_name,
+                    payload_src=payload_src,
+                    **fields,
+                )
+            except Exception:
+                pass
+
+        _ledger(
+            "hot_path_b_entry",
+            rules_configured=len(actions_list) if isinstance(actions_list, list) else 0,
+            payload_key_count=len(payload.keys()) if payload else 0,
+        )
+
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match,
+            )
+            system_reason = first_system_row_match(payload)
+            if system_reason:
+                logger.warning(
+                    f"[HOT-PATH-B-V2] dropped system/non-customer reply payload "
+                    f"reason={system_reason!r}, "
+                    f"customer={payload.get('customer_name') or payload.get('customer_id')!r}, "
+                    f"node={ctx.node_name}"
+                )
+                _ledger(
+                    "hot_path_b_system_drop",
+                    reason=system_reason,
+                    level=logging.WARNING,
+                )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": True,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "system_reply_drop",
+                }
+                return state
+        except Exception as system_err:
+            logger.debug(
+                f"[HOT-PATH-B-V2] system-payload filter failed "
+                f"(non-fatal): {system_err}"
+            )
+
         if not isinstance(actions_list, list) or not actions_list:
+            _ledger("hot_path_b_unconfigured", reason="no_actions_configured")
             return None
 
         # ── Match the first applicable rule ──
@@ -328,6 +420,11 @@ async def before_session_setup_hook_v2(
                 f"[HOT-PATH-B-V2] trigger matched (event={evt_type}, rule={trigger}), "
                 f"executing {len(action_seq)} actions"
             )
+            _ledger(
+                "hot_path_b_rule_matched",
+                action_count=len(action_seq),
+                trigger_preview=str(trigger),
+            )
 
             # ── Replay-dedup guard ──
             dedup_cust = (
@@ -336,14 +433,26 @@ async def before_session_setup_hook_v2(
                 or ""
             )
             dedup_reply = payload.get("response_text") or ""
-            dedup_age = _ds.was_recently_sent(dedup_cust, dedup_reply)
+            source_msg_id = str(
+                payload.get("source_customer_msg_id")
+                or payload.get("latest_message_msg_id")
+                or payload.get("reply_to_msg_id")
+                or ""
+            ).strip()
+            claim_cust = dedup_cust
+            claim_reply = dedup_reply
+            claim_source_msg_id = source_msg_id
+            dedup_age = _ds.claim_send_for_turn(
+                dedup_cust, dedup_reply, source_msg_id
+            )
             if dedup_age > 0:
                 logger.info(
                     f"[HOT-PATH-B-V2] dedup skip cust={dedup_cust!r} "
                     f"reply_len={len(dedup_reply)} (identical reply already "
-                    f"sent {dedup_age:.1f}s ago, ttl={_ds.DEDUP_TTL_S}s), "
+                    f"sent {dedup_age:.1f}s ago, source_msg_id={source_msg_id!r}), "
                     f"node={ctx.node_name}"
                 )
+                _ledger("hot_path_b_dedup_skip", dedup_age_s=dedup_age)
                 # Release inflight lock so the *next* genuine turn isn't blocked.
                 try:
                     skip_cust = ctx.normalize_dispatch_identity_key(dedup_cust)
@@ -352,12 +461,14 @@ async def before_session_setup_hook_v2(
                 except Exception:
                     pass
                 state.setdefault("result", {})["llm_result"] = {
-                    "all_done": False,
+                    "all_done": True,
                     "work_done": False,
                     "hot_path": True,
                     "hot_path_type": "dedup_skip",
                 }
                 return state
+            claim_active = True
+            _ledger("hot_path_b_send_claimed")
 
             # ── Pre-record reply BEFORE send ──
             # PreDispatch's equality guard compares the DOM's sidebar
@@ -370,11 +481,11 @@ async def before_session_setup_hook_v2(
                     or payload.get("customer_id")
                     or ""
                 )
-                pre_reply = _ds.normalize_reply_text(
-                    payload.get("response_text") or ""
+                pre_reply = _ds.remember_agent_reply(
+                    pre_cust,
+                    payload.get("response_text") or "",
                 )
                 if pre_cust and pre_reply:
-                    _ds.last_agent_reply_by_customer[pre_cust] = pre_reply
                     logger.info(
                         f"[HOT-PATH-B-V2] pre-recorded last_agent_reply for "
                         f"{pre_cust!r} (len={len(pre_reply)}, before send), "
@@ -389,15 +500,50 @@ async def before_session_setup_hook_v2(
                     f"[HOT-PATH-B-V2] no hot_path_executor wired; cannot type "
                     f"reply, node={ctx.node_name}"
                 )
+                _ledger(
+                    "hot_path_b_unavailable",
+                    reason="no_hot_path_executor",
+                    level=logging.WARNING,
+                )
+                if claim_active:
+                    try:
+                        _ds.unclaim_send_for_turn(
+                            claim_cust,
+                            claim_reply,
+                            claim_source_msg_id,
+                        )
+                    except Exception:
+                        pass
+                    claim_active = False
                 return None
             if ctx.primitives is None:
                 logger.warning(f"[HOT-PATH-B-V2] no primitives, node={ctx.node_name}")
+                _ledger(
+                    "hot_path_b_unavailable",
+                    reason="no_primitives",
+                    level=logging.WARNING,
+                )
+                if claim_active:
+                    try:
+                        _ds.unclaim_send_for_turn(
+                            claim_cust,
+                            claim_reply,
+                            claim_source_msg_id,
+                        )
+                    except Exception:
+                        pass
+                    claim_active = False
                 return None
 
             typing_cust = ctx.normalize_dispatch_identity_key(
                 payload.get("customer_name")
                 or payload.get("customer_id")
                 or ""
+            )
+            _ledger(
+                "hot_path_b_executor_start",
+                customer_key=typing_cust,
+                action_count=len(action_seq),
             )
             outcome = await hot_path_executor(
                 primitives=ctx.primitives,
@@ -414,13 +560,75 @@ async def before_session_setup_hook_v2(
                 f"last_tool_error={outcome.last_tool_error!r}, "
                 f"node={ctx.node_name}"
             )
+            _ledger(
+                "hot_path_b_executor_result",
+                ok=bool(outcome.ok),
+                reason=str(outcome.reason or ""),
+                actions_attempted=outcome.actions_attempted,
+                last_tool_error=str(outcome.last_tool_error or ""),
+                typing_acquired=bool(outcome.typing_acquired),
+            )
+
+            if not outcome.ok and outcome.reason == "stale_reply_source_msg_id":
+                # Keep the recent-send claim so this stale response is not
+                # replayed, but avoid clearing a newer dispatch lock if the
+                # customer has already been re-dispatched for a later bubble.
+                claim_active = False
+                try:
+                    stale_cust = ctx.normalize_dispatch_identity_key(
+                        payload.get("customer_name")
+                        or payload.get("customer_id")
+                        or ""
+                    )
+                    expected_msg_id = str(
+                        payload.get("source_customer_msg_id")
+                        or payload.get("latest_message_msg_id")
+                        or payload.get("reply_to_msg_id")
+                        or ""
+                    ).strip()
+                    current_msg_id = ctx.dispatch_state.get_last_dispatched_msg_id(
+                        stale_cust
+                    )
+                    if stale_cust and (
+                        not current_msg_id or current_msg_id == expected_msg_id
+                    ):
+                        ctx.dispatch_state.clear_inflight(stale_cust)
+                        logger.info(
+                            f"[HOT-PATH-B-V2] cleared dispatch_inflight after "
+                            f"stale reply drop for cust={stale_cust!r}, "
+                            f"node={ctx.node_name}"
+                        )
+                    else:
+                        logger.info(
+                            f"[HOT-PATH-B-V2] kept dispatch_inflight after "
+                            f"stale reply drop for cust={stale_cust!r} "
+                            f"because newer msg_id is recorded, node={ctx.node_name}"
+                        )
+                except Exception as stale_err:
+                    logger.debug(
+                        f"[HOT-PATH-B-V2] stale-drop inflight handling failed: "
+                        f"{stale_err}"
+                    )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": True,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "stale_reply_drop",
+                }
+                logger.warning(
+                    f"[HOT-PATH-B-V2] dropped stale reply instead of typing it, "
+                    f"node={ctx.node_name}"
+                )
+                _ledger("hot_path_b_stale_dropped", level=logging.WARNING)
+                return state
 
             if outcome.ok:
                 # Mark (cust, reply) as sent so an immediate replay is deduped.
                 try:
-                    _ds.mark_sent(dedup_cust, dedup_reply)
+                    _ds.mark_sent_for_turn(dedup_cust, dedup_reply, source_msg_id)
                 except Exception:
                     pass
+                claim_active = False
 
                 # Release qa_response_pending lock — soft-import: the call
                 # is mainwin/cloud-orchestrator-coupled in the legacy
@@ -471,7 +679,7 @@ async def before_session_setup_hook_v2(
                 # Step 2f's PreDispatch port.
 
                 state.setdefault("result", {})["llm_result"] = {
-                    "all_done": False,
+                    "all_done": True,
                     "work_done": False,
                     "hot_path": True,
                     "hot_path_type": "configurable",
@@ -479,9 +687,21 @@ async def before_session_setup_hook_v2(
                 logger.info(
                     f"[HOT-PATH-B-V2] all actions completed, node={ctx.node_name}"
                 )
+                _ledger("hot_path_b_sent_and_cleaned")
                 return state
 
             # ── Failure path ──
+            if claim_active:
+                try:
+                    _ds.unclaim_send_for_turn(
+                        claim_cust,
+                        claim_reply,
+                        claim_source_msg_id,
+                    )
+                except Exception:
+                    pass
+                claim_active = False
+
             # Release inflight lock so PreDispatch isn't blocked for the full TTL.
             try:
                 fail_cust = ctx.normalize_dispatch_identity_key(
@@ -501,8 +721,47 @@ async def before_session_setup_hook_v2(
                     f"[HOT-PATH-B-V2] inflight clear after failure: {fail_cdi_err}"
                 )
 
-            break  # Only try first matching rule
+            _ledger(
+                "hot_path_b_failed",
+                ok=False,
+                reason=str(outcome.reason or ""),
+                actions_attempted=outcome.actions_attempted,
+                last_tool_error=str(outcome.last_tool_error or ""),
+                level=logging.WARNING,
+            )
+            state.setdefault("result", {})["llm_result"] = {
+                "all_done": True,
+                "work_done": False,
+                "hot_path": True,
+                "hot_path_type": "action_failed",
+                "hot_path_reason": str(outcome.reason or ""),
+                "last_tool_error": str(outcome.last_tool_error or ""),
+            }
+            logger.warning(
+                f"[HOT-PATH-B-V2] action failed; short-circuiting browser node "
+                f"to avoid full browser-use fallback, reason={outcome.reason!r}, "
+                f"node={ctx.node_name}"
+            )
+            return state
     except Exception as err:
+        if claim_active:
+            try:
+                _ds.unclaim_send_for_turn(
+                    claim_cust,
+                    claim_reply,
+                    claim_source_msg_id,
+                )
+            except Exception:
+                pass
+        try:
+            if "_ledger" in locals():
+                _ledger(
+                    "hot_path_b_exception",
+                    error=str(err),
+                    level=logging.WARNING,
+                )
+        except Exception:
+            pass
         logger.warning(
             f"[HOT-PATH-B-V2] check failed (non-fatal): {err}",
             exc_info=True,

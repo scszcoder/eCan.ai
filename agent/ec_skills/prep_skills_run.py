@@ -448,6 +448,27 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
         if isinstance(current_state, dict):
             base = _deep_merge(base, current_state)  # type: ignore[arg-type]
             logger.debug(f"{_tag} Merged with current_state (keys={list(current_state.keys())})")
+            # Reset per-run runtime fields after merge. _deep_merge lets current_state
+            # win for shared keys, which poisons fresh event-triggered runs on shared
+            # task instances: a previous turn's terminal result.llm_result.all_done=True
+            # would carry over and cause the loop's while-condition to exit before any
+            # node executes for the new customer (silent drop). Persistent fields like
+            # attributes / history / metadata still carry over from the merge above.
+            base["result"] = {"llm_result": {"all_done": False, "work_done": False}}
+            base["tool_name"] = ""
+            base["tool_input"] = {}
+            base["tool_result"] = {}
+            base["http_response"] = {}
+            base["cli_input"] = {}
+            base["cli_results"] = {}
+            base["error"] = ""
+            base["retries"] = 0
+            base["condition"] = False
+            base["condition_vars"] = {}
+            base["loop_end_vars"] = {}
+            base["case"] = ""
+            base["n_steps"] = 0
+            base["breakpoint"] = False
 
         # Summary log - warning only for unexpected missing fields (not for empty msg)
         if missing_fields:

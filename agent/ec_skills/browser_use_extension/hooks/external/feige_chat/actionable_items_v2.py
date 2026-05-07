@@ -45,6 +45,12 @@ from agent.ec_skills.browser_node.contexts import (
     PromptBuildContext,
     PromptBuildResult,
 )
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+    first_system_row_match,
+)
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+    log_event,
+)
 
 logger = logging.getLogger("ecan.hooks.feige_chat.v2")
 
@@ -64,6 +70,110 @@ _RR_INDEX_PREFIX = "ai:rr_index:"                   # node_name → int
 _COOLDOWN_PREFIX = "ai:cooldown:"                   # customer → ts
 _DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
 _AUTO_DISPATCH_COOLDOWN_S = 10.0
+
+
+def _truthy_config_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return False
+
+
+def _read_jsonish_input(inputs: dict, key: str, parser=None) -> Any:
+    if callable(parser):
+        try:
+            parsed = parser(inputs, key)
+            if parsed is not None:
+                if not (
+                    isinstance(parsed, dict)
+                    and set(parsed.keys()) == {"content"}
+                ):
+                    return parsed
+                raw = parsed.get("content")
+                if raw in (None, ""):
+                    return None
+                if isinstance(raw, (dict, list)):
+                    return raw
+                if isinstance(raw, str):
+                    try:
+                        return json.loads(raw.strip())
+                    except Exception:
+                        return None
+                return None
+        except Exception:
+            pass
+    raw = (inputs.get(key) or {}).get("content") if isinstance(inputs, dict) else None
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw.strip())
+        except Exception:
+            return None
+    return None
+
+
+def _pre_dispatch_enabled_for_browser_event(inputs: dict, parser, evt_type: str) -> bool:
+    if evt_type != "browser_event":
+        return False
+    cfg = _read_jsonish_input(inputs, "preDispatch", parser)
+    return isinstance(cfg, dict) and _truthy_config_value(cfg.get("enabled"))
+
+
+def _auto_dispatch_allows_pre_dispatch(auto_dispatch_cfg: dict | None) -> bool:
+    if not isinstance(auto_dispatch_cfg, dict):
+        return False
+    for key in ("allow_with_preDispatch", "allow_with_pre_dispatch", "allowWithPreDispatch"):
+        if _truthy_config_value(auto_dispatch_cfg.get(key)):
+            return True
+    dispatch_cfg = auto_dispatch_cfg.get("dispatch")
+    if isinstance(dispatch_cfg, dict):
+        for key in ("allow_with_preDispatch", "allow_with_pre_dispatch", "allowWithPreDispatch"):
+            if _truthy_config_value(dispatch_cfg.get(key)):
+                return True
+    return False
+
+
+def _build_pre_dispatch_guard_state(item_count: int) -> dict:
+    return {
+        "result": {
+            "llm_result": {
+                "all_done": True,
+                "work_done": False,
+                "hot_path": True,
+                "hot_path_type": "predispatch_guard",
+                "message": (
+                    "preDispatch is enabled; suppressing autoDispatch/LLM "
+                    f"fallback for browser_event ({item_count} actionable item(s))."
+                ),
+            }
+        }
+    }
+
+
+def _pre_dispatch_suppresses_prompt_auto_dispatch(
+    *,
+    inputs: dict,
+    parser,
+    evt_type: str,
+    auto_dispatch_cfg: dict | None,
+) -> bool:
+    """Whether prompt-build autoDispatch should defer to PreDispatch.
+
+    The prompt-build hook runs before the full-local late PreDispatch hook.
+    A short-circuit here prevents PreDispatch from running and can drop the
+    browser_event.  Suppress only this hook's autoDispatch path; keep the
+    actionable-items prompt as fallback if PreDispatch declines the event.
+    """
+    return (
+        _pre_dispatch_enabled_for_browser_event(inputs, parser, evt_type)
+        and not _auto_dispatch_allows_pre_dispatch(auto_dispatch_cfg)
+    )
 
 
 def _get_dispatched_at(state, identity_key: str) -> float:
@@ -112,6 +222,10 @@ def _evaluate_item_filter_pure(
         now = time.time()
     cfg = filter_cfg or {}
     resolved = resolved or {}
+
+    system_reason = first_system_row_match(item, resolved)
+    if system_reason:
+        return False, system_reason
 
     # 1. Required fields
     for rf in (cfg.get("required_fields") or []):
@@ -510,14 +624,74 @@ async def before_prompt_build_hook_v2(
         )
         if _keep:
             _actionable.append(_it)
+            log_event(
+                "actionable_keep",
+                customer=_cust_id,
+                customer_id=str(_it.get("customer_id") or ""),
+                customer_name=str(_it.get("customer_name") or _it.get("name") or ""),
+                session_id=str(_it.get("session_id") or _it.get("identity_key") or ""),
+                source_msg_id=str(_it.get("latest_message_msg_id") or _it.get("msg_id") or ""),
+                latest_preview=str(
+                    _it.get("latest_message")
+                    or _it.get("last_message")
+                    or _it.get("message")
+                    or ""
+                ),
+                node=node_name,
+                event_type=evt_type,
+            )
         else:
             _filtered_out.append((_cust_id or "?", _reason))
+            log_event(
+                "actionable_skip",
+                customer=_cust_id,
+                customer_id=str(_it.get("customer_id") or ""),
+                customer_name=str(_it.get("customer_name") or _it.get("name") or ""),
+                session_id=str(_it.get("session_id") or _it.get("identity_key") or ""),
+                source_msg_id=str(_it.get("latest_message_msg_id") or _it.get("msg_id") or ""),
+                latest_preview=str(
+                    _it.get("latest_message")
+                    or _it.get("last_message")
+                    or _it.get("message")
+                    or ""
+                ),
+                reason=_reason,
+                node=node_name,
+                event_type=evt_type,
+            )
     if _filtered_out:
         logger.info(
             f"[V2 actionable_items] filtered {len(_filtered_out)} entry/entries "
             f"(kept {len(_actionable)} of {len(actionable_raw)}): "
             + ", ".join(f"{c}({r})" for c, r in _filtered_out)
             + f" node={node_name}"
+        )
+
+    _auto_dispatch_guard_cfg = _read_jsonish_input(
+        inputs,
+        "autoDispatch",
+        getattr(ctx, "parse_json_input", None),
+    )
+    _pre_dispatch_blocks_prompt_auto = _pre_dispatch_suppresses_prompt_auto_dispatch(
+        inputs=inputs,
+        parser=getattr(ctx, "parse_json_input", None),
+        evt_type=evt_type,
+        auto_dispatch_cfg=_auto_dispatch_guard_cfg,
+    )
+    if _pre_dispatch_blocks_prompt_auto:
+        try:
+            state["_ecan_predispatch_actionable_items"] = [
+                dict(_it) for _it in _actionable if isinstance(_it, dict)
+            ]
+            state["_ecan_predispatch_actionable_items_ts"] = time.time()
+        except Exception:
+            pass
+        logger.info(
+            f"[V2 actionable_items] PreDispatch enabled for browser_event; "
+            f"deferring prompt-build autoDispatch while preserving "
+            f"actionable_items fallback "
+            f"(actionable={len(_actionable)}, total={len(compact_items)}), "
+            f"node={node_name}"
         )
 
     _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)
@@ -611,7 +785,12 @@ async def before_prompt_build_hook_v2(
                 _ad_cfg = json.loads(_ad_raw)
             elif isinstance(_ad_raw, dict):
                 _ad_cfg = _ad_raw
-            if _ad_cfg and _all_agents and _caller_id:
+            if (
+                _ad_cfg
+                and not _pre_dispatch_blocks_prompt_auto
+                and _all_agents
+                and _caller_id
+            ):
                 _ad_state = await _try_auto_dispatch_cloud(
                     config=_ad_cfg,
                     actionable=_actionable,

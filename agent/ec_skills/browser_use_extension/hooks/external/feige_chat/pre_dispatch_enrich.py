@@ -38,8 +38,11 @@ For each item the front-desk fast-path is about to dispatch:
    - **text-based dom-echo**: skip if the sidebar ``last_message``
      (whitespace-normalised, prefix-limited) matches the reply that
      HOT-PATH-B pre-recorded just before it typed.
-   - **legacy assigned_sessions heuristic**: skip if this
-     ``session_id`` already has an active assignment record.
+   - **assigned_sessions text match**: skip only if this
+     ``session_id`` already has an active assignment record for the
+     same sidebar/customer text.  A newer sidebar preview must
+     supersede the prior assignment even when thread scraping is
+     temporarily unavailable.
 
 Contract
 --------
@@ -121,6 +124,15 @@ async def _scrape_and_override_last_message(
         str(item.get("customer_name") or ""),
         typing_holder_getter=typing_holder_getter,
     )
+    if scraped.get("skip_dispatch"):
+        skip_reason = str(scraped.get("skip_reason") or "scrape_not_safe")
+        item["_ecan_pre_dispatch_skip_reason"] = skip_reason
+        logger.warning(
+            f"[BrowserAutomation] {log_tag} thread-scrape refused "
+            f"dispatch for cust={customer_key!r}: reason={skip_reason!r}, "
+            f"detail={scraped.get('verify_reason')!r}"
+        )
+        return ""
     if not scraped.get("scrape_ok"):
         logger.debug(
             f"[BrowserAutomation] {log_tag} thread-scrape returned no "
@@ -133,6 +145,34 @@ async def _scrape_and_override_last_message(
     orig_last = str(item.get("last_message") or "")
     new_last = str(scraped.get("text", "") or "")
     if new_last and new_last != orig_last:
+        try:
+            from .system_message_filter import first_matching_pattern
+
+            new_hit = first_matching_pattern(new_last)
+            orig_hit = first_matching_pattern(orig_last)
+            if (
+                new_hit
+                in {
+                    "transfer_to_human_label",
+                    "smart_cs_auto_greeting",
+                    "human_handover_notice",
+                    "store_assignment_notice",
+                }
+                and orig_last
+                and not orig_hit
+            ):
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} thread-scrape ignored "
+                    f"system-looking latest bubble for cust={customer_key!r}: "
+                    f"sidebar={orig_last[:40]!r} thread={new_last[:40]!r} "
+                    f"pattern={new_hit!r}; dispatching sidebar text"
+                )
+                return ""
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} system-looking scrape guard "
+                f"failed for cust={customer_key!r}: {exc}"
+            )
         logger.info(
             f"[BrowserAutomation] {log_tag} thread-scrape overrode "
             f"last_message for cust={customer_key!r}: "
@@ -202,18 +242,41 @@ def _check_dom_echo_fallback(
     failed to return a usable msg-id.
 
     Returns ``(skip, reason)``.  Reasons: ``"dom_echo"`` (text match
-    against our pre-recorded reply) or ``"assigned_sessions_legacy"``
-    (legacy per-session dedup).
+    against our pre-recorded reply) or
+    ``"assigned_sessions_same_message"``.
     """
+    item_last_raw = str(
+        item.get("last_message")
+        or item.get("latest_message")
+        or item.get("message")
+        or ""
+    )
+    item_last_norm = ""
+    try:
+        from .dispatch_state import reply_echo_matches as _reply_echo_matches
+    except Exception:
+        _reply_echo_matches = None
     # (a) text-based dom-echo.
     try:
         last_agent_reply = last_agent_reply_cache.get(customer_key, "")
-        item_last_norm = normalize_reply_text(item.get("last_message") or "")
+        item_last_norm = normalize_reply_text(item_last_raw)
         if (
             last_agent_reply
             and item_last_norm
-            and item_last_norm == last_agent_reply
+            and (
+                item_last_norm == last_agent_reply
+                or (
+                    _reply_echo_matches is not None
+                    and _reply_echo_matches(item_last_raw, last_agent_reply)
+                )
+            )
         ):
+            if assigned_sessions.pop(session_id, None) is not None:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} dom-echo evicted "
+                    f"assigned_sessions[{session_id!r}] because the agent "
+                    f"reply is now visible in the sidebar"
+                )
             logger.info(
                 f"[BrowserAutomation] {log_tag} dom-echo skip "
                 f"session={session_id!r} cust={customer_key!r} "
@@ -228,15 +291,42 @@ def _check_dom_echo_fallback(
             f"failed: {exc}"
         )
 
-    # (b) legacy assigned_sessions heuristic.
-    if assigned_sessions.get(session_id):
+    # (b) assigned_sessions text-match heuristic.
+    #
+    # Older code skipped on *any* prior assignment when thread scraping
+    # failed.  That is unsafe under CDP contention: a customer can send
+    # a newer sidebar-visible message while the stale assignment remains
+    # present, and the front desk will silently suppress the new turn.
+    # Only dedup when the prior assignment recorded the same message
+    # text; otherwise the newer sidebar preview supersedes the pending
+    # assignment.
+    assigned = assigned_sessions.get(session_id)
+    if assigned:
+        prior_text = ""
+        if isinstance(assigned, dict):
+            prior_text = str(
+                assigned.get("latest_message")
+                or assigned.get("last_message")
+                or assigned.get("source_latest_message")
+                or ""
+            )
+        prior_norm = normalize_reply_text(prior_text) if prior_text else ""
+        if prior_norm and item_last_norm and prior_norm == item_last_norm:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} assigned-sessions skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(thread-scrape unavailable; same message already "
+                f"assigned; prior assignment={assigned})"
+            )
+            return True, "assigned_sessions_same_message"
         logger.info(
-            f"[BrowserAutomation] {log_tag} assigned-sessions skip "
+            f"[BrowserAutomation] {log_tag} assigned-sessions supersede "
             f"session={session_id!r} cust={customer_key!r} "
-            f"(thread-scrape unavailable, falling back to legacy "
-            f"dedup; prior assignment={assigned_sessions.get(session_id)})"
+            f"(thread-scrape unavailable; current sidebar text differs "
+            f"from prior assignment, allowing dispatch; "
+            f"current={item_last_raw[:80]!r}, prior={prior_text[:80]!r}, "
+            f"prior assignment={assigned})"
         )
-        return True, "assigned_sessions_legacy"
     return False, ""
 
 
@@ -257,13 +347,144 @@ async def enrich_item(
     ground-truth data and apply all Feige-specific skip guards.
 
     See module docstring for the three-stage pipeline.  When
-    *typing_holder_getter* returns a non-empty key different from
-    *customer_key* the thread-scrape yields early to avoid stealing
-    the Feige active session from a concurrent HOT-PATH-B reply.
+    *typing_holder_getter* returns a non-empty key, enrichment skips
+    the thread scrape and uses the sidebar preview so dispatch can
+    continue without stealing focus from a concurrent HOT-PATH-B reply.
     """
-    scraped_msg_id = await _scrape_and_override_last_message(
-        browser_session, item, customer_key, log_tag, typing_holder_getter
-    )
+    # Stage 0: Pre-scrape dom-echo fast-path (added 2026-04-30 20:30).
+    # When the sidebar last_message text already equals our last
+    # recorded agent reply for this customer, we already answered them
+    # and no thread-scrape is required.  This avoids the 6s CDP
+    # Runtime.evaluate timeout that PreDispatch was hitting on every
+    # already-answered customer in the sidebar (observed 2026-04-30
+    # 20:24-20:25 where 5 sequential 6s timeouts produced two 60s
+    # front-desk stalls).  Safe because the sidebar shows the LATEST
+    # entry only -- if the customer had sent a newer message it would
+    # supersede our reply text in last_message.
+    try:
+        _early_last_raw = str(
+            item.get("last_message")
+            or item.get("latest_message")
+            or item.get("message")
+            or ""
+        )
+        _early_prev_reply = auto_dispatch_last_agent_reply.get(customer_key, "")
+        if _early_last_raw and _early_prev_reply:
+            _early_norm = normalize_reply_text(_early_last_raw)
+            try:
+                from .dispatch_state import reply_echo_matches as _reply_echo_matches
+            except Exception:
+                _reply_echo_matches = None
+            if _early_norm and (
+                _early_norm == _early_prev_reply
+                or (
+                    _reply_echo_matches is not None
+                    and _reply_echo_matches(_early_last_raw, _early_prev_reply)
+                )
+            ):
+                if assigned_sessions.pop(session_id, None) is not None:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} pre-scrape "
+                        f"dom-echo evicted assigned_sessions[{session_id!r}] "
+                        f"because the agent reply is now visible in the sidebar"
+                    )
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
+                    f"skip session={session_id!r} cust={customer_key!r} "
+                    f"(sidebar last_message already matches our recorded "
+                    f"reply -- skipping 6s thread scrape)"
+                )
+                return EnrichResult(
+                    skip=True, skip_reason="dom_echo_pre_scrape", scraped_msg_id=""
+                )
+    except Exception as _early_exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
+            f"check failed (non-fatal): {_early_exc}"
+        )
+
+    typing_lock_sidebar_only = False
+    if typing_holder_getter is not None:
+        try:
+            _holder = str(typing_holder_getter() or "").strip()
+        except Exception as _holder_exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} typing-lock check failed "
+                f"(non-fatal): {_holder_exc}"
+            )
+            _holder = ""
+        if _holder:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} typing-lock sidebar-only "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"holder={_holder!r} (not scraping/clicking while Feige "
+                "reply delivery owns the browser)"
+            )
+            typing_lock_sidebar_only = True
+
+    scraped_msg_id = ""
+    if not typing_lock_sidebar_only:
+        scraped_msg_id = await _scrape_and_override_last_message(
+            browser_session, item, customer_key, log_tag, typing_holder_getter
+        )
+        predispatch_skip_reason = str(
+            item.pop("_ecan_pre_dispatch_skip_reason", "") or ""
+        )
+        if predispatch_skip_reason:
+            return EnrichResult(
+                skip=True,
+                skip_reason=predispatch_skip_reason,
+                scraped_msg_id="",
+            )
+
+    # Stage 1.5: System / platform message guard.
+    #
+    # The Feige sidebar's ``last_message`` preview AND occasionally the
+    # chat-thread bubble extractor can surface non-customer-authored
+    # text — platform stall warnings ("当前会话已长时间未回复"),
+    # human-handover system messages ("您好，现在是人工客服为您服务"),
+    # built-in 智能客服 auto-replies ("亲亲，在哒~"), etc.  When these
+    # reach the Q&A worker as ``latest_message`` the LLM dutifully
+    # *answers them* — observed live 2026-04-27 10:35:01 where the bot
+    # replied to a platform warning with "您好，这条提示像是系统状态
+    # 提醒...".  Filter HERE, BEFORE the dedup cache is touched, so a
+    # genuine subsequent customer message isn't suppressed by msg-id
+    # dedup against a system-noise turn we accidentally remembered.
+    try:
+        from .system_message_filter import (
+            first_system_row_match as _first_row_match,
+            first_matching_pattern as _first_pat,
+        )
+        _row_hit = _first_row_match(item)
+        if _row_hit:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} system-message filter "
+                f"SKIP for cust={customer_key!r} reason={_row_hit!r}"
+            )
+            return EnrichResult(
+                skip=True,
+                skip_reason=_row_hit,
+                scraped_msg_id=scraped_msg_id,
+            )
+        _candidate_text = str(item.get("last_message") or "")
+        _smf_hit = _first_pat(_candidate_text)
+        if _smf_hit:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} system-message filter "
+                f"SKIP for cust={customer_key!r} pattern={_smf_hit!r} "
+                f"text={_candidate_text[:80]!r}"
+            )
+            return EnrichResult(
+                skip=True,
+                skip_reason=f"system_message:{_smf_hit}",
+                scraped_msg_id=scraped_msg_id,
+            )
+    except Exception as _smf_exc:
+        # Defence-in-depth: a filter failure must not abort dispatch.
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} system-message filter "
+            f"raised (non-fatal): {type(_smf_exc).__name__}: {_smf_exc}"
+        )
 
     # Stage 2: strict msg-id dedup (only meaningful when scrape gave us an id).
     try:

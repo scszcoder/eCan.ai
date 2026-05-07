@@ -22,6 +22,66 @@ import xml.etree.ElementTree as ET
 from utils.logger_helper import logger_helper as logger
 
 
+# User-prefix parsing ---------------------------------------------------
+#
+# See ota/docs/multi_version_picker.md for the full rationale. Short version:
+# a Sparkle version string may carry an optional ``<user>_`` prefix, e.g.
+# ``songc_v26.05.03.22.22``. Items without such a prefix are treated as
+# *universal* (visible to every user). Items with a prefix are only shown
+# to the user whose email local-part matches that prefix (case-insensitive).
+#
+# We deliberately restrict what can be considered a user prefix so we don't
+# accidentally strip a legitimate build-suffix from versions that happen to
+# contain an underscore, and so prerelease words like ``rc_v1.0`` don't get
+# misread as a user identity.
+
+# Words that must NEVER be interpreted as a user prefix. These are common
+# prerelease / channel tags that some build pipelines put before the version
+# core. Prerelease information belongs *after* a ``-`` in the version core
+# (``v1.0-rc.1``), which ``compare_versions`` already handles correctly.
+_FORBIDDEN_USER_PREFIXES = frozenset({
+    "rc", "beta", "alpha", "preview", "dev", "snapshot", "nightly",
+    "canary", "insider", "edge",
+})
+
+
+def _split_user_prefix(raw_version: str) -> Tuple[Optional[str], str]:
+    """Peel an optional ``<user>_`` prefix off a raw version string.
+
+    Examples::
+
+        _split_user_prefix("songc_v26.05.03.22.22") == ("songc", "v26.05.03.22.22")
+        _split_user_prefix("v0.9.11")                == (None, "v0.9.11")
+        _split_user_prefix("26.05.03.22.22")         == (None, "26.05.03.22.22")
+        _split_user_prefix("rc_v1.0")                == (None, "rc_v1.0")
+        _split_user_prefix("songc2_v1.0")            == ("songc2", "v1.0")
+
+    The prefix is returned lower-cased so caller matching is
+    case-insensitive.
+    """
+    if not raw_version or "_" not in raw_version:
+        return None, raw_version
+    head, rest = raw_version.split("_", 1)
+    head = head.strip()
+    if not head or not rest:
+        return None, raw_version
+    # Prefix must contain at least one non-digit, non-dot character,
+    # otherwise the ``_`` is part of the version itself (e.g. ``26_05_03``
+    # style) and we leave it alone.
+    head_stripped = head.replace(".", "")
+    if head_stripped.isdigit():
+        return None, raw_version
+    # Reject reserved prerelease / channel words.
+    if head.lower() in _FORBIDDEN_USER_PREFIXES:
+        return None, raw_version
+    # Loose sanity check: a user prefix should look like an identifier,
+    # not contain whitespace or weird punctuation. We allow letters,
+    # digits, dot, dash. Anything else -> treat the ``_`` as version data.
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", head):
+        return None, raw_version
+    return head.lower(), rest
+
+
 @dataclass
 class AppcastItem:
     version: str
@@ -34,6 +94,16 @@ class AppcastItem:
     alternate_url: Optional[str] = None  # Accelerated/alternate download URL
     description_html: Optional[str] = None
     pub_date: Optional[str] = None
+    # Optional per-user tag parsed from the leading ``<user>_`` segment of
+    # the raw version string. ``None`` means the item is universal (visible
+    # to every user). Populated by :func:`parse_appcast`; never parsed from
+    # the XML directly (today). See ota/docs/multi_version_picker.md.
+    user_prefix: Optional[str] = None
+    # The version string with any ``<user>_`` prefix peeled off. This is
+    # what should be used for version comparison / display. ``version`` is
+    # preserved verbatim so we can still show ``songc_v26.05.03.22.22`` to
+    # the user if desired.
+    version_core: Optional[str] = None
 
 
 def parse_appcast(xml_text: str) -> List[AppcastItem]:
@@ -97,6 +167,8 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
         if not url or not version:
             continue
 
+        user_prefix, version_core = _split_user_prefix(version)
+
         items.append(AppcastItem(
             version=version,
             url=url,
@@ -108,6 +180,8 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
             alternate_url=alternate_url,
             description_html=desc_html,
             pub_date=pub_date,
+            user_prefix=user_prefix,
+            version_core=version_core,
         ))
 
     return items
@@ -245,28 +319,122 @@ def version_tuple(v: str) -> Tuple[int, int, int]:
     return tuple(nums[:3])  # type: ignore[return-value]
 
 
-def select_latest_for_platform(items: List[AppcastItem], platform_tag: Optional[str], current_version: str, arch_tag: Optional[str] = None) -> Optional[AppcastItem]:
-    """Pick the latest item for the given platform/arch whose version > current_version.
-    If arch is provided, prefer exact arch match; items without arch are treated as universal.
+def select_eligible_versions(
+    items: List[AppcastItem],
+    platform_tag: Optional[str],
+    current_version: str,
+    arch_tag: Optional[str] = None,
+    user_prefix: Optional[str] = None,
+) -> List[AppcastItem]:
+    """Return every item the current user is eligible to install, newest-first.
+
+    Filters:
+      * ``item.os`` must match ``platform_tag`` (or be ``None``).
+      * ``item.arch`` must match ``arch_tag`` (or be ``None``) when arch is
+        given.
+      * ``item.version_core`` must compare strictly greater than
+        ``current_version``.
+      * ``item.user_prefix`` must be either ``None`` (universal) or exactly
+        equal to the provided ``user_prefix`` (case-insensitive; the
+        caller should already have normalized it).
+
+    An empty / ``None`` ``user_prefix`` means "logged-out or unknown
+    user" and will only see universal items.
+
+    Results are sorted newest-first using :func:`compare_versions` on the
+    version core (without the ``<user>_`` prefix), so a user who cares
+    about multiple parallel builds can pick from the full list.
     """
     if not items:
-        return None
+        return []
     tag = platform_tag or current_os_tag()
     arch = normalize_arch_tag(arch_tag)
-    # First pass: exact arch match or universal
+    normalized_user = (user_prefix or "").strip().lower() or None
+
     candidates = [it for it in items if (it.os is None or it.os.lower() == tag)]
     if arch:
-        arch_candidates = [it for it in candidates if (it.arch is None or normalize_arch_tag(it.arch) == arch)]
-    else:
-        arch_candidates = candidates
-    if not arch_candidates:
-        return None
-    arch_candidates.sort(
-        key=cmp_to_key(lambda a, b: compare_versions(a.version, b.version)),
+        candidates = [
+            it for it in candidates
+            if (it.arch is None or normalize_arch_tag(it.arch) == arch)
+        ]
+    # User-prefix filter: universal items always pass; tagged items only
+    # pass when the tag matches the current user.
+    def _user_ok(it: AppcastItem) -> bool:
+        if it.user_prefix is None:
+            return True
+        return normalized_user is not None and it.user_prefix == normalized_user
+    candidates = [it for it in candidates if _user_ok(it)]
+
+    # Version filter: strictly newer than current (use version_core so the
+    # ``<user>_`` prefix does not break comparison).
+    def _version_core(it: AppcastItem) -> str:
+        return it.version_core or it.version
+    candidates = [
+        it for it in candidates
+        if compare_versions(_version_core(it), current_version) > 0
+    ]
+
+    candidates.sort(
+        key=cmp_to_key(lambda a, b: compare_versions(_version_core(a), _version_core(b))),
         reverse=True,
     )
-    for it in arch_candidates:
-        if compare_versions(it.version, current_version) > 0:
-            return it
-    return None
+    return candidates
+
+
+def item_to_update_dict(item: AppcastItem) -> dict:
+    """Shape an :class:`AppcastItem` into the dict the OTA GUI expects.
+
+    Used by the three platform updaters to build both the legacy
+    single-item ``update_info`` fields and the new
+    ``update_info['available_versions']`` list (see
+    ``ota/docs/multi_version_picker.md``). Keeping this in one place
+    guarantees every downstream consumer — the single-version
+    confirmation dialog, the new multi-version picker, and the OTA
+    download manager — sees identical field names for identical data.
+
+    The alternate-URL auto-derivation rule (S3 bucket → S3 accelerate)
+    was previously duplicated across all three platform updaters; it
+    now lives here so new items picked up by the multi-version picker
+    benefit from it automatically.
+    """
+    alt = item.alternate_url
+    if (
+        not alt
+        and item.url
+        and ".s3." in item.url
+        and "amazonaws.com" in item.url
+    ):
+        alt = item.url.replace(".s3.", ".s3-accelerate.")
+    return {
+        "version": item.version,
+        "version_core": item.version_core or item.version,
+        "user_prefix": item.user_prefix,
+        "download_url": item.url,
+        "alternate_url": alt,
+        "file_size": item.length or 0,
+        "signature": item.ed_signature or "",
+        "description": item.description_html or "",
+        "pub_date": item.pub_date,
+        "os": item.os,
+        "arch": item.arch,
+    }
+
+
+def select_latest_for_platform(
+    items: List[AppcastItem],
+    platform_tag: Optional[str],
+    current_version: str,
+    arch_tag: Optional[str] = None,
+    user_prefix: Optional[str] = None,
+) -> Optional[AppcastItem]:
+    """Pick the single newest eligible item, or ``None`` if none qualify.
+
+    Thin back-compat wrapper over :func:`select_eligible_versions`. All
+    existing callers continue to work unchanged; callers that want the
+    full list should use :func:`select_eligible_versions` directly.
+    """
+    eligible = select_eligible_versions(
+        items, platform_tag, current_version, arch_tag, user_prefix
+    )
+    return eligible[0] if eligible else None
 

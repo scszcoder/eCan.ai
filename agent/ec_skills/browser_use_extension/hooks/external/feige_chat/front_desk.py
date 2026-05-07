@@ -50,6 +50,7 @@ What this module does **not** own
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -102,6 +103,10 @@ async def before_session_setup_hook(
     #       ]
     #     }
     #   ]
+    _hp_b_claim_active = False
+    _hp_b_claim_cust = ""
+    _hp_b_claim_reply = ""
+    _hp_b_claim_source_msg_id = ""
     try:
         _hp_b_raw = (inputs.get("hotPathActions") or {}).get("content")
         _hp_b_actions_list = None
@@ -187,6 +192,45 @@ async def before_session_setup_hook(
                             _hp_b_payload_src = "state.input[legacy-fallback]"
                     except Exception:
                         pass
+            # --- 4. Response-payload fallback ---
+            # Under bursty queues prompt_refs.events can be empty while a
+            # stale browser_event remains in state.  If the current input is
+            # clearly a Q&A reply, recover it here and force HOT-PATH-B.
+            if not _hp_b_payload and not state.get("_ecan_predispatch_actionable_items"):
+                _hp_b_candidates = []
+                _hp_b_input = state.get("input", "")
+                if isinstance(_hp_b_input, str) and _hp_b_input.strip():
+                    _hp_b_candidates.append(_hp_b_input)
+                _hp_b_messages = state.get("messages")
+                if isinstance(_hp_b_messages, list) and len(_hp_b_messages) > 4:
+                    _hp_b_msg_input = _hp_b_messages[4]
+                    if isinstance(_hp_b_msg_input, str) and _hp_b_msg_input.strip():
+                        _hp_b_candidates.append(_hp_b_msg_input)
+                for _hp_b_candidate in _hp_b_candidates:
+                    try:
+                        _hp_b_parsed = json.loads(_hp_b_candidate)
+                    except Exception:
+                        continue
+                    if not isinstance(_hp_b_parsed, dict):
+                        continue
+                    if (
+                        str(_hp_b_parsed.get("response_text") or "").strip()
+                        and str(
+                            _hp_b_parsed.get("customer_name")
+                            or _hp_b_parsed.get("customer_id")
+                            or ""
+                        ).strip()
+                    ):
+                        _hp_b_payload = _hp_b_parsed
+                        _hp_b_payload_src = "state.input[response-fallback]"
+                        _hp_b_evt_type = "chat_message"
+                        logger.warning(
+                            f"[BrowserAutomation] HOT-PATH-B: recovered "
+                            f"chat_message response payload from state input "
+                            f"while prompt_refs/events were stale or empty; "
+                            f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}"
+                        )
+                        break
         # Cross-customer bleed detection: if prompt_refs.events (cycle
         # truth) disagrees with state.events[-1] (accumulated tail), WARN
         # loudly and trust prompt_refs. Previously we trusted tail first,
@@ -252,6 +296,30 @@ async def before_session_setup_hook(
             f"rules_configured={len(_hp_b_actions_list) if isinstance(_hp_b_actions_list, list) else 0}, "
             f"node={hook_ctx.node_name}"
         )
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match as _hp_b_system_row_match,
+            )
+            _hp_b_system_reason = _hp_b_system_row_match(_hp_b_payload)
+            if _hp_b_system_reason:
+                logger.warning(
+                    f"[BrowserAutomation] HOT-PATH-B: dropped system/non-customer "
+                    f"reply payload reason={_hp_b_system_reason!r}, "
+                    f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}, "
+                    f"node={hook_ctx.node_name}"
+                )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": True,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "system_reply_drop",
+                }
+                return state
+        except Exception as _hp_b_system_err:
+            logger.debug(
+                f"[BrowserAutomation] HOT-PATH-B: system-payload filter failed "
+                f"(non-fatal): {_hp_b_system_err}"
+            )
         if isinstance(_hp_b_actions_list, list) and _hp_b_actions_list:
 
             for _hp_b_rule in _hp_b_actions_list:
@@ -289,8 +357,17 @@ async def before_session_setup_hook(
                     or ""
                 )
                 _hp_b_dedup_reply = _hp_b_payload.get("response_text") or ""
-                _hp_b_dedup_age = _ds.was_recently_sent(
-                    _hp_b_dedup_cust, _hp_b_dedup_reply
+                _hp_b_source_msg_id = str(
+                    _hp_b_payload.get("source_customer_msg_id")
+                    or _hp_b_payload.get("latest_message_msg_id")
+                    or _hp_b_payload.get("reply_to_msg_id")
+                    or ""
+                ).strip()
+                _hp_b_claim_cust = _hp_b_dedup_cust
+                _hp_b_claim_reply = _hp_b_dedup_reply
+                _hp_b_claim_source_msg_id = _hp_b_source_msg_id
+                _hp_b_dedup_age = _ds.claim_send_for_turn(
+                    _hp_b_dedup_cust, _hp_b_dedup_reply, _hp_b_source_msg_id
                 )
                 if _hp_b_dedup_age > 0:
                     logger.info(
@@ -298,7 +375,8 @@ async def before_session_setup_hook(
                         f"cust={_hp_b_dedup_cust!r} reply_len="
                         f"{len(_hp_b_dedup_reply)} (identical reply already "
                         f"sent {_hp_b_dedup_age:.1f}s ago, "
-                        f"ttl={_ds.DEDUP_TTL_S}s), node={hook_ctx.node_name}"
+                        f"source_msg_id={_hp_b_source_msg_id!r}), "
+                        f"node={hook_ctx.node_name}"
                     )
                     # Release the cross-scope inflight lock so the
                     # *next* genuine customer turn isn't blocked by
@@ -309,11 +387,35 @@ async def before_session_setup_hook(
                             hook_ctx.clear_dispatch_inflight(_hp_b_skip_cust)
                     except Exception:
                         pass
+                    if (
+                        _hp_b_payload_src == "state.input[response-fallback]"
+                        and isinstance(state, dict)
+                        and state.get("_ecan_predispatch_actionable_items")
+                    ):
+                        try:
+                            state.pop("input", None)
+                            state.pop("current_invocation_input", None)
+                            _hp_b_msgs = state.get("messages")
+                            if isinstance(_hp_b_msgs, list) and len(_hp_b_msgs) > 4:
+                                _hp_b_msgs[4] = ""
+                            _hp_b_attrs = state.get("attributes")
+                            if isinstance(_hp_b_attrs, dict):
+                                _hp_b_attrs.pop("current_invocation_input", None)
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"[BrowserAutomation] HOT-PATH-B: deduped "
+                            f"response-fallback will not short-circuit "
+                            f"pre-dispatch actionable_items, "
+                            f"node={hook_ctx.node_name}"
+                        )
+                        return None
                     state.setdefault("result", {})["llm_result"] = {
-                        "all_done": False, "work_done": False,
+                        "all_done": True, "work_done": False,
                         "hot_path": True, "hot_path_type": "dedup_skip",
                     }
                     return state
+                _hp_b_claim_active = True
                 # ── Pre-record the outgoing reply text BEFORE send ──
                 # The equality guard in PreDispatch compares the DOM's
                 # sidebar `last_message` against this recorded text to
@@ -331,11 +433,11 @@ async def before_session_setup_hook(
                         or _hp_b_payload.get("customer_id")
                         or ""
                     )
-                    _hp_b_pre_reply = _ds.normalize_reply_text(
+                    _hp_b_pre_reply = _ds.remember_agent_reply(
+                        _hp_b_pre_cust,
                         _hp_b_payload.get("response_text") or ""
                     )
                     if _hp_b_pre_cust and _hp_b_pre_reply:
-                        _ds.last_agent_reply_by_customer[_hp_b_pre_cust] = _hp_b_pre_reply
                         logger.info(
                             f"[BrowserAutomation] HOT-PATH-B: pre-recorded "
                             f"last_agent_reply for '{_hp_b_pre_cust}' "
@@ -353,6 +455,16 @@ async def before_session_setup_hook(
                 )
                 if not _hp_b_session:
                     logger.warning("[BrowserAutomation] HOT-PATH-B: no browser session")
+                    if _hp_b_claim_active:
+                        try:
+                            _ds.unclaim_send_for_turn(
+                                _hp_b_claim_cust,
+                                _hp_b_claim_reply,
+                                _hp_b_claim_source_msg_id,
+                            )
+                        except Exception:
+                            pass
+                        _hp_b_claim_active = False
                     break
                 # ── Delegate Feige DOM orchestration to the hook bundle ──
                 # (Phase 4 B-refined cleanup, 2026-04-23.)  The
@@ -394,15 +506,77 @@ async def before_session_setup_hook(
 
                 # (Feige action-loop body moved to
                 # ``feige_chat.hot_path.execute`` — see above.)
+                if (
+                    not _hp_b_all_ok
+                    and _hp_b_outcome.reason == "stale_reply_source_msg_id"
+                ):
+                    # The reply reached the front desk correctly, but it
+                    # answers an older Feige customer bubble.  Treat it as
+                    # handled/dropped, leave the recent-send claim in place
+                    # briefly to suppress replays, and do not clear a newer
+                    # dispatch inflight lock for the same customer.
+                    _hp_b_claim_active = False
+                    try:
+                        _stale_cust = hook_ctx.normalize_dispatch_identity_key(
+                            _hp_b_payload.get("customer_name")
+                            or _hp_b_payload.get("customer_id")
+                            or ""
+                        )
+                        _expected_msg_id = str(
+                            _hp_b_payload.get("source_customer_msg_id")
+                            or _hp_b_payload.get("latest_message_msg_id")
+                            or _hp_b_payload.get("reply_to_msg_id")
+                            or ""
+                        ).strip()
+                        _current_msg_id = _ds.last_dispatched_msg_id_by_customer.get(
+                            _stale_cust, ""
+                        )
+                        if _stale_cust and (
+                            not _current_msg_id or _current_msg_id == _expected_msg_id
+                        ):
+                            hook_ctx.clear_dispatch_inflight(_stale_cust)
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH-B: cleared "
+                                f"dispatch_inflight after stale reply drop "
+                                f"for cust={_stale_cust!r}, node={hook_ctx.node_name}"
+                            )
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] HOT-PATH-B: kept "
+                                f"dispatch_inflight after stale reply drop "
+                                f"for cust={_stale_cust!r} because newer "
+                                f"msg_id is recorded, node={hook_ctx.node_name}"
+                            )
+                    except Exception as _hp_b_stale_err:
+                        logger.debug(
+                            f"[BrowserAutomation] HOT-PATH-B: stale-drop "
+                            f"inflight handling failed: {_hp_b_stale_err}"
+                        )
+                    state.setdefault("result", {})["llm_result"] = {
+                        "all_done": True,
+                        "work_done": False,
+                        "hot_path": True,
+                        "hot_path_type": "stale_reply_drop",
+                    }
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH-B: dropped stale "
+                        f"reply instead of typing it, node={hook_ctx.node_name}"
+                    )
+                    return state
                 if _hp_b_all_ok:
                     # Mark this (cust, reply) as sent so any immediate
                     # replay of the same chat_message (from
                     # send_response_back fallback path) is deduped
                     # by the guard at the top of HOT-PATH-B.
                     try:
-                        _ds.mark_sent(_hp_b_dedup_cust, _hp_b_dedup_reply)
+                        _ds.mark_sent_for_turn(
+                            _hp_b_dedup_cust,
+                            _hp_b_dedup_reply,
+                            _hp_b_source_msg_id,
+                        )
                     except Exception:
                         pass
+                    _hp_b_claim_active = False
                     # Reply text was already pre-recorded before send
                     # (see the `Pre-record the outgoing reply text BEFORE
                     # send` block above). No timer-based cooldown is
@@ -496,12 +670,22 @@ async def before_session_setup_hook(
                     # (Tab restore + typing-lock release now
                     # handled inside feige_chat.hot_path.execute.)
                     state.setdefault("result", {})["llm_result"] = {
-                        "all_done": False, "work_done": False,
+                        "all_done": True, "work_done": False,
                         "hot_path": True, "hot_path_type": "configurable",
                     }
                     logger.info(f"[BrowserAutomation] HOT-PATH-B: all actions completed, node={hook_ctx.node_name}")
                     return state
                 else:
+                    if _hp_b_claim_active:
+                        try:
+                            _ds.unclaim_send_for_turn(
+                                _hp_b_claim_cust,
+                                _hp_b_claim_reply,
+                                _hp_b_claim_source_msg_id,
+                            )
+                        except Exception:
+                            pass
+                        _hp_b_claim_active = False
                     # Any action in the sequence failed (e.g.
                     # feige_open_session returning "Session not
                     # found" when Feige's SPA is transiently in a
@@ -541,7 +725,34 @@ async def before_session_setup_hook(
                     # (Typing-lock release now handled inside
                     # feige_chat.hot_path.execute's finally.)
                 break  # Only try first matching rule
+    except asyncio.CancelledError:
+        # ── Diagnostic surface (2026-04-28) ──
+        # ``CancelledError`` is ``BaseException`` (not ``Exception``)
+        # in Python 3.8+, so the previous bare ``except Exception``
+        # below would not log it.  When the parent persistent-worker
+        # cycle is cancelled mid-await (e.g., the CDP focus call in
+        # ``ensure_feige_tab_focused`` hangs under contention and the
+        # supervisor pre-empts), HOT-PATH-B was silently torn down —
+        # producing the "ensure-feige-tab: 1 candidate → silence"
+        # signature that hid the cejs-reply-never-arrives regression
+        # observed 2026-04-28 05:17:27.  Log + re-raise so the cancel
+        # still propagates correctly to the runner.
+        logger.warning(
+            "[BrowserAutomation] HOT-PATH-B: cancelled mid-execute "
+            "(parent cycle pre-empted) — typing-lock release handled "
+            "by hot_path.execute's finally"
+        )
+        raise
     except Exception as _hp_b_err:
+        if _hp_b_claim_active:
+            try:
+                _ds.unclaim_send_for_turn(
+                    _hp_b_claim_cust,
+                    _hp_b_claim_reply,
+                    _hp_b_claim_source_msg_id,
+                )
+            except Exception:
+                pass
         logger.warning(
             f"[BrowserAutomation] HOT-PATH-B: check failed (non-fatal): {_hp_b_err}",
             exc_info=True,

@@ -5,6 +5,8 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { SendOutlined, ClearOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import ChatMessage from './retrieval/components/ChatMessage';
+import WorkspacePicker from './WorkspacePicker';
+import { useWorkspace } from './useWorkspace';
 import { eventBus } from '@/utils/eventBus';
 import { fileDownloadProtocol } from '@/utils/fileDownloadProtocol';
 
@@ -23,6 +25,10 @@ const RetrievalTab: React.FC = () => {
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<'naive' | 'local' | 'global' | 'hybrid' | 'mix' | 'bypass'>('mix');
   const [stream, setStream] = useState(true); // Default to true for better UX
+  // Shared LightRAG workspace (tenant). Backed by useWorkspace() so the
+  // header picker, this picker, and DocumentsTab stay in lockstep.
+  // Empty = server default.
+  const [workspace, setWorkspace] = useWorkspace();
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
@@ -591,7 +597,7 @@ const RetrievalTab: React.FC = () => {
     try {
       if (stream) {
         // Use streaming query
-        const response = await get_ipc_api().lightragApi.queryStream({ text: userMsg.content, options });
+        const response = await get_ipc_api().lightragApi.queryStream({ text: userMsg.content, options, workspace: workspace || undefined });
         
         if (response.success && response.data) {
           const res = response.data as any;
@@ -606,7 +612,7 @@ const RetrievalTab: React.FC = () => {
         }
       } else {
         // Use normal query (unchanged)
-        const response = await get_ipc_api().lightragApi.query({ text: userMsg.content, options });
+        const response = await get_ipc_api().lightragApi.query({ text: userMsg.content, options, workspace: workspace || undefined });
         
         if (response.success && response.data) {
             const res = response.data as any;
@@ -894,6 +900,14 @@ const RetrievalTab: React.FC = () => {
 
           <div className="param-group">
             <div className="param-group-title">{t('pages.knowledge.retrieval.basic')}</div>
+            <div className="param-row" style={{ alignItems: 'center' }}>
+              <label>Workspace</label>
+              <WorkspacePicker
+                value={workspace}
+                onChange={setWorkspace}
+                placeholder="(server default)"
+              />
+            </div>
             <div className="param-row">
               <label>{t('pages.knowledge.retrieval.mode')}</label>
               <select className="ec-input ec-select" value={mode} onChange={e => setMode(e.target.value as any)}>

@@ -35,19 +35,28 @@ async def ragify(mainwin, args):
         file_paths = input_data.get("file_paths", [])
         text = input_data.get("text")
         file_source = input_data.get("file_source")
+        # Optional LightRAG workspace (tenant) for data isolation.
+        # Empty / missing → uses the server's default workspace.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # Initialize client
         client = get_client()
         
         # Mode 1: File upload
         if file_paths:
-            rag_result = client.ingest_files(file_paths)
-            logger.info(f"[MCP][RAGIFY] File ingestion result: {rag_result}")
+            # ingest_files / insert_text use sync requests under the hood;
+            # off-load so we don't block the MCP server's event loop.
+            rag_result = await asyncio.to_thread(
+                client.ingest_files, file_paths, workspace=workspace
+            )
+            logger.info(f"[MCP][RAGIFY] File ingestion result: {rag_result} (workspace={workspace!r})")
             msg = f"Ingested {len(file_paths)} file(s)"
         # Mode 2: Text insert
         elif text:
             metadata = {"file_source": file_source} if file_source else None
-            rag_result = client.insert_text(text, metadata)
+            rag_result = await asyncio.to_thread(
+                client.insert_text, text, metadata, workspace=workspace
+            )
             logger.info(f"[MCP][RAGIFY] Text insert result: {rag_result}")
             msg = "Text inserted successfully"
         else:
@@ -69,6 +78,87 @@ async def ragify(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRagifyTool")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+async def rag_replace_document(mainwin, args):
+    """MCP Tool: Re-ingest a file in place after it has been edited.
+
+    Wraps :py:meth:`knowledge.lightrag_client.LightragClient.replace_document`.
+    Use this when a source file (``abc.md``, etc.) has been modified on
+    disk and you want the vector DB + knowledge graph to reflect the new
+    contents. Naively re-ingesting would create duplicate entries because
+    LightRAG dedupes by content hash; this tool deletes the old copies
+    first.
+
+    Input schema:
+        path (str, required): Absolute local path to the *new* version
+            of the file.
+        workspace (str, optional): LightRAG workspace (tenant). Empty
+            falls back to the server's default workspace.
+        match_basename (bool, optional, default True): When True, match
+            old copies by filename only. Set False to require an exact
+            file_path string match instead.
+
+    Returns a TextContent whose ``meta`` carries::
+
+        {
+            "matched_basename": "abc.md",
+            "deleted_ids": [...],
+            "deleted_count": 2,
+            "delete_errors": [...],
+            "ingest": {"status": "success", "track_id": "..."},
+        }
+    """
+    try:
+        input_data = args.get("input", {}) if args else {}
+        if not input_data:
+            return [TextContent(type="text", text="Error: No input data provided")]
+
+        logger.debug(f"[MCP][RAG_REPLACE]: {input_data}")
+
+        path = (input_data.get("path") or "").strip()
+        if not path:
+            return [TextContent(
+                type="text",
+                text="Error: 'path' is required and must be a non-empty string"
+            )]
+
+        workspace = (input_data.get("workspace") or "").strip() or None
+        match_basename = bool(input_data.get("match_basename", True))
+
+        client = get_client()
+        result = await asyncio.to_thread(
+            client.replace_document,
+            path,
+            workspace=workspace,
+            match_basename=match_basename,
+        )
+
+        if result.get("status") == "success":
+            data = result.get("data") or {}
+            track_id = (data.get("ingest") or {}).get("track_id", "N/A")
+            msg = (
+                f"Replaced '{data.get('matched_basename', path)}': "
+                f"deleted {data.get('deleted_count', 0)} old copy/copies, "
+                f"re-ingest track_id={track_id}"
+            )
+            logger.info(
+                f"[MCP][RAG_REPLACE] {msg} (workspace={workspace!r})"
+            )
+        else:
+            msg = f"Error: {result.get('message', 'Unknown error')}"
+            logger.warning(f"[MCP][RAG_REPLACE] {msg}")
+
+        out = TextContent(type="text", text=msg)
+        if isinstance(result, dict):
+            out.meta = result
+        else:
+            out.meta = {"result": str(result)}
+        return [out]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorRagReplaceDocumentTool")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
@@ -102,6 +192,10 @@ async def rag_query(mainwin, args):
         query_text = input_data.get("query")
         if not query_text or len(query_text.strip()) < 3:
             return [TextContent(type="text", text="Error: Query must be at least 3 characters")]
+        
+        # Optional LightRAG workspace (tenant) for data isolation.
+        # Empty / missing → uses the server's default workspace.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # Initialize client
         client = get_client()
@@ -144,18 +238,50 @@ async def rag_query(mainwin, args):
                 if isinstance(val, str) and not val.strip():
                     continue
                 options[param] = val
-        
+
+        # Default to context-only retrieval. LightRAG's internal synthesis LLM
+        # is the dominant latency cost (~10-13s of a typical /query); skipping
+        # it cuts rag_query end-to-end from ~16s to ~3s. The caller's outer LLM
+        # composes the customer-facing reply from the retrieved chunks anyway.
+        # Callers that want a fully synthesized answer can pass
+        # only_need_context=false explicitly.
+        if "only_need_context" not in options:
+            options["only_need_context"] = True
+
         # Context-only queries use blocking /query (fast, <5s).
         # Full-generation queries use /query/stream to avoid timeout on slow LLMs.
         _is_context_only = options.get("only_need_context", False)
         
         if _is_context_only:
-            # Blocking call — context retrieval is fast, 30s timeout is generous
-            response = client.query(query_text.strip(), options, timeout=30)
+            # Off-load to a worker thread: client.query uses requests.Session
+            # (sync HTTP). Calling it directly inside this async handler blocks
+            # the MCP server's event loop, serializing every other concurrent
+            # tool call and starving the streamable-HTTP response stream —
+            # which manifests as a 60s persistent-session timeout on the
+            # build_node client side.
+            response = await asyncio.to_thread(
+                client.query, query_text.strip(), options, timeout=30, workspace=workspace
+            )
             if response.get("status") == "success":
                 data = response.get("data", {})
                 if isinstance(data, dict):
                     answer = data.get("response", str(data))
+                    # /query in context-only mode doesn't emit confidence, but
+                    # downstream gates (system prompt Step 3) require it. Mirror
+                    # the streaming-path fallback so callers always see a score.
+                    if "confidence" not in data:
+                        try:
+                            from knowledge.lightrag_confidence_scorer import score_lightrag_response
+                            data["confidence"] = score_lightrag_response(
+                                query=query_text.strip(),
+                                response_data={
+                                    "response": answer,
+                                    "references": data.get("references", []),
+                                },
+                                query_options=options,
+                            )
+                        except Exception as score_err:
+                            logger.warning(f"[MCP][RAG_QUERY] Local confidence scoring failed: {score_err}")
                 else:
                     answer = str(data)
                 rag_result = response
@@ -163,25 +289,76 @@ async def rag_query(mainwin, args):
                 answer = f"Error: {response.get('message', 'Query failed')}"
                 rag_result = response
         else:
-            # Streaming call — keeps connection alive for slow LLM generation
+            # Streaming call — keeps connection alive for slow LLM generation.
+            # query_stream is a sync generator over a blocking HTTP socket;
+            # consume it inside a worker thread so the MCP server's event
+            # loop remains responsive for other concurrent tool calls.
             import json as _json
-            _accumulated = ""
-            _refs = []
-            try:
-                for chunk_line in client.query_stream(query_text.strip(), options):
+
+            def _consume_stream():
+                accumulated = ""
+                refs = []
+                confidence = None
+                no_answer_message = None
+                for chunk_line in client.query_stream(query_text.strip(), options, workspace=workspace):
                     try:
                         chunk_data = _json.loads(chunk_line)
                         if "response" in chunk_data:
-                            _accumulated += chunk_data.get("response", "")
+                            accumulated += chunk_data.get("response", "")
                         if "references" in chunk_data:
-                            _refs = chunk_data.get("references", [])
+                            refs = chunk_data.get("references", [])
+                        # Final confidence chunk emitted by lightrag_client.query_stream
+                        if "confidence" in chunk_data:
+                            confidence = chunk_data.get("confidence")
+                        if "no_answer_message" in chunk_data:
+                            no_answer_message = chunk_data.get("no_answer_message")
                     except _json.JSONDecodeError:
-                        _accumulated += chunk_line
-                answer = _accumulated
-                rag_result = {"status": "success", "data": {"response": _accumulated, "references": _refs}}
+                        accumulated += chunk_line
+                return accumulated, refs, confidence, no_answer_message
+
+            _accumulated = ""
+            _refs = []
+            _confidence = None
+            _no_answer_message = None
+            try:
+                _accumulated, _refs, _confidence, _no_answer_message = await asyncio.to_thread(_consume_stream)
+
+                # Fallback: if upstream didn't emit a confidence chunk, compute it
+                # locally so callers always see the score.
+                if _confidence is None:
+                    try:
+                        from knowledge.lightrag_confidence_scorer import score_lightrag_response
+                        _confidence = score_lightrag_response(
+                            query=query_text.strip(),
+                            response_data={"response": _accumulated, "references": _refs},
+                            query_options=options,
+                        )
+                    except Exception as score_err:
+                        logger.warning(f"[MCP][RAG_QUERY] Local confidence scoring failed: {score_err}")
+                        _confidence = None
+
+                # If LightRAG (or our fallback) decided the answer is unsafe,
+                # surface its no-answer message as the tool text.
+                _decision = (_confidence or {}).get("decision") or {}
+                if _decision.get("should_answer") is False and _no_answer_message:
+                    answer = _no_answer_message
+                else:
+                    answer = _accumulated
+
+                _data_payload = {
+                    "response": _accumulated,
+                    "references": _refs,
+                }
+                if _confidence is not None:
+                    _data_payload["confidence"] = _confidence
+                if _no_answer_message:
+                    _data_payload["no_answer_message"] = _no_answer_message
+                rag_result = {"status": "success", "data": _data_payload}
             except Exception as stream_err:
                 logger.warning(f"[MCP][RAG_QUERY] Stream failed, falling back to blocking: {stream_err}")
-                response = client.query(query_text.strip(), options, timeout=90)
+                response = await asyncio.to_thread(
+                    client.query, query_text.strip(), options, timeout=90, workspace=workspace
+                )
                 if response.get("status") == "success":
                     data = response.get("data", {})
                     answer = data.get("response", str(data)) if isinstance(data, dict) else str(data)
@@ -236,6 +413,10 @@ def add_ragify_tool_schema(tool_schemas):
                         "file_source": {
                             "type": "string",
                             "description": "Optional source identifier for the inserted text."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same workspace consistently per category (e.g. 'customer_service', 'product_details'). Omit to use the server's default workspace."
                         }
                     }
                 }
@@ -300,6 +481,9 @@ async def wait_for_rag_completion(mainwin, args):
         poll_interval = input_data.get("poll_interval_seconds", 15)
         timeout_seconds = input_data.get("timeout_seconds")
         max_retries = input_data.get("max_retries", 3)
+        # Optional LightRAG workspace (tenant). Must match the workspace
+        # passed to ragify / ragify_async when this track_id was created.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # If timeout not provided, use default based on typical file size estimate
         # (we don't have file sizes here, so use a reasonable default)
@@ -332,7 +516,9 @@ async def wait_for_rag_completion(mainwin, args):
             
             # Poll status
             try:
-                status_response = client.track_status(track_id)
+                status_response = await asyncio.to_thread(
+                    client.track_status, track_id, workspace=workspace
+                )
                 retry_count = 0  # Reset retry count on success
                 
                 if status_response.get("status") == "success":
@@ -420,7 +606,8 @@ def _rag_completion_monitor(
     task_id: str,
     chat_id: str,
     mainwin: Any,
-    notification_message: str = None
+    notification_message: str = None,
+    workspace: Optional[str] = None,
 ):
     """
     Background thread that monitors RAG completion and sends notification to task queue.
@@ -449,7 +636,7 @@ def _rag_completion_monitor(
             
             # Poll status
             try:
-                status_response = client.track_status(track_id)
+                status_response = client.track_status(track_id, workspace=workspace)
                 
                 if status_response.get("status") == "success":
                     data = status_response.get("data", {})
@@ -607,24 +794,30 @@ async def ragify_async(mainwin, args):
         timeout_seconds = input_data.get("timeout_seconds")
         poll_interval = input_data.get("poll_interval_seconds", 15)
         notification_message = input_data.get("notification_message")
+        # Optional LightRAG workspace (tenant) for data isolation.
+        workspace = (input_data.get("workspace") or "").strip() or None
         
         # Initialize client
         client = get_client()
         
         # Mode 1: File upload
         if file_paths:
-            rag_result = client.ingest_files(file_paths)
-            logger.info(f"[MCP][RAGIFY_ASYNC] File ingestion result: {rag_result}")
+            rag_result = await asyncio.to_thread(
+                client.ingest_files, file_paths, workspace=workspace
+            )
+            logger.info(f"[MCP][RAGIFY_ASYNC] File ingestion result: {rag_result} (workspace={workspace!r})")
             msg = f"Ingested {len(file_paths)} file(s)"
-            
+
             # Calculate timeout from file sizes if not provided
             if timeout_seconds is None:
                 timeout_seconds = _calculate_timeout_seconds(file_paths)
-                
+
         # Mode 2: Text insert
         elif text:
             metadata = {"file_source": file_source} if file_source else None
-            rag_result = client.insert_text(text, metadata)
+            rag_result = await asyncio.to_thread(
+                client.insert_text, text, metadata, workspace=workspace
+            )
             logger.info(f"[MCP][RAGIFY_ASYNC] Text insert result: {rag_result}")
             msg = "Text inserted successfully"
             
@@ -655,7 +848,7 @@ async def ragify_async(mainwin, args):
                 # Start background thread
                 monitor_thread = threading.Thread(
                     target=_rag_completion_monitor,
-                    args=(track_id, timeout_seconds, poll_interval, notify_task_id, notify_chat_id, mainwin, notification_message),
+                    args=(track_id, timeout_seconds, poll_interval, notify_task_id, notify_chat_id, mainwin, notification_message, workspace),
                     daemon=True,
                     name=f"rag_monitor_{track_id}"
                 )
@@ -794,6 +987,10 @@ def add_rag_query_tool_schema(tool_schemas):
                             "type": "boolean",
                             "default": False,
                             "description": "If true, includes actual chunk text content in references."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant) to query. Use the same name the documents were ingested under (e.g. 'customer_service', 'product_details'). Omit to query the server's default workspace."
                         }
                     }
                 }
@@ -841,6 +1038,10 @@ def add_wait_for_rag_completion_tool_schema(tool_schemas):
                             "default": 3,
                             "minimum": 1,
                             "description": "Max consecutive poll failures before giving up (default: 3)."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant). Must match the workspace that was used when the track_id was created by ragify / ragify_async."
                         }
                     }
                 }
@@ -907,10 +1108,76 @@ def add_ragify_async_tool_schema(tool_schemas):
                         "notification_message": {
                             "type": "string",
                             "description": "Custom message to include in the completion notification."
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same name consistently per category. The background completion monitor will poll track status scoped to this workspace."
                         }
                     }
                 }
             }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_rag_replace_document_tool_schema(tool_schemas):
+    """Add ``rag_replace_document`` tool schema.
+
+    See :func:`rag_replace_document` for semantics. The tool runs locally
+    (``run_in_cloud=False``) because it touches the local LightRAG
+    server's filesystem-backed workspace.
+    """
+    import mcp.types as types
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="rag_replace_document",
+        description=(
+            "Re-ingest a file into LightRAG after it has been edited on disk. "
+            "Deletes any existing copies in the workspace whose filename matches "
+            "(by basename), then uploads the new version. Use this — NOT plain "
+            "ragify — when a source file's contents have changed; otherwise the "
+            "knowledge graph keeps stale entries from the previous version. "
+            "Re-ingest is asynchronous on the server side: the tool returns as "
+            "soon as the upload is queued. Pair with wait_for_rag_completion if "
+            "you need the new contents query-ready before continuing."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute local path to the NEW version of the file to ingest.",
+                        },
+                        "workspace": {
+                            "type": "string",
+                            "description": (
+                                "Optional LightRAG workspace (tenant). Both the "
+                                "lookup of old copies and the re-ingest are "
+                                "scoped to this workspace. LEAVE EMPTY for the "
+                                "server's default workspace."
+                            ),
+                        },
+                        "match_basename": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": (
+                                "When true (default), match old copies by "
+                                "filename only — handy when the new file lives "
+                                "in a different folder than the original ingest "
+                                "path. Set false to require an exact file_path "
+                                "string match instead."
+                            ),
+                        },
+                    },
+                }
+            },
         },
     )
 

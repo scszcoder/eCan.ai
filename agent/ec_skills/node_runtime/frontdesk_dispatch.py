@@ -35,10 +35,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
+
+_PROMPT_ACTIONABLE_ITEMS_KEY = "_ecan_predispatch_actionable_items"
+_PROMPT_ACTIONABLE_ITEMS_TS_KEY = "_ecan_predispatch_actionable_items_ts"
+_PROMPT_ACTIONABLE_ITEMS_TTL_S = 10.0
+_FEIGE_TYPING_LOCK_WAIT_S = 3.0
+_FEIGE_TYPING_LOCK_POLL_S = 0.05
+_TYPING_LOCK_ACTIVE_SENTINEL = "__typing_lock_active__"
 
 __all__ = [
     "DispatchConfig",
@@ -180,6 +188,39 @@ def _should_skip_for_event_type(state: dict, log_tag: str) -> bool:
     return False
 
 
+def _event_type_from_state(state: dict) -> str:
+    """Best-effort event type extraction across legacy/current state shapes."""
+    if not isinstance(state, dict):
+        return ""
+
+    def _nested(obj: Any, *path: str) -> Any:
+        cur = obj
+        for key in path:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(key)
+        return cur
+
+    candidates = [
+        state.get("event_type"),
+        _nested(state, "event", "type"),
+        _nested(state, "_event_envelope", "type"),
+        _nested(state, "prompt_refs", "events", "event_type"),
+        _nested(state, "prompt_refs", "events", "type"),
+        _nested(state, "attributes", "browser_event", "event_type"),
+        _nested(state, "attributes", "browser_event", "type"),
+    ]
+    for value in candidates:
+        text = str(value or "").strip().lower()
+        if text:
+            return text
+    return ""
+
+
+def _is_browser_event_trigger(state: dict) -> bool:
+    return _event_type_from_state(state) == "browser_event"
+
+
 def _find_active_monitor(
     agent_obj, ctx: DispatchContext, cfg: DispatchConfig
 ) -> tuple[Any, dict, Any] | tuple[None, None, None]:
@@ -242,6 +283,124 @@ def _validate_monitor_ready(control_state: dict, cfg: DispatchConfig) -> bool:
     return True
 
 
+def _monitor_state_detail(control_state: dict | None, cfg: DispatchConfig) -> str:
+    if not isinstance(control_state, dict):
+        return "no control_state"
+    status = str(control_state.get("last_status") or "").strip().lower()
+    current_url = str(control_state.get("last_current_url") or "").strip()
+    return (
+        f"status={status}, current_url={current_url}, "
+        f"require_path={cfg.require_url_path!r}"
+    )
+
+
+def _get_prompt_actionable_fallback(state: dict) -> tuple[bool, list[dict]]:
+    """Return same-invocation actionable items computed by the prompt hook.
+
+    The prompt-build hook runs before this late PreDispatch hook. During
+    Feige flood tests it can successfully compute actionable DOM rows, while
+    the live monitor's control state is briefly ``starting`` by the time this
+    hook asks for it. Use the prompt-hook rows as a short-lived fallback so
+    transient monitor churn does not fall through into the slow browser-use
+    LLM path.
+    """
+    if not isinstance(state, dict) or _PROMPT_ACTIONABLE_ITEMS_KEY not in state:
+        return False, []
+    raw_items = state.get(_PROMPT_ACTIONABLE_ITEMS_KEY)
+    if not isinstance(raw_items, list):
+        return False, []
+    try:
+        ts = float(state.get(_PROMPT_ACTIONABLE_ITEMS_TS_KEY) or 0.0)
+    except Exception:
+        ts = 0.0
+    if ts <= 0.0 or (time.time() - ts) > _PROMPT_ACTIONABLE_ITEMS_TTL_S:
+        return False, []
+    return True, [dict(item) for item in raw_items if isinstance(item, dict)]
+
+
+def _build_deferred_result(
+    cfg: DispatchConfig,
+    *,
+    reason: str,
+    detail: str = "",
+) -> dict:
+    payload = {
+        "all_done": True,
+        "work_done": False,
+        "hot_path": True,
+        "hot_path_type": "pre_dispatch_deferred",
+        "reason": reason,
+        "message": (
+            f"{cfg.log_tag} deferred before LLM/browser-use fallback"
+            + (f": {detail}" if detail else "")
+        ),
+    }
+    if detail:
+        payload["detail"] = detail
+    return {
+        "final": json.dumps(payload, ensure_ascii=False),
+        "history": f"{cfg.history_prefix}:deferred:{reason}",
+    }
+
+
+def _current_feige_typing_holder(ctx: DispatchContext) -> str:
+    getter = getattr(ctx, "feige_typing_holder_getter", None)
+    if not callable(getter):
+        return ""
+    try:
+        return str(getter() or "").strip()
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] Feige typing-lock holder check failed: {exc}"
+        )
+        return ""
+
+
+async def _wait_for_feige_typing_lock_clear(
+    ctx: DispatchContext,
+    cfg: DispatchConfig,
+    *,
+    wait_s: float = _FEIGE_TYPING_LOCK_WAIT_S,
+) -> str:
+    """Return empty when Feige is safe to scrape; otherwise the holder.
+
+    PreDispatch reads and clicks the same Feige browser session used by
+    response delivery.  If a reply is being typed, scraping sidebar rows
+    would either steal focus or consume stale previews.  Wait briefly for
+    normal sends, then defer so the loop can retry instead of marking the
+    snapshot handled.
+    """
+    holder = _current_feige_typing_holder(ctx)
+    if not holder:
+        return ""
+    deadline = time.monotonic() + max(0.0, wait_s)
+    while time.monotonic() < deadline:
+        await asyncio.sleep(_FEIGE_TYPING_LOCK_POLL_S)
+        holder = _current_feige_typing_holder(ctx)
+        if not holder:
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} resumed after Feige "
+                "typing lock cleared"
+            )
+            return ""
+    logger.info(
+        f"[BrowserAutomation] {cfg.log_tag} deferred: Feige typing lock "
+        f"held by {holder!r}; not scraping sidebar rows while a reply is "
+        "being typed"
+    )
+    return holder
+
+
+def _fallback_session(agent_obj, ctx: DispatchContext):
+    session = getattr(agent_obj, "browser_session", None)
+    if session:
+        return session
+    try:
+        return ctx.cached_browser_sessions.get(ctx.scope_key)
+    except Exception:
+        return None
+
+
 def _resolve_dispatch_state(
     session, ctx: DispatchContext, cfg: DispatchConfig
 ) -> dict:
@@ -281,6 +440,38 @@ def _extract_actionable_items(
     for item in raw_items or []:
         if not isinstance(item, dict):
             continue
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                first_system_row_match,
+            )
+            system_reason = first_system_row_match(item)
+            if system_reason:
+                pending_marker = any(
+                    str(item.get(k) or "").strip()
+                    for k in (
+                        "pending_timer",
+                        "unread_badge",
+                        "unread",
+                        "needs_action",
+                    )
+                )
+                if not pending_marker:
+                    logger.info(
+                        f"[BrowserAutomation] {cfg.log_tag} filtered system row "
+                        f"before dispatch reason={system_reason!r} "
+                        f"customer={item.get('customer_name')!r} "
+                        f"last_message={str(item.get('last_message') or '')[:80]!r}"
+                    )
+                    continue
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} keeping pending "
+                    f"system-looking row for thread enrichment "
+                    f"reason={system_reason!r} customer={item.get('customer_name')!r}"
+                )
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {cfg.log_tag} system-row filter failed: {exc}"
+            )
         session_id = _pick_first(item, cfg.session_keys)
         if not session_id:
             continue
@@ -519,6 +710,13 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     last_msg = str(item.get("last_message") or "").strip()
     if last_msg:
         payload["latest_message"] = last_msg
+    source_msg_id = str(
+        item.get("latest_message_msg_id")
+        or item.get("source_customer_msg_id")
+        or ""
+    ).strip()
+    if source_msg_id:
+        payload["latest_message_msg_id"] = source_msg_id
     # ── Multimodal: customer-attached images ─────────────────────────
     # The hot-path scraper (``feige_chat.pre_dispatch_v2`` /
     # ``pre_dispatch_enrich``) populates ``item["last_message_attachments"]``
@@ -582,39 +780,140 @@ async def _dispatch_one_item(
     # Cross-scope dispatch-inflight guard (the single source of truth
     # for cross-agent dedup — per-dispatch_state.assigned_sessions is
     # not shared across scopes).
+    #
+    # IMPORTANT (race fix 2026-04-27): we **mark** inflight immediately
+    # after passing the check, BEFORE the (slow) site-specific scrape
+    # runs.  Previously the mark happened only after enrich + RR pick
+    # (~500 ms-2 s later for Feige), leaving a wide window where
+    # multiple parallel "新消息" events for the same customer all
+    # passed the check, all did their scrape, and all dispatched —
+    # resulting in 3 Q&A worker invocations within 4 s and the wrong
+    # (oldest, stalest) reply being typed (observed live 2026-04-27
+    # 10:33:01-05 for customer `sc`).
+    #
+    # Any early-return BELOW this point MUST release the lock — see
+    # the explicit ``ctx.clear_dispatch_inflight(customer_key)`` calls
+    # along each non-success path.
     try:
         inflight_age = ctx.is_dispatch_inflight(customer_key)
         if inflight_age > 0:
-            logger.info(
-                f"[BrowserAutomation] {log_tag} inflight skip "
-                f"session={session_id!r} cust={customer_key!r} "
-                f"(another dispatch is in flight, age={inflight_age:.1f}s, "
-                f"ttl={ctx.inflight_ttl_s}s)"
+            current_text = str(
+                item.get("last_message")
+                or item.get("latest_message")
+                or item.get("message")
+                or ""
             )
-            return opened_row, "", ""
+            current_norm = ctx.normalize_reply_text(current_text) if current_text else ""
+            assigned = assigned_sessions.get(session_id)
+            prior_text = ""
+            if isinstance(assigned, dict):
+                prior_text = str(
+                    assigned.get("latest_message")
+                    or assigned.get("last_message")
+                    or assigned.get("source_latest_message")
+                    or ""
+                )
+            prior_norm = ctx.normalize_reply_text(prior_text) if prior_text else ""
+            if assigned and current_norm and prior_norm and current_norm != prior_norm:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} inflight supersede "
+                    f"session={session_id!r} cust={customer_key!r} "
+                    f"(new sidebar text differs from prior assignment; "
+                    f"age={inflight_age:.1f}s, current={current_text[:80]!r}, "
+                    f"prior={prior_text[:80]!r})"
+                )
+                try:
+                    ctx.clear_dispatch_inflight(customer_key)
+                except Exception as clear_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} inflight supersede "
+                        f"clear failed for cust={customer_key!r}: {clear_exc}"
+                    )
+                assigned_sessions.pop(session_id, None)
+            else:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} inflight skip "
+                    f"session={session_id!r} cust={customer_key!r} "
+                    f"(another dispatch is in flight, age={inflight_age:.1f}s, "
+                    f"ttl={ctx.inflight_ttl_s}s)"
+                )
+                return opened_row, "", ""
     except Exception as exc:
         logger.debug(
             f"[BrowserAutomation] {log_tag} inflight check failed: {exc}"
         )
 
+    # ── Mark inflight EARLY (closes the parallel-scrape race) ──
+    _inflight_marked_early = False
+    try:
+        ctx.mark_dispatch_inflight(customer_key)
+        _inflight_marked_early = True
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} pre-acquired inflight lock "
+            f"for cust={customer_key!r} BEFORE enrich/scrape "
+            f"(prevents parallel-fire race)"
+        )
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} early mark_inflight failed "
+            f"(non-fatal, fallback path remains): {exc}"
+        )
+
+    def _release_inflight_on_early_exit(reason: str) -> None:
+        """Release the early-acquired inflight lock when we bail out
+        BEFORE actually firing send_chat.  Without this, a skip during
+        enrich (e.g. msg-id dedup, system-message filter) would leave
+        the lock held for the full 30 s TTL and silently suppress this
+        customer's NEXT genuine message."""
+        if not _inflight_marked_early:
+            return
+        try:
+            ctx.clear_dispatch_inflight(customer_key)
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} released early inflight "
+                f"lock for cust={customer_key!r} (reason={reason})"
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} early inflight release "
+                f"failed: {exc}"
+            )
+
     # Optional site-specific enrichment (ground-truth scrape + dedup).
     scraped_msg_id = ""
     if enrich_fn is not None:
-        enrich = await enrich_fn(
-            item=item,
-            browser_session=session,
-            customer_key=customer_key,
-            session_id=session_id,
-            log_tag=log_tag,
-            assigned_sessions=assigned_sessions,
-            customer_last_dispatched_msg_id=ctx.customer_last_dispatched_msg_id,
-            auto_dispatch_last_agent_reply=ctx.auto_dispatch_last_agent_reply,
-            normalize_reply_text=ctx.normalize_reply_text,
-            typing_holder_getter=ctx.feige_typing_holder_getter,
-        )
+        try:
+            enrich = await enrich_fn(
+                item=item,
+                browser_session=session,
+                customer_key=customer_key,
+                session_id=session_id,
+                log_tag=log_tag,
+                assigned_sessions=assigned_sessions,
+                customer_last_dispatched_msg_id=ctx.customer_last_dispatched_msg_id,
+                auto_dispatch_last_agent_reply=ctx.auto_dispatch_last_agent_reply,
+                normalize_reply_text=ctx.normalize_reply_text,
+                typing_holder_getter=ctx.feige_typing_holder_getter,
+            )
+        except Exception as exc:
+            # Enrich raising is non-fatal but we MUST release the
+            # early-inflight lock or this customer is stuck for 30 s.
+            logger.warning(
+                f"[BrowserAutomation] {log_tag} enrich_fn raised "
+                f"({type(exc).__name__}: {exc!r}); releasing inflight "
+                f"and continuing with sidebar-preview as last_message."
+            )
+            _release_inflight_on_early_exit(f"enrich_raised:{type(exc).__name__}")
+            return opened_row, "", ""
         if enrich.skip:
+            skip_reason = enrich.skip_reason or "unspecified"
+            _release_inflight_on_early_exit(f"enrich_skip:{skip_reason}")
+            if skip_reason == "typing_lock_active":
+                return "", "", _TYPING_LOCK_ACTIVE_SENTINEL
             return opened_row, "", ""
         scraped_msg_id = enrich.scraped_msg_id
+        if scraped_msg_id:
+            item["latest_message_msg_id"] = scraped_msg_id
         if enrich.should_clear_stale_assignment:
             assigned_sessions.pop(session_id, None)
 
@@ -625,9 +924,9 @@ async def _dispatch_one_item(
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 
-    # Acquire inflight BEFORE send_chat so parallel scopes skip this
-    # customer immediately.  Previously acquired AFTER success, which
-    # left a 100-500 ms window for duplicate send_chat fires.
+    # Re-mark inflight just before send_chat — idempotent if already
+    # held from the early acquire above; the timestamp refresh extends
+    # the TTL so a slow QA worker doesn't free the lock prematurely.
     try:
         ctx.mark_dispatch_inflight(customer_key)
         logger.debug(
@@ -667,6 +966,11 @@ async def _dispatch_one_item(
             "recipient_agent_id": recipient_agent_id,
             "message_id": str(send_result.get("message_id") or ""),
             "timestamp": int(send_result.get("timestamp") or 0),
+            "latest_message": str(assignment_payload.get("latest_message") or ""),
+            "last_message": str(assignment_payload.get("latest_message") or ""),
+            "latest_message_msg_id": str(
+                assignment_payload.get("latest_message_msg_id") or ""
+            ),
         }
         if scraped_msg_id:
             ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id
@@ -769,20 +1073,63 @@ async def run(
         return None
     if _should_skip_for_event_type(ctx.state, cfg.log_tag):
         return None
-    if not getattr(agent_obj, "browser_session", None):
+    is_browser_event = _is_browser_event_trigger(ctx.state)
+    fallback_session = _fallback_session(agent_obj, ctx)
+    if not fallback_session:
         logger.info(
             f"[BrowserAutomation] {cfg.log_tag} skipped: no browser session on agent"
         )
+        if is_browser_event:
+            return _build_deferred_result(
+                cfg,
+                reason="no_browser_session",
+                detail="no browser session available for browser_event",
+            )
         return None
 
     try:
         monitor_set, control_state, session = _find_active_monitor(agent_obj, ctx, cfg)
         if not monitor_set or not control_state:
-            return None
-        if not _validate_monitor_ready(control_state, cfg):
-            return None
+            has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
+            if has_fallback and is_browser_event:
+                session = session or fallback_session
+                raw_items = fallback_items
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} using prompt-hook "
+                    f"actionable fallback: count={len(raw_items)} "
+                    f"scope={ctx.scope_key}"
+                )
+            elif is_browser_event:
+                return _build_deferred_result(
+                    cfg,
+                    reason="monitor_missing",
+                    detail=(
+                        f"no active monitor with label={cfg.source_monitor_label!r}"
+                    ),
+                )
+            else:
+                return None
+        elif not _validate_monitor_ready(control_state, cfg):
+            has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
+            if has_fallback and is_browser_event:
+                session = session or fallback_session
+                raw_items = fallback_items
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} using prompt-hook "
+                    f"actionable fallback while monitor not ready: "
+                    f"count={len(raw_items)} {_monitor_state_detail(control_state, cfg)}"
+                )
+            elif is_browser_event:
+                return _build_deferred_result(
+                    cfg,
+                    reason="monitor_not_ready",
+                    detail=_monitor_state_detail(control_state, cfg),
+                )
+            else:
+                return None
+        else:
+            raw_items = control_state.get("last_items") or []
 
-        raw_items = control_state.get("last_items") or []
         if not isinstance(raw_items, list):
             raw_items = []
         logger.info(
@@ -799,18 +1146,42 @@ async def run(
             import threading
             fp_lock = threading.Lock()
             dispatch_state["_lock"] = fp_lock
-        if not fp_lock.acquire(blocking=False):
+        lock_acquired = fp_lock.acquire(blocking=False)
+        if not lock_acquired:
             logger.info(
                 f"[BrowserAutomation] {cfg.log_tag} skipped: another "
-                f"invocation already running"
+                f"invocation already running; waiting briefly"
             )
-            setattr(session, cfg.flag_attr, True)
+            # Flood tests can legitimately overlap browser_event invocations:
+            # one pass may spend several seconds thread-scraping many sessions
+            # while the monitor queues a newer snapshot behind it.  Treat that
+            # as backpressure, not as "handled"; wait long enough for the
+            # in-flight pass to finish so the newer snapshot is still processed.
+            deadline = time.monotonic() + 15.0
+            while time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+                lock_acquired = fp_lock.acquire(blocking=False)
+                if lock_acquired:
+                    logger.info(
+                        f"[BrowserAutomation] {cfg.log_tag} acquired lock "
+                        f"after waiting for concurrent invocation"
+                    )
+                    break
+        if not lock_acquired:
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} busy: concurrent "
+                f"invocation still running; short-circuiting without "
+                f"marking dispatch handled"
+            )
             return {
                 "final": json.dumps({
                     "all_done": True,
-                    "message": f"{cfg.log_tag} handled by another invocation",
-                }),
-                "history": f"{cfg.history_prefix}:dedup",
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "pre_dispatch_busy",
+                    "message": f"{cfg.log_tag} busy: another invocation is running",
+                }, ensure_ascii=False),
+                "history": f"{cfg.history_prefix}:busy",
             }
 
         try:
@@ -825,6 +1196,12 @@ async def run(
                     pass
     except Exception as exc:
         logger.warning(f"[BrowserAutomation] {cfg.log_tag} failed: {exc}")
+        if _is_browser_event_trigger(ctx.state):
+            return _build_deferred_result(
+                cfg,
+                reason="exception",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
         return None
 
 

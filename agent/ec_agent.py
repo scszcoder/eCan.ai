@@ -529,6 +529,8 @@ class EC_Agent(Agent):
 		# this is only available if myself is not a helper agent
 		try:
 			recipient_name = recipient_agent.get_card().name
+			recipient_url = recipient_agent.get_card().url
+			logger.info(f"[a2a_sync] Sending to {recipient_name} at {recipient_url}, message_keys={list(message.keys()) if isinstance(message, dict) else 'N/A'}")
 			a2a_end_point = recipient_agent.get_card().url.rstrip('/')
 			self.a2a_client.set_recipient(url=a2a_end_point)
 			if isinstance(message["attributes"]['params']['content'], str):
@@ -569,7 +571,7 @@ class EC_Agent(Agent):
 				raise KeyError(f"Missing 'messages' key. Message structure: {list(message.keys())}")
 			sess_id = message['messages'][1]      # chat_id for session
 			trace_task_id = message['messages'][3]  # task_id for trace linkage
-
+			
 			# Build message payload dict (compatible with A2AClientWrapper)
 			payload = {
 				"id": trace_task_id,

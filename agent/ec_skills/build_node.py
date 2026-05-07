@@ -20,7 +20,7 @@ from agent.ec_tasks.pending_events import register_async_operation, resolve_asyn
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_traceback
+from utils.logger_helper import get_traceback, truncate_for_log
 from langgraph.types import interrupt
 from utils.env.secure_store import secure_store, get_current_username
 # REMOVED: from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client  # Moved to lazy import to avoid circular dependency
@@ -32,6 +32,7 @@ from langchain_deepseek import ChatDeepSeek
 # from gui.ipc.w2p_handlers import prompt_handler
 from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
+from a2a.types import TaskState
 from typing import Any, Awaitable, Callable, Literal, cast, overload
 from dataclasses import dataclass
 
@@ -236,6 +237,84 @@ def _normalize_dispatch_identity_key(raw_id: str) -> str:
     return s
 
 
+def _stale_input_has_undelivered_response_text(
+    stale_input: Any,
+    new_event_type: str,
+) -> tuple[bool, str, str]:
+    """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
+    worker reply that HOT-PATH-B has not yet typed into Feige.
+
+    Used by :func:`build_pend_for_event_node` to defend against an
+    event-bus race where a chat_message resume populates
+    ``state["input"]`` with ``response_text`` but the langgraph loops
+    back to ``pend_event`` via condition nodes WITHOUT entering
+    ``browser_automation_janWe`` (so HOT-PATH-B never fires).  The next
+    non-chat_message resume would then permanently drop the reply via
+    ``state.pop("input", None)``.
+
+    Liveness incident 2026-04-28 (eCan.log around 12:19:50): customer
+    ``cejs``'s "退货包邮吗" went silent for ~2 minutes this way.
+
+    Returns ``(should_preserve, customer, response_text)``.  Caller is
+    expected to put ``stale_input`` back into ``state["input"]`` iff
+    ``should_preserve`` is ``True``.
+
+    Heuristic: preserve iff
+      * ``new_event_type`` is NOT ``chat_message`` (chat_message
+        resumes re-populate ``state["input"]`` themselves),
+      * ``stale_input`` parses as a JSON object with non-empty
+        ``response_text`` and ``customer_name``/``customer_id``,
+      * ``dispatch_state.was_recently_sent(...)`` is 0.0 (15 s TTL,
+        i.e. HOT-PATH-B has NOT typed this reply recently).
+
+    HOT-PATH-B has its own dedup guards downstream, so a false-positive
+    (reply already typed but TTL not yet recorded) just becomes a
+    ``dedup-skip`` — no duplicate sends.
+    """
+    if new_event_type == "chat_message":
+        return False, "", ""
+    if not stale_input:
+        return False, "", ""
+    try:
+        import json as _json
+        parsed = (
+            _json.loads(stale_input)
+            if isinstance(stale_input, str)
+            else stale_input
+        )
+    except Exception:
+        return False, "", ""
+    if not isinstance(parsed, dict):
+        return False, "", ""
+    response_text = parsed.get("response_text")
+    customer = parsed.get("customer_name") or parsed.get("customer_id")
+    source_msg_id = str(
+        parsed.get("source_customer_msg_id")
+        or parsed.get("latest_message_msg_id")
+        or parsed.get("reply_to_msg_id")
+        or ""
+    ).strip()
+    if not (
+        isinstance(response_text, str) and response_text.strip()
+        and isinstance(customer, str) and customer.strip()
+    ):
+        return False, "", ""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            dispatch_state as _ds,
+        )
+        recent_age = _ds.was_recently_sent_for_turn(
+            customer, response_text, source_msg_id
+        )
+    except Exception:
+        recent_age = 0.0
+    if recent_age > 0.0:
+        # HOT-PATH-B already typed this reply within the dedup TTL —
+        # really stale, safe to drop.
+        return False, customer, response_text
+    return True, customer, response_text
+
+
 # ==================== Lambda Proxy Helpers ====================
 
 def _should_use_proxy(node_inputs: dict | None = None) -> bool:
@@ -324,6 +403,14 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "rag_query": ("agent.ec_skills.rag.local_rag_mcp", "rag_query"),
     "wait_for_rag_completion": ("agent.ec_skills.rag.local_rag_mcp", "wait_for_rag_completion"),
     "ragify_async": ("agent.ec_skills.rag.local_rag_mcp", "ragify_async"),
+    # Structured SQL tool (sales / inventory / orders — anything where
+    # paraphrasing would be wrong).
+    "query_sales_db": ("agent.ec_skills.sql.local_sql_mcp", "query_sales_db"),
+    # Customer-data integration wrappers (vendor handler is plugged in by
+    # the integrator at deploy time; see customer_data_tools.py).
+    "query_price": ("agent.mcp.server.integrations.customer_data_tools", "query_price"),
+    "query_inventories": ("agent.mcp.server.integrations.customer_data_tools", "query_inventories"),
+    "query_order": ("agent.mcp.server.integrations.customer_data_tools", "query_order"),
     # Chat / communication
     "send_chat": ("agent.mcp.server.chat_utils.chat_tools", "async_send_chat"),
     "list_chat_agents": ("agent.mcp.server.chat_utils.chat_tools", "async_list_chat_agents"),
@@ -648,6 +735,327 @@ def add_to_history(state, messages, max_entries: int = 200):
         state["history"] = state["history"][-max_entries:]
 
 
+def _message_log_summary(msg, *, preview_chars: int = 160) -> dict:
+    """Return a bounded summary for message/state logs."""
+    try:
+        content = getattr(msg, "content", msg)
+        if isinstance(content, list):
+            preview = f"<multimodal parts={len(content)}>"
+            length = sum(len(str(part)) for part in content[:4])
+        else:
+            text = str(content or "")
+            preview = text[:preview_chars]
+            length = len(text)
+        return {
+            "type": type(msg).__name__,
+            "content_len": length,
+            "preview": preview,
+        }
+    except Exception as exc:
+        return {"type": type(msg).__name__, "error": str(exc)}
+
+
+def _sequence_log_summary(items, *, tail: int = 4) -> dict:
+    try:
+        if not isinstance(items, list):
+            return {"type": type(items).__name__, "preview": str(items)[:160]}
+        return {
+            "count": len(items),
+            "tail": [_message_log_summary(m) for m in items[-tail:]],
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _state_log_summary(state: dict) -> dict:
+    """Summarize state without materializing huge prompt/history strings."""
+    try:
+        if not isinstance(state, dict):
+            return {"type": type(state).__name__, "preview": str(state)[:240]}
+        attrs = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+        prompt_refs = state.get("prompt_refs") if isinstance(state.get("prompt_refs"), dict) else {}
+        input_text = str(state.get("input") or "")
+        return {
+            "keys": sorted(str(k) for k in state.keys()),
+            "input_len": len(input_text),
+            "input_preview": input_text[:180],
+            "history": _sequence_log_summary(state.get("history") or []),
+            "prompts": _sequence_log_summary(state.get("prompts") or []),
+            "messages_count": len(state.get("messages") or []) if isinstance(state.get("messages"), list) else None,
+            "events_count": len(state.get("events") or []) if isinstance(state.get("events"), list) else None,
+            "prompt_ref_keys": sorted(str(k) for k in prompt_refs.keys()),
+            "attribute_keys": sorted(str(k) for k in attrs.keys()),
+            "last_qa_customer": attrs.get("_last_qa_customer_id"),
+        }
+    except Exception as exc:
+        return {"error": str(exc), "fallback": str(type(state))}
+
+
+def _format_state_log(state: dict, *, max_length: int = 3000) -> str:
+    return truncate_for_log(_state_log_summary(state), max_length=max_length)
+
+
+def _is_qa_inbound_payload(payload) -> bool:
+    """Return ``True`` when *payload* is a Q&A-worker inbound dispatch.
+
+    Mirrors ``extension_tools_service._is_qa_dispatch`` so the inbound
+    detection (Q&A worker side) and outbound rejection (front-desk side)
+    use the same rule.  A Q&A *inbound* dispatch payload has BOTH
+    ``customer_id`` and ``latest_message`` and lacks ``response_text``
+    (which would mark it as a Q&A *reply* flowing back to front-desk).
+    Returns ``False`` for non-dict payloads so callers can pass any
+    parsed JSON value defensively.
+    """
+    if not isinstance(payload, dict):
+        return False
+    cust = str(payload.get("customer_id") or payload.get("customerId") or "").strip()
+    latest = str(payload.get("latest_message") or "").strip()
+    response = str(payload.get("response_text") or "").strip()
+    return bool(cust and latest and not response)
+
+
+def _parse_jsonish_dict(value) -> dict:
+    """Best-effort parse for JSON dict payloads carried in state fields."""
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _extract_qa_inbound_payload_from_event(data, human_text_content) -> dict:
+    """Return the actual Q&A dispatch payload from a pending-event resume.
+
+    Real A2A resumes wrap the customer payload as ``data["human_text"]``.
+    Passing that wrapper dict directly to ``_reset_qa_history_on_customer_change``
+    makes the Q&A history-isolation guard miss the customer transition.
+    """
+    candidates: list[object] = []
+    if isinstance(data, dict):
+        candidates.append(data)
+        for key in ("human_text", "text", "message"):
+            candidates.append(data.get(key))
+        content = data.get("content")
+        if isinstance(content, dict):
+            candidates.append(content.get("text"))
+        else:
+            candidates.append(content)
+    candidates.append(human_text_content)
+
+    for candidate in candidates:
+        parsed = _parse_jsonish_dict(candidate)
+        if _is_qa_inbound_payload(parsed):
+            return parsed
+    return {}
+
+
+def _state_current_event_human_payload(state: dict) -> dict:
+    """Return the current turn's human payload from prompt_refs/events/input.
+
+    Q&A replies are generated from a front-desk assignment payload.  That
+    payload may carry Feige's source customer-bubble msg_id; we need to
+    propagate it into the response envelope so the front desk can reject a
+    stale answer if the customer sends a newer bubble before the LLM returns.
+    """
+    if not isinstance(state, dict):
+        return {}
+
+    candidates: list[object] = []
+
+    pr_events = (state.get("prompt_refs") or {}).get("events", "")
+    if isinstance(pr_events, str) and pr_events.strip():
+        evt = _parse_jsonish_dict(pr_events)
+        if evt:
+            candidates.append(evt.get("human_text"))
+
+    for evt in reversed(state.get("events") or []):
+        if not isinstance(evt, dict):
+            continue
+        data = evt.get("data") or {}
+        if isinstance(data, dict):
+            candidates.append(data.get("human_text"))
+
+    candidates.append(state.get("input", ""))
+
+    for msg in reversed(state.get("history") or []):
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            candidates.append(content)
+
+    for candidate in candidates:
+        parsed = _parse_jsonish_dict(candidate)
+        if parsed:
+            return parsed
+    return {}
+
+
+def _augment_send_chat_reply_with_source_turn(actual_tool_input, state: dict):
+    """Attach source customer-bubble metadata to Q&A send_chat replies.
+
+    The Q&A prompt intentionally keeps the visible `message` JSON small.
+    This hidden runtime enrichment preserves turn correlation without asking
+    the LLM to remember or emit extra fields.
+    """
+    if not isinstance(actual_tool_input, dict):
+        return actual_tool_input
+
+    target = actual_tool_input.get("input")
+    if not isinstance(target, dict) or "message" not in target:
+        target = actual_tool_input
+    if not isinstance(target, dict):
+        return actual_tool_input
+
+    msg_text = target.get("message")
+    msg_obj = _parse_jsonish_dict(msg_text)
+    if not msg_obj or not str(msg_obj.get("response_text") or "").strip():
+        return actual_tool_input
+
+    inbound = _state_current_event_human_payload(state)
+    if not _is_qa_inbound_payload(inbound):
+        return actual_tool_input
+
+    source_msg_id = str(
+        inbound.get("source_customer_msg_id")
+        or inbound.get("latest_message_msg_id")
+        or inbound.get("reply_to_msg_id")
+        or ""
+    ).strip()
+    latest_text = str(inbound.get("latest_message") or "").strip()
+    if not source_msg_id and not latest_text:
+        return actual_tool_input
+
+    out_cust = str(
+        msg_obj.get("customer_id")
+        or msg_obj.get("customer_name")
+        or ""
+    ).strip()
+    in_cust = str(
+        inbound.get("customer_id")
+        or inbound.get("customer_name")
+        or ""
+    ).strip()
+    try:
+        if out_cust and in_cust:
+            if _normalize_dispatch_identity_key(out_cust) != _normalize_dispatch_identity_key(in_cust):
+                logger.warning(
+                    "[MCP Auto-Select] Not attaching source_customer_msg_id: "
+                    f"response customer {out_cust!r} != inbound customer {in_cust!r}"
+                )
+                return actual_tool_input
+    except Exception:
+        if out_cust and in_cust and out_cust != in_cust:
+            return actual_tool_input
+
+    if source_msg_id and not msg_obj.get("source_customer_msg_id"):
+        msg_obj["source_customer_msg_id"] = source_msg_id
+    if latest_text and not msg_obj.get("source_latest_message"):
+        msg_obj["source_latest_message"] = latest_text
+
+    target["message"] = json.dumps(msg_obj, ensure_ascii=False, separators=(",", ":"))
+    if source_msg_id:
+        logger.info(
+            "[MCP Auto-Select] Attached source_customer_msg_id to send_chat "
+            f"reply for customer={out_cust or in_cust!r} msg_id=...{source_msg_id[-8:]}"
+        )
+    else:
+        logger.info(
+            "[MCP Auto-Select] Attached source_latest_message to send_chat "
+            f"reply for customer={out_cust or in_cust!r}"
+        )
+    return actual_tool_input
+
+
+def _reset_qa_history_on_customer_change(
+    state: dict,
+    payload,
+    *,
+    node_name: str = "",
+    logger_=None,
+) -> bool:
+    """Per-turn ``state["history"]`` isolation for Q&A workers.
+
+    Production incident 2026-04-27: a Q&A worker (e.g. ``飞鸽客户应答``)
+    handling multiple customers via round-robin dispatch echoed one
+    customer's answer onto another customer's chat tab.  Symptom:
+    customer B asked "转人工", but the bot typed
+    "您好，红色款是否有货需要帮您核实一下…" into B's tab — that answer
+    belonged to customer A who had asked "有红色的吗？".
+
+    Root cause: ``state["history"]`` is shared across all dispatches to
+    the same agent (the LangGraph state is per chatter-task, and the
+    chatter task is per-agent, not per-customer).  When customer A's
+    ``(HumanMessage, AIMessage)`` pair was still in history at the
+    moment customer B's HumanMessage arrived, the LLM weighted the
+    prior turn heavily and produced an answer shaped by A's turn.
+    The Q&A worker's prompt explicitly instructs "忽略历史，只看本轮的
+    ``{{input}}``" but the model didn't fully comply.
+
+    This helper detects an inbound Q&A dispatch payload (via
+    :func:`_is_qa_inbound_payload`) and clears ``state["history"]`` for
+    every new inbound turn before that turn is appended.  The Q&A worker
+    prompt is explicitly current-turn-only; prior state can only add
+    latency or reintroduce cross-talk.  The new ``customer_id`` is
+    recorded in ``state["attributes"]["_last_qa_customer_id"]`` for
+    observability.
+
+    Returns ``True`` when a reset was performed (so callers / tests
+    can assert), ``False`` otherwise.
+
+    NOTE: deliberately does NOT touch front-desk inbound traffic —
+    front-desk receives Q&A *replies* (which carry ``response_text``)
+    and browser events (which never look like a dispatch), neither of
+    which trip :func:`_is_qa_inbound_payload`.  Front-desk legitimately
+    tracks multi-customer state in its history.
+    """
+    try:
+        if not _is_qa_inbound_payload(payload):
+            return False
+        cust = str(
+            payload.get("customer_id") or payload.get("customerId") or ""
+        ).strip()
+        attrs = state.setdefault("attributes", {}) if isinstance(state, dict) else {}
+        if not isinstance(attrs, dict):
+            # Should never happen — defensive against malformed state.
+            return False
+        last_cust = str(attrs.get("_last_qa_customer_id") or "").strip()
+        hist_len = (
+            len(state["history"])
+            if isinstance(state.get("history"), list)
+            else (1 if "history" in state else 0)
+        )
+        prompts_len = (
+            len(state["prompts"])
+            if isinstance(state.get("prompts"), list)
+            else (1 if "prompts" in state else 0)
+        )
+        did_reset = bool(hist_len or prompts_len)
+        if did_reset:
+            state["history"] = []
+            # Drop the per-turn ``prompts`` accumulator too —
+            # ``standard_post_llm_hook`` extends it with the AIMessage of
+            # each turn; clearing keeps state tidy and prevents
+            # memory-monitor false alarms.
+            state["prompts"] = []
+            if logger_ is not None:
+                logger_.info(
+                    f"[{node_name}] Q&A history reset for inbound turn: "
+                    f"prev={last_cust!r} -> current={cust!r} "
+                    f"(cleared history={hist_len}, prompts={prompts_len})"
+                )
+        attrs["_last_qa_customer_id"] = cust
+        return did_reset
+    except Exception as exc:
+        if logger_ is not None:
+            logger_.debug(
+                f"[{node_name}] Q&A history isolation skipped: {exc}"
+            )
+        return False
+
+
 STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
@@ -893,6 +1301,249 @@ def _section_label(section: dict) -> str:
     if sec_type == "custom" and section.get("customLabel"):
         return str(section.get("customLabel")).strip()
     return sec_type.replace("_", " ").title()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Native function-calling support (Step 1 pilot — opt-in QA worker migration)
+#
+# Background: until 2026-04, MCP auto-select nodes relied entirely on parsing
+# the LLM's free-text JSON output to extract ``tool_name``/``tool_input``.  This
+# proved fragile — gpt-5/o-series models occasionally slip into the OpenAI
+# Harmony channel format (``to=send_chat ... =json\n{...}``), causing the
+# strict parser to silently drop tool calls.  Liveness incident 2026-04-29 lost
+# customer ``陆地飞鱼``'s reply this way.
+#
+# The structurally-correct fix is to use the LLM provider's native tool/function
+# calling API — i.e. pass the MCP tool schemas via ``bind_tools`` and read the
+# typed ``response.tool_calls`` field instead of re-parsing free-text content.
+# Format slips in a structured channel are impossible.
+#
+# This helper set is the OPT-IN bridge for the pilot rollout:
+#   * gate by env ``ECAN_NATIVE_TOOL_CALLS=1`` or skill mapping_rules
+#     ``use_native_tool_calls=true``
+#   * applies only when the LLM node has a non-empty ``tools_to_use`` section
+#   * falls back transparently to the legacy text-parse path (incl. the
+#     Harmony fallback added in the same incident response) when:
+#       - the gate is off
+#       - the provider does not expose ``bind_tools``
+#       - the LLM responds without a ``tool_calls`` field
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Observability counters (Step 2): in-memory metric for how often the native
+# path is exercised vs the legacy text-parse path.  Persistent stats are out
+# of scope for the pilot — these counters are read by tests and surfaced via
+# the ``[NativeToolCalls]`` log lines below.
+_NATIVE_TOOL_CALL_METRICS: dict[str, int] = {
+    "bind_attempted": 0,        # native binding decision was reached
+    "bind_succeeded": 0,        # bind_tools call returned without raising
+    "bind_skipped_gate": 0,     # gate was off
+    "bind_skipped_no_tools": 0, # no tools_to_use names resolved
+    "bind_skipped_proxy": 0,    # Lambda proxy LLM (no native binding)
+    "bind_skipped_unsupported": 0,  # LLM lacked bind_tools attr
+    "bind_failed": 0,           # bind_tools raised
+    "response_native": 0,       # LLM returned typed tool_calls
+    "response_text_fallback": 0, # bound LLM returned no tool_calls (fell back)
+}
+
+
+def _native_tool_call_metric_inc(key: str, n: int = 1) -> None:
+    """Increment a native-tool-calls metric; never raises."""
+    try:
+        _NATIVE_TOOL_CALL_METRICS[key] = _NATIVE_TOOL_CALL_METRICS.get(key, 0) + n
+    except Exception:
+        pass
+
+
+def get_native_tool_call_metrics() -> dict:
+    """Return a snapshot of the native-tool-calls observability counters."""
+    try:
+        return dict(_NATIVE_TOOL_CALL_METRICS)
+    except Exception:
+        return {}
+
+
+def _extract_tools_to_use_names(
+    prompt_selection: str,
+    inline_system: str,
+    *,
+    skill_owner: str = "",
+) -> list[str]:
+    """Return the flat list of MCP tool names declared in ``tools_to_use``
+    sections of the resolved prompt.
+
+    Used by the native function-calling bridge to know which tools to pass to
+    ``llm.bind_tools(...)``.  When the prompt uses the ``{{tools_schema}}``
+    placeholder, returns the names of ALL registered MCP tools.
+
+    Returns an empty list when the prompt has no structured ``tools_to_use``
+    section (e.g. inline-only prompts that embed tool docs in free text).  The
+    caller treats empty-list as "skip native binding, use legacy text parse".
+    """
+    selection = (prompt_selection or "inline").strip()
+    if selection in ("", "inline"):
+        # Inline prompts don't expose a structured tools_to_use list.  Native
+        # binding is opt-in only for promptId-based flows during the pilot.
+        return []
+
+    try:
+        prompt_data, normalizer = _load_prompt_data(selection, skill_owner=skill_owner)
+    except Exception:
+        return []
+    if not prompt_data:
+        return []
+
+    normalized = prompt_data
+    # Accept any of the three section-bearing keys without requiring
+    # normalization.  Fall back to the normalizer (if available) only when
+    # none of them is present.
+    _has_any_sections = isinstance(normalized, dict) and any(
+        normalized.get(k) for k in ("sections", "systemSections", "userSections")
+    )
+    if not _has_any_sections:
+        if normalizer is None:
+            return []
+        try:
+            normalized = normalizer._normalize_prompt(
+                prompt_data,
+                source=str(prompt_data.get("source") or "inline"),
+                read_only=bool(prompt_data.get("readOnly")),
+                last_modified_ts=None,
+            )
+        except Exception:
+            return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def _consume_section(sec: dict) -> bool:
+        """Return True if a {{tools_schema}} placeholder was hit (=> bind ALL)."""
+        items = sec.get("items") if isinstance(sec.get("items"), list) else []
+        for item in items:
+            if _is_tools_schema_placeholder(item):
+                return True
+            for n in _parse_tools_to_use_item(item):
+                if n and n not in seen:
+                    seen.add(n)
+                    names.append(n)
+        return False
+
+    bind_all = False
+    for section_key in ("sections", "systemSections", "userSections"):
+        for sec in (normalized.get(section_key) or []):
+            if not isinstance(sec, dict):
+                continue
+            if str(sec.get("type") or "").strip().lower() != "tools_to_use":
+                continue
+            if _consume_section(sec):
+                bind_all = True
+
+    if bind_all:
+        all_names: list[str] = []
+        seen_all: set[str] = set()
+        for s in (_get_all_tool_schemas() or []):
+            sn = getattr(s, "name", None) or (s.get("name") if isinstance(s, dict) else None)
+            if sn and sn not in seen_all:
+                seen_all.add(sn)
+                all_names.append(sn)
+        # Merge any explicitly-listed names too (defensive).
+        for n in names:
+            if n not in seen_all:
+                seen_all.add(n)
+                all_names.append(n)
+        return all_names
+
+    return names
+
+
+def _schemas_to_function_tools(schemas: list[dict]) -> list[dict]:
+    """Convert MCP tool schemas (``{name, description, inputSchema}``) into the
+    OpenAI/LangChain function-tool dict shape expected by ``bind_tools``:
+
+        {"type": "function",
+         "function": {"name": ..., "description": ..., "parameters": <JSONSchema>}}
+
+    LangChain ``BaseChatModel.bind_tools`` accepts this dict shape directly and
+    translates it into each provider's native tool-call protocol (OpenAI tools
+    parameter, Anthropic tool_use blocks, Bedrock Converse toolConfig, etc.).
+    """
+    out: list[dict] = []
+    for s in schemas or []:
+        if not isinstance(s, dict):
+            continue
+        name = s.get("name")
+        if not name:
+            continue
+        params = s.get("inputSchema") or {"type": "object", "properties": {}}
+        # Normalize: providers expect a JSONSchema object with a top-level
+        # ``type`` key.  MCP schemas already comply, but defensively coerce.
+        if not isinstance(params, dict):
+            params = {"type": "object", "properties": {}}
+        if "type" not in params:
+            params = {"type": "object", **params}
+        out.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": s.get("description") or "",
+                "parameters": params,
+            },
+        })
+    return out
+
+
+def _should_use_native_tool_calls(
+    skill_name: str,
+    mainwin: Any,
+    inputs: dict | None = None,
+) -> bool:
+    """Decide whether the native function-calling path is enabled for this
+    skill/node invocation.
+
+    Order of precedence (first match wins):
+      1. Node-level inputs flag ``useNativeToolCalls`` (truthy)
+      2. Env override ``ECAN_NATIVE_TOOL_CALLS`` set to a truthy value
+      3. Skill-level ``mapping_rules.use_native_tool_calls`` truthy
+      4. Default: False
+    """
+    # 1. Node config
+    try:
+        if isinstance(inputs, dict):
+            v = inputs.get("useNativeToolCalls")
+            if isinstance(v, bool) and v:
+                return True
+            if isinstance(v, str) and v.strip().lower() in ("1", "true", "yes", "on"):
+                return True
+    except Exception:
+        pass
+
+    # 2. Env override
+    try:
+        env_val = os.getenv("ECAN_NATIVE_TOOL_CALLS", "").strip().lower()
+        if env_val in ("1", "true", "yes", "on"):
+            return True
+        if env_val in ("0", "false", "no", "off"):
+            return False  # explicit disable beats skill-level enable
+    except Exception:
+        pass
+
+    # 3. Skill mapping_rules
+    try:
+        if mainwin and skill_name:
+            for sk in (getattr(mainwin, "agent_skills", None) or []):
+                if getattr(sk, "name", "") != skill_name:
+                    continue
+                mr = getattr(sk, "mapping_rules", None) or {}
+                if isinstance(mr, dict):
+                    flag = mr.get("use_native_tool_calls")
+                    if isinstance(flag, bool):
+                        return flag
+                    if isinstance(flag, str) and flag.strip().lower() in ("1", "true", "yes", "on"):
+                        return True
+                break
+    except Exception:
+        pass
+
+    return False
 
 
 def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str, *, skill_owner: str = "") -> tuple[str, str, dict]:
@@ -1886,9 +2537,46 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     logger.debug("[LLMNode]system_prompt_id:", system_prompt_id)
     logger.debug("[LLMNode]user_prompt_id:", user_prompt_id)
 
-    # Get inline prompt content
+    # ── Skill-author footgun guard: duplicate prompt ids ─────────────
+    # If a skill author accidentally points both ``systemPromptId`` and
+    # ``promptId`` at the same prompt, the prompt body gets loaded as
+    # BOTH the system and user templates, so every ``{{input}}`` slot
+    # and every token of the body is sent to the model twice, and any
+    # inlined attachment ``data_uri`` in ``{{input}}`` blows the system
+    # message up to tens of megabytes.  This caused the Feige Q&A
+    # worker "我看不到图片" regression; keep a loud warning here so the
+    # next misconfiguration is obvious in logs and the skill editor
+    # timeline.
+    if (
+        system_prompt_id
+        and user_prompt_id
+        and system_prompt_id == user_prompt_id
+    ):
+        _dup_msg = (
+            f"[build_llm_node] ⚠️ node={node_name}: systemPromptId and "
+            f"promptId are both set to '{system_prompt_id}'. The prompt "
+            f"body will be used as BOTH system and user prompt, which "
+            f"doubles token cost and inlines attachment data_uri blobs "
+            f"into the system message. Set promptId to a separate "
+            f"user-input template (e.g. one containing just "
+            f"'{{{{input}}}}'), or clear one of the two fields."
+        )
+        logger.warning(_dup_msg)
+        try:
+            send_skill_editor_log("warning", _dup_msg)
+        except Exception:
+            pass
+
+    # Get inline prompt content.
+    # Note: ``inline_user_prompt`` defaults to ``{{input}}`` (NOT
+    # ``STANDARD_SYS_PROMPT``) because this field is the *user-turn*
+    # template — the natural default is to pass the invocation payload
+    # straight through as the human message.  Using the system-prompt
+    # string here was a historical copy-paste; it caused the user turn
+    # to literally read "You are a helpful AI assistant." when the
+    # skill author left the field blank.
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or STANDARD_SYS_PROMPT)
-    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or STANDARD_SYS_PROMPT)
+    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "{{input}}")
 
     logger.debug("[LLMNode]inline_system_prompt:", inline_system_prompt)
     logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
@@ -2383,7 +3071,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         logger.info(log_msg)
         send_skill_editor_log("log", log_msg)
 
-        log_msg = f"State: {state}"
+        log_msg = f"State summary: {_format_state_log(state)}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -2592,6 +3280,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 ):
                     from agent.ec_skills.llm_utils.llm_utils import (
                         prep_multi_modal_content,
+                        _strip_data_uri_noise,
                     )
                     _mm_content = prep_multi_modal_content(
                         state,
@@ -2605,6 +3294,63 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             if isinstance(p, dict) and p.get("type") == "image_url"
                         )
                         messages[-1] = HumanMessage(content=_mm_content)
+
+                        # ── Critical: strip inlined data URIs from the text
+                        # streams now that the image is properly delivered as
+                        # an ``image_url`` content part on the HumanMessage.
+                        #
+                        # Why this matters: ``{{input}}`` inside the prompt
+                        # template gets substituted with the raw JSON payload
+                        # which carries ``"data_uri": "data:image/...;base64,
+                        # <up-to-7MB>"`` for each customer attachment.  When
+                        # the same prompt body is used for BOTH the system
+                        # and user templates (e.g. when ``systemPromptId`` and
+                        # ``promptId`` point at the same prompt id, or when
+                        # the prompt body has multiple ``{{input}}`` slots —
+                        # both common in Feige-style Q&A workers), the
+                        # ``final_system_prompt`` and ``final_user_prompt``
+                        # each balloon to tens of megabytes of inline base64.
+                        #
+                        # The model then sees the (real, viewable) image
+                        # AND six garbled base64 strings in the system text
+                        # — and reports back "I can't see a clear image"
+                        # which is exactly its prompted fallback for
+                        # unrecognizable content.  Stripping the data URIs
+                        # from the text streams here keeps the model focused
+                        # on the one canonical ``image_url`` part.
+                        try:
+                            _orig_sys_len = len(final_system_prompt) if final_system_prompt else 0
+                            _orig_usr_len = len(final_user_prompt) if final_user_prompt else 0
+                            if final_system_prompt:
+                                final_system_prompt = _strip_data_uri_noise(final_system_prompt)
+                            if final_user_prompt:
+                                final_user_prompt = _strip_data_uri_noise(final_user_prompt)
+                            # Mirror the strip into messages[0] (SystemMessage)
+                            # since downstream code reads from that as well.
+                            if (
+                                messages
+                                and isinstance(messages[0], SystemMessage)
+                                and isinstance(messages[0].content, str)
+                            ):
+                                messages[0] = SystemMessage(
+                                    content=_strip_data_uri_noise(messages[0].content)
+                                )
+                            _new_sys_len = len(final_system_prompt) if final_system_prompt else 0
+                            _new_usr_len = len(final_user_prompt) if final_user_prompt else 0
+                            logger.info(
+                                f"[multimodal-llm-node] stripped data_uri noise "
+                                f"from prompt text streams: "
+                                f"system {_orig_sys_len:,} -> {_new_sys_len:,} chars, "
+                                f"user {_orig_usr_len:,} -> {_new_usr_len:,} chars "
+                                f"(image now delivered as image_url part)"
+                            )
+                        except Exception as _strip_exc:
+                            logger.warning(
+                                f"[multimodal-llm-node] data_uri strip failed "
+                                f"(non-fatal, continuing): "
+                                f"{type(_strip_exc).__name__}: {_strip_exc}"
+                            )
+
                         logger.info(
                             f"[multimodal-llm-node] node={node_name} "
                             f"upgraded messages[-1] HumanMessage to multimodal "
@@ -2674,7 +3420,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             else:
                 logger.debug(f"[LLM] No explicit prompt on node - preserving history system message for continuity")
 
-            log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
+            log_msg = (
+                f"recent_context summary: "
+                f"{truncate_for_log(_sequence_log_summary(recent_context), max_length=3000)}"
+            )
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
@@ -2769,6 +3518,96 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 send_skill_editor_log("error", f"[build_llm_node] {err}")
                 state['error'] = err
                 return state
+
+            # ── Native function-calling pilot: bind MCP tool schemas ──
+            # Step 1 of the migration away from text-JSON-as-tool-call.  When
+            # the gate is on AND we can resolve the node's ``tools_to_use``
+            # list, attach those schemas to the LLM via LangChain
+            # ``bind_tools``.  The provider then uses its native tool-call
+            # protocol (OpenAI tools=[...], Anthropic tool_use, ...) and the
+            # response will carry a typed ``tool_calls`` field instead of
+            # relying on the model serializing JSON correctly into ``content``.
+            #
+            # Track for the bridge below — set on the *outer* function scope so
+            # the post-invoke overlay knows whether to look at tool_calls.
+            _native_tc_active = False
+            try:
+                _gate = _should_use_native_tool_calls(skill_name, _mainwin, inputs)
+                if not _gate:
+                    _native_tool_call_metric_inc("bind_skipped_gate")
+                else:
+                    _native_tool_call_metric_inc("bind_attempted")
+                    if _should_use_proxy(inputs):
+                        # Lambda proxy LLM doesn't expose a langchain bind_tools;
+                        # leave it on the legacy path.
+                        _native_tool_call_metric_inc("bind_skipped_proxy")
+                        logger.info(
+                            "[NativeToolCalls] gate=on but Lambda proxy LLM in use; "
+                            f"skipping bind_tools for node={full_node_name}"
+                        )
+                    elif not hasattr(llm, "bind_tools"):
+                        _native_tool_call_metric_inc("bind_skipped_unsupported")
+                        logger.warning(
+                            f"[NativeToolCalls] gate=on but LLM type={type(llm).__name__} "
+                            f"has no bind_tools attribute; falling back to text parse "
+                            f"for node={full_node_name}"
+                        )
+                    else:
+                        _tool_names = _extract_tools_to_use_names(
+                            prompt_selection,
+                            inline_system_prompt,
+                            skill_owner=owner or "",
+                        )
+                        if not _tool_names:
+                            _native_tool_call_metric_inc("bind_skipped_no_tools")
+                            logger.info(
+                                f"[NativeToolCalls] gate=on but no tools_to_use names "
+                                f"resolved for node={full_node_name} "
+                                f"(prompt_selection={prompt_selection!r}); "
+                                "falling back to text parse"
+                            )
+                        else:
+                            _tool_schemas = _get_tool_schemas_for_names(_tool_names)
+                            _function_tools = _schemas_to_function_tools(_tool_schemas)
+                            if not _function_tools:
+                                _native_tool_call_metric_inc("bind_skipped_no_tools")
+                                logger.warning(
+                                    f"[NativeToolCalls] gate=on but tool schemas could "
+                                    f"not be loaded for names={_tool_names} "
+                                    f"(node={full_node_name}); falling back to text parse"
+                                )
+                            else:
+                                try:
+                                    llm = llm.bind_tools(_function_tools, tool_choice="auto")
+                                    _native_tc_active = True
+                                    _native_tool_call_metric_inc("bind_succeeded")
+                                    logger.info(
+                                        f"[NativeToolCalls] bound {len(_function_tools)} "
+                                        f"tools to LLM for node={full_node_name} "
+                                        f"(provider={llm_provider}, model={model_name}, "
+                                        f"names={[t['function']['name'] for t in _function_tools]})"
+                                    )
+                                    send_skill_editor_log(
+                                        "log",
+                                        f"[NativeToolCalls] bound {len(_function_tools)} tools "
+                                        f"({', '.join(t['function']['name'] for t in _function_tools)})"
+                                    )
+                                except Exception as _bind_err:
+                                    _native_tool_call_metric_inc("bind_failed")
+                                    logger.warning(
+                                        f"[NativeToolCalls] bind_tools failed for "
+                                        f"node={full_node_name} "
+                                        f"(provider={llm_provider}): {_bind_err}; "
+                                        "falling back to text parse"
+                                    )
+            except Exception as _ntc_err:
+                # Never let the native-tools path crash the LLM node — always
+                # fall through to legacy text parsing on any unexpected error.
+                logger.warning(
+                    f"[NativeToolCalls] gating logic raised "
+                    f"(non-fatal, falling back to text parse): {_ntc_err}"
+                )
+                _native_tc_active = False
 
             # so far we have get API key, LLM model setup among difference possible choices.
 
@@ -2896,6 +3735,72 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         send_skill_editor_log("error", timeout_msg)
                         raise TimeoutError(timeout_msg)
 
+                def _invoke_async_with_thread_timeout(llm_to_use, timeout_sec: float):
+                    """Run ainvoke on a disposable loop thread with a caller-side timeout.
+
+                    Some provider wrappers expose ``ainvoke`` but still block the
+                    event loop during network stalls.  In that case
+                    ``asyncio.wait_for`` inside the worker loop cannot fire.
+                    Joining the worker from the caller gives Q&A agents a hard
+                    way to release their queue instead of parking indefinitely.
+                    """
+                    result_holder = {}
+                    error_holder = {}
+                    done = threading.Event()
+
+                    def _worker():
+                        loop = asyncio.new_event_loop()
+                        try:
+                            asyncio.set_event_loop(loop)
+                            result_holder["result"] = loop.run_until_complete(
+                                loop.create_task(_invoke_async(llm_to_use, timeout_sec))
+                            )
+                        except BaseException as exc:
+                            error_holder["error"] = exc
+                        finally:
+                            try:
+                                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                for t in pending:
+                                    t.cancel()
+                                if pending:
+                                    loop.run_until_complete(
+                                        asyncio.gather(*pending, return_exceptions=True)
+                                    )
+                                if hasattr(loop, "shutdown_asyncgens"):
+                                    loop.run_until_complete(loop.shutdown_asyncgens())
+                                if hasattr(loop, "shutdown_default_executor"):
+                                    loop.run_until_complete(loop.shutdown_default_executor())
+                            except Exception:
+                                pass
+                            try:
+                                loop.close()
+                            except Exception:
+                                pass
+                            done.set()
+
+                    start_time = time.time()
+                    thread = threading.Thread(
+                        target=_worker,
+                        name=f"llm-async-timeout-{node_name}",
+                        daemon=True,
+                    )
+                    thread.start()
+                    wait_limit = max(1.0, timeout_sec + 5.0)
+                    if not done.wait(timeout=wait_limit):
+                        elapsed = time.time() - start_time
+                        llm_info = f"{llm_provider}/{model_name}"
+                        base_url_info = f" (base_url: {api_host})" if api_host else ""
+                        timeout_msg = (
+                            f"⏱️ LLM async worker timed out after {elapsed:.1f}s "
+                            f"(limit {timeout_sec}s): {llm_info}{base_url_info}"
+                        )
+                        logger.error(timeout_msg)
+                        send_skill_editor_log("error", timeout_msg)
+                        raise TimeoutError(timeout_msg)
+                    if "error" in error_holder:
+                        raise error_holder["error"]
+                    return result_holder.get("result")
+
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
                     """
                     Hybrid LLM invocation: uses async if in event loop, else sync.
@@ -2914,54 +3819,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if not hasattr(llm_to_use, 'ainvoke'):
                         logger.debug("[HYBRID_LLM] LLM doesn't support ainvoke, using sync")
                         return _invoke_with_thread(llm_to_use, timeout_sec)
-                    
-                    # Try to detect if we're in an async context
-                    try:
-                        loop = asyncio.get_running_loop()
-                        # We're in an async context - use run_coroutine_threadsafe
-                        # to avoid blocking the event loop
-                        logger.debug("[HYBRID_LLM] Running in async context, using ainvoke")
-                        future = asyncio.run_coroutine_threadsafe(
-                            _invoke_async(llm_to_use, timeout_sec),
-                            loop
-                        )
-                        import concurrent.futures as _cf
-                        _poll_interval = 0.5
-                        _deadline = time.time() + timeout_sec + 5
-                        while time.time() < _deadline:
-                            try:
-                                return future.result(timeout=_poll_interval)
-                            except _cf.TimeoutError:
-                                _tid = (state.get("attributes") or {}).get("task_id") if isinstance(state.get("attributes"), dict) else None
-                                if _tid:
-                                    try:
-                                        from agent.ec_tasks import cancellation_registry as _cr
-                                        _evt = _cr.get(_tid)
-                                        if _evt and _evt.is_set():
-                                            future.cancel()
-                                            raise InterruptedError("Task cancelled during LLM call")
-                                    except InterruptedError:
-                                        raise
-                                    except Exception:
-                                        pass
-                        future.cancel()
-                        raise TimeoutError(f"LLM call timed out after {timeout_sec + 5}s")
-                    except RuntimeError:
-                        # No running event loop - we're in sync context
-                        # Try to run async in a new loop (best effort)
-                        try:
-                            logger.debug("[HYBRID_LLM] No event loop, trying new loop for ainvoke")
-                            new_loop = asyncio.new_event_loop()
-                            try:
-                                return new_loop.run_until_complete(
-                                    _invoke_async(llm_to_use, timeout_sec)
-                                )
-                            finally:
-                                new_loop.close()
-                        except Exception as e:
-                            # Fallback to sync
-                            logger.debug(f"[HYBRID_LLM] Async failed ({e}), falling back to sync")
-                            return _invoke_with_thread(llm_to_use, timeout_sec)
+
+                    logger.debug("[HYBRID_LLM] Running ainvoke in timeout-bounded worker thread")
+                    return _invoke_async_with_thread_timeout(llm_to_use, timeout_sec)
 
                 # ── Cancellation check: abort if task was cancelled before LLM call ──
                 task_id_for_cancel = (state.get("attributes") or {}).get("task_id") if isinstance(state.get("attributes"), dict) else None
@@ -2982,6 +3842,27 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Resolve timeout with hybrid precedence (runtime > config > default)
                 full_node_name = f"{owner}:{skill_name}:{node_name}"
+                _feige_qa_payload = {}
+                _feige_qa_llm_start = None
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                        log_payload as _feige_ledger_payload,
+                    )
+
+                    _candidate_payload = _state_current_event_human_payload(state)
+                    if _is_qa_inbound_payload(_candidate_payload):
+                        _feige_qa_payload = _candidate_payload
+                        _feige_qa_llm_start = time.time()
+                        _feige_ledger_payload(
+                            "qa_llm_start",
+                            _feige_qa_payload,
+                            node=full_node_name,
+                            provider=llm_provider,
+                            model=model_name,
+                        )
+                except Exception:
+                    _feige_qa_payload = {}
+                    _feige_qa_llm_start = None
                 effective_timeout = resolve_timeout(
                     node_name=full_node_name,
                     state=state,
@@ -3025,34 +3906,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Execute LLM call with optional hard timeout
                 if use_hard_timeout:
-                    import asyncio
                     log_msg = f"[LLM_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
                     logger.info(log_msg)
                     send_skill_editor_log("log", log_msg)
                     try:
-                        # Hard timeout: cancel operation if it exceeds timeout
-                        async def _invoke_with_hard_timeout():
-                            return await asyncio.wait_for(
-                                _invoke_async(llm, effective_timeout),
-                                timeout=effective_timeout
-                            )
-                        
-                        # Run in event loop (sync context)
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                # Use run_async_in_sync for nested event loop
-                                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                                response = run_async_in_sync(_invoke_with_hard_timeout())
-                            else:
-                                response = loop.run_until_complete(_invoke_with_hard_timeout())
-                        except RuntimeError:
-                            new_loop = asyncio.new_event_loop()
-                            try:
-                                response = new_loop.run_until_complete(_invoke_with_hard_timeout())
-                            finally:
-                                new_loop.close()
-                    except asyncio.TimeoutError:
+                        # Use the same caller-side hard stop as the normal
+                        # async path; provider ``ainvoke`` wrappers can block
+                        # their worker event loop, which prevents inner
+                        # ``asyncio.wait_for`` cancellation from firing.
+                        response = _invoke_async_with_thread_timeout(llm, effective_timeout)
+                    except TimeoutError as exc:
                         error_msg = f"LLM call timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[LLM_HARD_TIMEOUT] {error_msg}")
                         send_skill_editor_log("error", error_msg)
@@ -3065,7 +3928,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                 task.record_failure()
                         except Exception:
                             pass
-                        raise TimeoutError(error_msg)
+                        raise TimeoutError(error_msg) from exc
                 else:
                     response = _invoke_hybrid(llm, effective_timeout)
                 
@@ -3083,6 +3946,27 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         logger.warning(f"[LLM_GUARDRAIL] Failed to cancel timer: {e}")
                 
                 _perf_llm("invoke", _t_stage)
+                try:
+                    if _feige_qa_payload and _feige_qa_llm_start is not None:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                            log_payload as _feige_ledger_payload,
+                            short_text as _feige_short_text,
+                        )
+
+                        _resp_text = getattr(response, "content", "")
+                        if not isinstance(_resp_text, str) or not _resp_text:
+                            _resp_text = str(response)
+                        _feige_ledger_payload(
+                            "qa_llm_response",
+                            _feige_qa_payload,
+                            node=full_node_name,
+                            provider=llm_provider,
+                            model=model_name,
+                            duration_ms=int((time.time() - _feige_qa_llm_start) * 1000),
+                            response_preview=_feige_short_text(_resp_text),
+                        )
+                except Exception:
+                    pass
 
                 log_msg = f"✅ LLM response received from {llm_provider} {response}"
                 logger.info(log_msg)
@@ -3122,7 +4006,86 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 _t_stage = _time.perf_counter()
                 run_post_llm_hook(full_node_name, agent, state, response)
                 _perf_llm("post_hook", _t_stage)
-                logger.debug(f"llm_node finished..... {state}")
+
+                # ── Native function-calling bridge ────────────────────────
+                # When tools were bound above, the provider may have returned
+                # a typed ``tool_calls`` list on the response.  Overlay it
+                # onto ``state['result']['llm_result']`` in the same shape
+                # the legacy text-parser would have produced (tool_name,
+                # tool_input, OR multi-tool ``tool`` list).  Drop ``message``
+                # so the MCP auto-select parser at ``_run_use_mcp_node``
+                # short-circuits the JSON-walk and uses the structured
+                # fields directly — eliminating the class of bugs where the
+                # LLM serialized its tool call into a non-canonical text
+                # format (e.g. OpenAI Harmony ``to=send_chat`` headers).
+                #
+                # If the bound LLM returned NO tool_calls (e.g. it answered
+                # in plain content), leave ``llm_result`` as the standard
+                # post-hook produced it; the legacy parser still runs and
+                # picks up any ``message``/``all_done`` JSON in content.
+                try:
+                    if _native_tc_active:
+                        _resp_tcs = getattr(response, "tool_calls", None) or []
+                        if _resp_tcs:
+                            _native_tool_call_metric_inc("response_native")
+                            _llm_res = (state.get("result") or {}).get("llm_result")
+                            if not isinstance(_llm_res, dict):
+                                _llm_res = {}
+                            if len(_resp_tcs) == 1:
+                                _tc = _resp_tcs[0] or {}
+                                _llm_res["tool_name"] = _tc.get("name") or ""
+                                _llm_res["tool_input"] = _tc.get("args") or {}
+                                logger.info(
+                                    f"[NativeToolCalls] bridged single tool_call "
+                                    f"name={_tc.get('name')!r} "
+                                    f"args_keys={list((_tc.get('args') or {}).keys())} "
+                                    f"node={full_node_name}"
+                                )
+                            else:
+                                _llm_res["tool"] = [
+                                    {"tool_name": (tc or {}).get("name") or "",
+                                     "tool_input": (tc or {}).get("args") or {}}
+                                    for tc in _resp_tcs
+                                ]
+                                _llm_res["multi_tool_calls"] = "serial"
+                                logger.info(
+                                    f"[NativeToolCalls] bridged {len(_resp_tcs)} "
+                                    f"serial tool_calls "
+                                    f"names={[(tc or {}).get('name') for tc in _resp_tcs]} "
+                                    f"node={full_node_name}"
+                                )
+                            # Drop ``message`` so the legacy text parser at
+                            # ``_run_use_mcp_node`` line ~4708 sees structured
+                            # fields and skips the JSON-walk path entirely.
+                            _llm_res.pop("message", None)
+
+                            if isinstance(state.get("result"), dict):
+                                state["result"]["llm_result"] = _llm_res
+                                # Promote tool_name/tool_input to the top of
+                                # state['result'] for condition-edge readers
+                                # (mirrors what standard_post_llm_hook does).
+                                if _llm_res.get("tool_name"):
+                                    state["result"]["tool_name"] = _llm_res["tool_name"]
+                                    if _llm_res.get("tool_input") is not None:
+                                        state["result"]["tool_input"] = _llm_res["tool_input"]
+                        else:
+                            _native_tool_call_metric_inc("response_text_fallback")
+                            logger.info(
+                                f"[NativeToolCalls] bound LLM returned no tool_calls "
+                                f"(falling through to text parse) node={full_node_name} "
+                                f"content_len={len(getattr(response, 'content', '') or '')}"
+                            )
+                except Exception as _bridge_err:
+                    # Bridge failure must not break the LLM node.  Log and
+                    # leave ``state['result']['llm_result']`` exactly as the
+                    # standard post-hook produced it; the legacy parser will
+                    # take over from there (incl. the Harmony fallback).
+                    logger.warning(
+                        f"[NativeToolCalls] bridge raised "
+                        f"(non-fatal, leaving legacy llm_result): {_bridge_err}"
+                    )
+
+                logger.debug(f"llm_node finished..... {_format_state_log(state)}")
 
                 # Total time for llm_node_callable (best-effort)
                 _perf_llm("total", _t0)
@@ -3236,6 +4199,65 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     'model': model_name,
                     'error_message': error_msg
                 }
+
+                try:
+                    _qa_payload = locals().get("_feige_qa_payload") or {}
+                    if _is_qa_inbound_payload(_qa_payload):
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                            log_payload as _feige_ledger_payload,
+                        )
+
+                        _feige_ledger_payload(
+                            "qa_llm_failed",
+                            _qa_payload,
+                            node=f"{owner}:{skill_name}:{node_name}",
+                            provider=llm_provider,
+                            model=model_name,
+                            error_type=error_type,
+                            error_preview=error_msg[:240],
+                            action="mark_task_failed_for_redispatch",
+                        )
+
+                        _cust_id = str(_qa_payload.get("customer_id") or "").strip()
+                        _cust_name = str(
+                            _qa_payload.get("customer_name") or _cust_id
+                        ).strip()
+                        _latest = str(_qa_payload.get("latest_message") or "").strip()
+                        _source_msg_id = str(
+                            _qa_payload.get("latest_message_msg_id")
+                            or _qa_payload.get("source_customer_msg_id")
+                            or ""
+                        ).strip()
+                        _llm_failure_result = {
+                            "success": False,
+                            "all_done": True,
+                            "work_done": False,
+                            "Error": user_msg,
+                            "error": user_msg,
+                            "error_type": error_type,
+                            "customer_id": _cust_id,
+                            "customer_name": _cust_name,
+                        }
+                        if _source_msg_id:
+                            _llm_failure_result["source_customer_msg_id"] = _source_msg_id
+                        if _latest:
+                            _llm_failure_result["source_latest_message"] = _latest
+                        state["result"] = {
+                            "success": False,
+                            "Error": user_msg,
+                            "error": user_msg,
+                            "llm_result": _llm_failure_result,
+                        }
+                        _task = state.get("_managed_task")
+                        if _task is None and runtime and hasattr(runtime, "context"):
+                            _task = runtime.context.get("task") or runtime.context.get("managed_task")
+                        if _task is not None and getattr(_task, "status", None) is not None:
+                            _task.status.state = TaskState.failed
+                except Exception as _qa_fail_log_err:
+                    logger.debug(
+                        f"[FEIGE-LEDGER] qa_llm_failed handling failed: "
+                        f"{_qa_fail_log_err}"
+                    )
         else:
             # Cloud worker / no-agent mode: state["messages"] is empty (no GUI agent_id).
             # Still invoke the LLM with the already-formatted base prompts so the graph
@@ -4490,6 +5512,70 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     ):
                         _all_tool_objs.append(obj)
 
+                # ── Harmony-channel fallback ─────────────────────────────
+                # GPT-5 / o-series models occasionally slip into the OpenAI
+                # Harmony tool-call dialect, putting the tool name in a
+                # free-text routing header instead of a JSON ``tool_name``
+                # key, e.g.:
+                #
+                #   to=send_chat <hallucinated tokens> =json
+                #   {"input": {...}}
+                #   {"all_done": true, "work_done": true}
+                #   done()
+                #
+                # The body JSON is still valid input but our strict
+                # parser above sees ``{"input": ...}`` with no
+                # ``tool_name`` and silently drops the tool call, while
+                # still capturing the trailing ``{"all_done": true}``
+                # below.  Net effect: the worker reports "all_done"
+                # without ever invoking the tool.
+                #
+                # Liveness incident 2026-04-29 09:08:17.176 (eCan.log.1
+                # line 10286): customer ``陆地飞鱼``'s reply to
+                # ``我要买衣服`` was lost this way and stayed
+                # ``already_dispatched`` in the front-desk dedup map for
+                # the rest of the run.
+                #
+                # Adopt the first ``input``-bearing JSON as the tool
+                # call when (a) no proper tool object was found AND
+                # (b) the message contains a Harmony-style ``to=<name>``
+                # header.  This keeps well-formed outputs untouched
+                # while recovering the malformed-but-intent-clear case.
+                if not _all_tool_objs:
+                    _harmony_match = re.search(
+                        r'\bto\s*=\s*([A-Za-z_][A-Za-z0-9_\-]*)',
+                        message_content,
+                    )
+                    if _harmony_match:
+                        _harmony_tool_name = _harmony_match.group(1)
+                        _adopted = None
+                        for obj in parsed_objects:
+                            if not isinstance(obj, dict):
+                                continue
+                            # Skip pure completion-flag objects — those
+                            # belong to the flags collector below.
+                            if set(obj.keys()) <= {'all_done', 'work_done'}:
+                                continue
+                            if 'input' in obj or 'tool_input' in obj:
+                                _adopted = dict(obj)
+                                _adopted['tool_name'] = _harmony_tool_name
+                                _all_tool_objs.append(_adopted)
+                                logger.warning(
+                                    "[MCP Auto-Select] Harmony-style tool call "
+                                    f"recovered: tool_name='{_harmony_tool_name}' "
+                                    f"from `to=` header, body keys={list(obj.keys())}. "
+                                    "LLM emitted non-standard format; treating as "
+                                    "if `tool_name` was present in the JSON."
+                                )
+                                break
+                        if _adopted is None:
+                            logger.warning(
+                                f"[MCP Auto-Select] Detected Harmony header "
+                                f"`to={_harmony_tool_name}` but no input-bearing "
+                                "JSON body found; cannot recover tool call. "
+                                f"Parsed objects: {[list(o.keys()) if isinstance(o, dict) else type(o).__name__ for o in parsed_objects]}"
+                            )
+
                 # Collect completion flags (all_done, work_done) from non-tool
                 # JSON objects.  The LLM often emits these as a separate object
                 # after the tool-call JSON, e.g.:
@@ -4578,7 +5664,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             next_tool_input = (
                 llm_result.get('next_tool_input')
                 or llm_result.get('tool_input')
+                or llm_result.get('input')
                 or nested_tool.get('tool_input')
+                or nested_tool.get('input')
                 or {}
             )
 
@@ -4732,6 +5820,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                     logger.info(f"[MCP Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender}")
             except Exception:
                 pass
+
+            if actual_tool_name == 'send_chat':
+                actual_tool_input = _augment_send_chat_reply_with_source_turn(
+                    actual_tool_input, state
+                )
 
             # Preserve both legacy (dict with 'input') and per-node tool_input maps.
             try:
@@ -4899,6 +5992,64 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     recipient = payload.get('recipient_name') or payload.get('recipient') or ''
                     if recipient:
                         work_result['chat_sent_to'] = recipient
+                elif tool_name == 'rag_query':
+                    # rag_query meta has shape {"status": "success", "data": {response, references, confidence, ...}}.
+                    # _extract_tool_result_payload returns {} for it (no top-level "success" key), so pull
+                    # directly from result.meta here and promote the answer / references / confidence into
+                    # state["result"]["llm_result"]["work_result"] for downstream nodes (templates, conditions,
+                    # next-LLM context). This must run BEFORE the >2000-char trim on tool_result, which it does.
+                    try:
+                        _meta = getattr(result, 'meta', None) or {}
+                        if not isinstance(_meta, dict):
+                            _meta = {}
+                        # MCP wraps TextContent in a CallToolResult: the rag payload
+                        # (response/references/confidence) is on content[0].meta, not on
+                        # the outer result.meta (which the server leaves None). Without
+                        # this fallback, references/confidence are always lost downstream
+                        # and the system-prompt confidence gate fires every reply.
+                        if not _meta:
+                            try:
+                                _content = getattr(result, 'content', None) or []
+                                if _content:
+                                    _inner = getattr(_content[0], 'meta', None)
+                                    if isinstance(_inner, dict):
+                                        _meta = _inner
+                            except Exception:
+                                pass
+                        _data = _meta.get('data') if isinstance(_meta.get('data'), dict) else _meta
+                        _answer_text = ''
+                        if isinstance(_data, dict):
+                            _answer_text = _data.get('response') or ''
+                        # Fallback to the content text if meta didn't carry the answer.
+                        if not _answer_text:
+                            try:
+                                _content = getattr(result, 'content', None) or []
+                                if _content and hasattr(_content[0], 'text'):
+                                    _answer_text = _content[0].text or ''
+                            except Exception:
+                                pass
+                        _refs = (_data.get('references') if isinstance(_data, dict) else None) or []
+                        _conf = (_data.get('confidence') if isinstance(_data, dict) else None) or {}
+
+                        work_result['rag_answer'] = _answer_text
+                        work_result['rag_references'] = _refs
+                        work_result['rag_confidence'] = _conf
+                        if isinstance(_conf, dict):
+                            work_result['rag_confidence_score'] = _conf.get('overall_score', 0.0)
+                            work_result['rag_confidence_level'] = _conf.get('confidence_level', 'unknown')
+                            _decision = _conf.get('decision') or {}
+                            work_result['rag_should_answer'] = _decision.get('should_answer', True)
+                        # Promote at top level for easier {{rag_answer}} / {{rag_confidence_score}} templating
+                        result_obj['rag_answer'] = _answer_text
+                        result_obj['rag_references'] = _refs
+                        result_obj['rag_confidence'] = _conf
+                        # Treat the call as succeeded as long as we got an answer text.
+                        if _answer_text:
+                            work_result['last_action_succeeded'] = True
+                    except Exception as _rag_promote_err:
+                        logger.warning(
+                            f"[MCP Result Propagation] rag_query promotion failed: {_rag_promote_err}"
+                        )
                 logger.info(
                     f"[MCP Result Propagation] tool={tool_name} success={success} "
                     f"work_result={work_result}"
@@ -4931,6 +6082,39 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 all_providers = (llm_manager.get_all_providers() or []) if llm_manager else []
             except Exception:
                 pass
+
+            # send_chat is a local in-process tool.  Under Feige flood tests,
+            # multiple Q&A workers can call it at nearly the same time; routing
+            # those calls through the shared persistent MCP HTTP session can
+            # stall before chat_tools.send_chat is even entered.  Bypass MCP
+            # HTTP for this hot-path tool on the desktop and call the handler
+            # directly with the GUI main window.
+            if _actual_tool_name == "send_chat":
+                try:
+                    from app_context import AppContext
+
+                    _direct_mainwin = AppContext.get_main_window()
+                    if _direct_mainwin is not None:
+                        from agent.mcp.server.chat_utils.chat_tools import async_send_chat
+                        from mcp.types import CallToolResult
+
+                        log_msg = (
+                            "[MCP_DIRECT] Invoking local send_chat directly "
+                            "in-process (bypassing MCP HTTP session)"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                        content_blocks = await async_send_chat(
+                            _direct_mainwin, _actual_tool_input
+                        )
+                        return CallToolResult(content=content_blocks, isError=False)
+                except Exception as _direct_send_chat_err:
+                    log_msg = (
+                        "[MCP_DIRECT] Direct local send_chat failed; "
+                        f"falling back to MCP HTTP: {_direct_send_chat_err}"
+                    )
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
 
             # --- Cloud-worker direct invocation (no local MCP HTTP server) ---
             _is_cloud = os.environ.get("ECAN_MODE") == "worker"
@@ -5068,7 +6252,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if not isinstance(_item, dict):
                     continue
                 _tn = (_item.get('tool_name') or _item.get('next_tool_name') or '').strip()
-                _ti = _item.get('tool_input') or _item.get('next_tool_input') or {}
+                _ti = (
+                    _item.get('tool_input')
+                    or _item.get('next_tool_input')
+                    or _item.get('input')
+                    or {}
+                )
                 if not isinstance(_ti, dict):
                     _ti = {}
                 _pipe_to = _item.get('pipe_output_to')   # Option B: field name string or None
@@ -5115,6 +6304,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                         logger.info(f"[MCP Multi-Tool Auto-Fill] recipient_agent_id backfilled from event senderId={_evt_sender_mt} for tool={_tn}")
                 except Exception:
                     pass
+                if _tn == 'send_chat':
+                    _ti = _augment_send_chat_reply_with_source_turn(_ti, state)
                 _tool_calls_to_run.append((_tn, _ti, _pipe_to, _alias))
 
             if not _tool_calls_to_run:
@@ -5998,7 +7189,10 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         except Exception:
             pass
 
-        log_msg = f"[pend_event_node] resume payload after deep merge: {resume_payload}"
+        log_msg = (
+            "[pend_event_node] resume payload after deep merge: "
+            f"{truncate_for_log(resume_payload, max_length=3000)}"
+        )
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -6011,6 +7205,37 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # starts fresh; the new event's data (if any) will be set below
         # by chat_attributes enrichment or human_text extraction.
         _stale_input = state.pop("input", None)
+
+        # ── Preserve UNDELIVERED response_text across event-bus race ──
+        # See ``_stale_input_has_undelivered_response_text`` docstring
+        # for the full incident write-up.  TL;DR: when a chat_message
+        # resume populates ``state["input"]`` with a Q&A worker's reply
+        # but the langgraph loops back to pend_event via condition nodes
+        # without entering ``browser_automation_janWe``, the very next
+        # non-chat_message resume here would silently drop the reply.
+        # Restore it so HOT-PATH-B's ``state["input"]`` payload-source
+        # fallback can pick it up on the next BA invocation.
+        try:
+            _preserve, _undeliv_cust, _undeliv_resp = (
+                _stale_input_has_undelivered_response_text(
+                    _stale_input, _rp_event_type
+                )
+            )
+            if _preserve:
+                state["input"] = _stale_input
+                _stale_input = None  # don't log as cleared
+                logger.warning(
+                    f"[pend_event] Preserved undelivered response_text "
+                    f"(cust={_undeliv_cust!r}, len={len(_undeliv_resp)}) "
+                    f"in state.input — would have been dropped by "
+                    f"{_rp_event_type} resume; HOT-PATH-B will retry "
+                    f"via state.input fallback, node={node_name}"
+                )
+        except Exception as _undeliv_err:
+            logger.debug(
+                f"[pend_event] Undelivered-reply preservation check failed "
+                f"(non-fatal): {_undeliv_err}"
+            )
         _stale_msg4 = None
         if isinstance(state.get("messages"), list) and len(state["messages"]) > 4:
             _stale_msg4 = state["messages"][4]
@@ -6033,6 +7258,20 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 f"had_attrs_params={bool(_stale_attrs_params)}, "
                 f"new_event={_rp_event_type}, node={node_name})"
             )
+        if _rp_event_type and isinstance(state.get("result"), dict):
+            _llm_result = state["result"].get("llm_result")
+            if isinstance(_llm_result, dict) and _llm_result.get("all_done") is True:
+                state["result"]["llm_result"] = {
+                    **_llm_result,
+                    "all_done": False,
+                    "work_done": False,
+                    "stale_resume_reset": True,
+                }
+                logger.info(
+                    f"[pend_event] Reset stale all_done result after "
+                    f"{_rp_event_type} resume so the next node can process "
+                    f"the new event, node={node_name}"
+                )
 
         # Enrich state with chat metadata, if available
         try:
@@ -6081,7 +7320,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         except Exception:
             pass
 
-        log_msg = f"[pend_event_node] resumed, state: {state}"
+        log_msg = f"[pend_event_node] resumed, state summary: {_format_state_log(state)}"
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -6113,13 +7352,27 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             human_text_content = data.get("content")
 
         if human_text_content:
+            # ── Per-customer history isolation for Q&A workers ──────────
+            # See ``_reset_qa_history_on_customer_change`` for the full
+            # incident write-up (2026-04-27 crosstalk).  Short version:
+            # ``state["history"]`` is shared across all dispatches to
+            # the same agent, so without this reset a Q&A worker can
+            # bleed customer A's prior turn into customer B's reply.
+            _qa_payload = _extract_qa_inbound_payload_from_event(
+                data,
+                human_text_content,
+            )
+            _reset_qa_history_on_customer_change(
+                state, _qa_payload, node_name=node_name, logger_=logger,
+            )
+
             # Set state["input"] so _get_human_input() in pre_llm_hook can find it
             state["input"] = human_text_content
             state.setdefault("history", [])
             state["history"].append(HumanMessage(content=human_text_content))
             logger.debug(f"[{node_name}] added human message to history and input: {human_text_content[:100]}...")
 
-        logger.debug(f"[{node_name}] exit state: {state}")
+        logger.debug(f"[{node_name}] exit state summary: {_format_state_log(state)}")
         return state
 
     return node_builder(_pend, node_name, skill_name, owner, bp_manager)
@@ -6378,7 +7631,7 @@ def _is_dispatch_inflight(customer_key: str) -> float:
     if age > _DISPATCH_INFLIGHT_TTL_S:
         _dispatch_inflight.pop(customer_key, None)
         return 0.0
-    return age
+    return age if age > 0.0 else 0.000001
 
 
 def _mark_dispatch_inflight(customer_key: str) -> None:
@@ -7483,7 +8736,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if _event_monitor_configs:
                         from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
                         from agent.ec_skills.browser_node import build_helpers as _bh
-                        _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=node_name)
+                        _browser_scope_key = _bh.resolve_browser_scope_key(
+                            state,
+                            node_name=node_name,
+                            skill_name=skill_name,
+                        )
                         _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
                         logger.info(
                             f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
@@ -7516,7 +8773,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 if _event_monitor_configs:
                     from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
                     from agent.ec_skills.browser_node import build_helpers as _bh
-                    _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=node_name)
+                    _browser_scope_key = _bh.resolve_browser_scope_key(
+                        state,
+                        node_name=node_name,
+                        skill_name=skill_name,
+                    )
                     _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
                     logger.info(
                         f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
@@ -7945,7 +9206,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 )
             if _strip_regex_src:
                 from agent.ec_skills.browser_node import build_helpers as _bh
-                _browser_scope_key_check = _bh.resolve_browser_scope_key(state, node_name=node_name)
+                _browser_scope_key_check = _bh.resolve_browser_scope_key(
+                    state,
+                    node_name=node_name,
+                    skill_name=skill_name,
+                )
                 _existing_session = _bh.cached_browser_sessions.get(_browser_scope_key_check)
                 _session_usable = _existing_session is not None and _bh.is_session_started(_existing_session)
                 logger.debug(

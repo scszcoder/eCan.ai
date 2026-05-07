@@ -11,6 +11,8 @@
 
 import { eventBus } from '@/utils/eventBus';
 import { logger } from '@/utils/logger';
+import { useAdStore } from '@/stores/adStore';
+import i18n from '@/i18n';
 
 export type EventSource = 'appsync' | 'local-ws' | 'ipc';
 
@@ -206,6 +208,16 @@ export class UnifiedEventHandler {
     };
     
     eventBus.emit('skill-editor:log', entry);
+
+    // Detect LLM quota-limit errors and surface them on the main banner.
+    // Matches browser-use style messages such as:
+    //   "14 failures: ValueError, preview contains: Upstream openai 429 ...
+    //    You exceeded your current quota, please check your plan and billing details"
+    try {
+      detectLlmQuotaError(logText);
+    } catch (err) {
+      logger.debug('[UnifiedEventHandler] quota-error detection failed:', err);
+    }
   }
 
   // ==================== Skill Run Status Handlers ====================
@@ -306,6 +318,48 @@ export class UnifiedEventHandler {
 
 // Export singleton instance
 export const unifiedEventHandler = UnifiedEventHandler.getInstance();
+
+// ==================== LLM Quota-Error Detection ====================
+
+// Patterns that identify a billing/quota exhaustion error from any LLM
+// provider. We match if the log contains either the explicit phrase
+// "exceeded your current quota" OR the combination of an HTTP 429 status
+// with a billing/quota-ish keyword, so variants across providers trigger.
+const QUOTA_EXACT_RE = /exceeded\s+your\s+current\s+quota/i;
+const QUOTA_GENERIC_RE = /\b429\b[\s\S]{0,200}?(quota|billing|insufficient_quota|rate[_\s-]?limit)/i;
+
+// Throttle: once we've shown the banner, don't spam the store on every
+// subsequent log line carrying the same error. A 60s cooldown matches the
+// default banner duration below.
+let lastQuotaBannerAt = 0;
+const QUOTA_BANNER_COOLDOWN_MS = 60_000;
+const QUOTA_BANNER_DURATION_MS = 60_000;
+
+function detectLlmQuotaError(logText: string): void {
+  if (!logText || typeof logText !== 'string') return;
+  if (!QUOTA_EXACT_RE.test(logText) && !QUOTA_GENERIC_RE.test(logText)) return;
+
+  const now = Date.now();
+  if (now - lastQuotaBannerAt < QUOTA_BANNER_COOLDOWN_MS) return;
+  lastQuotaBannerAt = now;
+
+  // Prefer i18n translation but fall back to literal strings if the keys
+  // are missing (i18n.t returns the key itself when unresolved).
+  const key = 'common.llm_quota_limit_banner';
+  const translated = i18n.t(key);
+  const fallback = (i18n.language || '').toLowerCase().startsWith('zh')
+    ? 'AI模型额度已用尽，请检查账单或更换模型'
+    : 'LLM Reached Quota Limit';
+  const text = translated && translated !== key ? translated : fallback;
+
+  useAdStore.getState().setErrorBanner({
+    id: `llm-quota-${now}`,
+    text,
+    variant: 'error',
+    expiresAt: now + QUOTA_BANNER_DURATION_MS,
+  });
+  logger.warn('[UnifiedEventHandler] LLM quota-limit error detected; error banner raised');
+}
 
 /**
  * Helper function to create standardized event from raw data

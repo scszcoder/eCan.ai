@@ -86,6 +86,7 @@
     "select_vehicle": "选择电脑",
     "select_item": "选择{{item}}",
     "unknown": "未知",
+    "llm_quota_limit_banner": "AI模型额度已用尽，请检查账单或更换模型",
     "unknown_error": "未知错误",
     "validation_failed": "验证失败",
     "video_load_error": "视频加载错误",

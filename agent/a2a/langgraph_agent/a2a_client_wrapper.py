@@ -77,13 +77,15 @@ class A2AClientWrapper:
     def _get_sync_client(self) -> httpx.Client:
         """Get or create synchronous HTTP client."""
         if self._httpx_client is None:
-            self._httpx_client = httpx.Client(timeout=60.0)
+            # Use trust_env=False to avoid system proxy issues with LAN addresses
+            self._httpx_client = httpx.Client(timeout=60.0, trust_env=False)
         return self._httpx_client
     
     def _get_async_client(self) -> httpx.AsyncClient:
         """Get or create async HTTP client."""
         if self._async_httpx_client is None:
-            self._async_httpx_client = httpx.AsyncClient(timeout=60.0)
+            # Use trust_env=False to avoid system proxy issues with LAN addresses
+            self._async_httpx_client = httpx.AsyncClient(timeout=60.0, trust_env=False)
         return self._async_httpx_client
     
     def sync_send_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:

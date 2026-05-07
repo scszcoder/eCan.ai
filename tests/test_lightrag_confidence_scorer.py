@@ -93,6 +93,52 @@ class TestLightRAGConfidenceScorer(unittest.TestCase):
         self.assertEqual(result.retrieval.get("scored_refs"), 1)
         self.assertEqual(result.retrieval.get("top1"), 0.0)
 
+    def test_context_only_retrieval_is_not_refusal_gated(self):
+        response_data = {
+            "response": (
+                "Knowledge Graph Data\n"
+                "物流政策：现货商品付款成功后 48 小时内发货。\n"
+                "Unrelated note: not found in an unrelated diagnostic chunk."
+            ),
+            "references": [
+                {
+                    "file_path": "logistics.md",
+                    "reference_id": "r1",
+                    "content": ["现货商品付款成功后 48 小时内发货。"],
+                }
+            ],
+        }
+
+        result = self.scorer.score(
+            "现货商品多久发货？",
+            response_data,
+            query_options={"only_need_context": True},
+        )
+
+        self.assertTrue(result.decision["should_answer"])
+        self.assertEqual(result.content_quality_score, 1.0)
+
+    def test_final_refusal_still_fails_quality_gate(self):
+        response_data = {
+            "response": "I couldn't find enough relevant context to answer reliably.",
+            "references": [
+                {
+                    "file_path": "logistics.md",
+                    "reference_id": "r1",
+                    "content": ["现货商品付款成功后 48 小时内发货。"],
+                }
+            ],
+        }
+
+        result = self.scorer.score(
+            "现货商品多久发货？",
+            response_data,
+            query_options={"only_need_context": False},
+        )
+
+        self.assertFalse(result.decision["should_answer"])
+        self.assertEqual(result.decision["no_answer_reason"], "llm_refused")
+
 
 if __name__ == "__main__":
     unittest.main()

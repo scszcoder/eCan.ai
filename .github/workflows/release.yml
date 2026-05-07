@@ -345,6 +345,16 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
       is-branch: ${{ steps.validate.outputs.is_branch }}
       ref-name: ${{ steps.validate.outputs.ref_name }}
+      # Per-user release support (see ota/docs/multi_version_picker.md):
+      # `user-prefix` is the lowercased local-part-style tag prefix
+      # extracted from a tag like `songc_v26.05.04.09.11` (=> 'songc').
+      # Empty string for plain `v1.0.0` tags and for branch builds.
+      # `tag-name` is the verbatim ref name when the ref IS a tag — used
+      # by the upload step to lay the S3 directory out as either
+      # `releases/v{version}/...` (semver) or
+      # `releases/{prefix}_v{version}/...` (user-prefixed).
+      user-prefix: ${{ steps.validate.outputs.user_prefix }}
+      tag-name: ${{ steps.validate.outputs.tag_name }}
       environment: ${{ steps.detect-env.outputs.environment }}
       channel: ${{ steps.detect-env.outputs.channel }}
     steps:
@@ -385,11 +395,46 @@ jobs:
           exit 1
         fi
 
-        if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
+        # Tag formats accepted:
+        #   1. Plain semver:        v1.0.0, v1.0.0-rc.1, v1.0.0+build.42
+        #   2. User-prefixed:       songc_v26.05.04.09.11 (per-user preview build).
+        #
+        # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview,
+        # snapshot) are forbidden so a tag like `rc_v1.0.0` can never be
+        # mistaken for a user build by the client-side splitter in
+        # ota/core/appcast.py::_split_user_prefix.
+        SEMVER_RE='^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+        PREFIXED_RE='^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+
+        if [[ "$REF_NAME" =~ $SEMVER_RE ]]; then
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=false" >> $GITHUB_OUTPUT
           echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
+          echo "user_prefix=" >> $GITHUB_OUTPUT
+          echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
           echo "Tag detected: $REF_NAME"
+        elif [[ "$REF_NAME" =~ $PREFIXED_RE ]]; then
+          USER_PREFIX_RAW="${BASH_REMATCH[1]}"
+          USER_PREFIX="${USER_PREFIX_RAW,,}"   # lowercase to match client splitter
+          case "$USER_PREFIX" in
+            rc|beta|alpha|dev|nightly|pre|preview|snapshot)
+              echo "[ERROR] Tag prefix '$USER_PREFIX_RAW' is a reserved prerelease keyword."
+              echo "Reserved prefixes: rc, beta, alpha, dev, nightly, pre, preview, snapshot"
+              echo "Pick a different prefix (e.g. your username)."
+              exit 1
+              ;;
+          esac
+          # Strip '<prefix>_v' to leave the bare numeric core (e.g. 26.05.04.09.11).
+          # Downstream `build.py --version` and `upload_to_s3.py --version`
+          # both accept multi-segment numeric strings, so the prefix is
+          # passed alongside via the new --user-prefix flag.
+          VERSION_CORE="${REF_NAME#${USER_PREFIX_RAW}_v}"
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "is_branch=false" >> $GITHUB_OUTPUT
+          echo "version=$VERSION_CORE" >> $GITHUB_OUTPUT
+          echo "user_prefix=$USER_PREFIX" >> $GITHUB_OUTPUT
+          echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
+          echo "User-prefixed tag detected: prefix=$USER_PREFIX, core=$VERSION_CORE"
         else
           # Treat as branch; read VERSION file as base version
           if [ -f "VERSION" ]; then
@@ -406,6 +451,8 @@ jobs:
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=true" >> $GITHUB_OUTPUT
           echo "version=$FALLBACK" >> $GITHUB_OUTPUT
+          echo "user_prefix=" >> $GITHUB_OUTPUT
+          echo "tag_name=" >> $GITHUB_OUTPUT
           echo "Branch detected: $REF_NAME -> version=$FALLBACK"
         fi
     
@@ -677,7 +724,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
         # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
@@ -1251,12 +1298,32 @@ jobs:
       if: failure()
       shell: pwsh
       run: |
+        Write-Host "=== build.log tail (failure only) ===" -ForegroundColor Cyan
+        if (Test-Path "build.log") {
+          Get-Content "build.log" -Tail 300
+        } else {
+          Write-Host "build.log not found" -ForegroundColor Yellow
+        }
+
         Write-Host "=== dist/ tree (failure only) ===" -ForegroundColor Cyan
         if (Test-Path "dist") {
           Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
         } else {
           Write-Host "dist directory not found" -ForegroundColor Yellow
         }
+
+    - name: Upload Windows build diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-amd64-build-diagnostics-${{ needs.validate-tag.outputs.version }}
+        path: |
+          build.log
+          *.spec
+          dist/
+          build/
+        if-no-files-found: ignore
+        retention-days: 7
 
     # ------------------------------------------------------------------------
     # Step: Generate Ed25519 Signatures for OTA Updates
@@ -1531,7 +1598,7 @@ jobs:
 
     - name: Cache Node.js dependencies
       if: steps.arch_check.outputs.should_build == 'true'
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
         # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
@@ -2167,7 +2234,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
         key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -2294,6 +2361,10 @@ jobs:
     with:
       version: ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
+      # Forwarded so the upload step lays user-prefixed builds at
+      # `releases/<prefix>_v<version>/...` instead of the default
+      # `releases/v<version>/...`. Empty string => existing behavior.
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
       linux-build-result: ${{ needs.build-linux.result }}
@@ -2316,6 +2387,9 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      # See validate-tag outputs above; needed so the appcast generator
+      # can compute the verbatim S3 directory name for user-prefixed builds.
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'windows'
       arch: 'amd64'
     secrets: inherit
@@ -2335,6 +2409,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'macos'
       arch: 'amd64'
     secrets: inherit
@@ -2354,6 +2429,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'macos'
       arch: 'aarch64'
     secrets: inherit
@@ -2373,6 +2449,7 @@ jobs:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'linux'
       arch: 'amd64'
     secrets: inherit
