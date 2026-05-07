@@ -32,6 +32,7 @@ from langchain_deepseek import ChatDeepSeek
 # from gui.ipc.w2p_handlers import prompt_handler
 from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
+from a2a.types import TaskState
 from typing import Any, Awaitable, Callable, Literal, cast, overload
 from dataclasses import dataclass
 
@@ -4214,6 +4215,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             model=model_name,
                             error_type=error_type,
                             error_preview=error_msg[:240],
+                            action="mark_task_failed_for_redispatch",
                         )
 
                         _cust_id = str(_qa_payload.get("customer_id") or "").strip()
@@ -4226,42 +4228,34 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             or _qa_payload.get("source_customer_msg_id")
                             or ""
                         ).strip()
-                        _fallback_reply = (
-                            "您好，当前咨询较多，我已经收到您的问题，"
-                            "正在帮您确认，请稍等一下。"
-                        )
-                        _reply_payload = {
+                        _llm_failure_result = {
+                            "success": False,
+                            "all_done": True,
+                            "work_done": False,
+                            "Error": user_msg,
+                            "error": user_msg,
+                            "error_type": error_type,
                             "customer_id": _cust_id,
                             "customer_name": _cust_name,
-                            "response_text": _fallback_reply,
                         }
                         if _source_msg_id:
-                            _reply_payload["source_customer_msg_id"] = _source_msg_id
+                            _llm_failure_result["source_customer_msg_id"] = _source_msg_id
                         if _latest:
-                            _reply_payload["source_latest_message"] = _latest
-                        _fallback_llm_result = {
-                            "tool_name": "send_chat",
-                            "tool_input": {
-                                "input": {
-                                    "sender_agent_id": "",
-                                    "recipient_agent_id": "",
-                                    "message": json.dumps(
-                                        _reply_payload,
-                                        ensure_ascii=False,
-                                    ),
-                                }
-                            },
-                            "all_done": True,
-                            "work_done": True,
-                        }
+                            _llm_failure_result["source_latest_message"] = _latest
                         state["result"] = {
-                            "llm_result": _fallback_llm_result,
-                            "tool_name": "send_chat",
-                            "tool_input": _fallback_llm_result["tool_input"],
+                            "success": False,
+                            "Error": user_msg,
+                            "error": user_msg,
+                            "llm_result": _llm_failure_result,
                         }
+                        _task = state.get("_managed_task")
+                        if _task is None and runtime and hasattr(runtime, "context"):
+                            _task = runtime.context.get("task") or runtime.context.get("managed_task")
+                        if _task is not None and getattr(_task, "status", None) is not None:
+                            _task.status.state = TaskState.failed
                 except Exception as _qa_fail_log_err:
                     logger.debug(
-                        f"[FEIGE-LEDGER] qa_llm_failed/fallback logging failed: "
+                        f"[FEIGE-LEDGER] qa_llm_failed handling failed: "
                         f"{_qa_fail_log_err}"
                     )
         else:
@@ -8742,7 +8736,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if _event_monitor_configs:
                         from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
                         from agent.ec_skills.browser_node import build_helpers as _bh
-                        _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=node_name)
+                        _browser_scope_key = _bh.resolve_browser_scope_key(
+                            state,
+                            node_name=node_name,
+                            skill_name=skill_name,
+                        )
                         _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
                         logger.info(
                             f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
@@ -8775,7 +8773,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 if _event_monitor_configs:
                     from agent.ec_skills.llm_utils.llm_utils import run_async_in_persistent_worker_thread
                     from agent.ec_skills.browser_node import build_helpers as _bh
-                    _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=node_name)
+                    _browser_scope_key = _bh.resolve_browser_scope_key(
+                        state,
+                        node_name=node_name,
+                        skill_name=skill_name,
+                    )
                     _worker_suffix = re.sub(r"[^\w\-]+", "_", f"{skill_name}_{node_name}_{_browser_scope_key}")
                     logger.info(
                         f"[BrowserAutomation] Using persistent worker loop for event-monitored run: "
@@ -9204,7 +9206,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 )
             if _strip_regex_src:
                 from agent.ec_skills.browser_node import build_helpers as _bh
-                _browser_scope_key_check = _bh.resolve_browser_scope_key(state, node_name=node_name)
+                _browser_scope_key_check = _bh.resolve_browser_scope_key(
+                    state,
+                    node_name=node_name,
+                    skill_name=skill_name,
+                )
                 _existing_session = _bh.cached_browser_sessions.get(_browser_scope_key_check)
                 _session_usable = _existing_session is not None and _bh.is_session_started(_existing_session)
                 logger.debug(

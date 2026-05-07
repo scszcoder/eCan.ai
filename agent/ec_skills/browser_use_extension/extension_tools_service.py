@@ -3155,6 +3155,15 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     var span = row && row.querySelector ? row.querySelector('.Jv6FtqUv5VoYARd2pp4y') : null;
     return span ? (span.textContent || '').trim() : '';
   }
+  function readRowPreview(row) {
+    var preview = row && row.querySelector ? row.querySelector('.lF_M7QiFB0ukHWpMfQde span') : null;
+    if (!preview && row && row.querySelector) preview = row.querySelector('.lF_M7QiFB0ukHWpMfQde');
+    return preview ? (preview.textContent || '').trim() : '';
+  }
+  function readRowMsgId(row) {
+    var idEl = row && row.querySelector ? row.querySelector('[data-btm]') : null;
+    return idEl ? String(idEl.getAttribute('data-btm') || '').trim() : '';
+  }
   function readHeaderName() {
     var topbar = document.querySelector('#topbar-left-info');
     if (!topbar) return '';
@@ -3188,6 +3197,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       sidebar: sidebar
     };
   }
+  var sourceMsgId = String(expectedSourceMsgId || '').trim();
+  var sourceText = String(expectedSourceText || '').trim();
   var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
     .filter(rowIsCurrent);
   if (expectedCustomer) {
@@ -3202,6 +3213,30 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         expected_customer: expectedCustomer,
         current_visible: items.length,
         seen_names: items.slice(0, 20).map(readRowName)
+      });
+    }
+    var rowMsgId = readRowMsgId(target);
+    if (sourceMsgId && rowMsgId && rowMsgId !== sourceMsgId) {
+      return JSON.stringify({
+        sent: false,
+        error: 'stale_reply_source_msg_id',
+        expected_source_msg_id: sourceMsgId,
+        active_source_msg_id: rowMsgId,
+        expected_source_text: sourceText,
+        active_source_text: readRowPreview(target).slice(0, 160),
+        stale_precheck: 'sidebar_msg_id_mismatch'
+      });
+    }
+    var rowPreview = readRowPreview(target);
+    if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText)) {
+      return JSON.stringify({
+        sent: false,
+        error: 'stale_reply_source_msg_id',
+        expected_source_msg_id: sourceMsgId,
+        active_source_msg_id: rowMsgId || '',
+        expected_source_text: sourceText,
+        active_source_text: rowPreview.slice(0, 160),
+        stale_precheck: 'sidebar_latest_mismatch'
       });
     }
     var beforeMatch = activeMatches(expectedCustomer, items);
@@ -3223,8 +3258,6 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
   }
 
-  var sourceMsgId = String(expectedSourceMsgId || '').trim();
-  var sourceText = String(expectedSourceText || '').trim();
   if (sourceMsgId || sourceText) {
     var latest = { found: false, text: '', msg_id: '' };
     var sourceOk = false;
