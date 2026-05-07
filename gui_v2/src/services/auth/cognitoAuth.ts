@@ -24,11 +24,17 @@ const STORAGE_KEYS = {
 
 const getDefaultRedirectUri = (): string => {
   if (typeof window === 'undefined') return '';
+  if (window.location.protocol === 'file:') {
+    return `${window.location.href.split('#')[0]}#/auth/callback`;
+  }
   return `${window.location.origin}/#/auth/callback`;
 };
 
 const getDefaultLogoutUri = (): string => {
   if (typeof window === 'undefined') return '';
+  if (window.location.protocol === 'file:') {
+    return `${window.location.href.split('#')[0]}#/login`;
+  }
   return `${window.location.origin}/#/login`;
 };
 
