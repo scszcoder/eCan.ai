@@ -380,11 +380,24 @@ def _build_chat_message(
 ) -> Dict[str, Any]:
     """
     Build a standardized chat message structure.
-    
+
     Uses the same format as build_a2a_response_message in llm_utils.py.
     """
     msg_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
+    
+    # Build sender metadata - set in both metadata and top-level for compatibility
+    # Some consumers look in metadata, others look in params directly
+    sender_metadata = {
+        "senderId": sender_agent_id,
+        "senderName": sender_name,
+        "receiverId": receiver_agent_id,
+        "transport": "a2a",
+        "senderType": "agent",
+        "chatId": chat_id,
+        "sender_agent_id": sender_agent_id,  # Include for child agent to identify sender
+        **(metadata or {})
+    }
     
     return {
         "id": str(uuid.uuid4()),
@@ -414,7 +427,8 @@ def _build_chat_message(
                 "human": False,
                 "transport": "a2a",
                 "senderType": "agent",
-                **(metadata or {}),
+                "sender_agent_id": sender_agent_id,  # Include for child agent to identify parent sender
+                "metadata": sender_metadata,  # Include metadata for consumers that expect it
             }
         }
     }
@@ -774,6 +788,9 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             inferred_chat_id = _infer_session_chat_id(message_text)
             chat_id = inferred_chat_id or f"chat-{str(uuid.uuid4())[:8]}"
         
+        # Chat creation is now handled in a2a_send_chat_message_sync/a2a_send_chat_message_async
+        # to avoid duplication and ensure it's done before the message is sent
+
         # Build the message
         chat_message = _build_chat_message(
             sender_agent_id=sender_agent_id,
@@ -1177,7 +1194,20 @@ def add_get_chat_history_tool_schema(tool_schemas: List[types.Tool]) -> None:
 async def async_send_chat(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for send_chat tool."""
     try:
+        # Handle both dict input and JSON string input
         input_config = args.get('input', {})
+        
+        # If input_config is a string, try to parse it as JSON
+        if isinstance(input_config, str):
+            try:
+                input_config = json.loads(input_config)
+            except json.JSONDecodeError as e:
+                return [TextContent(type="text", text=f"❌ Failed to parse input JSON: {e}")]
+        
+        # If input_config is still a string (JSON parse failed), try to use it as the message
+        if isinstance(input_config, str):
+            input_config = {"message": input_config}
+        
         result = send_chat(mainwin, input_config)
         
         if result.get("success"):
