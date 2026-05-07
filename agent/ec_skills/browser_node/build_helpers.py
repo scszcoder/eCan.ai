@@ -79,6 +79,21 @@ NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
 
 # ─── Trivial helpers (0-1 closure refs in original) ──────────────────
 
+def _is_response_payload_text(value: str) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    return bool(
+        str(parsed.get("response_text") or "").strip()
+        and str(parsed.get("customer_name") or parsed.get("customer_id") or "").strip()
+    )
+
+
 def extract_runtime_invocation_input(state: dict | None) -> str:
     """Extract the live invocation payload for browser-use task grounding.
 
@@ -91,12 +106,14 @@ def extract_runtime_invocation_input(state: dict | None) -> str:
         return ""
 
     candidates = []
+    event_type = ""
 
     pr_events = (state.get("prompt_refs") or {}).get("events", "")
     if isinstance(pr_events, str) and pr_events.strip():
         try:
             evt = json.loads(pr_events)
             if isinstance(evt, dict):
+                event_type = str(evt.get("event_type") or "").strip()
                 human_text = evt.get("human_text")
                 if isinstance(human_text, str) and human_text.strip():
                     candidates.append(human_text.strip())
@@ -153,8 +170,18 @@ def extract_runtime_invocation_input(state: dict | None) -> str:
         except Exception:
             pass
 
+    suppress_response_payload = (
+        event_type == "browser_event"
+        or bool(state.get("_ecan_predispatch_actionable_items"))
+    )
     for candidate in candidates:
         if candidate:
+            if suppress_response_payload and _is_response_payload_text(candidate):
+                logger.info(
+                    "[BrowserAutomation] Skipped stale response_text runtime "
+                    "input during browser_event/pre-dispatch cycle"
+                )
+                continue
             return candidate
     return ""
 

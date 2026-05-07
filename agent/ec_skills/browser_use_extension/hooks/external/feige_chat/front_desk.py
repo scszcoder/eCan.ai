@@ -196,7 +196,7 @@ async def before_session_setup_hook(
             # Under bursty queues prompt_refs.events can be empty while a
             # stale browser_event remains in state.  If the current input is
             # clearly a Q&A reply, recover it here and force HOT-PATH-B.
-            if not _hp_b_payload:
+            if not _hp_b_payload and not state.get("_ecan_predispatch_actionable_items"):
                 _hp_b_candidates = []
                 _hp_b_input = state.get("input", "")
                 if isinstance(_hp_b_input, str) and _hp_b_input.strip():
@@ -387,6 +387,29 @@ async def before_session_setup_hook(
                             hook_ctx.clear_dispatch_inflight(_hp_b_skip_cust)
                     except Exception:
                         pass
+                    if (
+                        _hp_b_payload_src == "state.input[response-fallback]"
+                        and isinstance(state, dict)
+                        and state.get("_ecan_predispatch_actionable_items")
+                    ):
+                        try:
+                            state.pop("input", None)
+                            state.pop("current_invocation_input", None)
+                            _hp_b_msgs = state.get("messages")
+                            if isinstance(_hp_b_msgs, list) and len(_hp_b_msgs) > 4:
+                                _hp_b_msgs[4] = ""
+                            _hp_b_attrs = state.get("attributes")
+                            if isinstance(_hp_b_attrs, dict):
+                                _hp_b_attrs.pop("current_invocation_input", None)
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"[BrowserAutomation] HOT-PATH-B: deduped "
+                            f"response-fallback will not short-circuit "
+                            f"pre-dispatch actionable_items, "
+                            f"node={hook_ctx.node_name}"
+                        )
+                        return None
                     state.setdefault("result", {})["llm_result"] = {
                         "all_done": True, "work_done": False,
                         "hot_path": True, "hot_path_type": "dedup_skip",
