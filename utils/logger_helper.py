@@ -29,6 +29,35 @@ logging.Logger.trace = trace
 
 class WindowsSafeRotatingFileHandler(RotatingFileHandler):
     """A RotatingFileHandler that handles Windows file locking gracefully."""
+
+    def shouldRollover(self, record):
+        retry_after = getattr(self, "_rollover_retry_after", 0)
+        if retry_after and time.monotonic() < retry_after:
+            return False
+        return super().shouldRollover(record)
+
+    def _rollover_to_timestamped_file(self):
+        if getattr(self, "stream", None) is not None:
+            try:
+                self.stream.close()
+            finally:
+                self.stream = None
+
+        if not os.path.exists(self.baseFilename):
+            self.stream = self._open()
+            return None
+
+        timestamp = int(time.time() * 1000)
+        fallback_path = f"{self.baseFilename}.{timestamp}.rollover"
+        suffix = 1
+        while os.path.exists(fallback_path):
+            fallback_path = f"{self.baseFilename}.{timestamp}.{suffix}.rollover"
+            suffix += 1
+
+        self.rotate(self.baseFilename, fallback_path)
+        if not self.delay:
+            self.stream = self._open()
+        return fallback_path
     
     def doRollover(self):
         """Perform rollover with retry logic for Windows file locking issues."""
@@ -36,14 +65,16 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
             return super().doRollover()
         
         max_retries = 3
+        _last_err = None
         for attempt in range(max_retries):
             try:
                 super().doRollover()
+                self._rollover_retry_after = 0
                 return
-            except PermissionError:
+            except PermissionError as _perm_err:
+                _last_err = _perm_err
                 if attempt < max_retries - 1:
-                    import time
-                    time.sleep(0.1)
+                    time.sleep(0.1 * (attempt + 1))
             except Exception as _other_err:
                 _last_err = _other_err
                 # Non-permission errors on Windows usually mean a stuck
@@ -63,6 +94,21 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
                         )
                 except Exception:
                     pass
+        try:
+            fallback_path = self._rollover_to_timestamped_file()
+            if fallback_path:
+                self._rollover_retry_after = 0
+                try:
+                    sys.stderr.write(
+                        f"[WindowsSafeRotatingFileHandler] fallback rollover "
+                        f"used {fallback_path!r} for {self.baseFilename!r}\n"
+                    )
+                except Exception:
+                    pass
+                return
+        except Exception as _fallback_err:
+            _last_err = _fallback_err
+
         # All retries failed.  The stock RotatingFileHandler.doRollover
         # closes `self.stream` BEFORE attempting the rename, so a failed
         # rotation leaves the handler with a closed FD.  Subsequent
@@ -72,7 +118,7 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
         # went dark while the app kept running for several more minutes.
         # Make the failure visible AND guarantee we keep a live stream,
         # even if that means appending to the already-oversized file.
-        _last_err = locals().get("_last_err", None)
+        self._rollover_retry_after = time.monotonic() + 30.0
         try:
             sys.stderr.write(
                 f"[WindowsSafeRotatingFileHandler] rollover FAILED for "

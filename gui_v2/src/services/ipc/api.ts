@@ -11,6 +11,13 @@ import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
 
+const getLoginRedirectUrl = (): string => {
+    if (window.location.protocol === 'file:') {
+        return `${window.location.href.split('#')[0]}#/login`;
+    }
+    return `${window.location.origin}/#/login`;
+};
+
 // Web Bridge mechanism has been deprecated and removed.
 // All requests now go directly through IPC for consistency and reliability.
 
@@ -220,7 +227,7 @@ export class IPCAPI {
                                 logger.info('[IPCAPI] Redirecting to login due to invalid token');
                                 // Force full page reload to login to ensure React Router responds
                                 setTimeout(() => {
-                                    window.location.replace(window.location.origin + '/#/login');
+                                    window.location.replace(getLoginRedirectUrl());
                                 }, 500);
                             }
                             

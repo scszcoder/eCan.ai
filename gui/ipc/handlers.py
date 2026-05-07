@@ -58,7 +58,7 @@ def resolve_username(request: IPCRequest, params: Optional[Dict[str, Any]]) -> O
                 return params[key]
     
     # For local_server requests, try to get from MainWindow
-    if request.get('source') == 'local_server':
+    if request.get('source') in ('local_server', 'graphql'):
         try:
             main_window = AppContext.get_main_window()
             if main_window:
