@@ -1,6 +1,7 @@
 import hashlib
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -50,6 +51,13 @@ try:
     _CDP_EVALUATE_TIMEOUT_S = float(os.getenv("ECAN_CDP_EVALUATE_TIMEOUT_S", "6.0"))
 except Exception:
     _CDP_EVALUATE_TIMEOUT_S = 6.0
+try:
+    _CDP_EVALUATE_TRACE_SLOW_MS = float(os.getenv("ECAN_CDP_EVALUATE_TRACE_SLOW_MS", "500"))
+except Exception:
+    _CDP_EVALUATE_TRACE_SLOW_MS = 500.0
+_CDP_EVALUATE_TRACE_ALL = str(
+    os.getenv("ECAN_CDP_EVALUATE_TRACE_ALL", "")
+).strip().lower() in {"1", "true", "yes", "on"}
 try:
     _FEIGE_TARGET_RESOLVE_TIMEOUT_S = float(
         os.getenv("ECAN_FEIGE_TARGET_RESOLVE_TIMEOUT_S", "2.0")
@@ -924,12 +932,120 @@ def _stable_hash(parts: List[str]) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def _safe_pending_request_count(cdp_client: Any) -> int:
+    try:
+        pending = getattr(cdp_client, "pending_requests", None)
+        return len(pending) if pending is not None else -1
+    except Exception:
+        return -1
+
+
+def _safe_handler_loop_id(cdp_client: Any) -> int:
+    try:
+        task = getattr(cdp_client, "_message_handler_task", None)
+        if task is not None and hasattr(task, "get_loop"):
+            return id(task.get_loop())
+    except Exception:
+        pass
+    return 0
+
+
+def _log_cdp_eval_trace(
+    *,
+    trace_label: str,
+    trace_fields: dict[str, Any] | None,
+    ok: bool,
+    timed_out: bool,
+    phase: str,
+    phase_elapsed_ms: float,
+    total_ms: float,
+    timings: dict[str, float],
+    target_id: str | None,
+    focus: bool,
+    session_id: str,
+    expression: str,
+    current_loop_id: int,
+    handler_loop_id: int,
+    pending_at_log: int,
+    error: str = "",
+) -> None:
+    try:
+        label = str(trace_label or "").strip() or "unknown"
+        cross_loop = bool(handler_loop_id and current_loop_id and handler_loop_id != current_loop_id)
+        slow = total_ms >= _CDP_EVALUATE_TRACE_SLOW_MS
+        should_log = (
+            _CDP_EVALUATE_TRACE_ALL
+            or slow
+            or timed_out
+            or not ok
+            or cross_loop
+            or label.startswith("feige_")
+        )
+        if not should_log:
+            return
+        fields: dict[str, Any] = {}
+        if isinstance(trace_fields, dict):
+            fields.update(trace_fields)
+        fields.update({
+            "action": label,
+            "ok": bool(ok),
+            "timed_out": bool(timed_out),
+            "phase": phase,
+            "phase_elapsed_ms": round(float(phase_elapsed_ms), 1),
+            "total_ms": round(float(total_ms), 1),
+            "lock_wait_ms": round(float(timings.get("lock_wait_ms", 0.0)), 1),
+            "session_ms": round(float(timings.get("session_ms", 0.0)), 1),
+            "runtime_enable_ms": round(float(timings.get("runtime_enable_ms", 0.0)), 1),
+            "runtime_evaluate_ms": round(float(timings.get("runtime_evaluate_ms", 0.0)), 1),
+            "pending_before_enable": int(timings.get("pending_before_enable", -1)),
+            "pending_before_evaluate": int(timings.get("pending_before_evaluate", -1)),
+            "pending_after_evaluate": int(timings.get("pending_after_evaluate", -1)),
+            "pending_at_log": int(pending_at_log),
+            "target_suffix": str(target_id or "")[-8:],
+            "session_suffix": str(session_id or "")[-8:],
+            "focus": bool(focus),
+            "current_loop_id": int(current_loop_id or 0),
+            "handler_loop_id": int(handler_loop_id or 0),
+            "cross_loop": cross_loop,
+            "expression_len": len(str(expression or "")),
+            "expression_hash": _stable_hash([str(len(str(expression or ""))), str(expression or "")[:400]]),
+        })
+        if error:
+            fields["error"] = str(error)[:240]
+        level = logging.WARNING if timed_out or not ok or slow or cross_loop else logging.INFO
+        msg = (
+            f"[CDP-EVAL] action={label} ok={ok} timeout={timed_out} "
+            f"phase={phase} total_ms={fields['total_ms']} "
+            f"lock_wait_ms={fields['lock_wait_ms']} session_ms={fields['session_ms']} "
+            f"runtime_enable_ms={fields['runtime_enable_ms']} "
+            f"runtime_evaluate_ms={fields['runtime_evaluate_ms']} "
+            f"pending_at_log={pending_at_log} cross_loop={cross_loop} "
+            f"target=...{fields['target_suffix']} focus={focus}"
+        )
+        if level >= logging.WARNING:
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+        if label.startswith("feige_"):
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                    log_event as _feige_ledger,
+                )
+                _feige_ledger("cdp_evaluate_trace", level=level, **fields)
+            except Exception:
+                pass
+    except Exception:
+        return
+
+
 async def _evaluate_js(
     browser_session: BrowserSession,
     expression: str,
     *,
     target_id: str | None = None,
     focus: bool = True,
+    trace_label: str = "",
+    trace_fields: dict[str, Any] | None = None,
 ) -> Any:
     try:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
@@ -939,10 +1055,58 @@ async def _evaluate_js(
     except Exception:
         operation_lock = None
 
+    timings: dict[str, float] = {}
+    started = _time.perf_counter()
+    current_phase = "init"
+    phase_started = started
+    current_loop_id = 0
+    handler_loop_id = 0
+    session_id = ""
+    cdp_client_ref = None
+    try:
+        current_loop_id = id(asyncio.get_running_loop())
+    except Exception:
+        pass
+
+    def _set_phase(name: str) -> None:
+        nonlocal current_phase, phase_started
+        current_phase = name
+        phase_started = _time.perf_counter()
+
+    def _emit_trace(
+        *,
+        ok: bool,
+        timed_out: bool,
+        error: str = "",
+    ) -> None:
+        total_ms = (_time.perf_counter() - started) * 1000.0
+        phase_elapsed_ms = (_time.perf_counter() - phase_started) * 1000.0
+        _log_cdp_eval_trace(
+            trace_label=trace_label,
+            trace_fields=trace_fields,
+            ok=ok,
+            timed_out=timed_out,
+            phase=current_phase,
+            phase_elapsed_ms=phase_elapsed_ms,
+            total_ms=total_ms,
+            timings=timings,
+            target_id=target_id,
+            focus=focus,
+            session_id=session_id,
+            expression=expression,
+            current_loop_id=current_loop_id,
+            handler_loop_id=handler_loop_id,
+            pending_at_log=_safe_pending_request_count(cdp_client_ref),
+            error=error,
+        )
+
     async def _run_eval() -> Any:
+        nonlocal cdp_client_ref, handler_loop_id, session_id
         cdp_session = None
         cdp_client = None
         if hasattr(browser_session, "get_or_create_cdp_session"):
+            _set_phase("get_or_create_cdp_session")
+            phase_t0 = _time.perf_counter()
             if target_id:
                 cdp_session = await browser_session.get_or_create_cdp_session(
                     target_id=target_id,
@@ -950,31 +1114,55 @@ async def _evaluate_js(
                 )
             else:
                 cdp_session = await browser_session.get_or_create_cdp_session()
+            timings["session_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
             cdp_client = cdp_session.cdp_client if cdp_session else None
         elif hasattr(browser_session, "cdp_client"):
+            _set_phase("resolve_cdp_client")
+            phase_t0 = _time.perf_counter()
             cdp_client = browser_session.cdp_client
+            timings["session_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
         if not cdp_client:
             raise RuntimeError("No CDP client available")
 
-        session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
+        cdp_client_ref = cdp_client
+        handler_loop_id = _safe_handler_loop_id(cdp_client)
+        session_id = str(getattr(cdp_session, "session_id", None) or "") if cdp_session else ""
         eval_params = {
             "expression": expression,
             "awaitPromise": True,
             "returnByValue": True,
         }
+        _set_phase("Runtime.enable")
+        phase_t0 = _time.perf_counter()
+        timings["pending_before_enable"] = _safe_pending_request_count(cdp_client)
         if session_id:
             await cdp_client.send.Runtime.enable(session_id=session_id)
-            return await cdp_client.send.Runtime.evaluate(
+        else:
+            await cdp_client.send.Runtime.enable()
+        timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+        _set_phase("Runtime.evaluate")
+        phase_t0 = _time.perf_counter()
+        timings["pending_before_evaluate"] = _safe_pending_request_count(cdp_client)
+        if session_id:
+            result = await cdp_client.send.Runtime.evaluate(
                 params=eval_params,
                 session_id=session_id,
             )
-        await cdp_client.send.Runtime.enable()
-        return await cdp_client.send.Runtime.evaluate(params=eval_params)
+        else:
+            result = await cdp_client.send.Runtime.evaluate(params=eval_params)
+        timings["runtime_evaluate_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+        timings["pending_after_evaluate"] = _safe_pending_request_count(cdp_client)
+        _set_phase("complete")
+        return result
 
     async def _run_with_optional_operation_lock() -> Any:
         if operation_lock is not None:
+            _set_phase("cdp_operation_lock_wait")
+            phase_t0 = _time.perf_counter()
             async with operation_lock:
+                timings["lock_wait_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
                 return await _run_eval()
+        timings["lock_wait_ms"] = 0.0
         return await _run_eval()
 
     try:
@@ -983,9 +1171,19 @@ async def _evaluate_js(
             timeout=_CDP_EVALUATE_TIMEOUT_S,
         )
     except asyncio.TimeoutError as exc:
+        _emit_trace(
+            ok=False,
+            timed_out=True,
+            error=f"timeout after {_CDP_EVALUATE_TIMEOUT_S:.1f}s",
+        )
         raise TimeoutError(
-            f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s"
+            f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s "
+            f"(phase={current_phase})"
         ) from exc
+    except Exception as exc:
+        _emit_trace(ok=False, timed_out=False, error=str(exc))
+        raise
+    _emit_trace(ok=True, timed_out=False)
     value = result.get("result", {}).get("value", "")
     if isinstance(value, str):
         try:
@@ -2822,7 +3020,15 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
     try:
         js = _FEIGE_LIST_SESSIONS_JS.replace("INCLUDE_READ", "true" if params.include_read else "false")
         js = js.replace("MAX_SESSIONS", str(params.max_sessions))
-        data = await _evaluate_js(browser_session, js)
+        data = await _evaluate_js(
+            browser_session,
+            js,
+            trace_label="feige_list_sessions",
+            trace_fields={
+                "include_read": bool(params.include_read),
+                "max_sessions": int(params.max_sessions),
+            },
+        )
         if isinstance(data, str):
             import json as _json
             data = _json.loads(data)
@@ -2885,7 +3091,15 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
         name_js = json.dumps(params.customer_name, ensure_ascii=False) if params.customer_name else "null"
         idx_js = str(params.session_index) if params.session_index is not None else "-1"
         js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
-        data = await _evaluate_js(browser_session, js)
+        data = await _evaluate_js(
+            browser_session,
+            js,
+            trace_label="feige_open_session",
+            trace_fields={
+                "customer": str(params.customer_name or ""),
+                "session_index": int(params.session_index) if params.session_index is not None else -1,
+            },
+        )
         if isinstance(data, str):
             import json as _json
             data = _json.loads(data)
@@ -2981,7 +3195,12 @@ _FEIGE_GET_THREAD_JS = r"""
 async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_session: BrowserSession) -> ActionResult:
     try:
         js = _FEIGE_GET_THREAD_JS.replace("MAX_MESSAGES", str(params.max_messages))
-        data = await _evaluate_js(browser_session, js)
+        data = await _evaluate_js(
+            browser_session,
+            js,
+            trace_label="feige_get_chat_thread",
+            trace_fields={"max_messages": int(params.max_messages)},
+        )
         if isinstance(data, str):
             import json as _json
             data = _json.loads(data)
@@ -3466,13 +3685,31 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 js,
                 target_id=target_id,
                 focus=False,
+                trace_label="feige_send_message",
+                trace_fields={
+                    "customer": expected_customer,
+                    "source_msg_id": source_msg_id,
+                    "latest_preview": source_text,
+                    "response_len": len(str(getattr(params, "text", "") or "")),
+                },
             )
         else:
             logger.warning(
                 "[Feige] feige_send_message: no Feige target id resolved; "
                 "falling back to focused tab evaluation"
             )
-            data = await _evaluate_js(browser_session, js)
+            data = await _evaluate_js(
+                browser_session,
+                js,
+                trace_label="feige_send_message",
+                trace_fields={
+                    "customer": expected_customer,
+                    "source_msg_id": source_msg_id,
+                    "latest_preview": source_text,
+                    "response_len": len(str(getattr(params, "text", "") or "")),
+                    "fallback_target": True,
+                },
+            )
         if isinstance(data, str):
             data = json.loads(data)
         if isinstance(data, dict) and data.get("sent"):
