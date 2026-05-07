@@ -207,7 +207,7 @@ def _extract_payload(state: dict) -> tuple[str, dict, str, dict]:
     # 4. response-payload fallback. A queued front-desk chat_message can
     # resume with prompt_refs.events empty while stale browser_event state is
     # still present; state.input/messages[4] is then the only current truth.
-    if not payload:
+    if not payload and not state.get("_ecan_predispatch_actionable_items"):
         candidates = []
         si = state.get("input", "")
         if isinstance(si, str) and si.strip():

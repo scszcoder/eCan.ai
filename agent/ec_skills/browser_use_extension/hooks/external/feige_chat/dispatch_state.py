@@ -148,6 +148,28 @@ def was_recently_sent(customer: str, reply_text: str) -> float:
         return age if age > 0.0 else 0.000001
 
 
+def was_recently_sent_for_turn(
+    customer: str,
+    reply_text: str,
+    source_msg_id: str = "",
+) -> float:
+    if not str(source_msg_id or "").strip():
+        return was_recently_sent(customer, reply_text)
+    key = _source_turn_fingerprint(customer, reply_text, source_msg_id)
+    if not key[0] or not key[1] or not key[2]:
+        return was_recently_sent(customer, reply_text)
+    now = time.time()
+    with _recent_sends_lock:
+        ts = _recent_turn_sends.get(key)
+        if ts is None:
+            return 0.0
+        age = now - ts
+        if age > SOURCE_TURN_DEDUP_TTL_S:
+            _recent_turn_sends.pop(key, None)
+            return 0.0
+        return age if age > 0.0 else 0.000001
+
+
 def claim_send(customer: str, reply_text: str) -> float:
     """Atomically reserve a (customer, reply) pair before typing it.
 

@@ -724,7 +724,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
         # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
@@ -1598,7 +1598,7 @@ jobs:
 
     - name: Cache Node.js dependencies
       if: steps.arch_check.outputs.should_build == 'true'
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
         # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
@@ -2234,7 +2234,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
         key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}

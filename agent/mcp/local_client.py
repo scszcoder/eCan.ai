@@ -61,8 +61,15 @@ class MCPClientManager:
         persistent_session_timeout = min(5.0, timeout)
         
         try:
-            # First, try using a persistent session for efficiency
-            use_persistent_session = tool_name != "send_chat"
+            # First, try using a persistent session for efficiency.
+            # Hot-path tools that fan out concurrently (one call per customer)
+            # are excluded — the shared streamable-HTTP ClientSession serializes
+            # in-flight responses and stalls all-but-one caller until the 60s
+            # timeout fires, even though each individual call only needs ~2s.
+            # Confirmed in 22:39 / 00:10 multi-customer runs: 2 of 3 concurrent
+            # rag_query calls timed out, then completed in ~2s via ephemeral.
+            _NO_PERSISTENT_SESSION = {"send_chat", "rag_query"}
+            use_persistent_session = tool_name not in _NO_PERSISTENT_SESSION
             if use_persistent_session:
                 try:
                     mgr = Streamable_HTTP_Manager.get(url)
@@ -87,7 +94,7 @@ class MCPClientManager:
                     Streamable_HTTP_Manager.reset()
             else:
                 logger.debug(
-                    "[MCP] Skipping persistent session for hot-path send_chat; "
+                    f"[MCP] Skipping persistent session for hot-path '{tool_name}'; "
                     "using isolated ephemeral session"
                 )
             
