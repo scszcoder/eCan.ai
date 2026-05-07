@@ -3473,7 +3473,11 @@ class BrowserRunSession:
             node_name=str(self.ctx.node_name or ""),
             calling_agent_id=str(self.calling_agent_id or ""),
             mainwin=self.mainwin,
-            resolve_scope_key=lambda s: _bh.resolve_browser_scope_key(s, node_name=self.ctx.node_name),
+            resolve_scope_key=lambda s: _bh.resolve_browser_scope_key(
+                s,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
+            ),
             extract_runtime_invocation_input=_bh.extract_runtime_invocation_input,
             parse_json_input=_parse_json_input,
             send_log=send_skill_editor_log,
@@ -3829,7 +3833,11 @@ class BrowserRunSession:
                         f"(non-fatal): {_render_err}"
                     )
 
-        _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+        _browser_scope_key = _bh.resolve_browser_scope_key(
+            state,
+            node_name=self.ctx.node_name,
+            skill_name=self.ctx.skill_name,
+        )
         _cached_browser_session = _bh.cached_browser_sessions.get(_browser_scope_key)
         _last_known_focus_target_id = _bh.last_known_focus_target_ids.get(_browser_scope_key)
 
@@ -4390,7 +4398,11 @@ class BrowserRunSession:
         if self.ctx.browser_type_setting == 'new chromium':
             # Mode 1: Let browser-use create and manage its own Chromium browser.
             logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
-            _bu_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+            _bu_scope_key = _bh.resolve_browser_scope_key(
+                state,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
+            )
             agent = await _acquire_agent(
                 AgentClass=AgentClass,
                 task=task,
@@ -4519,7 +4531,11 @@ class BrowserRunSession:
             )
 
             # Acquire-or-reuse cached browser-use agent (CDP path).
-            _bu_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+            _bu_scope_key = _bh.resolve_browser_scope_key(
+                state,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
+            )
             agent = await _acquire_agent(
                 AgentClass=AgentClass,
                 task=task,
@@ -4606,7 +4622,11 @@ class BrowserRunSession:
             pass
 
         state = self.state
-        browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+        browser_scope_key = _bh.resolve_browser_scope_key(
+            state,
+            node_name=self.ctx.node_name,
+            skill_name=self.ctx.skill_name,
+        )
         cached_browser_session = _bh.cached_browser_sessions.get(browser_scope_key)
         # Merge with the dict value rather than overwriting: the focus preflight
         # (CDP path) may have set last_known_focus_target_id to the active tab.

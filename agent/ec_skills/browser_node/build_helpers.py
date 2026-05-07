@@ -72,6 +72,7 @@ cached_browser_sessions: dict[str, Any] = {}
 last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
 browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
 cached_bu_agents: dict[str, Any] = {}
+DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk"}
 
 MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
 NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
@@ -344,7 +345,13 @@ def reset_pin_browser_scope_cache() -> None:
         pass
 
 
-def resolve_browser_scope_key(state: dict | None = None, *, node_name: str, pin_to_node: bool | None = None) -> str:
+def resolve_browser_scope_key(
+    state: dict | None = None,
+    *,
+    node_name: str,
+    pin_to_node: bool | None = None,
+    skill_name: str | None = None,
+) -> str:
     """Resolve a stable browser scope key from workflow state.
 
     Session-scoped chat tasks must not share browser cache/state with other
@@ -377,7 +384,13 @@ def resolve_browser_scope_key(state: dict | None = None, *, node_name: str, pin_
                 _v = _params_pin.get("pinBrowserScopeToNode")
                 if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
                     return f"node:{node_name}"
-            _skill_name = _attrs_pin.get("skill_name") if isinstance(_attrs_pin, dict) else ""
+            _skill_name = str(
+                skill_name
+                or (_attrs_pin.get("skill_name") if isinstance(_attrs_pin, dict) else "")
+                or ""
+            ).strip()
+            if _skill_name.lower() in DEFAULT_NODE_SCOPED_SKILL_NAMES:
+                return f"node:{node_name}"
             if _skill_name and _resolve_pin_to_node_from_skill(_skill_name):
                 return f"node:{node_name}"
     except Exception:
@@ -533,7 +546,11 @@ async def get_or_create_browser_session(
     """
     from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
 
-    browser_scope_key = resolve_browser_scope_key(state, node_name=ctx.node_name)
+    browser_scope_key = resolve_browser_scope_key(
+        state,
+        node_name=ctx.node_name,
+        skill_name=getattr(ctx, "skill_name", ""),
+    )
     isolate_scope = browser_scope_key.startswith("chat:")
     _cached_browser_session = cached_browser_sessions.get(browser_scope_key)
     _last_known_focus_target_id = last_known_focus_target_ids.get(browser_scope_key)

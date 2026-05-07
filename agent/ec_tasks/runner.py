@@ -84,9 +84,9 @@ _DIRECT_FEIGE_DELIVERY_LOCK = threading.Lock()
 _DIRECT_FEIGE_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
 _DIRECT_FEIGE_ASYNC_WORKER_LOCK = threading.Lock()
 try:
-    _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "12.0"))
+    _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "8.0"))
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_JOB_TIMEOUT_S = 12.0
+    _DIRECT_FEIGE_JOB_TIMEOUT_S = 8.0
 try:
     _DIRECT_FEIGE_MAX_RETRIES = max(0, int(os.getenv("DIRECT_FEIGE_MAX_RETRIES", "0")))
 except (TypeError, ValueError):
@@ -117,10 +117,10 @@ except (TypeError, ValueError):
     _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S = 0.5
 try:
     _DIRECT_FEIGE_REQUEUE_LIMIT = max(
-        0, int(os.getenv("DIRECT_FEIGE_REQUEUE_LIMIT", "3"))
+        0, int(os.getenv("DIRECT_FEIGE_REQUEUE_LIMIT", "1"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_REQUEUE_LIMIT = 3
+    _DIRECT_FEIGE_REQUEUE_LIMIT = 1
 try:
     _DIRECT_FEIGE_REQUEUE_DELAY_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_REQUEUE_DELAY_S", "0.75"))
@@ -129,10 +129,10 @@ except (TypeError, ValueError):
     _DIRECT_FEIGE_REQUEUE_DELAY_S = 0.75
 try:
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = max(
-        0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "0"))
+        0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "1"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 0
+    _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 1
 _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
@@ -550,25 +550,52 @@ def _release_dispatch_locks_on_skill_failure(response: Any) -> None:
         # ``{customer_id, customer_name, latest_message}``.  Walk the
         # ``response['step']`` envelope to find the most recent
         # dict-shaped step with such an ``input``.
-        step = response.get("step")
-        if not isinstance(step, dict):
-            return
         payload: dict | None = None
-        for _v in step.values():
-            if not isinstance(_v, dict):
-                continue
-            _inp = _v.get("input")
-            if isinstance(_inp, dict):
-                payload = _inp
-                break
-            if isinstance(_inp, str) and _inp.strip().startswith("{"):
-                try:
-                    _parsed = json.loads(_inp)
-                except (ValueError, TypeError):
+        step = response.get("step")
+        if isinstance(step, dict):
+            for _v in step.values():
+                if not isinstance(_v, dict):
                     continue
-                if isinstance(_parsed, dict):
-                    payload = _parsed
+                _inp = _v.get("input")
+                if isinstance(_inp, dict):
+                    payload = _inp
                     break
+                if isinstance(_inp, str) and _inp.strip().startswith("{"):
+                    try:
+                        _parsed = json.loads(_inp)
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(_parsed, dict):
+                        payload = _parsed
+                        break
+        if not isinstance(payload, dict):
+            roots: list[Any] = [response.get("step")]
+            cp = response.get("cp")
+            cp_values = getattr(cp, "values", None)
+            if isinstance(cp_values, dict):
+                roots.append(cp_values)
+            stack: list[Any] = [root for root in roots if root is not None]
+            seen: set[int] = set()
+            inspected = 0
+            while stack and inspected < 300:
+                obj = stack.pop()
+                oid = id(obj)
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                inspected += 1
+                if isinstance(obj, dict):
+                    llm_result = obj.get("llm_result")
+                    if isinstance(llm_result, dict):
+                        payload = llm_result
+                        break
+                    stack.extend(
+                        val for val in obj.values() if isinstance(val, (dict, list, tuple))
+                    )
+                elif isinstance(obj, (list, tuple)):
+                    stack.extend(
+                        val for val in obj if isinstance(val, (dict, list, tuple))
+                    )
         if not isinstance(payload, dict):
             return
         cust_id = str(
@@ -577,7 +604,11 @@ def _release_dispatch_locks_on_skill_failure(response: Any) -> None:
         cust_name = str(
             payload.get("customer_name") or payload.get("customerName") or ""
         ).strip()
-        latest_msg = str(payload.get("latest_message") or "").strip()
+        latest_msg = str(
+            payload.get("latest_message")
+            or payload.get("source_latest_message")
+            or ""
+        ).strip()
         if not (cust_id or cust_name) or not latest_msg:
             return  # Not a Q&A inbound payload — nothing to release.
 
@@ -3026,13 +3057,9 @@ class TaskRunner(Generic[Context]):
                 _ledger("direct_sent_and_cleaned")
                 return True
             if _reason == "stale_reply_source_msg_id":
-                _cleanup_feige_delivery_state(
-                    _customer_name,
-                    str(_parsed.get("customer_id") or ""),
-                )
                 logger.info(
                     f"[DIRECT-DELIVERY] Dropping stale reply for {_customer_name}; "
-                    "newer customer bubble is visible"
+                    "newer customer bubble is visible; preserving dispatch state"
                 )
                 _ledger("direct_stale_dropped")
                 return True
