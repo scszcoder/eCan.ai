@@ -7,13 +7,33 @@ including CRUD operations, tree management, and agent binding.
 
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
-from gui.ipc.handlers import validate_params
+from gui.ipc.handlers import validate_params, resolve_username
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from app_context import AppContext
 from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
+
+
+def _normalize_org_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    data = dict(params or {})
+    raw_input = data.get('input')
+    if isinstance(raw_input, list):
+        first = raw_input[0] if raw_input else None
+        if isinstance(first, dict):
+            data.update(first)
+        elif first is not None:
+            data.setdefault('organization_id', first)
+    elif isinstance(raw_input, dict):
+        data.update(raw_input)
+    elif raw_input is not None:
+        data.setdefault('organization_id', raw_input)
+    if data.get('id') and not data.get('organization_id'):
+        data['organization_id'] = data['id']
+    if data.get('org_type') and not data.get('organization_type'):
+        data['organization_type'] = data['org_type']
+    return data
 
 
 @IPCHandlerRegistry.background_handler('get_orgs')
@@ -36,15 +56,14 @@ def handle_get_orgs(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         logger.debug(f"[organizations_handler] get_organizations called with request: {request}")
 
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for get_organizations: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         root_id = data.get('root_id')  # Optional parameter
@@ -90,15 +109,14 @@ def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.debug(f"[organizations_handler] create_organization called with request: {request}")
         
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'name'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username', 'name'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for create_organization: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         name = data['name']
@@ -118,7 +136,7 @@ def handle_create_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             'parent_id': parent_id,
             'org_type': organization_type,
             # Filter out invalid fields that are not part of the model
-            **{k: v for k, v in data.items() if k not in ['username', 'name', 'description', 'parent_id', 'organization_type', 'org_type']}
+            **{k: v for k, v in data.items() if k not in ['username', 'name', 'description', 'parent_id', 'organization_type', 'org_type', 'input', 'id', 'organization_id']}
         }
         
         # Create org
@@ -157,15 +175,14 @@ def handle_update_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.debug(f"[organizations_handler] update_organization called with request: {request}")
         
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'organization_id'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username', 'organization_id'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for update_organization: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         organization_id = data['organization_id']
@@ -176,7 +193,7 @@ def handle_update_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         ec_org_ctrl = get_ec_org_ctrl()
         
         # Prepare update fields (exclude username and organization_id)
-        update_fields = {k: v for k, v in data.items() if k not in ['username', 'organization_id']}
+        update_fields = {k: v for k, v in data.items() if k not in ['username', 'organization_id', 'id', 'input']}
         
         # Update org
         result = ec_org_ctrl.update_org(organization_id, update_fields)
@@ -214,15 +231,14 @@ def handle_delete_org(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         logger.debug(f"[organizations_handler] delete_organization called with request: {request}")
         
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'organization_id'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username', 'organization_id'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for delete_organization: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         organization_id = data['organization_id']
@@ -268,15 +284,14 @@ def handle_get_org_agents(request: IPCRequest, params: Optional[list[Any]]) -> I
         logger.debug(f"[organizations_handler] get_organization_agents called with request: {request}")
         
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'organization_id'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username', 'organization_id'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for get_organization_agents: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         organization_id = data['organization_id']
@@ -322,15 +337,14 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
         logger.debug(f"[organizations_handler] bind_agent_to_organization called with request: {request}")
         
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'agent_id', 'organization_id'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username', 'agent_id', 'organization_id'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for bind_agent_to_organization: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         agent_id = data['agent_id']
@@ -385,15 +399,14 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
         logger.debug(f"[organizations_handler] unbind_agent_from_organization called with request: {request}")
 
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username', 'agent_id'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username', 'agent_id'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for unbind_agent_from_organization: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         agent_id = data['agent_id']
@@ -447,15 +460,14 @@ def handle_get_available_agents_for_binding(request: IPCRequest, params: Optiona
         logger.debug(f"[organizations_handler] get_available_agents_for_binding called with request: {request}")
         
         # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username'])
+        data_params = _normalize_org_params(request.get('params'))
+        username = resolve_username(request, data_params)
+        if username:
+            data_params['username'] = username
+        is_valid, data, error = validate_params(data_params, ['username'])
         if not is_valid:
             logger.warning(f"[organizations_handler] Invalid parameters for get_available_agents_for_binding: {error}")
-            return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
-            )
+            return create_error_response(request, 'INVALID_PARAMS', error)
 
         username = data['username']
         organization_id = data.get('organization_id')  # Optional
